@@ -54,18 +54,18 @@ function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting
 
 /**
  * The Queue configuration that the generated server installs. `vite dev` runs in Node, where Cloudflare and Vercel
- * cannot deliver jobs, so it runs them with the local provider and the delivery rules of the provider of the build.
- * A build keeps the configured provider.
+ * cannot deliver jobs, so it runs them with the local driver and the delivery rules of the driver of the build.
+ * A build keeps the configured driver.
  */
 function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): false | QueueRuntimeOptions {
   if (!development || queueConfig === false) return queueConfig
-  if (queueConfig.provider === "local") return { ...queueConfig, development }
+  if (queueConfig.driver === "local") return { ...queueConfig, development }
   return {
     base: resolve(rootDir, defaultLocalQueueBase),
     ...(queueConfig.cache === undefined ? {} : { cache: queueConfig.cache }),
     development,
-    provider: "local",
-    rules: queueConfig.provider,
+    driver: "local",
+    rules: queueConfig.driver,
   }
 }
 
@@ -98,9 +98,9 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
 }
 
 function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>, development: boolean) {
-  const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
-  const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
-  const localRuntime = queueConfig !== false && queueConfig.provider === "local"
+  const cloudflareRuntime = queueConfig !== false && queueConfig.driver === "cloudflare"
+  const vercelRuntime = queueConfig !== false && queueConfig.driver === "vercel"
+  const localRuntime = queueConfig !== false && queueConfig.driver === "local"
   const cloudflare = cloudflareQueues && cloudflareRuntime
   const cloudflareGlobals = cloudflareRuntime && !development
   const runtimeClientFactory = cloudflareRuntime
@@ -138,9 +138,9 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
 }
 
 function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, development: boolean) {
-  const cloudflare = queueConfig !== false && queueConfig.provider === "cloudflare"
+  const cloudflare = queueConfig !== false && queueConfig.driver === "cloudflare"
   const cloudflareGlobals = cloudflare && !development
-  const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
+  const vercel = hasDefinitions && queueConfig !== false && queueConfig.driver === "vercel"
   return [
     "import { defineMiddleware } from 'nitro'",
     ...(vercel ? [`import { waitUntil as vitehubWaitUntil } from ${JSON.stringify(createImportPath(middlewareFile, resolvePackageDependency("@vercel/functions")))}`] : []),
@@ -166,7 +166,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
   // Check Cloudflare names in dev too, so a name collision fails before the first build.
-  const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.provider === "cloudflare"
+  const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.driver === "cloudflare"
     ? createCloudflareQueueDefinitionNames(definitions, queueConfig.namePrefix)
     : {}
   const runtimeConfig = resolveRuntimeQueueConfig(queueConfig, development, rootDir)
@@ -175,7 +175,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
     mkdir(generatedDir, { recursive: true }),
   ])
   const vercelConsumerDir = resolve(rootDir, generatedQueueNitroVercelConsumerDir)
-  const vercelConsumers = queueConfig !== false && queueConfig.provider === "vercel" ? createVercelQueueConsumerRoutes(definitions) : []
+  const vercelConsumers = queueConfig !== false && queueConfig.driver === "vercel" ? createVercelQueueConsumerRoutes(definitions) : []
   await rm(vercelConsumerDir, { force: true, recursive: true })
   if (vercelConsumers.length) await mkdir(vercelConsumerDir, { recursive: true })
   await Promise.all([

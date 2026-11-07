@@ -16,8 +16,8 @@ Browser Definitions are the default path. Use Browser actions for one stateless 
 | `runBrowserAction`, `runBrowserContent` from `vite-hub/browser/actions` | Run one stateless Browser Run action. |
 | `isBrowserAvailable` from `vite-hub/browser` or `vite-hub/browser/actions` | Check whether this build enables Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
 | `createBrowser` from `vite-hub/browser` | Create a low-level Browser Client. |
-| `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run provider. |
-| `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium provider for trusted Node hosts. |
+| `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run driver. |
+| `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium driver for trusted Node hosts. |
 | `playwright`, `cdp` from `vite-hub/browser/controllers/playwright` and `vite-hub/browser/controllers/cdp` | Attach Playwright or CDP control to a low-level session. |
 | `hubBrowser` from `@vite-hub/browser/vite` | Register the Vite Integration without the `vite-hub` distribution. |
 
@@ -73,7 +73,7 @@ Page navigation and pointer clicks run one at a time because either operation ca
 
 ## Low-level sessions
 
-`createBrowser()` is for libraries and standalone integrations that own provider selection, controller attachment, and cleanup. Use it when an application needs Playwright, mutable page state, downloads, or CDP.
+`createBrowser()` is for libraries and standalone integrations that own driver selection, controller attachment, and cleanup. Pass the driver as `driver`. Use it when an application needs Playwright, mutable page state, downloads, or CDP.
 
 ```bash [Terminal]
 pnpm add @vite-hub/browser
@@ -85,7 +85,7 @@ import { playwright } from '@vite-hub/browser/controllers/playwright'
 import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
-  provider: cloudflareBrowser({ binding: 'BROWSER' }),
+  driver: cloudflareBrowser({ binding: 'BROWSER' }),
 })
 
 const session = await browser.open()
@@ -119,7 +119,7 @@ import { cdp } from '@vite-hub/browser/controllers/cdp'
 import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
-  provider: cloudflareBrowser({ binding: 'BROWSER', engine: 'chromium' }),
+  driver: cloudflareBrowser({ binding: 'BROWSER', engine: 'chromium' }),
 })
 
 const session = await browser.open()

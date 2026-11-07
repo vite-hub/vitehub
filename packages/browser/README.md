@@ -138,7 +138,7 @@ Use `@vite-hub/browser` and `@vite-hub/browser/actions` in the corresponding ser
 
 ## Manage a local Chromium process
 
-`createBrowser()` is the low-level interface for a caller that owns provider selection, controller attachment, and cleanup. The local provider starts the supplied Chromium executable on the current trusted Node host.
+`createBrowser()` is the low-level interface for a caller that owns driver selection, controller attachment, and cleanup. The local driver starts the supplied Chromium executable on the current trusted Node host.
 
 ```bash
 pnpm add @vite-hub/browser playwright-core
@@ -150,7 +150,7 @@ import { playwright } from "@vite-hub/browser/controllers/playwright"
 import { localBrowser } from "@vite-hub/browser/providers/local"
 
 const browser = createBrowser({
-  provider: localBrowser({ executablePath: "/usr/bin/chromium" }),
+  driver: localBrowser({ executablePath: "/usr/bin/chromium" }),
 })
 const session = await browser.open()
 

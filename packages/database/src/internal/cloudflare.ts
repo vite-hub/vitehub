@@ -8,7 +8,7 @@ import type { CloudflareD1BindingConfig, CloudflareD1Projection, DatabaseConfigV
 export function cloudflareOptions(
   options: DBModulePublicOptions | undefined,
 ): CloudflareD1BindingConfig | undefined {
-  if (options === false || !options || options.driver !== "d1") return
+  if (options === false || !options || options.driver !== "cloudflare") return
   const value: CloudflareD1BindingConfig = {}
   if (options.binding !== undefined) value.binding = options.binding
   if (options.databaseId !== undefined) value.databaseId = options.databaseId

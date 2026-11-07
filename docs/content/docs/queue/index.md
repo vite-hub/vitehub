@@ -85,7 +85,7 @@ icon: i-lucide-list-ordered
   A job that fails can run again. Write each job so that a second run is safe.
   :::
 
-  :::product-feature-item{title="Cloudflare or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
+  :::product-feature-item{title="Cloudflare or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#drivers"}
   Jobs run on Cloudflare Queues or Vercel Queues. They do not run on your own machine.
   :::
 ::

@@ -6,7 +6,7 @@ export const filesSdkDriverPeers = {
   akamai: s3Peers,
   azure: ["@azure/identity", "@azure/storage-blob"],
   box: ["box-typescript-sdk-gen"],
-  "cloudflare-r2": s3Peers,
+  cloudflare: s3Peers,
   "digitalocean-spaces": s3Peers,
   dropbox: ["dropbox"],
   fs: [],
@@ -20,7 +20,7 @@ export const filesSdkDriverPeers = {
   storj: s3Peers,
   supabase: ["@supabase/storage-js"],
   uploadthing: ["uploadthing"],
-  "vercel-blob": [],
+  vercel: [],
 } satisfies Record<BlobDriver, readonly string[]>
 
 export function getFilesSdkPeerInstall(driver: BlobDriver) {

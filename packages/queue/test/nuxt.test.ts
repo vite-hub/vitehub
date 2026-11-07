@@ -22,7 +22,7 @@ describe("Queue Nuxt integration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nuxt-"))
     roots.push(root)
     await cp(join(import.meta.dirname, "../fixtures/nuxt"), root, { recursive: true })
-    const options = { namePrefix: "quiver-airtable", provider: "cloudflare" } as const
+    const options = { namePrefix: "quiver-airtable", driver: "cloudflare" } as const
     const queueNuxtUrl = pathToFileURL(join(import.meta.dirname, "../src/nuxt.ts")).href
     const queueViteUrl = pathToFileURL(join(import.meta.dirname, "../src/vite.ts")).href
     await writeFile(join(root, "nuxt.config.ts"), [
@@ -31,7 +31,7 @@ describe("Queue Nuxt integration", () => {
       "export default defineNuxtConfig({",
       `  modules: [[queueNuxt, ${JSON.stringify(options)}]],`,
       "  nitro: { preset: 'cloudflare_module' },",
-      ...(existingPlugin ? ["  vite: { plugins: [[hubQueue({ namePrefix: 'existing', provider: 'cloudflare' })]] },"] : []),
+      ...(existingPlugin ? ["  vite: { plugins: [[hubQueue({ namePrefix: 'existing', driver: 'cloudflare' })]] },"] : []),
       "})",
       "",
     ].join("\n"))
@@ -76,7 +76,7 @@ describe("Queue Nuxt integration", () => {
         },
         root,
       }
-      const directOptions = existingPlugin ? { namePrefix: "existing", provider: "cloudflare" } as const : options
+      const directOptions = existingPlugin ? { namePrefix: "existing", driver: "cloudflare" } as const : options
       ;(hubQueue(directOptions).config as unknown as (config: Record<string, unknown>) => void)(directConfig)
       const directNitro = directConfig.nitro as Record<string, unknown>
       expect(nitroConfig).toMatchObject({
@@ -126,7 +126,7 @@ describe("Queue Nuxt integration", () => {
     await writeFile(join(root, "nuxt.config.ts"), [
       `import queueNuxt from ${JSON.stringify(queueNuxtUrl)}`,
       "export default defineNuxtConfig({",
-      "  modules: [[queueNuxt, { provider: 'cloudflare' }]],",
+      "  modules: [[queueNuxt, { driver: 'cloudflare' }]],",
       "  nitro: { preset: 'cloudflare_module' },",
       "  serverDir: 'backend',",
       "  srcDir: 'app',",
@@ -155,7 +155,7 @@ describe("Queue Nuxt integration", () => {
         command: "serve",
         nitro: nitroConfig,
         plugins: [],
-        queue: { provider: "cloudflare" },
+        queue: { driver: "cloudflare" },
         resolve: { alias: [] },
         root: viteRoot,
       } as never)

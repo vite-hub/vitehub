@@ -1,18 +1,18 @@
 ---
 title: Workflows hosts
-description: "Select a Workflow Provider and its storage for each host: Cloudflare Workflows, Vercel, or OpenWorkflow with Postgres or SQLite."
+description: "Select a Workflow driver and its storage for each host: Cloudflare Workflows, Vercel, or OpenWorkflow with Postgres or SQLite."
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
-| Provider | Configure with | Provider output | Nuance |
+| Driver | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Cloudflare Workflow class, binding, and runtime entry output. | Runs through Cloudflare Workflow bindings. Use `binding` and `name` when the generated names must match existing infrastructure. |
-| Vercel | `workflow: { provider: 'vercel' }` | Vercel workflow runtime output under the build output, when the host is Vercel. Other hosts get no Vercel output. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and does not survive a function restart. |
-| OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker/runtime output. | Choose Postgres or SQLite explicitly for deployment. Configured `postgres.url` and `sqlite.path` are mutually exclusive. |
+| Cloudflare | `workflow: { driver: 'cloudflare' }` | Cloudflare Workflow class, binding, and runtime entry output. | Runs through Cloudflare Workflow bindings. Use `binding` and `name` when the generated names must match existing infrastructure. |
+| Vercel | `workflow: { driver: 'vercel' }` | Vercel workflow runtime output under the build output, when the host is Vercel. Other hosts get no Vercel output. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and does not survive a function restart. |
+| OpenWorkflow | `workflow: { driver: 'openworkflow', postgres: { url } }` or `workflow: { driver: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker/runtime output. | Choose Postgres or SQLite explicitly for deployment. Configured `postgres.url` and `sqlite.path` are mutually exclusive. |
 
 ### Upgrade the Vercel Workflow SDK
 

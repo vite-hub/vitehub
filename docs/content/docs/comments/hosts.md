@@ -25,14 +25,14 @@ Comments needs somewhere to keep threads on every host. The [`comments()` plugin
 
 ## In a ViteHub app
 
-Presence and cursors also need a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority). Without one, threads, replies, resolve, and edits in place still work.
+Presence and cursors also need a [Realtime driver](/docs/realtime/configure#choose-a-driver). Without one, threads, replies, resolve, and edits in place still work.
 
 ### Host support
 
 | Host | Threads, replies, resolve | Edits in place | Presence and cursors |
 | --- | --- | --- | --- |
 | `vite dev` | Yes | Yes, with Content | Yes, when Realtime is on. Rooms run in the dev server. |
-| Node, Docker (one process) | Yes | Yes, with Content | Yes, with `realtime: { authority: 'memory' }` |
+| Node, Docker (one process) | Yes | Yes, with Content | Yes, with `realtime: { driver: 'memory' }` |
 | Cloudflare Workers | Yes, with D1 | Yes, with Content | Yes, with Durable Objects |
 | Vercel, Netlify | Yes | Yes, with Content | No. Pages read threads again on focus and every 30 seconds. |
 
@@ -40,7 +40,7 @@ The overlay works in Nitro 3 apps and in Nuxt 4 apps on each of these hosts.
 
 ### Node
 
-Use a SQLite file or libSQL Database, and the memory room authority:
+Use a SQLite file or libSQL Database, and the `memory` driver:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -48,13 +48,13 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       database: true,
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
   ],
 })
 ```
 
-The memory authority keeps the presence rooms in one process. With several processes or machines, people see only the people on the same process. Their comments still reach each other when the processes share a libSQL Database. A local SQLite file is not shared between machines.
+The `memory` driver keeps the presence rooms in one process. With several processes or machines, people see only the people on the same process. Their comments still reach each other when the processes share a libSQL Database. A local SQLite file is not shared between machines.
 
 ### Cloudflare
 
@@ -65,7 +65,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'cloudflare',
-      database: { driver: 'd1', databaseName: 'site' },
+      database: { driver: 'cloudflare', databaseName: 'site' },
       realtime: true,
     }),
   ],
@@ -76,7 +76,7 @@ Run `pnpm vitehub provision run --provider cloudflare` to create the D1 Database
 
 ### Vercel and Netlify
 
-Use a hosted Database, such as libSQL. Do not turn on Realtime: these hosts have no room authority, and the build fails with `REALTIME_MISSING_AUTHORITY`. Comments then runs without presence. The toolbar shows no avatars or cursors, and each page reads its threads again when the tab gets focus and every 30 seconds while it is visible.
+Use a hosted Database, such as libSQL. Do not turn on Realtime: these hosts have no Realtime driver, and the build fails with `REALTIME_MISSING_DRIVER`. Comments then runs without presence. The toolbar shows no avatars or cursors, and each page reads its threads again when the tab gets focus and every 30 seconds while it is visible.
 
 ## Proxies that end TLS
 
@@ -107,4 +107,4 @@ The page gets one script from the same origin, the page tools loader at `/_viteh
 
 ## Inspect the build
 
-`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. The presence line reads `off: the host has no Realtime authority` when the build has none. The Database inspector lists the two Comments tables as contributed tables.
+`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. The presence line reads `off: the host has no Realtime driver` when the build has none. The Database inspector lists the two Comments tables as contributed tables.

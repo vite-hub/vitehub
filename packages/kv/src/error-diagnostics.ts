@@ -74,7 +74,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     KV_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
-      fix: "Set `kv.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"upstash\", or \"fs-lite\".",
+      fix: "Set `kv.driver` to \"cloudflare\", \"deno-kv\", \"upstash\", or \"fs-lite\".",
     },
     KV_INVALID_STORE_MODE: {
       why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,

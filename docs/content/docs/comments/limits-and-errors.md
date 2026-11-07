@@ -48,7 +48,7 @@ Build errors throw when Vite reads the config. When the build cannot choose the 
 | Edited field value | 20,000 characters |
 | Thread refresh without presence | On tab focus, and every 30 seconds while the tab is visible |
 | Cursor updates | One every 80 ms for each person |
-| Presence rooms with `authority: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
+| Presence rooms with `driver: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
 
 ## Runtime errors
 

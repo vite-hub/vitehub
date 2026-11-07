@@ -13,12 +13,12 @@ icon: i-lucide-code-2
 | `defineWorkflow` from `@vite-hub/workflow` | Declare a Workflow Definition. |
 | `runWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflowSignal` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume Workflow Runs. |
 | `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle for app-owned code. |
-| `normalizeWorkflowOptions` from `@vite-hub/workflow` | Resolve Integration Options to a concrete Workflow Provider. |
+| `normalizeWorkflowOptions` from `@vite-hub/workflow` | Resolve Integration Options to a concrete Workflow driver. |
 | `ViteHubError` from `@vite-hub/runtime` | Throw application-owned Workflow failures with stable codes. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `@vite-hub/workflow` | Read provider request payloads in custom runtime entrypoints. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Register Workflow discovery and provider output generation. |
 
-Workflow Provider, Definition, Run, Step, Start Options, and Integration Options types are exported from `@vite-hub/workflow`.
+Workflow driver, Definition, Run, Step, Start Options, and Integration Options types are exported from `@vite-hub/workflow`.
 
 ## Start a run
 
@@ -85,7 +85,7 @@ signals as unsupported.
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | `string` | Provider or ViteHub Workflow Run id. |
-| `provider` | `WorkflowProvider` | Selected provider for the run. |
+| `provider` | `WorkflowDriver` | Selected provider for the run. |
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
 | `result` | `TResult` | Completed result when available. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |

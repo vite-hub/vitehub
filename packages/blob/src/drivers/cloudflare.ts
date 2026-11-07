@@ -80,7 +80,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
   const activeDriver = () => getOptionalBucket(options) ? nativeDriver : createHttpDriver(options)
 
   return {
-    name: "cloudflare-r2",
+    name: "cloudflare",
     options,
     delete: pathnames => activeDriver().delete(pathnames),
     get: pathname => activeDriver().get(pathname),

@@ -80,7 +80,7 @@ function resolveCloudflareStore(
       jurisdiction: resolveCloudflareJurisdiction(config.jurisdiction, env),
       secretAccessKey: resolveBuildRuntimeValue(config.secretAccessKey, env, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
     },
-    { binding: "BLOB", driver: "cloudflare-r2" as const },
+    { binding: "BLOB", driver: "cloudflare" as const },
   )
 }
 
@@ -92,7 +92,7 @@ function resolveVercelStore(
   return {
     ...config,
     access: config.access ?? "public",
-    driver: "vercel-blob",
+    driver: "vercel",
     token,
     ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
   }
@@ -139,7 +139,7 @@ function resolveExplicitStore(
   env: Record<string, string | undefined>,
 ) {
   switch (store.driver) {
-    case "cloudflare-r2":
+    case "cloudflare":
       return resolveCloudflareStore(store, env)
     case "fs":
       return resolveFsStore(store, env)
@@ -147,7 +147,7 @@ function resolveExplicitStore(
       return resolveMinioStore(store, env)
     case "netlify-blobs":
       return resolveNetlifyStore(store)
-    case "vercel-blob":
+    case "vercel":
       return resolveVercelStore(store, env)
     case "akamai":
     case "azure":
@@ -305,8 +305,8 @@ function applyDevelopmentMode(
   if (!options.dev) return local
   if (options.remote) return { ...local, remote: true }
   if (!options.inferred) return local
-  if (local.driver === "vercel-blob") return resolveFsStore({}, options.env)
-  if (local.driver === "cloudflare-r2") return { ...local, localFallback: resolveFsStore({}, options.env) }
+  if (local.driver === "vercel") return resolveFsStore({}, options.env)
+  if (local.driver === "cloudflare") return { ...local, localFallback: resolveFsStore({}, options.env) }
   return local
 }
 

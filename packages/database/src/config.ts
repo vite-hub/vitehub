@@ -972,7 +972,7 @@ export function resolveDBViteConfig(
   // Uses add no tables, but their target must exist and have their dialect, as for tables.
   resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.uses ?? [], dialects)
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
-  if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
+  if (options && options.driver === "cloudflare") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
   const bindingOwners = new Map<string, string>()
   for (const definition of definitions) {

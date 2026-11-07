@@ -31,7 +31,7 @@ describe("blob cloudflare provision step", () => {
   }
 
   async function plan(fetchImpl: typeof globalThis.fetch) {
-    return await createBlobCloudflareProvisionStep(() => ({ driver: "cloudflare-r2", bucketName: "assets" })).plan(context(fetchImpl))
+    return await createBlobCloudflareProvisionStep(() => ({ driver: "cloudflare", bucketName: "assets" })).plan(context(fetchImpl))
   }
 
   it("finds an existing R2 bucket on the second cursor page", async () => {
@@ -246,7 +246,7 @@ describe("blob cloudflare provision step", () => {
   it("finds an existing R2 bucket in its jurisdiction", async () => {
     const { fetchImpl, requests } = jurisdictionFetch({ eu: ["assets"] })
 
-    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })).plan(context(fetchImpl))
+    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare", jurisdiction: "eu" })).plan(context(fetchImpl))
 
     expect(actions.map(action => [action.name, action.exists])).toEqual([["assets (eu)", true]])
     await actions[0]!.apply()
@@ -256,7 +256,7 @@ describe("blob cloudflare provision step", () => {
   it("creates a missing R2 bucket in its jurisdiction", async () => {
     const { fetchImpl, requests } = jurisdictionFetch({ default: ["assets"] })
 
-    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })).plan(context(fetchImpl))
+    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare", jurisdiction: "eu" })).plan(context(fetchImpl))
 
     expect(actions.map(action => [action.name, action.exists])).toEqual([["assets (eu)", false]])
     await actions[0]!.apply()
@@ -280,7 +280,7 @@ describe("blob cloudflare provision step", () => {
       return jsonResponse({ success: true, result: { buckets: [] } })
     })
 
-    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })).plan(context(fetchImpl))
+    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare", jurisdiction: "eu" })).plan(context(fetchImpl))
     await actions[0]!.apply()
 
     expect(requests).toEqual([
@@ -295,9 +295,9 @@ describe("blob cloudflare provision step", () => {
 
     const actions = await createBlobCloudflareProvisionStep(() => ({
       stores: {
-        default: { bucketName: "assets", driver: "cloudflare-r2" },
-        eu: { binding: "EU", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
-        euAlias: { binding: "EU", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+        default: { bucketName: "assets", driver: "cloudflare" },
+        eu: { binding: "EU", bucketName: "assets", driver: "cloudflare", jurisdiction: "eu" },
+        euAlias: { binding: "EU", bucketName: "assets", driver: "cloudflare", jurisdiction: "eu" },
       },
     })).plan(context(fetchImpl))
 
@@ -323,7 +323,7 @@ describe("blob vercel provision step", () => {
     const markPlanUnchecked = vi.fn()
     const warn = vi.fn()
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan({
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan({
       env: { VERCEL_TOKEN: "vtoken" },
       fetch: fetchImpl,
       logger: { log: () => {}, warn },
@@ -369,7 +369,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", name: "vitehub-blob", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
     expect(actions[0]!.pending).toBe(true)
@@ -400,7 +400,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ access: "private", id: "store_private", name: "vitehub-blob", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel" })).plan(context(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
     expect(actions[0]!.pending).toBe(false)
@@ -424,7 +424,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", name: "vitehub-blob", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan({ env, fetch: fetchImpl, logger: { log: () => {}, warn } })
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan({ env, fetch: fetchImpl, logger: { log: () => {}, warn } })
 
     expect(actions[0]!.pending).toBe(false)
     if (warns) {
@@ -446,7 +446,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl))
     expect(actions[0]!.exists).toBe(true)
     expect(actions[0]!.pending).toBe(false)
     await expect(actions[0]!.apply()).resolves.toEqual({})
@@ -466,7 +466,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl)))
+    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl)))
       .rejects.toThrow("without all required environments")
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
@@ -486,7 +486,7 @@ describe("blob vercel provision step", () => {
     })
     const fetchImpl = fetchMock
 
-    const step = createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" }))
+    const step = createBlobVercelProvisionStep(() => ({ driver: "vercel" }))
     await (await step.plan(context(fetchImpl)))[0]!.apply()
     await (await step.plan(context(fetchImpl)))[0]!.apply()
 
@@ -512,7 +512,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ access: "public", id: "store_public", name: "existing-public", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel" })).plan(context(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(false)
     expect(actions[0]!.pending).toBe(true)
@@ -550,7 +550,7 @@ describe("blob vercel provision step", () => {
       ] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel" })).plan(context(fetchImpl))
     expect(actions).toHaveLength(1)
     expect(actions[0]!.name).toBe("own-project-blob")
     expect(actions[0]!.exists).toBe(true)
@@ -572,7 +572,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ access: "private", id: "store_other", name: "other-project-blob", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel" })).plan(context(fetchImpl))
     expect(actions[0]!.exists).toBe(false)
     await actions[0]!.apply()
     expect(posts).toEqual([
@@ -591,7 +591,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl)))
+    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl)))
       .rejects.toThrow("without all required environments")
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
@@ -607,7 +607,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl))
     expect(actions[0]!.pending).toBe(true)
     await expect(actions[0]!.apply()).rejects.toThrow("without all required environments")
     expect(fetchImpl).toHaveBeenCalledTimes(3)
@@ -625,7 +625,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl))
     await expect(actions[0]!.apply()).resolves.toEqual({})
     expect(reads).toBe(3)
   })
@@ -642,7 +642,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl))
     await expect(actions[0]!.apply()).resolves.toEqual({})
     expect(reads).toBe(3)
   })
@@ -667,7 +667,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl))
     let provisionError: Error | undefined
     try {
       await actions[0]!.apply()
@@ -687,7 +687,7 @@ describe("blob vercel provision step", () => {
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
 
-    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl)))
+    await expect(createBlobVercelProvisionStep(() => ({ driver: "vercel" })).plan(context(fetchImpl)))
       .rejects.toThrow("GET /storage/stores/store_1 (403)")
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })

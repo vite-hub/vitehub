@@ -73,7 +73,7 @@ export default defineDatabase({
 })
 ```
 
-The Nuxt-only `database.driver: 'd1'` option configures one Nuxt Content and Nitro host resource; it is not a Vite Database Definition shortcut.
+The Nuxt-only `database.driver: 'cloudflare'` option configures one Nuxt Content and Nitro host resource; it is not a Vite Database Definition shortcut.
 
 When the Console is enabled with Agents, a Cloudflare build stores the Console invocation journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores).
 
@@ -161,7 +161,7 @@ When the file exists at build time, ViteHub adds `--secrets-file` with its path 
 
 ### Rate Limiting bindings
 
-With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the application name as the namespace. Each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
+With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the `cloudflare` driver and uses the application name as the namespace. Each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
 
 When you compose the owner integration directly, add the Nitro plugin with a Cloudflare preset and set the namespace yourself. The preset selects the Cloudflare provider. Nitro writes the bindings to the generated `wrangler.json`.
 
@@ -192,7 +192,7 @@ export default {
   plugins: [
     hubWorkspace({
       store: {
-        provider: 'cloudflare-artifacts',
+        driver: 'cloudflare',
         binding: 'WORKSPACE_ARTIFACTS',
         namespace: 'vitehub',
       },

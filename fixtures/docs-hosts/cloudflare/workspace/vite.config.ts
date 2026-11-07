@@ -4,7 +4,7 @@ export default {
   plugins: [
     hubWorkspace({
       store: {
-        provider: 'cloudflare-artifacts',
+        driver: 'cloudflare',
         binding: 'WORKSPACE_ARTIFACTS',
         namespace: 'vitehub',
       },

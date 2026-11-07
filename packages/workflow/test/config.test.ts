@@ -10,7 +10,7 @@ import { hubWorkflow } from "../src/vite.ts"
 
 describe("workflow config", () => {
   it("inspects the standalone Vercel function without a Nitro function name", async () => {
-    const entries = await collectViteHubProviderOutputEntries([hubWorkflow({ provider: "vercel" })])
+    const entries = await collectViteHubProviderOutputEntries([hubWorkflow({ driver: "vercel" })])
     expect(entries).toEqual([{
       description: "Generated Vercel Workflow function",
       owner: "workflow",
@@ -24,30 +24,30 @@ describe("workflow config", () => {
 
   it("infers cloudflare from hosting", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "cloudflare-module" })).toEqual({
-      provider: "cloudflare",
+      driver: "cloudflare",
     })
   })
 
   it("infers cloudflare from hosting without workflow options", () => {
     expect(normalizeWorkflowOptions(undefined, { hosting: "cloudflare-module" })).toEqual({
-      provider: "cloudflare",
+      driver: "cloudflare",
     })
   })
 
   it("defaults to vercel", () => {
     expect(normalizeWorkflowOptions(undefined)).toEqual({
-      provider: "vercel",
+      driver: "vercel",
     })
   })
 
   it("does not infer Vercel for Netlify hosting", () => {
     expect(() => normalizeWorkflowOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
-    expect(normalizeWorkflowOptions({ provider: "vercel" }, { hosting: "netlify" })).toEqual({ provider: "vercel" })
+    expect(normalizeWorkflowOptions({ driver: "vercel" }, { hosting: "netlify" })).toEqual({ driver: "vercel" })
   })
 
   it("does not infer openworkflow from node hosting without Postgres config", () => {
     expect(normalizeWorkflowOptions(undefined, { hosting: "node-server" })).toEqual({
-      provider: "vercel",
+      driver: "vercel",
     })
   })
 
@@ -61,7 +61,7 @@ describe("workflow config", () => {
       postgres: {
         url: "postgres://localhost/vitehub",
       },
-      provider: "openworkflow",
+      driver: "openworkflow",
       worker: { concurrency: 2 },
     })
   })
@@ -72,7 +72,7 @@ describe("workflow config", () => {
         path: ".data/workflow.sqlite",
       },
     }, { hosting: "node-server" })).toEqual({
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite: {
         path: ".data/workflow.sqlite",
       },
@@ -82,10 +82,10 @@ describe("workflow config", () => {
   it("preserves SQLite filenames and trims Postgres URLs while rejecting blank values", () => {
     const sqlite = { path: " workflow.sqlite " }
     const postgres = { url: " postgres://localhost/workflow " }
-    expect(normalizeWorkflowOptions({ provider: "openworkflow", sqlite })).toMatchObject({ sqlite })
-    expect(normalizeWorkflowOptions({ provider: "openworkflow", postgres })).toMatchObject({ postgres: { url: "postgres://localhost/workflow" } })
-    expect(() => normalizeWorkflowOptions({ provider: "openworkflow", sqlite: { path: "   " } })).toThrow(/non-empty string/)
-    expect(() => normalizeWorkflowOptions({ provider: "openworkflow", postgres: { url: "   " } })).toThrow(/non-empty string/)
+    expect(normalizeWorkflowOptions({ driver: "openworkflow", sqlite })).toMatchObject({ sqlite })
+    expect(normalizeWorkflowOptions({ driver: "openworkflow", postgres })).toMatchObject({ postgres: { url: "postgres://localhost/workflow" } })
+    expect(() => normalizeWorkflowOptions({ driver: "openworkflow", sqlite: { path: "   " } })).toThrow(/non-empty string/)
+    expect(() => normalizeWorkflowOptions({ driver: "openworkflow", postgres: { url: "   " } })).toThrow(/non-empty string/)
   })
 
   it("accepts runtime env declarations for OpenWorkflow SQLite storage", () => {
@@ -98,7 +98,7 @@ describe("workflow config", () => {
     expect(normalizeWorkflowOptions({
       sqlite: { path },
     }, { hosting: "node-server" })).toEqual({
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite: { path },
     })
   })
@@ -106,24 +106,24 @@ describe("workflow config", () => {
   it.each([undefined, "openworkflow", "cloudflare", "vercel"])("rejects unsupported database references with provider %s", (provider) => {
     expect(() => normalizeWorkflowOptions({
       database: "workflow",
-      provider,
+      driver: provider,
     } as never, { hosting: "node-server" })).toThrow(/workflow\.database.*not supported/)
   })
 
   it("ignores a deprecated database property inherited from a prototype", () => {
     const options = Object.create({ database: "legacy" }) as Record<string, unknown>
-    options.provider = "cloudflare"
-    expect(normalizeWorkflowOptions(options as never)).toEqual({ provider: "cloudflare" })
+    options.driver = "cloudflare"
+    expect(normalizeWorkflowOptions(options as never)).toEqual({ driver: "cloudflare" })
   })
 
   it("does not infer openworkflow from docker hosting without Postgres config", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
-      provider: "vercel",
+      driver: "vercel",
     })
   })
 
   it("does not prepare a Vercel schedule runtime for Cloudflare workflows", async () => {
-    const plugin = hubWorkflow({ provider: "cloudflare" })
+    const plugin = hubWorkflow({ driver: "cloudflare" })
     ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
 
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
@@ -146,25 +146,25 @@ describe("workflow config", () => {
   it("rejects invalid openworkflow options", () => {
     expect(() => normalizeWorkflowOptions({
       postgres: "postgres://localhost/vitehub",
-      provider: "openworkflow",
+      driver: "openworkflow",
     } as never)).toThrow(/workflow\.postgres/)
     expect(() => normalizeWorkflowOptions({
-      provider: "openworkflow",
+      driver: "openworkflow",
       worker: { concurrency: 0 },
     } as never)).toThrow(/workflow\.worker\.concurrency/)
     expect(() => normalizeWorkflowOptions({
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite: "file:.data/workflow.sqlite",
     } as never)).toThrow(/workflow\.sqlite/)
     expect(() => normalizeWorkflowOptions({
       database: "workflow",
-      provider: "openworkflow",
+      driver: "openworkflow",
       sqlite: { path: ".data/workflow.sqlite" },
     } as never)).toThrow(/workflow\.database/)
   })
 
-  it("rejects unknown providers", () => {
-    expect(() => normalizeWorkflowOptions({ provider: "other" } as never)).toThrow(/Unknown `workflow.provider`/)
+  it("rejects unknown drivers", () => {
+    expect(() => normalizeWorkflowOptions({ driver: "other" } as never)).toThrow(/Unknown `workflow.driver`/)
   })
 
   it("creates stable provider names", () => {

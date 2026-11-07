@@ -202,7 +202,11 @@ export interface DiscoveredRealtimeDefinition {
 }
 
 export interface RealtimeModuleOptions {
-  authority?: "auto" | "cloudflare" | "memory"
+  /**
+   * The driver that runs the rooms. `cloudflare` uses one Durable Object per document. `memory` keeps rooms in one
+   * process. `auto` (default) selects `cloudflare` on Cloudflare and `memory` in `vite dev`.
+   */
+  driver?: "auto" | "cloudflare" | "memory"
   projectRoot?: string
 }
 
@@ -233,7 +237,7 @@ export type RealtimeRequestErrorCode =
   | "REALTIME_REQUEST_FAILED"
 
 /**
- * Whether this build has a Realtime room authority. ViteHub generates it for each build; an unavailable build says why
+ * Whether this build has a Realtime room driver. ViteHub generates it for each build; an unavailable build says why
  * and how to enable Realtime.
  */
 export type RealtimeAvailability =

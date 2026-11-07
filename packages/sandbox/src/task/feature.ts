@@ -17,7 +17,7 @@ import {
   defaultCloudflareSandboxMigrationTag,
 } from './cloudflare'
 import { extractSandboxTaskDefinitionMetadata } from './definition-options'
-import { getSandboxTaskFeatureProvider } from './module-types'
+import { getSandboxTaskFeatureDriver } from './module-types'
 import type { AgentSandboxTaskConfig, SandboxTaskDefinitionOptions } from './module-types'
 import { getSandboxTaskProjectSourceFiles, resolveSandboxTaskProject, type SandboxTaskProject } from './project'
 import { createSandboxTaskTypeTemplateContents } from './type-template'
@@ -36,10 +36,10 @@ export const sandboxTaskRuntimeDependencyByProvider = {
   vercel: '@vercel/sandbox',
 } as const satisfies Partial<Record<string, string>>
 
-type SandboxTaskProvider = 'cloudflare' | 'vercel'
+type SandboxTaskDriver = 'cloudflare' | 'vercel'
 
 function resolveSandboxTaskProviderLoaderTarget(
-  provider: SandboxTaskProvider | undefined,
+  provider: SandboxTaskDriver | undefined,
   deps: Record<string, string>,
 ) {
   if (provider)
@@ -56,7 +56,7 @@ function resolveSandboxTaskProviderLoaderTarget(
 
 export const sandboxTaskProviderLoaderSpecifiers = ['vitehub-sandbox-task-provider-loader', '@vite-hub/sandbox/task/runtime/provider-loader', 'virtual:vitehub-sandbox-task-provider-loader', '#vitehub-sandbox-task-provider-loader'] as const
 
-function createSandboxTaskProviderLoaderAliases(defaultProviderName: SandboxTaskProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
+function createSandboxTaskProviderLoaderAliases(defaultProviderName: SandboxTaskDriver | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
   const keys = sandboxTaskProviderLoaderSpecifiers
 
   if (defaultProviderName)
@@ -159,7 +159,7 @@ function createSandboxTaskRegistryContents(
 }
 
 function createSandboxTaskProviderLoaderContents(
-  provider: SandboxTaskProvider,
+  provider: SandboxTaskDriver,
 ) {
   const providerExport = sandboxTaskProviderRuntimeExport(provider)
   const providerLoaderPath = sandboxTaskRuntimeProviderSpecifiers[provider]
@@ -178,28 +178,28 @@ function createSandboxTaskProviderLoaderContents(
   ].join('\n')
 }
 
-export function sandboxTaskProviderRuntimeExport(provider: SandboxTaskProvider) {
+export function sandboxTaskProviderRuntimeExport(provider: SandboxTaskDriver) {
   return provider === 'cloudflare'
     ? 'resolveCloudflareTaskSandbox'
     : 'resolveVercelTaskSandbox'
 }
 
 export function resolveSandboxTaskFeatureConfig(sandboxTaskConfig: AgentSandboxTaskConfig, hosting?: string): AgentSandboxTaskConfig {
-  if (getSandboxTaskFeatureProvider(sandboxTaskConfig)?.provider)
+  if (getSandboxTaskFeatureDriver(sandboxTaskConfig)?.driver)
     return { ...sandboxTaskConfig }
 
-  const config = { ...sandboxTaskConfig } as Extract<AgentSandboxTaskConfig, { provider?: undefined }>
+  const config = { ...sandboxTaskConfig } as Extract<AgentSandboxTaskConfig, { driver?: undefined }>
   const hostedProvider = getSupportedHostingProvider(hosting, ['cloudflare', 'vercel'])
   if (hostedProvider) {
     return {
       ...config,
-      provider: hostedProvider,
+      driver: hostedProvider,
     } as AgentSandboxTaskConfig
   }
 
   const unsupportedHostedProvider = deploymentPresetFromNitro(hosting)
   if (unsupportedHostedProvider) {
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0012({ message: '[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.' })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0012({ message: '[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandboxTask.driver` is required.' })
   }
 
   return config
@@ -252,8 +252,8 @@ export async function createSandboxTaskFeaturePlan(
     ...definitionCompilerOptions,
     featureImports,
   })
-  const defaultProvider = getSandboxTaskFeatureProvider(resolvedConfig)
-  const defaultProviderName = defaultProvider?.provider
+  const defaultProvider = getSandboxTaskFeatureDriver(resolvedConfig)
+  const defaultProviderName = defaultProvider?.driver
   const sandboxTaskArtifacts: GeneratedArtifact[] = sandboxTaskDefinitions.map(definition => ({
     key: definition.definitionArtifactKey,
     filename: definition.definitionFilename,
@@ -273,7 +273,7 @@ export async function createSandboxTaskFeaturePlan(
     },
   }))
   const providerLoaderTarget = resolveSandboxTaskProviderLoaderTarget(defaultProviderName, deps)
-  const cloudflareOptions = defaultProvider?.provider === 'cloudflare'
+  const cloudflareOptions = defaultProvider?.driver === 'cloudflare'
     ? {
         binding: typeof defaultProvider.binding === 'string' ? defaultProvider.binding : defaultCloudflareSandboxBinding,
         className: typeof defaultProvider.className === 'string' ? defaultProvider.className : defaultCloudflareSandboxClassName,

@@ -6,11 +6,11 @@ import { dynamicQueue } from "./client.ts"
 
 import type { LocalQueueEngine, LocalQueueJob, LocalQueueJobDetail, LocalQueueStatus } from "../providers/local.ts"
 
-import type { LocalQueueRules, QueueEnqueueOptions, QueueProvider } from "../types.ts"
+import type { LocalQueueRules, QueueEnqueueOptions, QueueDriver } from "../types.ts"
 
 export interface QueueListResult {
   /** `undefined` when the runtime has not installed a Queue configuration. */
-  provider?: QueueProvider
+  provider?: QueueDriver
   /** The local provider only: the provider whose delivery rules the jobs follow. In `vite dev`, the provider of the build. */
   rules?: LocalQueueRules
   /**
@@ -46,7 +46,7 @@ export type { LocalQueueJob, LocalQueueJobDetail }
 
 export interface QueueSendOperationResult {
   messageId?: string
-  provider?: QueueProvider
+  provider?: QueueDriver
   queue: string
   status: "queued"
 }
@@ -86,7 +86,7 @@ export async function listQueues(): Promise<QueueListResult> {
     throw new QueueOperationError("Queue is disabled in this runtime.", 409, "QUEUE_DISABLED", "Add `hubQueue()` to the Vite config and do not set `queue: false`.")
   }
   const names = listQueueDefinitionNames()
-  if (config?.provider === "local") {
+  if (config?.driver === "local") {
     const { getLocalQueueStatus } = await import("../internal/runtime/local-client.ts")
     const status = await getLocalQueueStatus(config)
     if (status) {
@@ -100,7 +100,7 @@ export async function listQueues(): Promise<QueueListResult> {
     }
   }
   return {
-    ...(config ? { provider: config.provider } : {}),
+    ...(config ? { provider: config.driver } : {}),
     queues: names.map(name => ({ name })),
   }
 }
@@ -122,10 +122,10 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
   }
   const [error, sent] = result
   if (error) throw failure(error)
-  const provider = getQueueRuntimeConfig()
+  const config = getQueueRuntimeConfig()
   return {
     ...(sent?.messageId ? { messageId: sent.messageId } : {}),
-    ...(provider ? { provider: provider.provider } : {}),
+    ...(config ? { provider: config.driver } : {}),
     queue,
     status: "queued",
   }
@@ -139,7 +139,7 @@ async function localJobs(): Promise<LocalQueueEngine> {
   }
   const engine = config ? (await import("../internal/runtime/local-client.ts")).useLocalQueueEngine(config) : undefined
   if (!engine) {
-    throw new QueueOperationError(`The ${config?.provider ?? "configured"} queue provider does not let the app read its jobs. Only the local provider stores jobs that ViteHub can list.`, 409, "QUEUE_JOBS_UNAVAILABLE", "Run the app with `vite dev`, which runs every job in the dev server, or on a Node server with the local provider. Read hosted jobs in the Cloudflare or Vercel dashboard.")
+    throw new QueueOperationError(`The ${config?.driver ?? "configured"} queue driver does not let the app read its jobs. Only the local driver stores jobs that ViteHub can list.`, 409, "QUEUE_JOBS_UNAVAILABLE", "Run the app with `vite dev`, which runs every job in the dev server, or on a Node server with the local driver. Read hosted jobs in the Cloudflare or Vercel dashboard.")
   }
   return engine
 }

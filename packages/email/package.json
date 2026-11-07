@@ -39,10 +39,10 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./drivers/cloudflare-email": {
-      "types": "./dist/drivers/cloudflare-email.d.ts",
-      "import": "./dist/drivers/cloudflare-email.js",
-      "default": "./dist/drivers/cloudflare-email.js"
+    "./drivers/cloudflare": {
+      "types": "./dist/drivers/cloudflare.d.ts",
+      "import": "./dist/drivers/cloudflare.js",
+      "default": "./dist/drivers/cloudflare.js"
     },
     "./drivers/resend": {
       "types": "./dist/drivers/resend.d.ts",

@@ -83,7 +83,7 @@ describe("media on Vercel Blob", () => {
   })
 
   it("keeps records in sidecars, never in custom metadata, even when overwrites are forbidden", async () => {
-    const driver = createBundledVercelBlobDriver({ access: "public", allowOverwrite: false, driver: "vercel-blob", token: "token" })
+    const driver = createBundledVercelBlobDriver({ access: "public", allowOverwrite: false, driver: "vercel", token: "token" })
     const storage = createBlobStorage(driver, "default", { images: { transformer: "passthrough" } })
     const record = ok(await storage.media.put("posts/cover.jpg", await photo(320, 200), { alt: "Cover" }))
     expect(record).toMatchObject({ alt: "Cover", etag: "\"v1\"", height: 200, width: 320 })
@@ -99,7 +99,7 @@ describe("media on Vercel Blob", () => {
   })
 
   it("lists folded folders and moves media with copy and delete", async () => {
-    const storage = createBlobStorage(createBundledVercelBlobDriver({ access: "public", driver: "vercel-blob", token: "token" }), "default", { images: { transformer: "passthrough" } })
+    const storage = createBlobStorage(createBundledVercelBlobDriver({ access: "public", driver: "vercel", token: "token" }), "default", { images: { transformer: "passthrough" } })
     ok(await storage.media.put("a/one.jpg", await photo(20, 20)))
     ok(await storage.media.createFolder("a/empty"))
     const listed = ok(await storage.media.list({ prefix: "a/" }))
@@ -186,7 +186,7 @@ describe("media on a Cloudflare R2 binding", () => {
     const bucket = createMemoryBucket()
     const images = createImagesBinding()
     setActiveCloudflareEnv({ BLOB: bucket, IMAGES: images })
-    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default")
+    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default")
     const record = ok(await storage.media.put("photos/wide.jpg", await photo(1600, 800), { crops: { mobile: { aspect: "4:5", focal: { x: 0, y: 0.5 } } } }))
     expect(record).toMatchObject({ color: expect.stringMatching(/^#[0-9a-f]{6}$/), height: 800, width: 1600 })
     expect(images.requests[0]).toEqual({ output: { format: "image/png" }, transform: { fit: "cover", height: 1, width: 1 } })
@@ -204,13 +204,13 @@ describe("media on a Cloudflare R2 binding", () => {
 
   it("falls back to sharp or the original when the Worker has no Images binding", async () => {
     setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
-    const passthrough = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default", { images: { transformer: "passthrough" } })
+    const passthrough = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default", { images: { transformer: "passthrough" } })
     ok(await passthrough.media.put("a.jpg", await photo(100, 50)))
     const event = request()
     await passthrough.serve(event, "a.jpg", { variant: { width: 64 } })
     expect(event.res.headers.get("content-type")).toBe("image/jpeg")
 
-    const explicit = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default", { images: { transformer: "cloudflare-images" } })
+    const explicit = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default", { images: { transformer: "cloudflare-images" } })
     const [error] = await explicit.serve(request(), "a.jpg", { variant: { width: 64 } })
     expect(error?.cause).toMatchObject({ code: "BLOB_R0034" })
   })

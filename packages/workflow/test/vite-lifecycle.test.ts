@@ -8,7 +8,7 @@ const lifecycle = vi.hoisted(() => ({
   get: vi.fn(() => undefined),
   removeArtifactDir: vi.fn(async () => undefined),
   reset: vi.fn(async () => undefined),
-  resolveOutputs: vi.fn((): { cloudflare: false | object, vercel: false | object } => ({ cloudflare: false, vercel: { provider: "vercel" } })),
+  resolveOutputs: vi.fn((): { cloudflare: false | object, vercel: false | object } => ({ cloudflare: false, vercel: { driver: "vercel" } })),
   retainSources: vi.fn(async () => ({ resolve: (path: string) => path })),
   useCatalog: vi.fn((_config: object) => ({})),
   writeProviderEntries: vi.fn(async () => ({})),
@@ -135,7 +135,7 @@ describe("Workflow Provider Output lifecycle", () => {
       plugins: [],
       resolve: { alias: [] },
       root: "/project",
-      workflow: { provider: "vercel", name },
+      workflow: { driver: "vercel", name },
       __vitehubServerDirs: [`/project/${name}`],
     }))
     for (const config of configs) functionHook(plugin.configResolved, "configResolved")(config)

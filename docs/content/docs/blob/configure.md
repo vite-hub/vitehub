@@ -16,7 +16,7 @@ export default defineConfig({
   blob: {
     stores: {
       default: { driver: 'fs' },
-      reports: { driver: 'vercel-blob', access: 'private' },
+      reports: { driver: 'vercel', access: 'private' },
     },
   },
 })
@@ -48,7 +48,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
 ::
 
-`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare-r2` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
@@ -187,7 +187,7 @@ Filesystem storage is for local or single-process use. It does not become durabl
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'cloudflare-r2'` | Required | Selects the Cloudflare R2 driver. |
+| `driver` | `'cloudflare'` | Required | Selects the Cloudflare R2 driver. |
 | `binding` | `string` | `BLOB` | Names the runtime R2 binding. |
 | `bucketName` | `string` | R2 or Blob bucket env | Names the bucket for the generated R2 binding and HTTP fallback. |
 | `jurisdiction` | `'eu' \| 'fedramp' \| 'us'` | `R2_JURISDICTION` or `CLOUDFLARE_R2_JURISDICTION` env | Names the [R2 jurisdiction](/docs/blob/hosts#jurisdictional-buckets) of the bucket for the binding, provisioning, and the S3 API host. |
@@ -203,7 +203,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'vercel-blob'` | Required | Selects Vercel Blob. |
+| `driver` | `'vercel'` | Required | Selects Vercel Blob. |
 | `access` | `'private' \| 'public'` | `'public'` | Sets the store-level access policy. A `blob.put()` call can override it. |
 | `allowOverwrite` | `boolean` | `true` | Allows writes to replace an existing pathname. |
 | `downloadTimeoutMs` | `number` | Provider default | Sets the download timeout in milliseconds. |

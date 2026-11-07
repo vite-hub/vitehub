@@ -8,7 +8,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { browserProviderError } from "../errors.ts"
 
-import type { BrowserProvider } from "../types.ts"
+import type { BrowserDriver } from "../types.ts"
 import type { CDPBrowserConnection } from "../internal/connections.ts"
 import type { ChildProcess } from "node:child_process"
 import { browserErrorDiagnostics } from "../error-diagnostics.ts"
@@ -116,7 +116,7 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   }
 }
 
-export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPBrowserConnection> {
+export function localBrowser(options: LocalBrowserOptions): BrowserDriver<CDPBrowserConnection> {
   if (!options?.executablePath || !isString(options.executablePath)) {
     throw browserErrorDiagnostics.BROWSER_R0007({ message: "[vitehub:browser] localBrowser() requires an executablePath." })
   }

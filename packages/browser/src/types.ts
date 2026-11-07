@@ -25,17 +25,17 @@ export interface BrowserFeatures {
 
 export type BrowserIsolation = "process" | "provider" | "trusted-host"
 
-export interface BrowserProviderInfo {
+export interface BrowserDriverInfo {
   features: BrowserFeatures
   isolation: BrowserIsolation
   name: string
 }
 
-export interface BrowserProviderOpenOptions {
+export interface BrowserDriverOpenOptions {
   idleTimeoutMs?: number
 }
 
-export interface BrowserProviderSession<TConnection = unknown> {
+export interface BrowserDriverSession<TConnection = unknown> {
   close(): MaybePromise<void>
   connection: TConnection
   expiresAt?: Date | string
@@ -43,8 +43,8 @@ export interface BrowserProviderSession<TConnection = unknown> {
   id: string
 }
 
-export interface BrowserProvider<TConnection = unknown> extends BrowserProviderInfo {
-  open(options?: BrowserProviderOpenOptions): MaybePromise<BrowserProviderSession<TConnection>>
+export interface BrowserDriver<TConnection = unknown> extends BrowserDriverInfo {
+  open(options?: BrowserDriverOpenOptions): MaybePromise<BrowserDriverSession<TConnection>>
 }
 
 export interface BrowserControllerLease<TClient> {
@@ -59,7 +59,7 @@ export interface BrowserControl<TClient> {
 }
 
 export interface BrowserControllerContext {
-  provider: BrowserProviderInfo
+  driver: BrowserDriverInfo
   sessionId: string
 }
 
@@ -110,7 +110,7 @@ export interface BrowserSession<TConnection = unknown> {
 
 export interface BrowserClient<TConnection = unknown> {
   claim(ref: BrowserSessionRef, options: BrowserClaimOptions): Promise<BrowserSession<TConnection>>
-  open(options?: BrowserProviderOpenOptions): Promise<BrowserSession<TConnection>>
+  open(options?: BrowserDriverOpenOptions): Promise<BrowserSession<TConnection>>
 }
 
 export interface BrowserPolicy {
@@ -120,8 +120,9 @@ export interface BrowserPolicy {
 
 export interface CreateBrowserOptions<TConnection> {
   leaseStore?: LeaseStore
+  /** The driver that opens browser sessions, such as `cloudflareBrowser()` or `localBrowser()`. */
+  driver: BrowserDriver<TConnection>
   policy?: BrowserPolicy
-  provider: BrowserProvider<TConnection>
   trace?: (event: TraceEvent) => MaybePromise<void>
 }
 
@@ -161,7 +162,7 @@ export interface BrowserPageSession {
 
 export interface BrowserDefinitionBrowser {
   content(input: BrowserActionInput): Promise<string>
-  open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession>
+  open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession>
   run(action: BrowserAction, input: BrowserActionInput): Promise<Response>
 }
 
@@ -196,5 +197,5 @@ export type BrowserAvailability =
 export interface BrowserRuntimeConfig {
   binding: string
   engine: BrowserEngine
-  provider?: "cloudflare"
+  driver?: "cloudflare"
 }

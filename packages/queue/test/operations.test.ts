@@ -56,7 +56,7 @@ describe("queue operations", () => {
   })
 
   it("lists the Queue Definitions and the provider", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
     setQueueRuntimeRegistry(registry)
 
     await expect(run("queue.list", {})).resolves.toEqual({ provider: "vercel", queues: [{ name: "digest" }, { name: "welcome" }] })
@@ -71,8 +71,8 @@ describe("queue operations", () => {
   it("sends one job through the provider client", async () => {
     const send = vi.fn(async () => ({ messageId: "message-1" }))
     setQueueRuntimeConfig(
-      { provider: "vercel", region: "iad1" } as never,
-      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, provider: "vercel", topic: "welcome" }),
+      { driver: "vercel", region: "iad1" } as never,
+      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, driver: "vercel", topic: "welcome" }),
     )
     setQueueRuntimeRegistry(registry)
 
@@ -86,7 +86,7 @@ describe("queue operations", () => {
   })
 
   it("fails for a Queue Definition that does not exist", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
     setQueueRuntimeRegistry(registry)
 
     await expect(run("queue.send", { payload: {}, queue: "missing" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND", status: 404 })
@@ -95,8 +95,8 @@ describe("queue operations", () => {
   it("reports a provider failure with its code", async () => {
     const send = vi.fn(async () => { throw new Error("provider down") })
     setQueueRuntimeConfig(
-      { provider: "vercel", region: "iad1" } as never,
-      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, provider: "vercel", topic: "welcome" }),
+      { driver: "vercel", region: "iad1" } as never,
+      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, driver: "vercel", topic: "welcome" }),
     )
     setQueueRuntimeRegistry(registry)
 
@@ -104,7 +104,7 @@ describe("queue operations", () => {
   })
 
   it("rejects a name that is not a safe identifier", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
     setQueueRuntimeRegistry(registry)
 
     await expect(run("queue.send", { payload: {}, queue: "../welcome" })).rejects.toMatchObject({ code: "QUEUE_INVALID_NAME", status: 400 })
@@ -126,7 +126,7 @@ describe("queue job operations", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "warn").mockImplementation(() => {})
     // The config that the generated plugin installs in `vite dev` for a Cloudflare app.
-    const config = { base, ...(development ? { development } : {}), provider: "local", rules: "cloudflare" } as const
+    const config = { base, ...(development ? { development } : {}), driver: "local", rules: "cloudflare" } as const
     setQueueRuntimeConfig(config, createLocalQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ handler }) })
     startLocalQueue(config)
@@ -202,7 +202,7 @@ describe("queue job operations", () => {
   })
 
   it("fails with a reason on a hosted provider, which does not let the app read its jobs", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
 
     await expect(run("queue.jobs-list", {})).rejects.toMatchObject({ code: "QUEUE_JOBS_UNAVAILABLE", status: 409 })
     await expect(run("queue.jobs-retry", { id: "job-1" })).rejects.toMatchObject({ code: "QUEUE_JOBS_UNAVAILABLE", status: 409 })

@@ -23,7 +23,7 @@ beforeEach(() => generated.mockClear())
 
 describe("Workflow preparation for Schedule", () => {
   it.each([true, false])("retains each reused build's Workflow sources and aliases with resolved forwarded directories %j", async (retainForwardedDirs) => {
-    const plugin = hubWorkflow({ provider: "vercel" })
+    const plugin = hubWorkflow({ driver: "vercel" })
     const roots: string[] = []
     try {
       const configs: ResolvedConfig[] = []
@@ -39,7 +39,7 @@ describe("Workflow preparation for Schedule", () => {
           root,
           build: { outDir: "dist" },
           plugins: [],
-          workflow: { provider: "vercel" },
+          workflow: { driver: "vercel" },
           resolve: { alias: [{ find: "build-alias", replacement: join(root, "alias.ts") }] },
           [VITEHUB_SERVER_DIRS]: [server],
         }
@@ -69,7 +69,7 @@ describe("Workflow preparation for Schedule", () => {
   })
 
   it.each([true, false])("uses each environment config and owning catalog when the clone retains private metadata %j", async (retainPrivateMetadata) => {
-    const plugin = hubWorkflow({ provider: "vercel" })
+    const plugin = hubWorkflow({ driver: "vercel" })
     const roots: string[] = []
     try {
       const configs: ResolvedConfig[] = []
@@ -83,7 +83,7 @@ describe("Workflow preparation for Schedule", () => {
         const input: UserConfig & { [VITEHUB_SERVER_DIRS]?: string[] } = {
           root,
           plugins: [],
-          workflow: { provider: "vercel" },
+          workflow: { driver: "vercel" },
           [VITEHUB_SERVER_DIRS]: [server],
         }
         await (plugin.config as { handler: (config: UserConfig, env: { command: string }) => Promise<void> }).handler(input, { command: "build" })
@@ -141,13 +141,13 @@ describe("Workflow preparation for Schedule", () => {
     }
   })
   it.each([true, false])("rejects an unassociated Workflow clone with shared URL %j before contributing output", async (sharedUrl) => {
-    const plugin = hubWorkflow({ provider: "vercel" })
+    const plugin = hubWorkflow({ driver: "vercel" })
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-ambiguous-build-"))
     try {
       const configs = ["first", "second"].map(name => ({
         root, command: "build", plugins: [], build: { outDir: "dist" },
         resolve: { alias: [{ find: "build-alias", replacement: join(root, name) }] },
-        workflow: { provider: "vercel" },
+        workflow: { driver: "vercel" },
         define: { __VITEHUB_PUBLIC_URL__: JSON.stringify(`https://${sharedUrl ? "shared" : name}.example.com`) },
       } as unknown as ResolvedConfig))
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(config)
@@ -165,13 +165,13 @@ describe("Workflow preparation for Schedule", () => {
   })
 
   it("resolves a cloned Workflow environment by its build association and public definition", async () => {
-    const plugin = hubWorkflow({ provider: "vercel" })
+    const plugin = hubWorkflow({ driver: "vercel" })
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-associated-build-"))
     try {
       const configs = ["first", "second"].map(name => ({
         root, command: "build", plugins: [], build: { outDir: "dist" },
         resolve: { alias: [{ find: "build-alias", replacement: join(root, name) }] },
-        workflow: { provider: "vercel" },
+        workflow: { driver: "vercel" },
         define: { __VITEHUB_PUBLIC_URL__: JSON.stringify(`https://${name}.example.com`) },
       } as unknown as ResolvedConfig))
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(config)

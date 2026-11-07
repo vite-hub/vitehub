@@ -270,14 +270,14 @@ describe("built-in deployment preset integration", () => {
       }, "build")
       expect(config.root).toBe(appRoot)
       expect(config).toMatchObject({
-        blob: { bucketName: "application-root", driver: "cloudflare-r2" },
+        blob: { bucketName: "application-root", driver: "cloudflare" },
         nitro: { cloudflare: { wrangler: {
           name: "application-root",
           r2_buckets: [{ binding: "BLOB", bucket_name: "application-root" }],
         } } },
-        queue: { namePrefix: "application-root-", provider: "cloudflare" },
-        rateLimit: { namespace: "application-root", provider: "cloudflare" },
-        sandboxTask: { name: "application-root-sandbox", provider: "cloudflare" },
+        queue: { namePrefix: "application-root-", driver: "cloudflare" },
+        rateLimit: { driver: "cloudflare", namespace: "application-root" },
+        sandboxTask: { name: "application-root-sandbox", driver: "cloudflare" },
       })
       expect(capturedWrangler).toMatchObject({
         name: "application-root",
@@ -536,7 +536,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ database: { driver: "d1" }, preset: "cloudflare" }), nitro() as never],
+        plugins: [vitehub({ database: { driver: "cloudflare" }, preset: "cloudflare" }), nitro() as never],
       } as Parameters<typeof createBuilder>[0])
       await builder.buildApp()
 

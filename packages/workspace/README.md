@@ -59,7 +59,7 @@ import { defineWorkspace, file, github } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
-    provider: "local",
+    driver: "local",
     root: ".vitehub/workspaces/docs",
   },
   sources: {
@@ -381,7 +381,7 @@ export default defineNuxtConfig({
   vite: {
     workspace: {
       store: {
-        provider: "github",
+        driver: "github",
         repository: "owner/repo",
         branch: "main",
         root: ".vitehub/workspaces/docs",
@@ -399,7 +399,7 @@ import { configureCloudflareWorkspaceRuntime } from "@vite-hub/workspace/cloudfl
 configureCloudflareWorkspaceRuntime()
 ```
 
-`useWorkspace()` will then resolve `cloudflare-artifacts` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
+`useWorkspace()` will then resolve `cloudflare` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
 
 Select Cloudflare Artifacts explicitly when a Cloudflare Worker needs durable, versioned Workspace state:
 
@@ -412,7 +412,7 @@ export default defineConfig({
   plugins: [hubWorkspace()],
   workspace: {
     store: {
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
     },
@@ -426,12 +426,12 @@ Artifacts repositories are private Git storage, not public attachment hosting. U
 
 ## Vercel Blob persistence
 
-The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The `vercel` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
 The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
 `_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
 letters, numbers, underscores, dashes, and single slashes.
 
-Without a `store`, a production build selects `vercel-blob` when the project has
+Without a `store`, a production build selects `vercel` when the project has
 `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`. With `BLOB_STORE_ID`, the store uses
 Vercel OIDC, as `@vite-hub/blob` does. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`.
 
@@ -444,7 +444,7 @@ Use the GitHub Workspace Store when a hosted runtime needs durable Workspace fil
 ```ts
 export default defineWorkspace({
   store: {
-    provider: "github",
+    driver: "github",
     repository: "owner/repo",
     branch: "main",
     root: ".vitehub/workspaces/<workspace>",

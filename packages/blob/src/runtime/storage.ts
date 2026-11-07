@@ -23,7 +23,7 @@ const driverModules = {
   akamai: "akamai",
   azure: "azure",
   box: "box",
-  "cloudflare-r2": "cloudflare",
+  cloudflare: "cloudflare",
   "digitalocean-spaces": "digitalocean-spaces",
   dropbox: "dropbox",
   fs: "fs",
@@ -37,11 +37,11 @@ const driverModules = {
   storj: "storj",
   supabase: "supabase",
   uploadthing: "uploadthing",
-  "vercel-blob": "vercel",
+  vercel: "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
-  if (config.driver === "cloudflare-r2") {
+  if (config.driver === "cloudflare") {
     // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
     if (config.localFallback && !getOptionalBucket(config)) return importRuntimeDriverModule(config.localFallback)
     const nativeDriver = createCloudflareR2NativeDriver(config)
@@ -94,7 +94,7 @@ function resolveRuntimeBlobStore(store: ResolvedBlobStoreConfig): ResolvedBlobSt
   if (store.driver === "minio") {
     return resolveRuntimeMinioBlobStore(store, process.env)
   }
-  if (store.driver === "vercel-blob") {
+  if (store.driver === "vercel") {
     return resolveRuntimeVercelBlobStore(store, process.env)
   }
   return store

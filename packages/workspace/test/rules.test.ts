@@ -5,7 +5,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 
 describe("workspace rules", () => {
   it("keeps ordinary direct Workspace braces compatible in memory stores", async () => {
-    const workspace = createWorkspace({ name: "docs", store: { provider: "memory" } })
+    const workspace = createWorkspace({ name: "docs", store: { driver: "memory" } })
     await workspace.writeFile("docs/readme.md", "readme")
     await workspace.writeFile("docs/guide.mdx", "guide")
 
@@ -113,7 +113,7 @@ describe("workspace rules", () => {
           write: true,
         },
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     await workspace.writeFile("script.sh", "echo ok\n", { metadata: { gitMode: "120000" } })

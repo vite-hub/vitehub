@@ -27,7 +27,7 @@ export default defineConfig({
 	plugins: [vitehub({
 		preset: 'cloudflare',
 		blob: {
-			driver: 'cloudflare-r2',
+			driver: 'cloudflare',
 			binding: 'BLOB',
 			bucketName: 'your-existing-bucket',
 		},

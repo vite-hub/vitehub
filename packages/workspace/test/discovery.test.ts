@@ -105,9 +105,9 @@ describe("discoverServerWorkspaceDefinitions", () => {
     const root = await createRoot()
     const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "docs", "agent.ts"), "export default defineAgent({ workspace: { store: { provider: 'cloudflare-artifacts' } } })\n", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "agent.ts"), "export default defineAgent({ workspace: { store: { driver: 'cloudflare' } } })\n", "utf8")
     const definitions = discoverServerWorkspaceDefinitions(root)
-    const store = { binding: "ENV_ARTIFACTS", namespace: "environment", provider: "cloudflare-artifacts" }
+    const store = { binding: "ENV_ARTIFACTS", namespace: "environment", driver: "cloudflare" }
 
     const contents = createWorkspaceRegistryContents(registryFile, definitions, new Map([["docs", { store }]]))
 

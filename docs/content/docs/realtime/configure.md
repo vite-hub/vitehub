@@ -1,30 +1,30 @@
 ---
 title: Realtime configuration
-description: Choose the room authority, control saves, and check what each host supports.
+description: Choose the driver, control saves, and check what each host supports.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
-## Choose a room authority
+## Choose a driver
 
-A room authority is the one place that holds a document's live Yjs state.
-Every client of a document must reach the same authority. Set it with the
-`realtime.authority` option of `vitehub()`, as in
+The driver decides where rooms hold a document's live Yjs state. Every client
+of a document must reach the same room. Set it with the
+`realtime.driver` option of `vitehub()`, as in
 [Get started](/docs/realtime/get-started#configure-realtime).
 
-| Authority | Use |
+| Driver | Use |
 | --- | --- |
-| `auto` | Uses Cloudflare Durable Objects in a build that resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ preset: 'cloudflare' })`. Other production builds fail until an authority is selected. On the dev server, rooms run in memory. |
+| `auto` | Uses Cloudflare Durable Objects in a build that resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ preset: 'cloudflare' })`. Other production builds fail until a driver is selected. On the dev server, rooms run in memory. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration. Use it for durable, distributed rooms on Cloudflare. On the Vite dev server, it also selects Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
 | `memory` | Keeps rooms in one process. Use it for local development or an explicitly single-process Node deployment. Room state is lost when the process stops. |
 
-ViteHub rejects the memory authority on distributed host presets. It also
-rejects a Cloudflare authority paired with another deployment preset.
+ViteHub rejects the `memory` driver on distributed host presets. It also
+rejects the `cloudflare` driver paired with another deployment preset.
 
 ## Develop locally
 
-The dev server holds rooms in its own process, with every authority. Nitro's
+The dev server holds rooms in its own process, with every driver. Nitro's
 default Cloudflare dev runtime reads your own wrangler config, which does not
 have the generated `$DurableObject` binding, so the room handler opens memory
 rooms. Auth, `authorize()`, and document adapters run as they do in production.
@@ -38,16 +38,16 @@ rooms.
 
 ## Host support
 
-| Host | Authority | Live state | What survives a restart |
+| Host | Driver | Live state | What survives a restart |
 | --- | --- | --- | --- |
 | Node, Docker (one process) | `memory` | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
 | Cloudflare Workers | `cloudflare` | Nitro's Cloudflare Durable Object instance, one room per document, Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
-| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds that enable Realtime fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |
+| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds that enable Realtime fail with `REALTIME_MISSING_DRIVER` or `REALTIME_DRIVER_CONFLICT`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
 database for CRDT updates races and loads the database; WordPress removed
 HTTP-polling collaboration from 7.0 for those reasons. Use a single-writer
-flow, or a Workspace or Content lease, on hosts without an authority.
+flow, or a Workspace or Content lease, on hosts without a driver.
 
 ## Builds without Realtime
 
@@ -67,7 +67,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-`isRealtimeAvailable()` returns `true` in a build with a room authority, and
+`isRealtimeAvailable()` returns `true` in a build with a Realtime driver, and
 on the dev server.
 
 ## Control saves
@@ -108,11 +108,11 @@ when the next client wakes it.
 | Document state per room | 8 MiB |
 | Awareness state per room | 8 MiB |
 | Awareness clients per peer | 1,024 |
-| Active rooms under the memory authority | 128, with inactive saved rooms reclaimed first |
+| Active rooms under the `memory` driver | 128, with inactive saved rooms reclaimed first |
 
 ## Inspect definitions
 
 `vitehub inspect definitions` lists each Realtime Definition with its document
-adapter, editor codec, identity, authorization, persistence, history, and room
-authority. Inspection reads the definition files statically; it never runs
+adapter, editor codec, identity, authorization, persistence, history, and
+driver. Inspection reads the definition files statically; it never runs
 them.

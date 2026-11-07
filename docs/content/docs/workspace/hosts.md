@@ -6,7 +6,7 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-This page covers generated Workspace output and the Cloudflare Artifacts Store. [Store providers](/docs/workspace/configure#store-providers) lists the default Store for each host.
+This page covers generated Workspace output and the Cloudflare Artifacts Store. [Store drivers](/docs/workspace/configure#store-drivers) lists the default Store for each host.
 
 ## Provider output
 
@@ -62,7 +62,7 @@ export default defineConfig({
   plugins: [hubWorkspace()],
   workspace: {
     store: {
-      provider: 'cloudflare-artifacts',
+      driver: 'cloudflare',
       binding: 'WORKSPACE_ARTIFACTS',
       namespace: 'vitehub',
     },

@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or with the local provider of `preset: 'node'`, which runs jobs in the server process. Complete [Get started](/docs/queue/get-started) to configure the host and discover the `welcome-email` Definition used below.
+Queue runs on Cloudflare, on Vercel, or with the local driver of `preset: 'node'`, which runs jobs in the server process. Complete [Get started](/docs/queue/get-started) to configure the host and discover the `welcome-email` Definition used below.
 
 ## Public imports
 
@@ -235,7 +235,7 @@ Cloudflare direct clients require a concrete binding object, supplied here as `b
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'cloudflare',
+  driver: 'cloudflare',
   binding,
 })
 ```
@@ -246,7 +246,7 @@ Vercel direct clients require an existing topic. Replace the example topic and r
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'vercel',
+  driver: 'vercel',
   topic: 'topic--77656c636f6d65',
   region: 'iad1',
 })

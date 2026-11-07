@@ -20,7 +20,7 @@ describe("standalone Agent invocations", () => {
   it("preserves explicit Workflow execution without a host context", async () => {
     const { getWorkflowRun } = await import("@vite-hub/workflow")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     try {
       const agent = defineAgent({
         driver: { run: () => "workflow output" },

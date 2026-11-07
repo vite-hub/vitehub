@@ -28,7 +28,7 @@ describe("types", () => {
   it("augments Vite user config with sandboxTask options", () => {
     const config: UserConfig = {
       sandboxTask: {
-        provider: "cloudflare",
+        driver: "cloudflare",
         binding: "SANDBOX",
         name: "custom-sandbox",
       },
@@ -55,6 +55,6 @@ describe("types", () => {
   it("returns a Vite plugin", () => {
     const plugin = hubSandboxTask()
 
-    expectTypeOf(hubSandboxTask({ provider: "cloudflare" })).toMatchTypeOf<typeof plugin>()
+    expectTypeOf(hubSandboxTask({ driver: "cloudflare" })).toMatchTypeOf<typeof plugin>()
   })
 })

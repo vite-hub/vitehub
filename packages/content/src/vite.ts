@@ -203,10 +203,10 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
   },
 }
 
-/** Where ViteHub generates the Content Realtime Definition. Realtime calls it only when the build has a room authority. */
+/** Where ViteHub generates the Content Realtime Definition. Realtime calls it only when the build has a room driver. */
 export interface ContentRealtimeContributionOptions {
-  /** The room authority: Durable Objects on Cloudflare, or one process. */
-  authority: "cloudflare" | "memory"
+  /** The Realtime driver: Durable Objects on Cloudflare, or one process. */
+  driver: "cloudflare" | "memory"
   /** Directory for the generated files, such as `.vitehub/nitro/realtime`. */
   directory: string
   projectRoot: string
@@ -254,7 +254,7 @@ export async function contributeContentRealtime(options: ContentRealtimeContribu
     writeFile(plugin, [
       `import { installContentLive } from ${JSON.stringify(options.contentImport)}`,
       `import { refreshRealtimeDocument } from ${JSON.stringify(options.realtimeImport)}`,
-      ...(options.authority === "cloudflare"
+      ...(options.driver === "cloudflare"
         ? [
             'import { env } from "cloudflare:workers"',
             "",

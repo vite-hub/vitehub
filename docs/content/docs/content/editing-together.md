@@ -132,11 +132,11 @@ Where Realtime runs, several people edit one Markdown document at the same time.
 vitehub({
   preset: 'node',
   console: { auth: 'app' },
-  realtime: { authority: 'memory' },
+  realtime: { driver: 'memory' },
 })
 ```
 
-`vite dev` uses the memory authority without the option. A Node build needs `authority: 'memory'` (one server process), and a Cloudflare build uses Durable Objects. On Vercel, Netlify, and Deno there is no room authority: the build succeeds and Content keeps one editor at a time, as described above. Set `defineContent({ live: false })` to keep one editor at a time everywhere.
+`vite dev` uses the `memory` driver without the option. A Node build needs `driver: 'memory'` (one server process), and a Cloudflare build uses Durable Objects. On Vercel, Netlify, and Deno there is no Realtime driver: the build succeeds and Content keeps one editor at a time, as described above. Set `defineContent({ live: false })` to keep one editor at a time everywhere.
 
 ### What people see
 

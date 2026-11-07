@@ -113,7 +113,7 @@ export default defineConfig(async () => {
         ssr: true,
       },
       blob: composerOptions.hosting.includes("vercel")
-        ? { access: "private", driver: "vercel-blob" }
+        ? { access: "private", driver: "vercel" }
         : {},
       kv: moduleOptions.kv ?? {},
       plugins: [
@@ -134,7 +134,7 @@ export default defineConfig(async () => {
       ],
       queue: moduleOptions.queue,
       sandboxTask: composerOptions.sandbox,
-      workspace: { store: { provider: "memory" } },
+      workspace: { store: { driver: "memory" } },
       workflow: moduleOptions.workflow,
     }
   }

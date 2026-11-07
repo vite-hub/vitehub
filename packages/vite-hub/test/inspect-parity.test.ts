@@ -43,7 +43,7 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, "src/runner.sandbox-task.ts", "export default defineSandboxTask({ run: async () => ({}) })\n")
     await writeProjectFile(root, "server/schedules/adhoc.ts", "export default defineSchedule({ cron: '0 9 * * *', handler() {} })\n")
     await writeProjectFile(root, "server/workflows/welcome.ts", "export default defineWorkflow(async () => {})\n")
-    await writeProjectFile(root, "server/workspaces/docs/config.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+    await writeProjectFile(root, "server/workspaces/docs/config.ts", "export default defineWorkspace({ store: { driver: 'memory' } })\n")
 
     const config = await resolveConfig({
       logLevel: "silent",
@@ -110,7 +110,7 @@ describe("Definition inspection parity", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-contributed-"))
     directories.push(root)
     await writeProjectFile(root, "package.json", "{}\n")
-    await writeProjectFile(root, "server/workspaces/docs.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+    await writeProjectFile(root, "server/workspaces/docs.ts", "export default defineWorkspace({ store: { driver: 'memory' } })\n")
     const contentOwner = {
       name: "content-owner/vite",
       vitehub: { workspaces: () => [{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }] },

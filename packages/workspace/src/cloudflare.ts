@@ -10,7 +10,7 @@ export { createCloudflareArtifactsWorkspaceStore } from "./providers/cloudflare/
 
 export type CloudflareWorkspaceRuntimeStoreOptions =
   | Partial<CloudflareArtifactsWorkspaceStoreOptions>
-  | (Partial<GitHubWorkspaceStoreOptions> & { provider: "github" })
+  | (Partial<GitHubWorkspaceStoreOptions> & { driver: "github" })
 
 export interface CloudflareWorkspaceRuntimeOptions {
   assets?: boolean | string[]

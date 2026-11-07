@@ -34,7 +34,7 @@ describe("optional peer imports", () => {
   it("names the provider peers required by bundled Files SDK adapters", async () => {
     expect(getFilesSdkPeerInstall("azure")).toBe("@azure/identity @azure/storage-blob")
     expect(getFilesSdkPeerInstall("google-drive")).toBe("@googleapis/drive google-auth-library")
-    expect(getFilesSdkPeerInstall("cloudflare-r2")).toContain("@aws-sdk/client-s3")
+    expect(getFilesSdkPeerInstall("cloudflare")).toContain("@aws-sdk/client-s3")
 
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       peerDependencies: Record<string, string>
@@ -70,7 +70,7 @@ describe("optional peer imports", () => {
     const source = await readFile(new URL("../src/runtime/storage.ts", import.meta.url), "utf8")
 
     const dedicatedProviders = Object.keys(filesSdkDriverPeers)
-      .filter(provider => !["cloudflare-r2", "netlify-blobs", "vercel-blob"].includes(provider))
+      .filter(provider => !["cloudflare", "netlify-blobs", "vercel"].includes(provider))
     for (const provider of dedicatedProviders) {
       expect(source).toMatch(new RegExp(`["']?${provider}["']?\\s*:\\s*["']${provider}["']`))
     }

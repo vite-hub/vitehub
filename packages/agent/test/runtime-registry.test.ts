@@ -230,7 +230,7 @@ import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition } fro
 export async function inspect() {
   setWorkspaceRuntimeRegistry({ standalone: async () => ({ default: { sources: { context: { content: 'Standalone context.' } } } }) })
   const agent = await getAgentFromRegistry('review')
-  const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { provider: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
+  const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { driver: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
   const result = await runAgent(runnable, { runtime: 'unknown', memo: (_key, create) => create(), waitUntil: () => {} }, {})
   const standalone = await resolveRegisteredWorkspaceDefinition('standalone')
   return { result, instructions: agent.__vitehubWorkspaceAgentOptions.driver.instructions, standalone: standalone.sources.context.content }
@@ -251,7 +251,7 @@ it.each([false, true])('preserves application Workspaces when deployment routes 
   const entry = join(root, 'content.ts')
   await writeFile(entry, `import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition, useWorkspace } from '@vite-hub/workspace/runtime'
 export async function inspect() {
-  setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
+  setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { driver: 'memory' } } }) })
   await import('./.vitehub/agent/chat-webhook-route.ts')
   const content = useWorkspace('content', { mode: 'write' })
   await content.fs.writeFile('guide.md', '# Edited guide')
@@ -278,7 +278,7 @@ it('replaces owned Workspaces after route reloads without removing application W
   const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
   try {
     const runtime = await server.ssrLoadModule(probe)
-    runtime.setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
+    runtime.setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { driver: 'memory' } } }) })
     const route = join(root, '.vitehub/agent/chat-webhook-route.ts')
     await server.ssrLoadModule(route)
     expect((await runtime.resolveRegisteredWorkspaceDefinition('review')).name).toBe('review')

@@ -35,8 +35,8 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 | `QUEUE_PROVIDER_FAILED` | Every send method | `getQueue()`, when the client cannot start |
 | `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `runQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
-| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
-| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_PROVIDER`, `QUEUE_MISSING_PROVIDER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, when Vite reads the config, or during the build |
+| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_DRIVER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
+| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_DRIVER`, `QUEUE_MISSING_DRIVER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, when Vite reads the config, or during the build |
 
 ### Errors in a Queue handler
 
@@ -93,7 +93,7 @@ One process shares one local engine per directory. Clients that request differen
 
 ### QUEUE_MISSING_QUEUE
 
-A direct local client from `createQueueClient({ provider: 'local' })` needs a `queue`, the name of the Queue Definition that runs the jobs. `getQueue()` sets it for discovered Queue Definitions.
+A direct local client from `createQueueClient({ driver: 'local' })` needs a `queue`, the name of the Queue Definition that runs the jobs. `getQueue()` sets it for discovered Queue Definitions.
 
 ### QUEUE_MISSING_REGION
 
@@ -103,9 +103,9 @@ The installed `@vercel/queue` needs a region. ViteHub reads `queue.region`, then
 
 A direct Vercel client from `createQueueClient()` needs a `topic`. `getQueue()` sets the topic for discovered Queue Definitions.
 
-### QUEUE_PROVIDER_MISMATCH
+### QUEUE_DRIVER_MISMATCH
 
-The generated Cloudflare, Vercel, or local runtime received another provider. Set `queue.provider` to the provider of the deployment preset, and build again.
+The generated Cloudflare, Vercel, or local runtime received another driver. Set `queue.driver` to the driver of the deployment preset, and build again.
 
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
@@ -145,13 +145,13 @@ Queue Definition files changed after Vite resolved the config. Generate those fi
 
 The derived Cloudflare queue name contains characters that Cloudflare does not accept. Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.
 
-### QUEUE_INVALID_PROVIDER
+### QUEUE_INVALID_DRIVER
 
-`queue.provider` is not `cloudflare`, `vercel`, or `local`.
+`queue.driver` is not `cloudflare`, `vercel`, or `local`.
 
-### QUEUE_MISSING_PROVIDER
+### QUEUE_MISSING_DRIVER
 
-ViteHub cannot select a provider for the hosting target, for example Netlify or Deno. Set `queue.provider`, select the Cloudflare, Vercel, or Node deployment preset, or set `queue: false`.
+ViteHub cannot select a driver for the hosting target, for example Netlify or Deno. Set `queue.driver`, select the Cloudflare, Vercel, or Node deployment preset, or set `queue: false`.
 
 ### QUEUE_NAME_COLLISION
 
@@ -167,7 +167,7 @@ The `hubQueue()` plugin in the Vite config does not expose the Queue Nitro confi
 
 ## Local delivery
 
-The local provider is the Queue Provider of the Node preset. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. In `vite dev`, a Cloudflare or Vercel app uses it too, with the rules of [Dev delivery](#dev-delivery).
+The local driver is the Queue driver of the Node preset. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. In `vite dev`, a Cloudflare or Vercel app uses it too, with the rules of [Dev delivery](#dev-delivery).
 
 - `runQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server process then runs the Queue Definition.
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, the job becomes a dead job. A dead job stays in its file with the last error, and `vitehub queue list` counts it. The provider keeps the 100 newest dead jobs of each Queue Definition and deletes older ones. `vitehub queue list` shows this limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes the dead jobs.

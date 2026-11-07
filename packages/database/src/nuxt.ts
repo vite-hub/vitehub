@@ -129,7 +129,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     const serverDirs = resolvedOptions.projectRoot
       ? [resolve(root, "server")]
       : resolveNuxtServerDirs(nuxtOptions)
-    const databaseConfig = resolvedOptions.driver === "d1"
+    const databaseConfig = resolvedOptions.driver === "cloudflare"
       ? resolveDBViteConfig(resolvedOptions, root, { provisionRoot, serverDirs })
       : undefined
     const sourceMigrationsDir = databaseConfig && databaseConfig.definitionDefaults.cloudflareProjections.default?.resource === "inherited"
@@ -602,8 +602,8 @@ function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOpti
   if (options.connection) {
     viteOptions.connection = options.connection
   }
-  if (options.driver === "d1") {
-    viteOptions.driver = "d1"
+  if (options.driver === "cloudflare") {
+    viteOptions.driver = "cloudflare"
     viteOptions.binding = options.binding
     viteOptions.databaseId = options.databaseId
     viteOptions.databaseName = options.databaseName
@@ -622,7 +622,7 @@ function resolveDatabaseNuxtD1Options(
   migrationsDir?: string,
   provisionState?: NonNullable<Parameters<typeof resolveCloudflareD1Binding>[1]>["provisionState"],
 ): ResolvedDatabaseNuxtD1Options | undefined {
-  if (options.driver !== "d1") return
+  if (options.driver !== "cloudflare") return
 
   const projection = resolveCloudflareD1Binding({
     binding: options.binding,

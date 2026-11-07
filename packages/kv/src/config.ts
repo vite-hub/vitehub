@@ -38,7 +38,7 @@ function resolveCloudflareStore(
       namespaceId: trimmed(config.namespaceId) ?? readEnv(env, "KV_NAMESPACE_ID"),
       namespaceName: trimmed(config.namespaceName),
     },
-    { driver: "cloudflare-kv-binding" as const, binding: "KV" },
+    { driver: "cloudflare" as const, binding: "KV" },
   )
 }
 
@@ -49,7 +49,7 @@ function resolveDenoStore(config: Partial<DenoKVStoreConfig> = {}): ResolvedDeno
 
 function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>) {
   switch (store.driver) {
-    case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
+    case "cloudflare": return resolveCloudflareStore(store, env)
     case "deno-kv": return resolveDenoStore(store)
     case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)

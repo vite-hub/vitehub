@@ -30,7 +30,7 @@ pnpm vite build
 pnpm vitehub inspect definitions --kind queue
 ```
 
-The build writes `.vitehub/queue/registry.mjs`. `vitehub inspect definitions` lists the Queue Definitions that ViteHub found. Then inspect the Nitro output for the Queue Provider you configured.
+The build writes `.vitehub/queue/registry.mjs`. `vitehub inspect definitions` lists the Queue Definitions that ViteHub found. Then inspect the Nitro output for the Queue driver you configured.
 
 | Provider | Output to inspect |
 | --- | --- |

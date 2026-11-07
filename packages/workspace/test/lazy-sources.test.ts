@@ -1175,7 +1175,7 @@ describe("lazy sources", () => {
   it("keeps lazy source roots virtual until first access then materializes the whole source", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
     registerWorkspace("lazy-docs", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: custom({
           materialize: "lazy",
@@ -1466,7 +1466,7 @@ describe("lazy sources", () => {
 
     registerWorkspace("inferred-bulk-item-metadata", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: globSource({ cwd: "docs", include: "*.md", materialize: "lazy" }),
       },
@@ -2491,7 +2491,7 @@ describe("lazy sources", () => {
 
     registerWorkspace("lazy-glob-live", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: globSource({ cwd: "docs", include: "*.md", materialize: "lazy" }),
       },
@@ -2512,7 +2512,7 @@ describe("lazy sources", () => {
 
   it("keeps source-backed paths read-only while allowing normal store writes", async () => {
     registerWorkspace("lazy-writes", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: custom({
           materialize: "lazy",
@@ -2535,7 +2535,7 @@ describe("lazy sources", () => {
 
   it("materializes root-mounted lazy source paths before reads and keeps them read-only", async () => {
     registerWorkspace("lazy-root-files", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         rootFiles: custom({
           materialize: "lazy",
@@ -2562,7 +2562,7 @@ describe("lazy sources", () => {
 
   it("rejects root-mounted lazy source mutations before materialization", async () => {
     registerWorkspace("lazy-root-prewrite", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         rootFiles: custom({
           materialize: "lazy",
@@ -2692,7 +2692,7 @@ describe("lazy sources", () => {
   it("removes stale root-mounted lazy source files on refresh", async () => {
     let keys = ["AGENTS.md", "nested/stale.md"]
     registerWorkspace("lazy-root-refresh", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         rootFiles: custom({
           materialize: "lazy",
@@ -2754,7 +2754,7 @@ describe("lazy sources", () => {
   it("materializes root-mounted lazy sources for scoped paths", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
     registerWorkspace("lazy-root-scoped", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         rootFiles: custom({
           materialize: "lazy",
@@ -2808,7 +2808,7 @@ describe("lazy sources", () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "hello\n" }))
 
     registerWorkspace("lazy-search", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: custom({
           materialize: "lazy",
@@ -2839,7 +2839,7 @@ describe("lazy sources", () => {
     }))
 
     registerWorkspace("lazy-fallback-search", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: custom({
           materialize: "lazy",
@@ -2967,7 +2967,7 @@ describe("lazy sources", () => {
     }))
 
     registerWorkspace("lazy-cache", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: custom({
           cache: { maxAge: 3600 },

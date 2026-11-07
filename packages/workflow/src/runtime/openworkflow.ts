@@ -86,8 +86,8 @@ type OpenWorkflowStorageConfig =
   | { backend: "sqlite", namespaceId: string, path: string, runMigrations?: boolean }
 
 function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowStorageConfig {
-  if (config.provider !== "openworkflow") {
-    throw workflowErrorDiagnostics.WORKFLOW_R0020({ message: `OpenWorkflow runtime requires workflow.provider "openworkflow", received "${config.provider}".` })
+  if (config.driver !== "openworkflow") {
+    throw workflowErrorDiagnostics.WORKFLOW_R0020({ message: `OpenWorkflow runtime requires workflow.driver "openworkflow", received "${config.driver}".` })
   }
   if ("database" in config && config.database !== undefined) {
     throw workflowErrorDiagnostics.WORKFLOW_R0027({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })

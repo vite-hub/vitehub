@@ -145,7 +145,7 @@ describe("Content cms preset with only server/content.ts", () => {
     expect(zeroPlan.actions?.map(action => action.kind)).toEqual(["cloudflare-r2-bucket"])
 
     // The preset's Database is planned like an app Definition once D1 is named.
-    const d1Plan = await plannedCloudflareResources(zeroConfig, vitehub({ preset: "cloudflare", env: false, database: { driver: "d1", databaseName: "cms-db" } }))
+    const d1Plan = await plannedCloudflareResources(zeroConfig, vitehub({ preset: "cloudflare", env: false, database: { driver: "cloudflare", databaseName: "cms-db" } }))
     expect(d1Plan.actions?.map(action => `${action.kind} ${action.name}`).toSorted()).toEqual(["cloudflare-d1 cms-db", "cloudflare-r2-bucket content-cms-zero-config"])
   }, 60_000)
 

@@ -1,11 +1,11 @@
 import { createCloudflareQueueClient } from "../../providers/cloudflare.ts"
 
-import type { QueueClient, QueueProviderOptions } from "../../types.ts"
+import type { QueueClient, QueueDriverOptions } from "../../types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
-export async function createCloudflareQueueRuntimeClient(options: QueueProviderOptions): Promise<QueueClient> {
-  if (options.provider !== "cloudflare") {
-    throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "cloudflare", provider: options.provider })
+export async function createCloudflareQueueRuntimeClient(options: QueueDriverOptions): Promise<QueueClient> {
+  if (options.driver !== "cloudflare") {
+    throw queueErrorDiagnostics.QUEUE_DRIVER_MISMATCH({ driver: options.driver, expected: "cloudflare" })
   }
   return createCloudflareQueueClient(options)
 }

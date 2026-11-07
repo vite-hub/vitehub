@@ -169,7 +169,7 @@ describe("discoverViteWorkspaceDefinitions contributions", () => {
   it("applies resolved store overrides to contributed definitions", async () => {
     const root = await createRoot()
     const definitions = discoverViteWorkspaceDefinitions(root, { contributions: [collected("content", "content-owner/workspace")] })
-    const store = { binding: "CONTENT", namespace: "content", provider: "cloudflare-artifacts" }
+    const store = { binding: "CONTENT", namespace: "content", driver: "cloudflare" }
 
     const contents = createWorkspaceRegistryContents(join(root, "registry.mjs"), definitions, new Map([["content", { store }]]))
 

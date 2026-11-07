@@ -56,7 +56,7 @@ export default defineConfig({
 
 Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code. Nitro is the only host output. `hubBlob()` adds its runtime plugin to the Nitro config, and Nitro bundles it into the server output for each preset. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's `wrangler.json`.
 
-For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare-r2` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
+For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
@@ -72,7 +72,7 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
-On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
+On Vercel, the `vercel` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
 
 ## Remote stores in development
 
@@ -85,7 +85,7 @@ export default defineConfig({
 })
 ```
 
-With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare-r2` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
+With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
@@ -148,9 +148,9 @@ The mode limits this API, not the host. The R2 binding or provider token keeps f
 
 `blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does.
 
-`blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`.
+`blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare` (binding), and `vercel` drivers support multipart uploads. Other drivers throw `BLOB_R0030`.
 
-Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names as written, without URL-decoding.
+Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names as written, without URL-decoding.
 
 Browser clients:
 
@@ -223,11 +223,11 @@ Blob operations return `[error, value]`. Missing objects return `[null, null]` f
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 
-The `cloudflare-r2` driver and the files-sdk drivers sign requests. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
+The `cloudflare` driver and the files-sdk drivers sign requests. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
 
 ## S3-compatible storage
 
-Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare-r2"` for Cloudflare R2.
+Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare"` for Cloudflare R2.
 
 ```sh
 pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner

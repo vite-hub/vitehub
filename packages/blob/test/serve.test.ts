@@ -838,7 +838,7 @@ describe("Blob streams on an R2 binding", () => {
   })
 
   async function serve(headers?: Record<string, string>) {
-    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }))
+    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }))
     const event = new H3Event(new Request("https://example.test/video", { headers }))
     const [error, body] = await storage.serve(event, "media/video.mp4")
     expect(error).toBeNull()

@@ -7,7 +7,7 @@
       "id": "cloudflare-kv-binding",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  kv: {\n    driver: 'cloudflare-kv-binding',\n    binding: 'KV',\n    namespaceId: '<kv-namespace-id>',\n  },"
+      "configOverride": "  kv: {\n    driver: 'cloudflare',\n    binding: 'KV',\n    namespaceId: '<kv-namespace-id>',\n  },"
     },
     {
       "id": "upstash",

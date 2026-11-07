@@ -75,7 +75,7 @@ describe("workspace types", () => {
     const githubOptions = { auth: false, repo: "acme/docs" } satisfies GitHubSourceOptions
     const globOptions = { include: "**/*.md" } satisfies GlobSourceOptions
     const mcpResourcesOptions = { server: { transport: { type: "http", url: "https://example.com/mcp" } } } satisfies McpResourcesSourceOptions
-    const githubStoreOptions = { provider: "github", repository: "acme/app", token: () => "github-token" } satisfies GitHubWorkspaceStoreOptions
+    const githubStoreOptions = { driver: "github", repository: "acme/app", token: () => "github-token" } satisfies GitHubWorkspaceStoreOptions
 
     expectTypeOf(fetchOptions).toMatchTypeOf<FetchSourceOptions>()
     expectTypeOf(githubOptions).toMatchTypeOf<GitHubSourceOptions>()
@@ -298,9 +298,9 @@ describe("workspace types", () => {
     await runtimeWorkspace.sync()
     expectTypeOf(await runtimeWorkspace.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     expectTypeOf(await runtimeWorkspace.sync({ details: "paths", snapshot: { message: "sync docs" }, sources: "all" })).toMatchTypeOf<WorkspaceSourceSyncResult>()
-    const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
-    const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
-    const lazyGithubWorkspaceOptions: WorkspaceModuleOptions = { store: { provider: "github", repository: () => "acme/app", token: () => "token" } }
+    const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { driver: "memory" } }
+    const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", driver: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
+    const lazyGithubWorkspaceOptions: WorkspaceModuleOptions = { store: { driver: "github", repository: () => "acme/app", token: () => "token" } }
     // @ts-expect-error Workspace Sources configure generated assets through assets.
     const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()

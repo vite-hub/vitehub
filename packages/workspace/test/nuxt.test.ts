@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provider: "memory" }, aliases?: Record<string, string>, dev = false) {
+async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { driver: "memory" }, aliases?: Record<string, string>, dev = false) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-artifacts-"))
   tempDirs.push(root)
   let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
@@ -39,7 +39,7 @@ async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provide
 
 describe("Workspace Nuxt module", () => {
   it.each([false, true])("configures the bundled Workspace assets registry for Nuxt (dev: %s)", async (dev) => {
-    const { nitroConfigHook, root } = await createNuxtHook({ provider: "memory" }, undefined, dev)
+    const { nitroConfigHook, root } = await createNuxtHook({ driver: "memory" }, undefined, dev)
     await mkdir(join(root, "server", "workspaces", "pages"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "pages", "config.ts"), "export default {}\n")
     const alias = { "#existing": join(root, "existing.ts") }
@@ -55,7 +55,7 @@ describe("Workspace Nuxt module", () => {
 
   it("preserves Nitro preset hosting in the registered Vite plugin", async () => {
     const { nitroConfigHook, root, vitePlugin } = await createNuxtHook({
-      provider: "github",
+      driver: "github",
       repository: "onmax/repo",
     })
     const nitroConfig: Record<string, unknown> = { preset: "cloudflare-module" }
@@ -95,7 +95,7 @@ describe("Workspace Nuxt module", () => {
         },
       },
     }
-    workspaceNuxt({ store: { provider: "memory" } }, nuxt)
+    workspaceNuxt({ store: { driver: "memory" } }, nuxt)
     await handler!({})
     expect(receivedServerDirs).toEqual([join(root, "server-custom"), join(layerRoot, "server")])
   })
@@ -105,7 +105,7 @@ describe("Workspace Nuxt module", () => {
     tempDirs.push(root)
     let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
     const vitePlugin = (await import("../src/vite.ts")).hubWorkspace({
-      store: { provider: "github", repository: "onmax/repo" },
+      store: { driver: "github", repository: "onmax/repo" },
     })
     const nuxt = {
       hook(name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
@@ -130,7 +130,7 @@ describe("Workspace Nuxt module", () => {
   })
 
   it("registers the default Cloudflare Artifacts binding and runtime in generated Nitro config", async () => {
-    const { nitroConfigHook, root } = await createNuxtHook({ provider: "cloudflare-artifacts" })
+    const { nitroConfigHook, root } = await createNuxtHook({ driver: "cloudflare" })
     const nitroConfig: Record<string, unknown> = {
       cloudflare: {
         wrangler: {
@@ -166,7 +166,7 @@ describe("Workspace Nuxt module", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "reports.ts"), [
       "export default {",
-      "  store: { binding: 'REPORT_ARTIFACTS', namespace: 'reports', provider: 'cloudflare-artifacts' },",
+      "  store: { binding: 'REPORT_ARTIFACTS', namespace: 'reports', driver: 'cloudflare' },",
       "}",
       "",
     ].join("\n"))
@@ -190,7 +190,7 @@ describe("Workspace Nuxt module", () => {
     tempDirs.push(root)
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "reports.ts"), [
-      "export default { store: { provider: 'cloudflare-artifacts' } }",
+      "export default { store: { driver: 'cloudflare' } }",
       "",
     ].join("\n"))
 
@@ -201,7 +201,7 @@ describe("Workspace Nuxt module", () => {
       cloudflare: { wrangler: { artifacts: [{ binding: "ENV_ARTIFACTS", namespace: "environment" }] } },
     })
     const registry = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
-    expect(registry).toContain('store: {"binding":"ENV_ARTIFACTS","namespace":"environment","provider":"cloudflare-artifacts"')
+    expect(registry).toContain('store: {"binding":"ENV_ARTIFACTS","namespace":"environment","driver":"cloudflare"')
   })
 
   it("does not load non-Artifact Workspace Definitions before Nuxt aliases are available", async () => {
@@ -209,7 +209,7 @@ describe("Workspace Nuxt module", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "aliased.ts"), [
       "import { workspaceRoot } from '~/workspace-options'",
-      "export default { root: workspaceRoot, store: { provider: 'memory' } }",
+      "export default { root: workspaceRoot, store: { driver: 'memory' } }",
       "",
     ].join("\n"))
 
@@ -220,11 +220,11 @@ describe("Workspace Nuxt module", () => {
     const { nitroConfigHook, root } = await createNuxtHook()
     const definitionRoot = join(root, "server", "workspaces")
     await mkdir(definitionRoot, { recursive: true })
-    await writeFile(join(definitionRoot, "artifact-options.ts"), "export type ArtifactOptions = { provider: 'cloudflare-artifacts' }\n")
+    await writeFile(join(definitionRoot, "artifact-options.ts"), "export type ArtifactOptions = { driver: 'cloudflare' }\n")
     await writeFile(join(definitionRoot, "typed.ts"), [
       "import { type ArtifactOptions, } from './artifact-options'",
       "import { workspaceRoot } from '#imports'",
-      "export default { root: workspaceRoot, store: { provider: 'memory' } } satisfies { store: ArtifactOptions | { provider: 'memory' } }",
+      "export default { root: workspaceRoot, store: { driver: 'memory' } } satisfies { store: ArtifactOptions | { driver: 'memory' } }",
       "",
     ].join("\n"))
 
@@ -237,14 +237,14 @@ describe("Workspace Nuxt module", () => {
     await mkdir(definitionRoot, { recursive: true })
     await writeFile(join(definitionRoot, "typed.ts"), [
       "type ArtifactStore = {",
-      "  provider: 'cloudflare-artifacts'",
+      "  driver: 'cloudflare'",
       "}",
-      "interface NestedStore { store: { provider: 'cloudflare-artifacts' } }",
-      "// provider: 'cloudflare-artifacts'",
-      "const example = \"provider: 'cloudflare-artifacts'\"",
-      "const unrelated = { provider: 'cloudflare-artifacts' }",
+      "interface NestedStore { store: { driver: 'cloudflare' } }",
+      "// driver: 'cloudflare'",
+      "const example = \"driver: 'cloudflare'\"",
+      "const unrelated = { driver: 'cloudflare' }",
       "import { workspaceRoot } from '#imports'",
-      "export default { root: workspaceRoot, example, unrelated, store: { provider: 'memory' } } satisfies NestedStore | { store: ArtifactStore | { provider: 'memory' } }",
+      "export default { root: workspaceRoot, example, unrelated, store: { driver: 'memory' } } satisfies NestedStore | { store: ArtifactStore | { driver: 'memory' } }",
       "",
     ].join("\n"))
 
@@ -257,7 +257,7 @@ describe("Workspace Nuxt module", () => {
     await mkdir(definitionRoot, { recursive: true })
     await writeFile(join(definitionRoot, "artifacts.ts"), [
       "import { workspaceRoot } from '#imports'",
-      "export default { root: workspaceRoot, store: { provider: 'cloudflare-artifacts' as const } }",
+      "export default { root: workspaceRoot, store: { driver: 'cloudflare' as const } }",
       "",
     ].join("\n"))
 
@@ -268,10 +268,10 @@ describe("Workspace Nuxt module", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-alias-"))
     tempDirs.push(root)
     const optionsFile = join(root, "workspace-options.ts")
-    const { nitroConfigHook, root: nuxtRoot } = await createNuxtHook({ provider: "memory" }, { "#workspace-options": optionsFile })
+    const { nitroConfigHook, root: nuxtRoot } = await createNuxtHook({ driver: "memory" }, { "#workspace-options": optionsFile })
     const definitionRoot = join(nuxtRoot, "server", "workspaces")
     await mkdir(definitionRoot, { recursive: true })
-    await writeFile(optionsFile, "export const store = { binding: 'ALIAS_ARTIFACTS', namespace: 'alias', provider: 'cloudflare-artifacts' } as const\n")
+    await writeFile(optionsFile, "export const store = { binding: 'ALIAS_ARTIFACTS', namespace: 'alias', driver: 'cloudflare' } as const\n")
     await writeFile(join(definitionRoot, "aliased-artifacts.ts"), [
       "import { store } from '#workspace-options'",
       "export default { store }",
@@ -285,13 +285,13 @@ describe("Workspace Nuxt module", () => {
     })
   })
 
-  it("registers a Definition binding with a computed provider", async () => {
+  it("registers a Definition binding with a computed driver", async () => {
     const { nitroConfigHook, root } = await createNuxtHook()
     const definitionRoot = join(root, "server", "workspaces")
     await mkdir(definitionRoot, { recursive: true })
     await writeFile(join(definitionRoot, "computed-artifacts.ts"), [
-      "const provider = ['cloudflare', 'artifacts'].join('-')",
-      "export default { store: { binding: 'COMPUTED_ARTIFACTS', namespace: 'computed', provider } }",
+      "const driver = ['cloud', 'flare'].join('')",
+      "export default { store: { binding: 'COMPUTED_ARTIFACTS', namespace: 'computed', driver } }",
       "",
     ].join("\n"))
 
@@ -306,7 +306,7 @@ describe("Workspace Nuxt module", () => {
     const { nitroConfigHook } = await createNuxtHook({
       binding: "CUSTOM_ARTIFACTS",
       namespace: "custom-workspaces",
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
     })
     const nitroConfig: Record<string, unknown> = {
       cloudflare: {
@@ -332,7 +332,7 @@ describe("Workspace Nuxt module", () => {
     const { nitroConfigHook } = await createNuxtHook({
       binding: "CUSTOM_ARTIFACTS",
       namespace: "workspace",
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
     })
 
     await expect(nitroConfigHook({

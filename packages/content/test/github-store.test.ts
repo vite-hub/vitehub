@@ -67,7 +67,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
   const workspace = `github-${process.pid}-${++workspaces}`
   registerWorkspace(workspace, {
     store: {
-      provider: "github",
+      driver: "github",
       repository: "onmax/repo",
       ...("token" in options ? (options.token === undefined ? {} : { token: options.token }) : { token: "token" }),
       branch: "main",

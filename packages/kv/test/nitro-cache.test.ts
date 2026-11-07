@@ -7,7 +7,7 @@ import createKVCacheDriver from "../src/runtime/nitro-cache.ts"
 
 vi.mock("#vitehub/kv/config", () => ({
   hosting: "cloudflare",
-  kv: { store: { binding: "KV", driver: "cloudflare-kv-binding" } },
+  kv: { store: { binding: "KV", driver: "cloudflare" } },
 }))
 
 // The cache driver imports the package entry, so both share the store resolved from the mocked config.

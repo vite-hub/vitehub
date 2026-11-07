@@ -246,7 +246,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       // A bucket name is unique only inside its jurisdiction.
       const buckets = new Map<string, CloudflareR2BucketTarget>()
       for (const store of resolvedStores(resolveOptions(), context.env)) {
-        if (store.driver !== "cloudflare-r2" || !store.bucketName) continue
+        if (store.driver !== "cloudflare" || !store.bucketName) continue
         buckets.set(`${store.jurisdiction ?? "default"}/${store.bucketName}`, { jurisdiction: store.jurisdiction, name: store.bucketName })
       }
       if (!buckets.size) return []
@@ -285,8 +285,8 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
     id: "blob:vercel-blob",
     provider: "vercel",
     async plan(context) {
-      const requested = resolvedStores(resolveOptions(), context.env).find(store => store.driver === "vercel-blob")
-      if (!requested || requested.driver !== "vercel-blob") return []
+      const requested = resolvedStores(resolveOptions(), context.env).find(store => store.driver === "vercel")
+      if (!requested || requested.driver !== "vercel") return []
 
       const config = resolveVercelProvisionConfig(context.env)
       const projectId = readEnv(context.env, "VERCEL_PROJECT_ID")

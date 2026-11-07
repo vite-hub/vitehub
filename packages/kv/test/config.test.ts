@@ -42,7 +42,7 @@ describe("normalizeKVOptions", () => {
     })).toEqual({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
         namespaceId: "namespace-from-env",
       },
     })
@@ -328,7 +328,7 @@ describe("Cloudflare integration", () => {
       }
     } = {}
     const config = normalizeKVOptions({
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       namespaceId: "namespace-id",
     }, {
       env: {},
@@ -348,9 +348,9 @@ describe("Cloudflare integration", () => {
     const target: { cloudflare?: { wrangler?: { kv_namespaces?: Array<{ binding: string, id?: string }> } } } = {}
     const config = normalizeKVOptions({
       stores: {
-        default: { binding: "CACHE", driver: "cloudflare-kv-binding", namespaceName: "app-cache" },
-        pinned: { binding: "PINNED", driver: "cloudflare-kv-binding", namespaceId: "configured-id", namespaceName: "pinned" },
-        unrecorded: { binding: "UNRECORDED", driver: "cloudflare-kv-binding", namespaceName: "unrecorded" },
+        default: { binding: "CACHE", driver: "cloudflare", namespaceName: "app-cache" },
+        pinned: { binding: "PINNED", driver: "cloudflare", namespaceId: "configured-id", namespaceName: "pinned" },
+        unrecorded: { binding: "UNRECORDED", driver: "cloudflare", namespaceName: "unrecorded" },
       },
     }, {
       env: {},

@@ -86,10 +86,10 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 }
 
 function normalizeQueueForHosting(queue: QueueModuleOptions | undefined, hosting: string | undefined) {
-  if (queue && typeof queue === "object" && Object.hasOwn(queue, "provider")) {
-    const provider = (queue as Record<string, unknown>).provider
-    const providerOnly = normalizeQueueOptions({ provider } as QueueModuleOptions, { hosting })
-    if (providerOnly?.provider && hosting && providerOnly.provider !== hosting) return undefined
+  if (queue && typeof queue === "object" && Object.hasOwn(queue, "driver")) {
+    const driver = (queue as Record<string, unknown>).driver
+    const driverOnly = normalizeQueueOptions({ driver } as QueueModuleOptions, { hosting })
+    if (driverOnly?.driver && hosting && driverOnly.driver !== hosting) return undefined
   }
   return normalizeQueueOptions(queue, { hosting })
 }
@@ -98,9 +98,9 @@ function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Recor
   const host = resolveHost({ nitro })
   const hosting = getHostingProvider(host)
   if (hosting) return hosting
-  // A Node server has no hosted Queue. Without an explicit provider, Queue runs in the server process.
-  if (host === "node") return normalizeQueueOptions(queue, { hosting: "node-server" })?.provider ?? "local"
-  return normalizeQueueForHosting(queue, hosting)?.provider || "vercel"
+  // A Node server has no hosted Queue. Without an explicit driver, Queue runs in the server process.
+  if (host === "node") return normalizeQueueOptions(queue, { hosting: "node-server" })?.driver ?? "local"
+  return normalizeQueueForHosting(queue, hosting)?.driver || "vercel"
 }
 
 function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
@@ -160,7 +160,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   kit.addHandler({ handler: middleware, middleware: true, route: "/**" }, "start")
   const queueHosting = resolveQueueHosting(queue, nitro)
   const resolvedVercelQueue = queueHosting === "vercel" ? normalizeQueueOptions(queue, { hosting: queueHosting }) : undefined
-  if (resolvedVercelQueue && resolvedVercelQueue.provider === "vercel" && hostsVercelQueueConsumers(nitro)) {
+  if (resolvedVercelQueue && resolvedVercelQueue.driver === "vercel" && hostsVercelQueueConsumers(nitro)) {
     addVercelQueueConsumers(kit, definitions, nitroOwnsPaths ? root : undefined)
   }
   if (queueHosting !== "cloudflare") {
@@ -174,7 +174,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   const cloudflareQueues = supportsCloudflareQueues(nitro)
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
   const resolvedQueue = normalizeQueueOptions(queue, { hosting: queueHosting })
-  const generated = createCloudflareQueueBindings(definitions, resolvedQueue?.provider === "cloudflare" ? resolvedQueue.namePrefix : undefined)
+  const generated = createCloudflareQueueBindings(definitions, resolvedQueue?.driver === "cloudflare" ? resolvedQueue.namePrefix : undefined)
   const baseNitro = {
     ...nitro,
     ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
@@ -186,7 +186,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
     contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
     return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
   }
-  const binding = resolvedQueue?.provider === "cloudflare" && typeof resolvedQueue.binding === "string" ? resolvedQueue.binding : undefined
+  const binding = resolvedQueue?.driver === "cloudflare" && typeof resolvedQueue.binding === "string" ? resolvedQueue.binding : undefined
   if (binding && generated.producers.length > 1) {
     throw queueErrorDiagnostics.QUEUE_BINDING_CONFLICT()
   }
@@ -239,8 +239,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       // The Console, `vitehub queue`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: "@vite-hub/queue/operations" }],
       inspect: () => {
-        const provider = normalizeQueueOptions(queue, { hosting })?.provider
-        if (!provider) return
+        const driver = normalizeQueueOptions(queue, { hosting })?.driver
+        if (!driver) return
         return {
           definitions: [{
             kind: "queue",
@@ -259,7 +259,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
             () => resolved?.root ?? process.cwd(),
             () => {
               const resolvedQueue = normalizeQueueOptions(queue, { hosting: "cloudflare" })
-              return resolvedQueue?.provider === "cloudflare" ? resolvedQueue.namePrefix : undefined
+              return resolvedQueue?.driver === "cloudflare" ? resolvedQueue.namePrefix : undefined
             },
           )],
         }
@@ -282,7 +282,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
           hosting = resolveQueueHosting(projectQueue, configuredNitro)
           const nitroHosting = getHostingProvider(resolveHost({ nitro: configuredNitro }))
           const resolvedQueue = normalizeQueueOptions(projectQueue, { hosting: nitroHosting })
-          nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : projectQueue
+          nitroQueue = resolvedQueue?.driver && nitroHosting && resolvedQueue.driver !== nitroHosting ? false : projectQueue
           cloudflareQueues = supportsCloudflareQueues(configuredNitro)
           localDevelopment = development
           // Nuxt can configure Nitro after another project's Vite config resolves.
@@ -320,7 +320,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = getHostingProvider(resolveHost({ nitro }))
       const resolvedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
-      nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : queue
+      nitroQueue = resolvedQueue?.driver && nitroHosting && resolvedQueue.driver !== nitroHosting ? false : queue
       validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
       localDevelopment = config.command === "serve" && !preview
       await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions, localDevelopment, internalOptions.importBase)

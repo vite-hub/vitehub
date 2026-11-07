@@ -8,7 +8,7 @@ import { createWorkspaceDriver } from "../src/mountx.ts"
 
 function workspace() {
   return createWorkspace({
-    ...defineWorkspace({ store: { provider: "memory" } }),
+    ...defineWorkspace({ store: { driver: "memory" } }),
     name: "mountx",
   })
 }

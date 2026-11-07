@@ -7,13 +7,13 @@ navigation.group: Storage
 icon: i-simple-icons-vercel
 ---
 
-To use Vercel Blob from a Vite app, set `preset: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub then selects the `vercel-blob` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`. ViteHub bundles it in the driver.
+To use Vercel Blob from a Vite app, set `preset: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub then selects the `vercel` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`. ViteHub bundles it in the driver.
 
 ## What Vercel Blob is
 
 [Vercel Blob](https://vercel.com/docs/vercel-blob) is the object storage of the Vercel platform. It keeps files such as uploads, images, and exports in a store. A store is private or public, and you cannot change that after you create it. A public store gives each file a URL that anyone with the link can open. A private store needs a token for every read. Each store lives in one region. Vercel Blob is available on all plans.
 
-ViteHub uses the Vercel SDK inside the `vercel-blob` driver. Your code calls the same `blob` API that it calls on Cloudflare R2, Netlify Blobs, S3, or the local disk.
+ViteHub uses the Vercel SDK inside the `vercel` driver. Your code calls the same `blob` API that it calls on Cloudflare R2, Netlify Blobs, S3, or the local disk.
 
 ## Set up Vercel Blob
 
@@ -28,7 +28,7 @@ export default defineConfig({
 })
 ```
 
-`blob: true` on the `vercel` preset selects `driver: 'vercel-blob'` with `access: 'public'`. For a private store, set the driver and the access mode yourself:
+`blob: true` on the `vercel` preset selects `driver: 'vercel'` with `access: 'public'`. For a private store, set the driver and the access mode yourself:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -38,7 +38,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'vercel',
-      blob: { driver: 'vercel-blob', access: 'private' },
+      blob: { driver: 'vercel', access: 'private' },
     }),
   ],
 })
@@ -52,13 +52,13 @@ On Vercel, ViteHub authenticates with [OIDC](https://vercel.com/docs/vercel-blob
 
 ViteHub picks credentials at runtime in this order:
 
-1. A `token` that you set in the `vercel-blob` store config.
+1. A `token` that you set in the `vercel` store config.
 2. OIDC, when `BLOB_STORE_ID` is set. The Vercel SDK reads the OIDC token itself.
 3. `BLOB_READ_WRITE_TOKEN`, for code that runs off Vercel, such as a CI job or another host. With `BLOB_STORE_ID` set and no OIDC token, the SDK also falls back to this token.
 
 When neither `BLOB_STORE_ID` nor `BLOB_READ_WRITE_TOKEN` is set at runtime, ViteHub throws `BLOB_C0009`.
 
-`vite dev` uses the local `fs` store when it infers Vercel Blob from these variables or from the Vercel preset, so development writes do not change the real store. To use the real store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel-blob'`, then run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+`vite dev` uses the local `fs` store when it infers Vercel Blob from these variables or from the Vercel preset, so development writes do not change the real store. To use the real store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel'`, then run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
 
 Create the store in one of two ways:
 
@@ -117,7 +117,7 @@ export default defineConfig({
     vitehub({
       preset: 'vercel',
       blob: {
-        driver: 'vercel-blob',
+        driver: 'vercel',
         access: 'private',
         serve: { route: '/files' },
       },
@@ -160,7 +160,7 @@ Some limits come from Vercel, and some come from the ViteHub driver. Read [Verce
 
 - A Vercel Function accepts a request body of at most 4.5 MB. `blob.handleUpload()` sends the file through your function, so keep `ensure.maxSize` under that limit. A larger request fails with `413`, and `vite dev` for Vercel fails the same way. See [Blob limits](/docs/blob/limits-and-errors#limits).
 - The [multipart upload](/docs/blob/server-api#multipart-uploads) route also sends each part through your function. Vercel Blob needs parts of at least 5 MiB, except the last one. On Vercel, a file larger than 4.5 MB therefore cannot use this route either.
-- The `vercel-blob` driver does not sign requests, so `blob.sign()` throws `BLOB_R0025`. ViteHub does not wrap Vercel client uploads.
+- The `vercel` driver does not sign requests, so `blob.sign()` throws `BLOB_R0025`. ViteHub does not wrap Vercel client uploads.
 - The driver rejects `customMetadata` with `BLOB_R0011`. [Media records](/docs/blob/media) still work, because ViteHub stores them as JSON objects in the same store.
 - ViteHub sets `allowOverwrite: true` by default, so a write to an existing pathname replaces the file. The Vercel SDK rejects that write by default. Set `allowOverwrite: false` to keep the Vercel behavior.
 - After an overwrite or a delete, the Vercel cache can serve the old file for up to 60 seconds.

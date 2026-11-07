@@ -6,8 +6,8 @@ import type {
   BrowserController,
   BrowserFeatures,
   BrowserHandoffOptions,
-  BrowserProviderSession,
-  BrowserProviderOpenOptions,
+  BrowserDriverSession,
+  BrowserDriverOpenOptions,
   BrowserSession,
   BrowserSessionInfo,
   BrowserSessionRef,
@@ -35,10 +35,10 @@ export type {
   BrowserHandoffOptions,
   BrowserIsolation,
   BrowserPolicy,
-  BrowserProvider,
-  BrowserProviderInfo,
-  BrowserProviderOpenOptions,
-  BrowserProviderSession,
+  BrowserDriver,
+  BrowserDriverInfo,
+  BrowserDriverOpenOptions,
+  BrowserDriverSession,
   BrowserSession,
   BrowserSessionInfo,
   BrowserSessionRef,
@@ -72,7 +72,7 @@ interface HandoffRecord<TConnection> {
   expiresAt: number
   features: BrowserFeatures
   lease?: Lease
-  providerSession: BrowserProviderSession<TConnection>
+  providerSession: BrowserDriverSession<TConnection>
   publicId: string
   timer: ReturnType<typeof setTimeout>
 }
@@ -96,10 +96,10 @@ function assertAudience(value: unknown): asserts value is string {
 }
 
 function mergedFeatures(
-  provider: BrowserFeatures,
-  session: BrowserProviderSession["features"],
+  driver: BrowserFeatures,
+  session: BrowserDriverSession["features"],
 ): BrowserFeatures {
-  return { ...defaultFeatures, ...provider, ...session }
+  return { ...defaultFeatures, ...driver, ...session }
 }
 
 function traceEvent(name: string, attributes: Record<string, unknown>): TraceEvent {
@@ -112,7 +112,7 @@ function traceEvent(name: string, attributes: Record<string, unknown>): TraceEve
 
 async function releaseResource<TConnection>(record: {
   lease?: Lease
-  providerSession: BrowserProviderSession<TConnection>
+  providerSession: BrowserDriverSession<TConnection>
 }): Promise<void> {
   let closeError: unknown
   try {
@@ -148,7 +148,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
 
   constructor(
     private readonly owner: BrowserClientImpl<TConnection>,
-    private readonly providerSession: BrowserProviderSession<TConnection>,
+    private readonly providerSession: BrowserDriverSession<TConnection>,
     private readonly features: BrowserFeatures,
     private readonly lease: Lease | undefined,
     options: { claimed?: boolean, publicId?: string } = {},
@@ -162,7 +162,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       expiresAt: timestamp(this.providerSession.expiresAt),
       features: { ...this.features },
       id: this.id,
-      provider: this.owner.provider.name,
+      provider: this.owner.driver.name,
       state: this.state,
     }
   }
@@ -177,7 +177,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     this.assertState("attach a controller to", "released")
     if (this.attaching || this.closing) throw browserSessionStateError("attach a controller to", "controlled")
     if (this.claimed && !controller.features.attachExistingSession) {
-      throw browserLiveHandoffUnsupportedError(this.owner.provider.name, controller.name)
+      throw browserLiveHandoffUnsupportedError(this.owner.driver.name, controller.name)
     }
 
     this.attaching = true
@@ -186,7 +186,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     let releaseAttempted = false
     try {
       const attached = await controller.attach(this.providerSession.connection, {
-        provider: this.owner.provider,
+        driver: this.owner.driver,
         sessionId: this.id,
       })
       let emitDetach = false
@@ -275,7 +275,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     }
     assertAudience(options.audience)
     if (!this.features.liveHandoff || !this.lastControllerSupportsHandoff) {
-      throw browserLiveHandoffUnsupportedError(this.owner.provider.name, this.controller)
+      throw browserLiveHandoffUnsupportedError(this.owner.driver.name, this.controller)
     }
 
     const ref = this.owner.createHandoff({
@@ -336,11 +336,11 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
 }
 
 class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
-  readonly provider: CreateBrowserOptions<TConnection>["provider"]
+  readonly driver: CreateBrowserOptions<TConnection>["driver"]
   private readonly handoffs = new Map<string, HandoffRecord<TConnection>>()
 
   constructor(private readonly options: CreateBrowserOptions<TConnection>) {
-    this.provider = options.provider
+    this.driver = options.driver
   }
 
   async emit(
@@ -350,25 +350,25 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
   ): Promise<void> {
     await this.options.trace?.(traceEvent(name, {
       ...attributes,
-      "browser.provider": this.provider.name,
+      "browser.provider": this.driver.name,
       "browser.session.id": session.id,
     }))
   }
 
-  async open(options: BrowserProviderOpenOptions = {}): Promise<BrowserSession<TConnection>> {
+  async open(options: BrowserDriverOpenOptions = {}): Promise<BrowserSession<TConnection>> {
     const idleTimeoutMs = options.idleTimeoutMs ?? this.options.policy?.idleTimeoutMs
-    const lease = await this.options.leaseStore?.acquire(`browser:${this.provider.name}`, {
+    const lease = await this.options.leaseStore?.acquire(`browser:${this.driver.name}`, {
       ttl: idleTimeoutMs,
     })
-    let providerSession: BrowserProviderSession<TConnection>
+    let providerSession: BrowserDriverSession<TConnection>
     try {
-      providerSession = await this.provider.open({ ...options, idleTimeoutMs })
+      providerSession = await this.driver.open({ ...options, idleTimeoutMs })
     }
     catch (error) {
       await lease?.release()
       throw error
     }
-    const features = mergedFeatures(this.provider.features, providerSession.features)
+    const features = mergedFeatures(this.driver.features, providerSession.features)
     const session = new BrowserSessionImpl(this, providerSession, features, lease)
     await this.emitAcquisition("browser.session.acquire", session, { lease, providerSession })
     return session
@@ -473,8 +473,8 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
 }
 
 export function createBrowser<TConnection>(options: CreateBrowserOptions<TConnection>): BrowserClient<TConnection> {
-  if (!options || typeof options !== "object" || !options.provider) {
-    throw browserErrorDiagnostics.BROWSER_R0004({ message: "[vitehub:browser] createBrowser() requires a provider." })
+  if (!options || typeof options !== "object" || !options.driver) {
+    throw browserErrorDiagnostics.BROWSER_R0004({ message: "[vitehub:browser] createBrowser() requires a driver." })
   }
   return new BrowserClientImpl(options)
 }

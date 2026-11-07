@@ -2,7 +2,7 @@ import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 
-import type { QueueProvider } from "./types.ts"
+import type { QueueDriver } from "./types.ts"
 import { queueErrorDiagnostics, type QueueProviderOperation } from "./error-diagnostics.ts"
 
 export type { QueueProviderOperation }
@@ -36,7 +36,7 @@ export function normalizePublicQueueIdentifier(value: unknown): string | undefin
  * Any failure becomes `QUEUE_PROVIDER_FAILED` with the failure in `cause`.
  */
 export async function queueProviderResult<TData>(
-  provider: QueueProvider,
+  provider: QueueDriver,
   operation: QueueProviderOperation,
   run: () => Promise<TData> | TData,
 ): Promise<Result<TData, "QUEUE_PROVIDER_FAILED">> {

@@ -18,7 +18,7 @@ function runtime() {
 
 async function workflowState() {
   const state = await import("@vite-hub/workflow/runtime/state")
-  return { ...state, getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }
+  return { ...state, getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }
 }
 
 describe("Workflow preparation Invocation journal", () => {

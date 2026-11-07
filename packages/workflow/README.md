@@ -17,7 +17,7 @@ Use a Workflow when the application needs a run id, durable state, retries, canc
 pnpm add @vite-hub/workflow
 ```
 
-Then install the dependency required by the selected provider:
+Then install the dependency required by the selected driver:
 
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
@@ -50,7 +50,7 @@ Both external operations receive keys derived from stable input. Preserve that i
 
 ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file name becomes the name passed to runtime helpers.
 
-## Configure the provider
+## Configure the driver
 
 ```ts
 // server/workflow-runtime.ts
@@ -68,7 +68,7 @@ const postgresUrl = {
 } as const;
 
 export const workflowConfig = {
-  provider: "openworkflow",
+  driver: "openworkflow",
   postgres: { url: postgresUrl },
 } satisfies ResolvedWorkflowOptions;
 
@@ -100,7 +100,7 @@ export default defineConfig({
 });
 ```
 
-The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
+The Vite config, application process, and worker below share one driver config. The runtime installer also registers the same definitions in both processes. Set `driver` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a driver.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 

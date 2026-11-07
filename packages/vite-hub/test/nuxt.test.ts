@@ -479,7 +479,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
-    mocks.vitehub.mockReturnValue([hubKv({ driver: "cloudflare-kv-binding", binding: "KV" })])
+    mocks.vitehub.mockReturnValue([hubKv({ driver: "cloudflare", binding: "KV" })])
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
     await viteHubNuxtModule({ kv: true, preset: "cloudflare" }, nuxt)
     const config: Record<string, unknown> = {}
@@ -735,7 +735,7 @@ describe("ViteHub Nuxt integration", () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options.vite, {
       blob: { driver: "r2" },
-      kv: { binding: "KV", driver: "cloudflare-kv-binding" },
+      kv: { binding: "KV", driver: "cloudflare" },
     })
     const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
     const nitroConfig: { rollupConfig: { plugins: Plugin } } = {
@@ -762,7 +762,7 @@ describe("ViteHub Nuxt integration", () => {
     const context = { marker: "nitro-context" }
     expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
     expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
-      'export const kv = {"binding":"KV","driver":"cloudflare-kv-binding"}',
+      'export const kv = {"binding":"KV","driver":"cloudflare"}',
     )
     expect(Reflect.apply(blobResolver.resolveId as Function, context, ["#vitehub/blob/config"])).toBe("\0#vitehub/blob/config")
     expect(Reflect.apply(blobResolver.load as Function, context, ["\0#vitehub/blob/config"])).toBe(
@@ -892,7 +892,7 @@ describe("ViteHub Nuxt integration", () => {
   it("stubs the Upstash driver for a KV store on another driver and keeps the KV plugin's config", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt(false, [{
       name: "@vite-hub/kv/vite",
-      api: { getConfig: () => ({ kv: { store: { binding: "KV", driver: "cloudflare-kv-binding" as const } } }) },
+      api: { getConfig: () => ({ kv: { store: { binding: "KV", driver: "cloudflare" as const } } }) },
     }])
     const nitroConfig: Record<string, unknown> = {}
 
@@ -1237,7 +1237,7 @@ describe("ViteHub Nuxt integration", () => {
       preset: "cloudflare",
       agent: true,
       console: { auth: false, authorize: hostManagedAuthorize },
-      database: { driver: "d1" },
+      database: { driver: "cloudflare" },
     }, application.nuxt)
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`d1: { binding: "${config ? "APP_DB" : "DB"}",`)
@@ -1259,7 +1259,7 @@ describe("ViteHub Nuxt integration", () => {
     await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", 'export default defineDatabase({ schema: {} })\n')
     const application = createNuxt(false)
     Object.assign(application.nuxt.options, {
-      database: { binding: "TOP_LEVEL_DB", driver: "d1" },
+      database: { binding: "TOP_LEVEL_DB", driver: "cloudflare" },
     })
     await viteHubNuxtModule({
       preset: "cloudflare",
@@ -1272,7 +1272,7 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
-  it.each([false, { binding: "REPLAY_DB", databaseId: "replay-id", databaseName: "replayed", driver: "d1" as const }])("uses replayed Database configuration for the Cloudflare journal: %j", async (database) => {
+  it.each([false, { binding: "REPLAY_DB", databaseId: "replay-id", databaseName: "replayed", driver: "cloudflare" as const }])("uses replayed Database configuration for the Cloudflare journal: %j", async (database) => {
     await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", 'export default defineDatabase({ schema: {} })\n')
     const application = createNuxt(false, [{
@@ -1281,7 +1281,7 @@ describe("ViteHub Nuxt integration", () => {
     }])
     await viteHubNuxtModule({
       preset: "cloudflare", agent: true, console: { auth: false, authorize: hostManagedAuthorize },
-      database: { binding: "INITIAL_DB", databaseId: "initial-id", databaseName: "initial", driver: "d1" },
+      database: { binding: "INITIAL_DB", databaseId: "initial-id", databaseName: "initial", driver: "cloudflare" },
     }, application.nuxt)
     await application.runNitroConfigHook(nitroOptions(application.nuxt))
 
@@ -1856,7 +1856,7 @@ describe("ViteHub Nuxt integration", () => {
       agent: true,
       console: { auth: false },
       preset: "netlify",
-      workflow: { provider: "vercel" },
+      workflow: { driver: "vercel" },
     }, explicit.nuxt)
     await expect(generatedConsoleSections()).resolves.toContain("workflows")
   })
@@ -2163,7 +2163,7 @@ describe("ViteHub Nuxt integration", () => {
     await mkdir(resolve(definition, "..", "workspace"), { recursive: true })
     await writeFile(
       definition,
-      `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
+      `export default defineWorkspace({ store: { driver: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
     )
     try {
       const development = createNuxt(true)

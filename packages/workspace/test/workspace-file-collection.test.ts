@@ -19,7 +19,7 @@ const records = [
 const articleSchema = v.object({ category: v.optional(v.string()), slug: v.string(), title: v.string() })
 
 async function createWorkspace(name: string, content: unknown = records) {
-  registerWorkspace(name, defineWorkspace({ store: { provider: "memory" } }))
+  registerWorkspace(name, defineWorkspace({ store: { driver: "memory" } }))
   const workspace = useWorkspace(name, { mode: "write" })
   await workspace.fs.writeFile("data/items.json", JSON.stringify(content))
   return workspace

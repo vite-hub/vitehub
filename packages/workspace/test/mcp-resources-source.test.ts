@@ -34,7 +34,7 @@ afterEach(() => {
 describe("MCP resource workspace sources", () => {
   it("exposes MCP resources through the workspace file tree", async () => {
     registerWorkspace("nuxt-mcp", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         nuxt: mcpResources({
           mount: "nuxt",
@@ -62,7 +62,7 @@ describe("MCP resource workspace sources", () => {
 
   it("loads inferred MCP resource Sources through their provider boundary", async () => {
     registerWorkspace("nuxt-mcp", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         nuxt: {
           mount: "nuxt",

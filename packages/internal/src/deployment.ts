@@ -5,8 +5,8 @@ export type DeploymentHost = "cloudflare" | "deno-deploy" | "netlify" | "self-ho
 export type DeploymentRuntime = "deno" | "node" | "workerd"
 export type DeploymentService = "blob" | "browser" | "queue" | "rateLimit" | "realtime" | "sandbox"
 
-type SupportedDeploymentServicePolicy<TAdapter extends string, TGuarantee extends string = "native"> = {
-  adapter: TAdapter
+type SupportedDeploymentServicePolicy<TDriver extends string, TGuarantee extends string = "native"> = {
+  driver: TDriver
   guarantee: TGuarantee
   supported: true
 }
@@ -17,7 +17,7 @@ type UnsupportedDeploymentServicePolicy = {
 }
 
 export interface DeploymentServices {
-  blob: SupportedDeploymentServicePolicy<"cloudflare-r2" | "fs" | "netlify-blobs" | "vercel-blob", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
+  blob: SupportedDeploymentServicePolicy<"cloudflare" | "fs" | "netlify-blobs" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   browser: SupportedDeploymentServicePolicy<"cloudflare"> | UnsupportedDeploymentServicePolicy
   queue: SupportedDeploymentServicePolicy<"cloudflare" | "local" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
@@ -52,12 +52,12 @@ const plans = {
     preset: "cloudflare",
     runtime: "workerd",
     services: {
-      blob: { adapter: "cloudflare-r2", guarantee: "native", supported: true },
-      browser: { adapter: "cloudflare", guarantee: "native", supported: true },
-      queue: { adapter: "cloudflare", guarantee: "native", supported: true },
-      rateLimit: { adapter: "cloudflare", guarantee: "native", supported: true },
-      realtime: { adapter: "cloudflare", guarantee: "native", supported: true },
-      sandbox: { adapter: "cloudflare", guarantee: "native", supported: true },
+      blob: { driver: "cloudflare", guarantee: "native", supported: true },
+      browser: { driver: "cloudflare", guarantee: "native", supported: true },
+      queue: { driver: "cloudflare", guarantee: "native", supported: true },
+      rateLimit: { driver: "cloudflare", guarantee: "native", supported: true },
+      realtime: { driver: "cloudflare", guarantee: "native", supported: true },
+      sandbox: { driver: "cloudflare", guarantee: "native", supported: true },
     },
   },
   deno: {
@@ -86,7 +86,7 @@ const plans = {
     preset: "netlify",
     runtime: "node",
     services: {
-      blob: { adapter: "netlify-blobs", guarantee: "native", supported: true },
+      blob: { driver: "netlify-blobs", guarantee: "native", supported: true },
       browser: unsupported("Netlify has no built-in Browser Provider."),
       queue: unsupported(
         "Netlify has no built-in Queue Provider with ViteHub's delivery contract.",
@@ -103,11 +103,11 @@ const plans = {
     preset: "node",
     runtime: "node",
     services: {
-      blob: { adapter: "fs", guarantee: "single-host", supported: true },
+      blob: { driver: "fs", guarantee: "single-host", supported: true },
       browser: unsupported("The Node preset has no built-in Browser Provider."),
-      queue: { adapter: "local", guarantee: "single-host", supported: true },
-      rateLimit: { adapter: "memory", guarantee: "process-local", supported: true },
-      realtime: { adapter: "memory", guarantee: "process-local", supported: true },
+      queue: { driver: "local", guarantee: "single-host", supported: true },
+      rateLimit: { driver: "memory", guarantee: "process-local", supported: true },
+      realtime: { driver: "memory", guarantee: "process-local", supported: true },
       sandbox: unsupported("The Node preset has no built-in isolated Sandbox Provider."),
     },
   },
@@ -122,12 +122,12 @@ const plans = {
     preset: "vercel",
     runtime: "node",
     services: {
-      blob: { adapter: "vercel-blob", guarantee: "native", supported: true },
+      blob: { driver: "vercel", guarantee: "native", supported: true },
       browser: unsupported("Vercel has no built-in Browser Provider."),
-      queue: { adapter: "vercel", guarantee: "native", supported: true },
+      queue: { driver: "vercel", guarantee: "native", supported: true },
       rateLimit: unsupported("Vercel has no built-in distributed Rate Limit driver."),
       realtime: unsupported("Vercel has no shared room authority for Realtime."),
-      sandbox: { adapter: "vercel", guarantee: "native", supported: true },
+      sandbox: { driver: "vercel", guarantee: "native", supported: true },
     },
   },
 } as const satisfies Record<DeploymentPreset, DeploymentPlan>

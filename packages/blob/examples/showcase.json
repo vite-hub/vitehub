@@ -8,14 +8,14 @@
       "id": "cloudflare-r2",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  blob: {\n    driver: 'cloudflare-r2',\n    binding: 'BLOB',\n    bucketName: '<bucket-name>',\n  },"
+      "configOverride": "  blob: {\n    driver: 'cloudflare',\n    binding: 'BLOB',\n    bucketName: '<bucket-name>',\n  },"
     },
     {
       "id": "vercel-blob",
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
       "darkInvert": true,
-      "configOverride": "  blob: {\n    driver: 'vercel-blob',\n  },",
+      "configOverride": "  blob: {\n    driver: 'vercel',\n  },",
       "envOverride": "BLOB_READ_WRITE_TOKEN=<blob-read-write-token>"
     },
     {

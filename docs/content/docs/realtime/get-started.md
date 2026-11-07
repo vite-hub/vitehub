@@ -20,7 +20,7 @@ pnpm add vite-hub @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3
 pnpm add -D nitro
 ```
 
-Enable Workspace and Realtime. The memory authority is suitable for local
+Enable Workspace and Realtime. The `memory` driver is suitable for local
 development and a single-process Node server. Keep the Vue plugin from your
 application; Nitro consumes the generated WebSocket route configuration.
 
@@ -34,7 +34,7 @@ export default defineConfig({
     vue(),
     vitehub({
       preset: 'node',
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
       workspace: true,
     }),
   ],
@@ -64,7 +64,7 @@ store matches the local, single-process setup above.
 import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
-  store: { provider: 'memory' },
+  store: { driver: 'memory' },
   rules: {
     '/**': { write: true, mediaType: 'text/markdown' },
   },
@@ -140,7 +140,7 @@ second tab and verify that the first updates too. Both editors use the same
 Room updates synchronize the editors immediately. Realtime writes the Markdown
 file to the Workspace 2 seconds after the last edit, at most every 10 seconds
 while you keep typing, and when the last tab closes. `realtime.history.checkpoint()`
-also commits it to Workspace history. Both the room authority and Workspace
+also commits it to Workspace history. Both the room and Workspace
 store in this tutorial are in memory, so restarting the server loses their
 state. Use a durable setup before relying on documents surviving a restart.
 

@@ -70,7 +70,7 @@ function localHost(): WorkspaceSessionHost {
 
 async function docsWorkspace() {
   const docs = createWorkspace({
-    ...defineWorkspace({ store: { provider: "memory" } }),
+    ...defineWorkspace({ store: { driver: "memory" } }),
     name: `disposable-${crypto.randomUUID()}`,
   })
   await docs.writeFile("README.md", "# Docs\n")

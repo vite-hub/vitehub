@@ -52,7 +52,7 @@ export default defineConfig({
 ```
 
 ::warning
-Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with a connected store (`BLOB_STORE_ID`) for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
+Vercel-hosted state needs hosted stores. Use `driver: 'vercel'` with a connected store (`BLOB_STORE_ID`) for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
 ::
 
 Database Definitions own tables and identity, while the Database Integration selects the hosted connection used by Vercel output. Use Runtime Env declarations for Marketplace-provisioned credentials so generated output reads them at runtime.

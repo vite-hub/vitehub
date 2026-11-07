@@ -15,13 +15,13 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-async function createFs(provider: "memory" | "local") {
+async function createFs(driver: "memory" | "local") {
   const root = await mkdtemp(join(tmpdir(), "vitehub-copy-overlap-"))
   roots.push(root)
   registerWorkspace("copy-overlap", defineWorkspace({
-    store: provider === "local"
-      ? { provider, root, locks: "process" }
-      : { provider },
+    store: driver === "local"
+      ? { driver, root, locks: "process" }
+      : { driver },
   }))
   return useWorkspace("copy-overlap", { mode: "write" }).fs
 }

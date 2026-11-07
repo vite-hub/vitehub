@@ -161,7 +161,7 @@ describe("database provision step", () => {
     const rootDir = await createDefaultApp()
     const fetchImpl = vi.fn(async () => jsonResponse({ success: true, result: [{ name: "app-db", uuid: "uuid-app" }] })) as unknown as typeof globalThis.fetch
 
-    const actions = await createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "d1" }).plan(provisionContext(fetchImpl))
+    const actions = await createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "cloudflare" }).plan(provisionContext(fetchImpl))
 
     expect(actions).toHaveLength(1)
     await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { d1: { default: "uuid-app" } } } })
@@ -176,7 +176,7 @@ describe("database provision step", () => {
 
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: "nuxt-content",
-      driver: "d1",
+      driver: "cloudflare",
       nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 
@@ -196,7 +196,7 @@ describe("database provision step", () => {
 
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: " content-db ",
-      driver: "d1",
+      driver: "cloudflare",
       nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 
@@ -213,7 +213,7 @@ describe("database provision step", () => {
     })) as unknown as typeof globalThis.fetch
     const actions = await createDatabaseProvisionStep(() => rootDir, {
       databaseName: "vitehub-playground-db",
-      driver: "d1",
+      driver: "cloudflare",
       nuxtHostResource: true,
     }).plan(provisionContext(fetchImpl))
 

@@ -465,7 +465,7 @@ describe("hubDb", () => {
   it.each([true, { url: "https://d1.example.com" }] as const)("inspects inherited cloudflare.http as remote: %j", async (http) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
-    const plugin = hubDb({ cloudflare: { http }, driver: "d1" })
+    const plugin = hubDb({ cloudflare: { http }, driver: "cloudflare" })
     await resolveConfigResolved(plugin)({ root: rootDir })
     const inspect = plugin.vitehub?.inspect
     const inspection = typeof inspect === "function" ? await inspect() : undefined
@@ -545,7 +545,7 @@ describe("hubDb", () => {
         return { bind: () => ({ raw: async () => [["host note"]] }) }
       },
     }
-    const plugin = hubDb({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db", driver: "d1" })
+    const plugin = hubDb({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db", driver: "cloudflare" })
     const server = await createViteServer({ configFile: false, plugins: [plugin], root: rootDir, server: { host: "127.0.0.1", port: 0, watch: null } })
     try {
       await server.listen()
@@ -1062,7 +1062,7 @@ describe("hubDb", () => {
     const definition = await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
       cloudflare: "binding: 'HOST_DB', databaseId: 'application-id', databaseName: 'application',",
     })
-    const plugin = hubDb({ driver: "d1", binding: "HOST_DB", databaseId: "host-id", databaseName: "host" })
+    const plugin = hubDb({ driver: "cloudflare", binding: "HOST_DB", databaseId: "host-id", databaseName: "host" })
     const server = await createViteServer({
       configFile: false,
       plugins: [plugin],

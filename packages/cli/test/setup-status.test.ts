@@ -33,7 +33,7 @@ describe("vitehub status", () => {
       packageManager: "pnpm",
       schemaVersion: 1,
     })
-    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { adapter: "cloudflare-kv-binding", level: "native" } })
+    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { driver: "cloudflare", level: "native" } })
   })
 
   it.each([

@@ -4,7 +4,7 @@ import { getRateLimitRuntimeConfig, listMemoryRateLimiters } from "./runtime/sta
 
 import type { RateLimitCounterScope, RateLimiter, RateLimitRuntimeConfig, RateLimitWindow } from "./types.ts"
 
-type RateLimitRuntimeProvider = RateLimitRuntimeConfig["provider"]
+type RateLimitRuntimeDriver = RateLimitRuntimeConfig["driver"]
 
 /** Counter of one key for one policy. `peekRateLimit()` reads it without consuming a token. */
 export interface RateLimitCounterSnapshot {
@@ -20,7 +20,7 @@ export interface RateLimitCounterSnapshot {
 interface RateLimitCounterTarget {
   key: string
   name: string
-  provider: RateLimitRuntimeProvider
+  provider: RateLimitRuntimeDriver
 }
 
 export type RateLimitPeekInspection =
@@ -65,7 +65,7 @@ function limitersFor(target: RateLimitCounterTarget): RateLimiter[] | undefined 
  */
 export async function peekRateLimit(name: string, key: string): Promise<RateLimitPeekInspection> {
   assertTarget(name, key)
-  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: getRateLimitRuntimeConfig().provider }
+  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: getRateLimitRuntimeConfig().driver }
   const limiters = limitersFor(target)
   if (!limiters) return { ...target, reason: cloudflareRateLimitCounterUnsupportedReason, status: "unsupported" }
   if (limiters.length === 0) return { ...target, reason: unusedReason, status: "unused" }
@@ -92,7 +92,7 @@ export async function peekRateLimit(name: string, key: string): Promise<RateLimi
  */
 export async function resetRateLimit(name: string, key: string): Promise<RateLimitResetInspection> {
   assertTarget(name, key)
-  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: getRateLimitRuntimeConfig().provider }
+  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: getRateLimitRuntimeConfig().driver }
   const limiters = limitersFor(target)
   if (!limiters) return { ...target, reason: cloudflareRateLimitCounterUnsupportedReason, status: "unsupported" }
   for (const limiter of limiters) {

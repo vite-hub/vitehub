@@ -56,7 +56,7 @@ function createR2Storage() {
     accessKeyId: "access-key",
     binding: "BLOB",
     bucketName: "private-audio",
-    driver: "cloudflare-r2",
+    driver: "cloudflare",
     secretAccessKey: "secret-key",
   }))
 }
@@ -149,7 +149,7 @@ describe("signed Blob requests", () => {
       accessKeyId: "access-key",
       binding: "BLOB",
       bucketName: "private-audio",
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       jurisdiction: "eu",
       secretAccessKey: "secret-key",
     }))
@@ -167,7 +167,7 @@ describe("signed Blob requests", () => {
       accessKeyId: "access-key",
       binding: "BLOB",
       bucketName: "private-audio",
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       jurisdiction: "eu",
       secretAccessKey: "secret-key",
     }))
@@ -186,7 +186,7 @@ describe("signed Blob requests", () => {
       createCloudflareDriver({
         binding: "BLOB",
         bucketName: "private-audio",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
       }),
     )
 
@@ -195,7 +195,7 @@ describe("signed Blob requests", () => {
     expect(signed).toBeUndefined()
     expect(error).toMatchObject({
       code: "BLOB_OPERATION_FAILED",
-      details: { operation: "sign", store: "cloudflare-r2" },
+      details: { operation: "sign", store: "cloudflare" },
     })
     expect(error?.cause).toMatchObject({
       message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials.",

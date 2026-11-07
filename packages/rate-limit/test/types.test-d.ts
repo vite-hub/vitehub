@@ -56,9 +56,9 @@ it("types custom and provider drivers", async () => {
   expectTypeOf(value).toEqualTypeOf<RateLimitDriverResult>()
   void unavailable
   createRateLimiter({ driver: cloudflareRateLimitDriver({ binding: { limit: async () => ({ success: true }) } }), limit: 2, window: "10s" })
-  hubRateLimit({ namespace: "types-test", provider: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
+  hubRateLimit({ namespace: "types-test", driver: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
   expectTypeOf(discoverRateLimitDeclarations({ rootDir: "." })).toEqualTypeOf<RateLimitDeclaration[]>()
 
-  // @ts-expect-error kv is not a Rate Limit provider.
-  hubRateLimit({ provider: "kv" })
+  // @ts-expect-error kv is not a Rate Limit driver.
+  hubRateLimit({ driver: "kv" })
 })

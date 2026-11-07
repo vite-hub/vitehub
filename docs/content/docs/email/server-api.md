@@ -8,7 +8,7 @@ icon: i-lucide-code-2
 
 ## Public imports
 
-Use the `vite-hub` paths for framework APIs. Select `resend` or `cloudflare-email` in Vite config.
+Use the `vite-hub` paths for framework APIs. Select `resend` or `cloudflare` in Vite config.
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |

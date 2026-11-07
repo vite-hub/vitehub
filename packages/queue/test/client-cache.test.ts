@@ -7,7 +7,7 @@ import { dynamicQueue } from "../src/runtime/client.ts"
 import type { QueueClient } from "../src/types.ts"
 
 const registry = { welcome: async () => ({ handler: async () => {} }) }
-const config = { provider: "vercel", region: "iad1" } as const
+const config = { driver: "vercel", region: "iad1" } as const
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -22,7 +22,7 @@ function deferred<T>() {
 function createClient() {
   return createVercelQueueClient({
     client: { handleCallback: () => async () => new Response(), send: async () => ({ messageId: "message-1" }) },
-    provider: "vercel",
+    driver: "vercel",
     topic: "welcome",
   })
 }

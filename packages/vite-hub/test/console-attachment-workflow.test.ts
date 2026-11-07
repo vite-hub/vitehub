@@ -45,7 +45,7 @@ it.each(["import", "connect", "registration", "dispatch"] as const)("rolls back 
     if (specifier === "openworkflow/sqlite") return { BackendSqlite: { connect } } as never
     throw new Error(`Unexpected import: ${specifier}`)
   })
-  setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+  setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
   const agent = defineAgent({ name: `console-upload-${stage}`, driver: { run: () => "unreachable" }, runtime: workflow(`console-upload-${stage}`) })
   await expect(withConsoleInputMessage("", { files }, (message, onInputHandoff) => startAgentInvocation(
     agent,

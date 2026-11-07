@@ -127,11 +127,11 @@ it.each<{
   final: WorkflowModuleOptions
   cloudflare: boolean
 }>([
-  { initial: { provider: "vercel" }, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
-  { initial: false, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
-  { initial: { provider: "cloudflare", binding: "EARLY" }, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
-  { initial: { provider: "cloudflare" }, final: false, cloudflare: false },
-  { initial: { provider: "cloudflare" }, final: { provider: "openworkflow" }, cloudflare: false },
+  { initial: { driver: "vercel" }, final: { driver: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { initial: false, final: { driver: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { initial: { driver: "cloudflare", binding: "EARLY" }, final: { driver: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { initial: { driver: "cloudflare" }, final: false, cloudflare: false },
+  { initial: { driver: "cloudflare" }, final: { driver: "openworkflow" }, cloudflare: false },
 ])("uses the final Workflow config for Nitro: $initial -> $final", async ({ initial, final, cloudflare }) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-final-nitro-"))
   try {

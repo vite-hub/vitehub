@@ -7,7 +7,7 @@ import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueProviderOptions, QueueEnqueueOptions } from "../types.ts"
+import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueDriverOptions, QueueEnqueueOptions } from "../types.ts"
 
 interface CloudflareSendOptions {
   contentType?: QueueEnqueueOptions["contentType"]
@@ -128,7 +128,7 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
   }
 }
 
-export function createCloudflareQueueClient(provider: CloudflareQueueProviderOptions): CloudflareQueueClient {
+export function createCloudflareQueueClient(provider: CloudflareQueueDriverOptions): CloudflareQueueClient {
   if (typeof provider.binding === "undefined" || typeof provider.binding === "string") {
     // A binding name means the runtime looked it up in the request env and did not find it.
     const binding = typeof provider.binding === "string" && cloudflareBindingName.test(provider.binding) ? provider.binding : undefined

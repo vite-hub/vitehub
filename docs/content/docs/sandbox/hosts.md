@@ -6,16 +6,16 @@ navigation.order: 7
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
-Provider selection belongs to application or host configuration, not to a Definition.
+Driver selection belongs to application or host configuration, not to a Definition.
 
-| Provider | Configure with | Host support |
+| Driver | Configure with | Host support |
 | --- | --- | --- |
-| Vercel Sandbox | `hubSandboxTask({ provider: 'vercel' })` or the `vercel` preset | Vercel. Other hosts, such as Netlify, when Vercel credentials are set. |
-| Cloudflare Sandbox | `hubSandboxTask({ provider: 'cloudflare' })` or the `cloudflare` preset | Cloudflare Workers with the generated Container and Durable Object binding. |
+| Vercel Sandbox | `hubSandboxTask({ driver: 'vercel' })` or the `vercel` preset | Vercel. Other hosts, such as Netlify, when Vercel credentials are set. |
+| Cloudflare Sandbox | `hubSandboxTask({ driver: 'cloudflare' })` or the `cloudflare` preset | Cloudflare Workers with the generated Container and Durable Object binding. |
 
-The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandboxTask: true })` fails during configuration for them. Without an explicit `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote, potentially billed infrastructure. Sandbox has no local in-process provider.
+The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandboxTask: true })` fails during configuration for them. Without an explicit `driver`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote, potentially billed infrastructure. Sandbox has no local in-process provider.
 
 On the Vite or Nuxt dev server, the Vercel provider works when Vercel credentials are set. The Cloudflare provider does not: the `cloudflare` preset writes the Sandbox Durable Object and Container only to `.output/server/wrangler.json`, and the dev server cannot host a Container. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker to run the Container.
 

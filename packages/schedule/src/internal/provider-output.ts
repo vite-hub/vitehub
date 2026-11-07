@@ -297,7 +297,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "  }",
           ...(workflowRuntime
             ? [
-                "  setWorkflowRuntimeConfig({ provider: 'vercel' })",
+                "  setWorkflowRuntimeConfig({ driver: 'vercel' })",
                 "  setWorkflowRuntimeRegistry(workflowRegistry)",
               ]
             : []),

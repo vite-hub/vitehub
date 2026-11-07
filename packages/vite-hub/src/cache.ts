@@ -7,12 +7,14 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** Storage for Nitro's `cache` mount, used by `defineCachedFunction()` and `defineCachedEventHandler()`. */
 export type CacheOptions =
-  | { driver: "cloudflare-kv-binding", binding?: string, namespaceId?: string }
+  /** Workers KV on the Cloudflare preset. */
+  | { driver: "cloudflare", binding?: string, namespaceId?: string }
   /** The app's default KV store, on every host where `kv` is enabled. `base` prefixes the cache keys (default `nitro-cache`). */
   | { driver: "kv", base?: string }
   | { driver: "deno-kv", base?: string }
   | { driver: "fs-lite", base?: string }
-  | { driver: "vercel-runtime-cache" }
+  /** Vercel Runtime Cache on the Vercel preset. */
+  | { driver: "vercel" }
 
 type CacheDriver = Exclude<CacheOptions["driver"], "kv">
 
@@ -21,9 +23,16 @@ type CacheDriver = Exclude<CacheOptions["driver"], "kv">
 const kvCacheDriver: string = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 type KVCacheMount = { driver: typeof kvCacheDriver, base: string }
 
+/** A Nitro storage mount. `driver` is the unstorage driver name. */
+type CacheMount =
+  | { driver: "cloudflare-kv-binding", binding: string }
+  | { driver: "deno-kv", base: string }
+  | { driver: "fs-lite", base: string }
+  | { driver: "vercel-runtime-cache" }
+
 export interface ResolvedCacheStorage {
   /** Nitro cache mount for production output. */
-  storage: Exclude<CacheOptions, { driver: "kv" }> | KVCacheMount
+  storage: CacheMount | KVCacheMount
   /** Development and prerendering use the local filesystem, or the app's dev KV store. */
   devStorage: { driver: "fs-lite", base: string } | KVCacheMount
   /** Wrangler KV namespace that backs the Cloudflare mount. */
@@ -35,17 +44,17 @@ const defaultCloudflareCacheBinding = "CACHE"
 
 // Each driver needs a runtime that only one preset provides.
 const cacheDriverPresets: Record<CacheDriver, DeploymentPreset> = {
-  "cloudflare-kv-binding": "cloudflare",
+  cloudflare: "cloudflare",
   "deno-kv": "deno",
   "fs-lite": "node",
-  "vercel-runtime-cache": "vercel",
+  vercel: "vercel",
 }
 
 const presetCacheDrivers: Partial<Record<DeploymentPreset, CacheDriver>> = {
-  cloudflare: "cloudflare-kv-binding",
+  cloudflare: "cloudflare",
   deno: "deno-kv",
   node: "fs-lite",
-  vercel: "vercel-runtime-cache",
+  vercel: "vercel",
 }
 
 function trimmed(value: unknown): string | undefined {
@@ -65,7 +74,7 @@ function readCacheDriver(cache: true | CacheOptions, preset: DeploymentPreset): 
     return driver
   }
   if (!isPlainObject(cache) || !isCacheDriver(cache.driver)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare-kv-binding", "deno-kv", "fs-lite", "kv", or "vercel-runtime-cache".` })
+    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare", "deno-kv", "fs-lite", "kv", or "vercel".` })
   }
   if (cacheDriverPresets[cache.driver] !== preset) {
     throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache.driver: "${cache.driver}"\` requires the ${cacheDriverPresets[cache.driver]} preset, but the preset is ${preset}.` })
@@ -87,21 +96,21 @@ export function resolveCacheStorage(cache: true | CacheOptions, preset: Deployme
   const devStorage = { driver: "fs-lite" as const, base: localBase }
 
   switch (driver) {
-    case "cloudflare-kv-binding": {
+    case "cloudflare": {
       const binding = (explicit?.driver === driver ? trimmed(explicit.binding) : undefined) ?? defaultCloudflareCacheBinding
       const id = explicit?.driver === driver ? trimmed(explicit.namespaceId) : undefined
       return {
         cloudflareNamespace: id ? { binding, id } : { binding },
         devStorage,
-        storage: { binding, driver },
+        storage: { binding, driver: "cloudflare-kv-binding" },
       }
     }
     case "deno-kv":
       return { devStorage, storage: { base: (explicit?.driver === driver ? trimmed(explicit.base) : undefined) ?? "cache", driver } }
     case "fs-lite":
       return { devStorage, storage: { base: localBase, driver } }
-    case "vercel-runtime-cache":
-      return { devStorage, storage: { driver } }
+    case "vercel":
+      return { devStorage, storage: { driver: "vercel-runtime-cache" } }
   }
 }
 

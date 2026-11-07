@@ -16,5 +16,5 @@ export default defineAgent({
       return { text: `VITE_HUB_SERVER_ONLY:${await renderMarkdownTemplate("{{ data.cwd }}", { data: { cwd: pwd.stdout.trim() } })}` }
     },
   },
-  workspace: { mode: "write", store: { provider: "memory" } },
+  workspace: { mode: "write", store: { driver: "memory" } },
 })

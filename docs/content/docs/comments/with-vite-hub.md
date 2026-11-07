@@ -21,7 +21,7 @@ icon: i-lucide-users
 
 In this tutorial, you turn on Comments in a ViteHub app, pin a comment, open the page in a second browser to see each other's cursors, and change a Content heading on the page. Then you publish the draft from the Console.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and a memory room authority, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
+You need Node.js 22.22 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and the `memory` Realtime driver, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
 
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments
@@ -31,7 +31,7 @@ pnpm add vite-hub @vite-hub/comments @vite-hub/content @vite-hub/database @vite-
 pnpm add -D drizzle-kit nitro
 ```
 
-Comments stores threads in a Database. Realtime shows who is on each page. The memory authority keeps the presence rooms in this server process.
+Comments stores threads in a Database. Realtime shows who is on each page. The `memory` driver keeps the presence rooms in this server process.
 
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
@@ -44,7 +44,7 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       database: true,
-      realtime: { authority: 'memory' },
+      realtime: { driver: 'memory' },
     }),
   ],
 })

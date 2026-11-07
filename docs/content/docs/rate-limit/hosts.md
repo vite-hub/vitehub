@@ -32,7 +32,7 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Deploy to Cloudflare
 
-With a Cloudflare Nitro preset, `hubRateLimit()` infers the provider. Set a deployment-unique namespace so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
+With a Cloudflare Nitro preset, `hubRateLimit()` infers the `cloudflare` driver. Set a deployment-unique namespace so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
 
 ```ts [vite.config.ts]
 export default defineConfig({

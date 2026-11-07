@@ -26,7 +26,7 @@ export type KVRuntimeDriver = Driver & Record<string, unknown> & {
 }
 
 const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<PropertyKey>> = {
-  "cloudflare-kv-binding": new Set(),
+  cloudflare: new Set(),
   "deno-kv": new Set(["setIfAbsentItem"]),
   "fs-lite": new Set(["getItemRaw", "getMeta", "setIfAbsentItem", "setItemRaw"]),
   "upstash": new Set(["getAndDeleteItem", "getItems", "incrementItem", "setIfAbsentItem"]),
@@ -34,7 +34,7 @@ const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<Pro
 
 async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<KVRuntimeDriver> {
   switch (store.driver) {
-    case "cloudflare-kv-binding": {
+    case "cloudflare": {
       const { default: factory } = await import("./cloudflare-kv.ts")
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This adapter accepts the resolved Cloudflare record and returns KVRuntimeDriver.
       // SAFETY: The discriminated configuration is resolved and the adapter installs every KVRuntimeDriver member.

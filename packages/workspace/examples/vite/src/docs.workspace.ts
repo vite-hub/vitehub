@@ -2,7 +2,7 @@ import { defineWorkspace, file } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
-    provider: "local",
+    driver: "local",
     root: ".vitehub/workspaces/docs",
   },
   sources: {

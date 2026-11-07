@@ -16,7 +16,7 @@ describe("Cloudflare workflow errors", () => {
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       createNonRetryableError,
       env: {},
       event: { id: "run-foreign" },
@@ -52,7 +52,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: `tagged-${tagPlacement}` },
@@ -78,7 +78,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "spoofed-error" },
@@ -103,7 +103,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "non-cloneable-error" },
@@ -128,7 +128,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "sealed-non-cloneable-error" },
@@ -164,7 +164,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "constructor-predicate-spoof" },
@@ -191,7 +191,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "prototype-spoofed-error" },
@@ -218,7 +218,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "inherited-message-spoofed-error" },
@@ -248,7 +248,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "message-spoofed-error" },
@@ -278,7 +278,7 @@ describe("Cloudflare workflow errors", () => {
     try {
       Reflect.deleteProperty(Error, "isError")
       await expect(runCloudflareWorkflow({
-        config: { provider: "cloudflare" },
+        config: { driver: "cloudflare" },
         createNonRetryableError,
         env: {},
         event: { id: "stack-spoofed-error" },

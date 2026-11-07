@@ -101,7 +101,7 @@ async function createStore(binding: unknown, options: { branch?: string } = {}) 
     binding: "WORKSPACE_ARTIFACTS",
     namespace: "vitehub",
     ...options,
-    provider: "cloudflare-artifacts",
+    driver: "cloudflare",
   }, "docs")
 }
 
@@ -159,7 +159,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const options = {
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts" as const,
+      driver: "cloudflare" as const,
     }
 
     for (const name of ["a/b", "a-b", "a_2fb"]) {
@@ -289,7 +289,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const { configureHostedWorkspaceRuntime } = await import("../src/hosted.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureHostedWorkspaceRuntime({
-      store: { branch: "main", provider: "github", repository: "onmax/repo", root: "mirror" },
+      store: { branch: "main", driver: "github", repository: "onmax/repo", root: "mirror" },
     })
     setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 
@@ -307,7 +307,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureCloudflareWorkspaceRuntime({
-      store: { branch: "main", provider: "github", repository: "onmax/repo", root: "mirror", token: "explicit-token" },
+      store: { branch: "main", driver: "github", repository: "onmax/repo", root: "mirror", token: "explicit-token" },
     })
     setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 
@@ -328,7 +328,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const store = createCloudflareArtifactsWorkspaceStore({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
     }, "docs")
 
     await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("Workspace path escapes")
@@ -348,7 +348,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const store = createCloudflareArtifactsWorkspaceStore({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
     }, "docs")
 
     await store.writeFile("nested/README.md", { path: "nested/README.md", content: "hello" })

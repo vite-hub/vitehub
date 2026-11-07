@@ -37,7 +37,7 @@ Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `bi
 ```ts [vite.config.ts]
 export default defineConfig({
   blob: {
-    driver: 'cloudflare-r2',
+    driver: 'cloudflare',
     binding: 'BLOB',
     bucketName: 'assets',
   },
@@ -51,7 +51,7 @@ Set `jurisdiction` when the bucket uses a [Cloudflare R2 jurisdiction](https://d
 ```ts [vite.config.ts]
 export default defineConfig({
   blob: {
-    driver: 'cloudflare-r2',
+    driver: 'cloudflare',
     bucketName: 'assets',
     jurisdiction: 'eu',
   },

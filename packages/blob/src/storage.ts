@@ -66,7 +66,7 @@ export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: 
 }
 
 function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
-  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
+  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare, or vercel driver.` })
 }
 
 // Decode the pathname once, then reject it before a driver, filesystem, or URL can resolve it elsewhere.
@@ -232,9 +232,9 @@ export interface BlobStorageOptions {
 function warnRemoteStore(options: { bucketName?: unknown, driver?: unknown, remote?: unknown } | undefined, store: string): void {
   if (options?.remote !== true) return
   const bucket = typeof options.bucketName === "string" && options.bucketName ? ` ${options.bucketName}` : ""
-  const target = options.driver === "vercel-blob"
+  const target = options.driver === "vercel"
     ? "Vercel Blob store"
-    : options.driver === "cloudflare-r2" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
+    : options.driver === "cloudflare" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
   console.warn(`[vitehub] Blob store "${store}" is remote: \`vite dev\` uses the real ${target}. Writes change real data.`)
 }
 

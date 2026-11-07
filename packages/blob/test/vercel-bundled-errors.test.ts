@@ -21,7 +21,7 @@ vi.mock("@vercel/blob", async (importOriginal) => {
 
 import { createDriver } from "../src/drivers/vercel-bundled.ts"
 
-const options = { access: "private", driver: "vercel-blob", token: "token" } as const
+const options = { access: "private", driver: "vercel", token: "token" } as const
 
 describe("Vercel Blob missing errors", () => {
   it.each(["head", "get", "getArrayBuffer"] as const)("treats the SDK BlobNotFoundError as a missing object in %s", async operation => {

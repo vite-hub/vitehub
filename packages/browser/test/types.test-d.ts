@@ -14,8 +14,8 @@ import { hubBrowser } from "../src/vite.ts"
 
 describe("published Browser types", () => {
   it("infers native Playwright controller leases for both providers", async () => {
-    const local = createBrowser({ provider: localBrowser({ executablePath: "/usr/bin/chromium" }) })
-    const cloudflare = createBrowser({ provider: cloudflareBrowser() })
+    const local = createBrowser({ driver: localBrowser({ executablePath: "/usr/bin/chromium" }) })
+    const cloudflare = createBrowser({ driver: cloudflareBrowser() })
 
     const localSession = await local.open()
     expectTypeOf((await localSession.attach(playwright())).client).toEqualTypeOf<PlaywrightClient>()
@@ -41,7 +41,7 @@ describe("published Browser types", () => {
   })
 
   it("returns opaque refs and a Vite plugin", async () => {
-    const browser = createBrowser({ provider: cloudflareBrowser() })
+    const browser = createBrowser({ driver: cloudflareBrowser() })
     const session = await browser.open()
     expectTypeOf(session.handoff({ audience: "run-1", mode: "live" })).resolves.toEqualTypeOf<BrowserSessionRef>()
     expectTypeOf(hubBrowser()).toMatchTypeOf<ReturnType<typeof hubBrowser>>()

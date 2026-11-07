@@ -74,7 +74,7 @@ describe("Database Nuxt integration", () => {
   it("wires a D1 database resource into Nuxt Content and Wrangler config", async () => {
     const { hooks, nuxt } = createNuxt({
       database: {
-        driver: "d1",
+        driver: "cloudflare",
         databaseId: "content-id",
         databaseName: "content-db",
       },
@@ -314,7 +314,7 @@ describe("Database Nuxt integration", () => {
   it("aliases the hosted runtime from the ViteHub project root", async () => {
     const { hooks, nuxt } = createNuxt({
       database: {
-        driver: "d1",
+        driver: "cloudflare",
         databaseId: "content-id",
         databaseName: "content-db",
       },
@@ -363,7 +363,7 @@ describe("Database Nuxt integration", () => {
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
     const { nuxt } = createNuxt({
       database: {
-        driver: "d1",
+        driver: "cloudflare",
         databaseId: "content-id",
         databaseName: "content-db",
         local: {
@@ -423,7 +423,7 @@ describe("Database Nuxt integration", () => {
     try {
       const { hooks, nuxt } = createNuxt({
         database: {
-          driver: "d1",
+          driver: "cloudflare",
           databaseId: "content-id",
           databaseName: "content-db",
         },
@@ -469,7 +469,7 @@ describe("Database Nuxt integration", () => {
       await writeFile(definition, 'import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ schema: {} })\n')
       await writeFile(join(rootDir, "wrangler.json"), JSON.stringify(project))
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database },
+        database: { driver: "cloudflare", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
@@ -633,7 +633,7 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(migrationsDir, "0001_users.sql"), "CREATE TABLE users (id INTEGER PRIMARY KEY);\n")
       await writeFile(join(migrationsDir, "journal.json"), "{}\n")
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1" },
+        database: { driver: "cloudflare" },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
@@ -687,7 +687,7 @@ describe("Database Nuxt integration", () => {
         await writeFile(join(directory, "migrations/0001_initial.sql"), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", projectRoot: "service", ...(content ? { binding: "CONTENT_DB", databaseName: "content-db" } : {}) },
+        database: { driver: "cloudflare", projectRoot: "service", ...(content ? { binding: "CONTENT_DB", databaseName: "content-db" } : {}) },
         dev: false,
         modules: content ? ["@nuxt/content"] : [],
         nitro: { preset: "cloudflare_module" },
@@ -731,7 +731,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
+      await hubDb({ driver: "cloudflare", databaseName: "existing" })(undefined, nuxt)
       const directory = join(rootDir, "server/databases")
       await mkdir(join(directory, "migrations"), { recursive: true })
       const definition = join(rootDir, "contributed.ts")
@@ -765,7 +765,7 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })")
       await writeFile(join(source, "0001.sql"), "SELECT 1;")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
+      await hubDb({ driver: "cloudflare", databaseName: "existing" })(undefined, nuxt)
       const config = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: target === "absolute" ? source : target }] } } }
       await expect(callHook(hooks, "nitro:config", config)).rejects.toThrow("must be a relative directory inside Nitro's server output")
       expect(config).not.toHaveProperty("modules")
@@ -809,7 +809,7 @@ describe("Database Nuxt integration", () => {
         await writeFile(join(directory, `migrations/0001_${name}.sql`), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", binding: "CONTENT_DB", databaseId: "content-id", databaseName: "content-db" },
+        database: { driver: "cloudflare", binding: "CONTENT_DB", databaseId: "content-id", databaseName: "content-db" },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
@@ -852,7 +852,7 @@ describe("Database Nuxt integration", () => {
         await writeFile(join(directory, `migrations/0001_${name}.sql`), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", binding: "CONTENT_DB", databaseName: "content-db" },
+        database: { driver: "cloudflare", binding: "CONTENT_DB", databaseName: "content-db" },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
@@ -881,7 +881,7 @@ describe("Database Nuxt integration", () => {
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({ name: '${name}', cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
+      await hubDb({ driver: "cloudflare" })(undefined, nuxt)
 
       await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toMatchObject({
         code,
@@ -978,7 +978,7 @@ describe("Database Nuxt integration", () => {
     try {
       const { hooks, nuxt } = createNuxt({
         database: {
-          driver: "d1",
+          driver: "cloudflare",
           databaseId: "content-id",
           databaseName: "content-db",
           ...(http ? { cloudflare: { http: true } } : {}),
@@ -1024,7 +1024,7 @@ describe("Database Nuxt integration", () => {
         await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "application-id" } } }))
       }
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ ...(inherited ? {} : { databaseId: "content-id" }), databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDb({ ...(inherited ? {} : { databaseId: "content-id" }), databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "content-id", database_name: "content-db" }] } }, output: { serverDir: join(rootDir, ".output/server") }, preset: access === "vercel" ? "vercel" : "cloudflare_module" }
       if (access === "missing-id" || access === "missing-name") {
         await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
@@ -1061,7 +1061,7 @@ describe("Database Nuxt integration", () => {
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
       await writeFile(join(rootDir, "server/databases/config.ts"), `export default defineDatabase({ ${options}, schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
+      await hubDb({ driver: "cloudflare" })(undefined, nuxt)
       const config = { preset: "cloudflare_module" }
       if (options.includes("VITEHUB_NUXT_TEST_REMOTE_URL")) {
         await expect(callHook(hooks, "nitro:config", config)).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
@@ -1318,7 +1318,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeInheritedDefinition()
       const { hooks, nuxt, watchHooks } = createNuxt({ buildDir, dev: true, rootDir, srcDir, vite: {} })
-      await hubDb({ binding: "HOST_DB", databaseName: "host-db", driver: "d1", ...(location === "default" ? {} : { projectRoot }) })(undefined, nuxt)
+      await hubDb({ binding: "HOST_DB", databaseName: "host-db", driver: "cloudflare", ...(location === "default" ? {} : { projectRoot }) })(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.alias).toEqual({
@@ -1383,7 +1383,7 @@ describe("Database Nuxt integration", () => {
     }
     const { hooks, nuxt } = createNuxt({
       database: {
-        driver: "d1",
+        driver: "cloudflare",
         databaseId: "content-id",
         databaseName: "content-db",
       },
@@ -1424,7 +1424,7 @@ describe("Database Nuxt integration", () => {
   it("does not emit an invalid Wrangler D1 binding when the resource is incomplete", async () => {
     const { hooks, nuxt } = createNuxt({
       database: {
-        driver: "d1",
+        driver: "cloudflare",
         databaseName: "content-db",
       },
       dev: false,
@@ -1451,7 +1451,7 @@ describe("Database Nuxt integration", () => {
     const { hooks, nuxt } = createNuxt({
       database: {
         databaseId: "content-id",
-        driver: "d1",
+        driver: "cloudflare",
       },
       dev: false,
       rootDir: "/tmp/vitehub-db-nuxt-missing-name",
@@ -1468,7 +1468,7 @@ describe("Database Nuxt integration", () => {
 
   it("rejects a whitespace-only D1 name even when Nitro provides a matching blank name", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: { databaseId: "content-id", databaseName: "   ", driver: "d1" },
+      database: { databaseId: "content-id", databaseName: "   ", driver: "cloudflare" },
       dev: false,
       rootDir: join(tmpdir(), "vitehub-db-nuxt-blank-name"),
       vite: {},
@@ -1484,7 +1484,7 @@ describe("Database Nuxt integration", () => {
   it("accepts a complete matching D1 binding from Nitro Wrangler config", async () => {
     const { hooks, nuxt } = createNuxt({
       database: {
-        driver: "d1",
+        driver: "cloudflare",
         databaseName: "content-db",
       },
       dev: false,
@@ -1512,7 +1512,7 @@ describe("Database Nuxt integration", () => {
 
   it("rejects a matching binding name for a different D1 database", async () => {
     const { hooks, nuxt } = createNuxt({
-      database: { driver: "d1", databaseName: "content-db" },
+      database: { driver: "cloudflare", databaseName: "content-db" },
       dev: false,
       rootDir: "/tmp/vitehub-db-nuxt-wrong-existing-binding",
       vite: {},
@@ -1542,7 +1542,7 @@ describe("Database Nuxt integration", () => {
     try {
       const { hooks, nuxt } = createNuxt({
         database: {
-          driver: "d1",
+          driver: "cloudflare",
           databaseName: {
             default: "content-db",
             kind: "env-variable",
@@ -1589,7 +1589,7 @@ describe("Database Nuxt integration", () => {
     try {
       const { hooks, nuxt } = createNuxt({
         database: {
-          driver: "d1",
+          driver: "cloudflare",
           ...(idSource === "unset environment" ? {
             databaseId: {
               kind: "env-variable",
@@ -1640,7 +1640,7 @@ describe("Database Nuxt integration", () => {
           cloudflare: { http: { authToken: "proxy-token", url: "https://d1.example.com/raw" } },
           databaseId: "content-id",
           databaseName: "content-db",
-          driver: "d1",
+          driver: "cloudflare",
           migrationsTable: "__content_migrations",
           previewDatabaseId: "preview-id",
         },
@@ -1675,7 +1675,7 @@ describe("Database Nuxt integration", () => {
     }))
     try {
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", databaseName: "content-db" },
+        database: { driver: "cloudflare", databaseName: "content-db" },
         dev: false,
         rootDir,
         vite: {},
@@ -1695,7 +1695,7 @@ describe("Database Nuxt integration", () => {
     const existingPlugin = { name: "@vite-hub/database/vite" }
     const { nuxt } = createNuxt({
       database: {
-        driver: "d1",
+        driver: "cloudflare",
         databaseId: "content-id",
         databaseName: "content-db",
       },
@@ -1821,7 +1821,7 @@ describe("Database Nuxt integration", () => {
     await writeFile(definition, `export default defineDatabase({ cloudflare: { ${binding ? `binding: ${JSON.stringify(binding)},` : ""} databaseId: 'application-id', databaseName: 'application-db' }, schema: {} })\n`)
     try {
       const { hooks, nuxt } = createNuxt({ dev: false, modules: ["@nuxt/content"], rootDir, vite: {} })
-      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [] as unknown[] } }, output: { serverDir: join(rootDir, ".output/server") }, preset: "cloudflare_module" }
       if (binding !== "APP_DB") {
         await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({ code: "DATABASE_BINDING_CONFLICT" })
@@ -1849,7 +1849,7 @@ describe("Database Nuxt integration", () => {
     await writeFile(definition, "export default defineDatabase({ cloudflare: { databaseId: 'content-id', databaseName: 'content-db' }, schema: {} })\n")
     try {
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ ...(source === "integration" ? { databaseId: "content-id" } : {}), databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDb({ ...(source === "integration" ? { databaseId: "content-id" } : {}), databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = {
         cloudflare: { wrangler: { d1_databases: source === "nitro" ? [{ binding: "DB", database_id: "content-id", database_name: "content-db" }] : [] } },
         preset: "cloudflare_module",
@@ -1879,7 +1879,7 @@ describe("Database Nuxt integration", () => {
         await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "content-id" } } }))
       }
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [] as unknown[] } }, output: { serverDir: join(rootDir, ".output/server") }, preset: "cloudflare_module" }
       if (identity === "env-id" || identity === "env-name") {
         await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({ code: "DATABASE_BINDING_CONFLICT" })
@@ -1908,7 +1908,7 @@ describe("Database Nuxt integration", () => {
     await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
     try {
       const { hooks, nuxt, watchHooks } = createNuxt({ buildDir: join(rootDir, ".nuxt"), dev: true, rootDir, vite: {} })
-      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "d1" })(undefined, nuxt)
+      await hubDb({ databaseId: "content-id", databaseName: "content-db", driver: "cloudflare" })(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
       const runtimeFile = join(rootDir, ".nuxt/vitehub/database/local-runtime.mjs")
@@ -1935,7 +1935,7 @@ describe("Database Nuxt integration", () => {
         cloudflare: { http: true },
         databaseId: "content-id",
         databaseName: "content-db",
-        driver: "d1",
+        driver: "cloudflare",
         migrationsTable: "__content_migrations",
         previewDatabaseId: "preview-id",
       },
@@ -1993,7 +1993,7 @@ describe("Database Nuxt integration", () => {
       await hubDb({
         databaseId: "content-id",
         databaseName: "content-db",
-        driver: "d1",
+        driver: "cloudflare",
         projectRoot: "packages/db",
       })(undefined, nuxt)
 

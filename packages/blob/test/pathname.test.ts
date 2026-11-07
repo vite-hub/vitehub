@@ -177,7 +177,7 @@ describe("Cloudflare R2 native signed requests", () => {
     accountId: "account",
     binding: "BLOB",
     bucketName: "media",
-    driver: "cloudflare-r2" as const,
+    driver: "cloudflare" as const,
     secretAccessKey: "secret-key",
   }
 

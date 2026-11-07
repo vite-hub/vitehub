@@ -6,7 +6,7 @@ import { getWorkflowRunState, resetWorkflowRuntime, setWorkflowRuntimeConfig } f
 afterEach(() => resetWorkflowRuntime())
 
 it.each(["vercel", "cloudflare"] as const)("keeps %s inline output readable across inspections and duplicate starts", async (provider) => {
-  setWorkflowRuntimeConfig({ provider })
+  setWorkflowRuntimeConfig({ driver: provider })
   const handler = vi.fn(() => new Response(new Uint8Array([0, 128, 255]), {
     status: 201,
     statusText: "Created",
@@ -34,7 +34,7 @@ it.each(["vercel", "cloudflare"] as const)("keeps %s inline output readable acro
 })
 
 it("keeps the stored output when an inspector cancels its response", async () => {
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow("cancelled-inspection", () => new Response("saved output"))
   await workflow.run(undefined, { id: "run-1" })
   await getWorkflowRunState(workflow.name, "run-1")!.promise
@@ -49,7 +49,7 @@ it("keeps the stored output when an inspector cancels its response", async () =>
 })
 
 it("preserves a null response body across inspections", async () => {
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow("empty-inspection", () => new Response(null, { status: 204 }))
   await workflow.run(undefined, { id: "run-1" })
   await getWorkflowRunState(workflow.name, "run-1")!.promise
@@ -63,7 +63,7 @@ it("preserves a null response body across inspections", async () => {
 })
 
 it("records a failed run when its response body cannot be retained", async () => {
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   const cause = new Error("output stream failed")
   const workflow = createWorkflow("failed-output", () => new Response(new ReadableStream({
     start(controller) { controller.error(cause) },

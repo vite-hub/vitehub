@@ -12,7 +12,7 @@ describe("workspace nuxt types", () => {
         store: {
           binding: "WORKSPACE_FILES",
           namespace: "project-workspaces",
-          provider: "cloudflare-artifacts",
+          driver: "cloudflare",
         },
       },
     }

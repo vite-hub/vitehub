@@ -21,7 +21,7 @@ export const WorkspaceLanding = {
 
 export default defineWorkspace({
   // Persist on a host with a writable, durable filesystem.
-  store: { provider: "local", root: ".vitehub/workspaces/notes" },
+  store: { driver: "local", root: ".vitehub/workspaces/notes" },
 })`,
       },
       {

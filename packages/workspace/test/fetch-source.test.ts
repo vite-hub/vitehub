@@ -180,7 +180,7 @@ describe("fetch sources", () => {
       .mockResolvedValueOnce(jsonResponse({ ignored: true, status: "next" }))
 
     registerWorkspace("fetch-json", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         status: fetch({
           workspacePath: "api/summary.json",
@@ -228,7 +228,7 @@ describe("fetch sources", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
 
     registerWorkspace("fetch-plain-object-path", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         status: {
           path: "status.json",
@@ -249,7 +249,7 @@ describe("fetch sources", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("ok"))
     const bytes = runInNewContext("new Uint8Array([1, 2, 3])") as Uint8Array
     registerWorkspace("fetch-cross-realm-bytes", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         payload: fetch({
           responseType: "text",
@@ -268,7 +268,7 @@ describe("fetch sources", () => {
     const cookie = vi.fn(() => "session-token")
 
     registerWorkspace("fetch-text", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         status: fetch({
           body: { scope: "all" },
@@ -301,7 +301,7 @@ describe("fetch sources", () => {
   it("lets request preparation lower the fetch Source response limit", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
     registerWorkspace("fetch-bounded", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         status: fetch({
           maxResponseBytes: 100,
@@ -327,7 +327,7 @@ describe("fetch sources", () => {
           url: "https://status.example.com/large",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const definition = await resolveRegisteredWorkspaceDefinition("fetch-request-bounded")
     const execution = createWorkspaceSourceRequestExecution(definition)
@@ -342,7 +342,7 @@ describe("fetch sources", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse("ok"))
 
     registerWorkspace("fetch-json-string", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         status: fetch({
           url: "https://status.example.com/string",
@@ -359,7 +359,7 @@ describe("fetch sources", () => {
   it("accepts HEAD requests and rejects unsupported response types", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse(""))
     registerWorkspace("fetch-head", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         ping: fetch({
           method: "HEAD",
@@ -390,7 +390,7 @@ describe("fetch sources", () => {
   it("supports query URLs and keeps source paths read-only", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
     registerWorkspace("fetch-readonly", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         status: fetch({
           url: "https://status.example.com/api/summary?region=eu",
@@ -407,7 +407,7 @@ describe("fetch sources", () => {
   it("materializes live fetch sources only when explicitly requested", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ready" }))
     registerWorkspace("fetch-materialize", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         status: fetch({
           url: "https://status.example.com/api/summary",

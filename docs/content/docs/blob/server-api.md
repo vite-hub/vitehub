@@ -112,7 +112,7 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named Blob Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so a route that lets it through answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so a route that lets it through answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
 
@@ -229,7 +229,7 @@ string. Pass `headers` or `fetch` to add authentication.
 
 Use multipart uploads for files that are too large for one request. The client
 splits the file into parts, and the server stores each part until `complete()`
-joins them. The `fs`, `cloudflare-r2` (with the R2 binding), and `vercel-blob`
+joins them. The `fs`, `cloudflare` (with the R2 binding), and `vercel`
 drivers support it. Other drivers throw `BLOB_R0030`.
 
 Create one route with `action` and `pathname` params:
@@ -300,8 +300,8 @@ if (completeError) throw completeError
 | Driver | Upload state | Notes |
 | --- | --- | --- |
 | `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag. `abort()` deletes the parts. |
-| `cloudflare-r2` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
-| `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing; Vercel discards unfinished uploads. |
+| `cloudflare` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
+| `vercel` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing; Vercel discards unfinished uploads. |
 
 The framework-neutral client is `@vite-hub/blob/client`, with `uploadFiles()`
 and `createMultipartUploader()`. The Vue composables use it. Pass `onProgress` to
@@ -334,7 +334,7 @@ if (uploadError) throw uploadError
 
 Send `upload.headers` unchanged with the `PUT` body. `contentType` binds the upload MIME type into the signed request. `createOnly` binds a provider condition that rejects the upload when the object already exists; drivers that cannot enforce it throw instead of silently allowing an overwrite.
 
-The `cloudflare-r2` driver and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the other drivers that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider issues a URL that expires after exactly `expiresIn` seconds, and a `PUT` only when its provider issues a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign the request, `blob.sign()` returns a `BLOB_OPERATION_FAILED` error and the `cause` explains the reason. The driver never returns a permanent public link instead.
+The `cloudflare` driver and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the other drivers that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider issues a URL that expires after exactly `expiresIn` seconds, and a `PUT` only when its provider issues a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign the request, `blob.sign()` returns a `BLOB_OPERATION_FAILED` error and the `cause` explains the reason. The driver never returns a permanent public link instead.
 
 Cloudflare R2 signs through its S3-compatible HTTP credentials, including when normal reads and writes use a Workers binding. A binding alone cannot mint a presigned URL, so configure `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` through runtime environment values. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) accept expiries from 1 second through 7 days, and the [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
 

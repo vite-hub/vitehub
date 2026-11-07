@@ -18,7 +18,7 @@ function deferredDefinition() {
 
 describe("Workflow registry entries", () => {
   it.each(["constructor", "toString", "__proto__"])("allows an inline Workflow named %s with an empty registry", async (name) => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({})
     const workflow = createWorkflow(name, async () => "inline")
 
@@ -30,7 +30,7 @@ describe("Workflow registry entries", () => {
   })
 
   it.each(["constructor", "toString", "__proto__"])("reports a missing Workflow named %s", async (name) => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({})
 
     await expect(runWorkflow(name)).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })

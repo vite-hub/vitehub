@@ -29,7 +29,7 @@ describe("resolveTaskSandbox", () => {
     const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
-        provider: "vercel",
+        driver: "vercel",
         token: "token-from-config",
       },
     })
@@ -51,7 +51,7 @@ describe("resolveTaskSandbox", () => {
     const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
-        provider: "vercel",
+        driver: "vercel",
         token: "token-from-config",
         teamId: "team-from-config",
         projectId: "project-from-config",

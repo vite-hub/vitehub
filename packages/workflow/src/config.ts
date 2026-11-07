@@ -10,7 +10,7 @@ interface WorkflowResolutionInput {
   hosting?: string
 }
 
-const knownProviders = new Set(["cloudflare", "openworkflow", "vercel"])
+const knownDrivers = new Set(["cloudflare", "openworkflow", "vercel"])
 
 function readString(value: unknown, label: string): string | undefined {
   if (typeof value === "undefined") {
@@ -130,12 +130,12 @@ function isDefinedRuntimeConfigValue(value: unknown): boolean {
   return typeof value === "string" && !!value.trim() || isRuntimeEnvDeclaration(value)
 }
 
-function inferProvider(provider: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
-  if (provider === "cloudflare" || provider === "openworkflow" || provider === "vercel") {
-    return provider
+function inferDriver(driver: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
+  if (driver === "cloudflare" || driver === "openworkflow" || driver === "vercel") {
+    return driver
   }
   if (hosting.includes("netlify")) {
-    throw workflowErrorDiagnostics.WORKFLOW_C0008({ message: "`workflow.provider` cannot be inferred for Netlify hosting. Set `workflow.provider` explicitly or disable `workflow`." })
+    throw workflowErrorDiagnostics.WORKFLOW_C0008({ message: "`workflow.driver` cannot be inferred for Netlify hosting. Set `workflow.driver` explicitly or disable `workflow`." })
   }
   if (hosting.includes("cloudflare")) {
     return "cloudflare"
@@ -143,28 +143,28 @@ function inferProvider(provider: unknown, hosting: string): "cloudflare" | "open
   return "vercel"
 }
 
-function inferProviderFromOptions(options: Record<string, unknown>, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
-  if (typeof options.provider === "undefined" && (hosting.includes("node") || hosting.includes("docker")) && hasOpenWorkflowStorageConfig(options)) {
+function inferDriverFromOptions(options: Record<string, unknown>, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
+  if (typeof options.driver === "undefined" && (hosting.includes("node") || hosting.includes("docker")) && hasOpenWorkflowStorageConfig(options)) {
     return "openworkflow"
   }
-  return inferProvider(options.provider, hosting)
+  return inferDriver(options.driver, hosting)
 }
 
-function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedWorkflowOptions {
+function resolveDriver(options: Record<string, unknown>, hosting: string): ResolvedWorkflowOptions {
   const shared: WorkflowSharedOptions = {
     ...(typeof options.binding === "string" ? { binding: options.binding } : {}),
     ...(typeof options.name === "string" ? { name: options.name } : {}),
   }
-  const provider = options.provider
+  const driver = options.driver
 
-  if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".` })
+  if (typeof driver === "string" && !knownDrivers.has(driver)) {
+    throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.driver\`: ${JSON.stringify(driver)}. Expected "cloudflare", "openworkflow", or "vercel".` })
   }
 
-  const resolved = inferProviderFromOptions(options, hosting)
+  const resolved = inferDriverFromOptions(options, hosting)
 
   if (resolved === "cloudflare") {
-    return defu(shared, { provider: "cloudflare" as const })
+    return defu(shared, { driver: "cloudflare" as const })
   }
 
   if (resolved === "openworkflow") {
@@ -183,11 +183,11 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
         ...(worker ? { worker } : {}),
       },
       shared,
-      { provider: "openworkflow" as const },
+      { driver: "openworkflow" as const },
     )
   }
 
-  return defu(shared, { provider: "vercel" as const })
+  return defu(shared, { driver: "vercel" as const })
 }
 
 export function normalizeWorkflowOptions(options: WorkflowModuleOptions | undefined, input: WorkflowResolutionInput = {}): ResolvedWorkflowOptions | undefined {
@@ -198,5 +198,5 @@ export function normalizeWorkflowOptions(options: WorkflowModuleOptions | undefi
   if (options && Object.hasOwn(options, "database") && options.database !== undefined) {
     throw workflowErrorDiagnostics.WORKFLOW_C0017({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })
   }
-  return resolveProvider(options || {}, normalizeHosting(input.hosting))
+  return resolveDriver(options || {}, normalizeHosting(input.hosting))
 }

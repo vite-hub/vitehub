@@ -21,6 +21,7 @@ The command exits with `0` when the codemod completes, also when it reports foll
 | Codemod | Moves |
 | --- | --- |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
+| `driver-key` | A ViteHub app to `driver` as the one key that selects a backend |
 
 ## `nuxt-safe-runtime-config`
 
@@ -40,6 +41,25 @@ The report lists what Env cannot express and what the codemod could not rewrite:
 ```sh
 corepack pnpm exec vp run codemods:e2e
 ```
+
+## `driver-key`
+
+`driver` is the only key that selects the backend of a resource. The codemod renames the old keys and the old names of host drivers:
+
+| Before | After |
+| --- | --- |
+| `queue`, `workflow`, `rateLimit`, `sandboxTask`: `provider` | `driver` |
+| `realtime: { authority }` | `realtime: { driver }` |
+| Workspace `store: { provider }` | `store: { driver }` |
+| `createBrowser({ provider })` | `createBrowser({ driver })` |
+| Blob `driver: "cloudflare-r2"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+| KV `driver: "cloudflare-kv-binding"` | `"cloudflare"` |
+| Email `driver: "cloudflare-email"` | `"cloudflare"` |
+| Cache `driver: "cloudflare-kv-binding"`, `"vercel-runtime-cache"` | `"cloudflare"`, `"vercel"` |
+| Database `driver: "d1"` | `"cloudflare"` |
+| Workspace Store `"cloudflare-artifacts"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+
+It rewrites the options object of `vitehub()`, `defineConfig()`, `defineNuxtConfig()` (also under `vitehub`), the `hub*()` plugins, `createQueueClient()`, `createEmail()`, and `createBrowser()`, and each `store` object whose `provider` is a Workspace Store driver. Blob and KV `stores` entries change too. A driver value that is not a string literal stays, and the report names it. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
 
 ## Add a codemod
 

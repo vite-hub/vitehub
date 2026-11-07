@@ -13,7 +13,7 @@ export default defineConfig({
     nitro(),
   ],
   blob: {
-    driver: "cloudflare-r2",
+    driver: "cloudflare",
     bucketName: "vitehub-blob",
   },
 })

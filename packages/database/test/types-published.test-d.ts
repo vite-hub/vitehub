@@ -74,7 +74,7 @@ describe("published package types", () => {
 
   it("resolves the Nuxt bridge subpath", () => {
     const options = {
-      driver: "d1",
+      driver: "cloudflare",
       databaseName: "content-db",
       databaseId: "content-id",
     } satisfies DatabaseNuxtIntegrationOptions

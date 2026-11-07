@@ -54,7 +54,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'cloudflare',
-    database: { driver: 'd1' },
+    database: { driver: 'cloudflare' },
     agent: { invocations: 'database' },
   })],
 })

@@ -56,7 +56,7 @@ function actionTimeoutMs(input: Record<string, unknown>): number {
 
 async function resolveBinding(): Promise<BrowserRunBinding> {
   const bindingOption = runtimeConfig.binding
-  if (!isBrowserAvailable() || runtimeConfig.provider !== "cloudflare" || !bindingOption) throw browserUnavailableError()
+  if (!isBrowserAvailable() || runtimeConfig.driver !== "cloudflare" || !bindingOption) throw browserUnavailableError()
   const binding = await runtimeBinding(bindingOption)
   if (!binding || typeof (binding as BrowserRunBinding).quickAction !== "function") {
     throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)

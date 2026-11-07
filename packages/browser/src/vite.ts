@@ -187,8 +187,8 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
   function runtimeContents() {
     const config = enabled ? {
       binding: resolvedOptions.binding,
+      driver: "cloudflare",
       engine: resolvedOptions.engine,
-      provider: "cloudflare",
     } : {}
     return [
       ...(enabled && resolvedOptions.engine === "chromium"

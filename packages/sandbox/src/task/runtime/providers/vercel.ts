@@ -1,10 +1,10 @@
-import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
+import type { SandboxTaskDefinitionOptions, VercelSandboxTaskDriverOptions } from '../../module-types'
 import { resolveVercelSandbox } from '../../../internal/vercel.ts'
 import { readEnv } from '@vite-hub/internal/env'
 
 type SandboxTaskOptions = {
   local: SandboxTaskDefinitionOptions
-  provider: VercelSandboxTaskProviderOptions
+  provider: VercelSandboxTaskDriverOptions
 }
 
 function readConfigCredential(value: string | undefined) {
@@ -25,7 +25,7 @@ function resolveEnvCredentials() {
   }
 }
 
-function resolveCredentials(provider: VercelSandboxTaskProviderOptions) {
+function resolveCredentials(provider: VercelSandboxTaskDriverOptions) {
   const env = resolveEnvCredentials()
   const token = readConfigCredential(provider.token) || env.token
   const teamId = readConfigCredential(provider.teamId) || env.teamId

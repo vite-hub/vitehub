@@ -37,7 +37,7 @@ describe("feature catalog", () => {
           expect(`${id}:${preset}`).toBe("realtime:node")
           continue
         }
-        expect(support, `${id} on ${preset}`).toMatchObject({ adapter: policy.adapter, guarantee: policy.guarantee, level: "native" })
+        expect(support, `${id} on ${preset}`).toMatchObject({ driver: policy.driver, guarantee: policy.guarantee, level: "native" })
       }
     }
   })
@@ -84,12 +84,12 @@ describe("feature catalog", () => {
 
   it("uses process-local Rate Limit memory during Cloudflare development", () => {
     expect(featureSupport("rateLimit", "dev", "cloudflare")).toMatchObject({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       level: "native",
     })
     expect(featureSupport("rateLimit", "cloudflare")).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       guarantee: "native",
       level: "native",
     })

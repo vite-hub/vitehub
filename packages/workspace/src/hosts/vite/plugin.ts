@@ -232,7 +232,7 @@ function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<Babel
   for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
     if (
       current.node.type === "ObjectProperty"
-      && !["binding", "namespace", "provider", "store"].includes(String(babelPropertyName(current)))
+      && !["binding", "namespace", "driver", "store"].includes(String(babelPropertyName(current)))
     ) return false
     if (
       current.node.type === "ObjectProperty"
@@ -471,29 +471,29 @@ async function sourceModuleDeclaresCloudflareArtifacts(
               ? babelPathBelongsToExportedStore(path)
               : babelPathReachesNamedExport(path, exportedName)
             if (
-              babelPropertyName(path) === "provider"
+              babelPropertyName(path) === "driver"
               && belongsToRequestedExport
             ) {
-              const provider = babelStringValue(value, path)
-              if (provider === "cloudflare-artifacts" || provider === undefined) declaresCloudflareArtifacts = true
+              const driver = babelStringValue(value, path)
+              if (driver === "cloudflare" || driver === undefined) declaresCloudflareArtifacts = true
             }
           },
           VariableDeclarator(path: BabelNodePath) {
             if (
-              exportedName === "provider"
+              exportedName === "driver"
               && path.node.id?.type === "Identifier"
-              && path.node.id.name === "provider"
+              && path.node.id.name === "driver"
               && babelPathIsExported(path)
-              && babelStringValue(path.node.init, path) === "cloudflare-artifacts"
+              && babelStringValue(path.node.init, path) === "cloudflare"
             ) {
               declaresCloudflareArtifacts = true
             }
           },
           ExportNamedDeclaration(path: BabelNodePath) {
-            if (exportedName !== "provider") return
+            if (exportedName !== "driver") return
             for (const specifier of path.node.specifiers ?? []) {
-              if (specifier.exported?.name !== "provider" || specifier.local?.type !== "Identifier" || !specifier.local.name) continue
-              if (babelStringValue(specifier.local, path) === "cloudflare-artifacts") declaresCloudflareArtifacts = true
+              if (specifier.exported?.name !== "driver" || specifier.local?.type !== "Identifier" || !specifier.local.name) continue
+              if (babelStringValue(specifier.local, path) === "cloudflare") declaresCloudflareArtifacts = true
             }
           },
         },
@@ -931,8 +931,8 @@ function reconstructCloudflareArtifactStore(
     if (operation.value === undefined && !operation.environmentValue) return
     reconstructed[operation.name] = operation.value
   }
-  if (reconstructed.provider !== "cloudflare-artifacts") return
-  // SAFETY: Reconstruction accepts only string properties and requires the Cloudflare Artifacts provider discriminator.
+  if (reconstructed.driver !== "cloudflare") return
+  // SAFETY: Reconstruction accepts only string properties and requires the Cloudflare Artifacts driver discriminator.
   return reconstructed as WorkspaceDefinitionInput["store"]
 }
 
@@ -962,9 +962,9 @@ async function loadFactoredCloudflareArtifactStore(
         importedValues.set(localName, store)
         if (selectedName) importedValues.set(importedWorkspaceValueKey(localName, selectedName), store)
       }
-      // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
-      if (isRecord(store) && store.provider === "cloudflare-artifacts") {
-        // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
+      // SAFETY: The driver check establishes the Workspace store variant consumed by normalization.
+      if (isRecord(store) && store.driver === "cloudflare") {
+        // SAFETY: The record and driver guards above establish the Cloudflare Artifacts store variant.
         importedArtifactStore = store as WorkspaceDefinitionInput["store"]
       }
     }
@@ -1064,7 +1064,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       hosting: resolution?.hosting ?? process.env.VITEHUB_HOSTING,
       rootDir: workspace.rootDir || rootDir,
     })
-    if (config && config.store.provider === "cloudflare-artifacts") {
+    if (config && config.store.driver === "cloudflare") {
       configs.push(config)
       definitionOverrides?.set(definition.name, config)
     }
@@ -1086,7 +1086,7 @@ async function resolveCloudflareArtifactsConfigs(
   } = {},
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   return [
-    ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
+    ...(config.store.driver === "cloudflare" ? [config] : []),
     ...await resolveDefinitionCloudflareArtifactsConfigs(
       definitions,
       rootDir,
@@ -1242,7 +1242,7 @@ function workspaceDefinitionLoaderAliases(aliases: AliasOptions): Record<string,
 }
 
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
-  return store.provider === "cloudflare-artifacts" || store.provider === "github" || store.provider === "vercel-blob"
+  return store.driver === "cloudflare" || store.driver === "github" || store.driver === "vercel"
 }
 
 function acceptsWorkspaceDevStream(req: IncomingMessage): boolean {
@@ -1468,9 +1468,9 @@ function runtimeWorkspaceConfig(
   options: false | WorkspaceModuleOptions | undefined,
   cloudflareRuntime: boolean,
 ): false | ResolvedWorkspaceModuleOptions {
-  if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
+  if (!cloudflareRuntime || !config || config.store.driver !== "github" || !options) return config
   const store = options.store
-  if (!store || isWorkspaceStore(store) || store.provider !== "github") return config
+  if (!store || isWorkspaceStore(store) || store.driver !== "github") return config
   const runtimeStore = { ...config.store }
   const isAbsent = (value: unknown) => typeof value === "undefined" || (typeof value === "string" && value.trim().length === 0)
   for (const key of ["branch", "root", "token"] as const) {
@@ -1506,7 +1506,7 @@ function renderNitroWorkspacePlugin(
   const hostedVercelBlobRuntimeImport = `${importBase}/internal/runtime/hosted-vercel-blob`
   const runtimeImport = `${importBase}/runtime`
   const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
-  const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
+  const isVercelBlobStore = hostedConfig?.store.driver === "vercel"
   const runtimeImports = hostedConfig
     ? [
         isVercelBlobStore
@@ -1716,7 +1716,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         hosting: resolvedHosting,
         rootDir: roots.projectRoot,
       })
-      const runtimeOptions = resolvedHosting && normalized && normalized.store.provider !== "local"
+      const runtimeOptions = resolvedHosting && normalized && normalized.store.driver !== "local"
         ? { ...workspaceOptions, store: workspaceOptions && workspaceOptions.store ? workspaceOptions.store : normalized.store }
         : workspaceOptions
       const viteConfig: Omit<UserConfig, "plugins"> = {

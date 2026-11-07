@@ -4,7 +4,7 @@ import { normalizeRateLimitPolicy } from "../policy.ts"
 
 import type { RateLimiter, RateLimitPolicy, RateLimitRuntimeConfig } from "../types.ts"
 
-let runtimeConfig: RateLimitRuntimeConfig = { provider: "memory" }
+let runtimeConfig: RateLimitRuntimeConfig = { driver: "memory" }
 const memoryLimiters = new Map<string, Map<string, RateLimiter>>()
 
 export function setRateLimitRuntimeConfig(config: RateLimitRuntimeConfig): void {

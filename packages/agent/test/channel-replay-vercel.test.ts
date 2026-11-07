@@ -68,7 +68,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
     if (options.failRuntimeLoad) throw new Error("Native SDK unavailable before submission")
     return { start, getRun, listSteps: async () => [], resumeHook: async () => ({ runId: "unused" }) }
   })
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
     [name]: async () => ({ default: { handler: native, options: { native } } }),
     [getAgentInvocationRecoveryWorkflowName(name)]: async () => ({ default: { internalAgentInvocationRecovery: true, handler: recoveryNative, options: { native: recoveryNative } } }),

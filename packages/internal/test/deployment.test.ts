@@ -40,16 +40,16 @@ describe("built-in deployment plans", () => {
   )
   it("keeps service guarantees explicit", () => {
     expect(resolveDeploymentPlan("cloudflare").services.queue).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.queue).toEqual({
-      adapter: "local",
+      driver: "local",
       guarantee: "single-host",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.rateLimit).toEqual({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       supported: true,
     })

@@ -7,7 +7,7 @@ export type BlobDriver =
   | "akamai"
   | "azure"
   | "box"
-  | "cloudflare-r2"
+  | "cloudflare"
   | "digitalocean-spaces"
   | "dropbox"
   | "fs"
@@ -21,7 +21,7 @@ export type BlobDriver =
   | "storj"
   | "supabase"
   | "uploadthing"
-  | "vercel-blob"
+  | "vercel"
 export type BlobType = "audio" | "blob" | "image" | "pdf" | "text" | "video" | `${string}/${string}`
 export type SizeUnit = "B" | "GB" | "KB" | "MB"
 type PowOf2 = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024
@@ -290,7 +290,7 @@ export interface BlobMedia {
 export interface BlobStorage {
   /** Media records, folders, and image variants. */
   readonly media: BlobMedia
-  /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
+  /** Start a multipart upload. Supported by the `fs`, `cloudflare` (binding), and `vercel` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<BlobResult<BlobMultipartUpload>>
   del(pathnames: string | string[]): Promise<BlobResult<void>>
   get(pathname: string): Promise<BlobResult<Blob | null>>
@@ -360,7 +360,7 @@ export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
   binding?: string
   bucketName?: string
   defaultUrlExpiresIn?: number
-  driver: "cloudflare-r2"
+  driver: "cloudflare"
   /** Jurisdiction of the bucket. Sets the wrangler binding, the provisioning request, and the S3 API host. */
   jurisdiction?: CloudflareR2Jurisdiction
   publicBaseUrl?: string
@@ -380,7 +380,7 @@ export interface VercelBlobStoreConfig extends HostedBlobStoreConfig {
   access?: "private" | "public"
   allowOverwrite?: boolean
   downloadTimeoutMs?: number
-  driver: "vercel-blob"
+  driver: "vercel"
   token?: string
 }
 

@@ -4,7 +4,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   blob: {
     access: "private",
-    driver: "vercel-blob",
+    driver: "vercel",
     token: "vercel_blob_rw_test",
   },
   build: {

@@ -16,26 +16,26 @@ import { normalizeWorkspaceStoreOptions } from "../../workspace/src/storage/prov
 const presets = featureHosts.filter(host => host !== "dev")
 
 describe("feature catalog parity with owner resolution", () => {
-  it.each(presets)("matches the default Workflow provider on %s", (host) => {
+  it.each(presets)("matches the default Workflow driver on %s", (host) => {
     const hosting = resolveDeploymentPlan(host).nitroPreset
     const support = featureSupport("workflow", host)
     if (support.level === "explicit") {
-      expect(() => normalizeWorkflowOptions({}, { hosting })).toThrow(/workflow.provider/)
+      expect(() => normalizeWorkflowOptions({}, { hosting })).toThrow(/workflow.driver/)
       return
     }
     expect(support.level).toBe("native")
-    if (support.level === "native") expect(support.adapter).toBe(normalizeWorkflowOptions({}, { hosting })?.provider)
+    if (support.level === "native") expect(support.driver).toBe(normalizeWorkflowOptions({}, { hosting })?.driver)
   })
 
   it.each(presets)("preserves the %s preset for development Workflow", (preset) => {
     const hosting = resolveDeploymentPlan(preset).nitroPreset
     const support = featureSupport("workflow", "dev", preset)
     if (support.level === "explicit") {
-      expect(() => normalizeWorkflowOptions({}, { hosting })).toThrow(/workflow.provider/)
+      expect(() => normalizeWorkflowOptions({}, { hosting })).toThrow(/workflow.driver/)
       return
     }
     expect(support.level).toBe("native")
-    if (support.level === "native") expect(support.adapter).toBe(normalizeWorkflowOptions({}, { hosting })?.provider)
+    if (support.level === "native") expect(support.driver).toBe(normalizeWorkflowOptions({}, { hosting })?.driver)
   })
 
   it.each(presets)("preserves the %s Deployment Plan for development Queue and Sandbox", (preset) => {
@@ -47,9 +47,9 @@ describe("feature catalog parity with owner resolution", () => {
         expect(support.level, id).toBe("unsupported")
         continue
       }
-      expect(support, id).toMatchObject({ adapter: policy.adapter, level: "native" })
+      expect(support, id).toMatchObject({ driver: policy.driver, level: "native" })
       if (id === "queue" && support.level === "native") {
-        expect(support.adapter).toBe(normalizeQueueOptions({ provider: policy.adapter }, { hosting: plan.nitroPreset })?.provider)
+        expect(support.driver).toBe(normalizeQueueOptions({ driver: policy.driver }, { hosting: plan.nitroPreset })?.driver)
       }
     }
   })
@@ -61,14 +61,14 @@ describe("feature catalog parity with owner resolution", () => {
     if (support.level !== "native") return
     const provider = support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
     const store = normalizeWorkspaceStoreOptions(undefined, { env, hosting: "vercel" })
-    expect(provider.adapter).toBe(store?.provider)
-    expect(provider.guarantee).toBe(store?.provider === "memory" ? "process-local" : "native")
+    expect(provider.driver).toBe(store?.driver)
+    expect(provider.guarantee).toBe(store?.driver === "memory" ? "process-local" : "native")
   })
 
   it.each(presets)("matches the local development Workspace store with the %s preset", (preset) => {
     const hosting = resolveDeploymentPlan(preset).nitroPreset
     const support = featureSupport("workspace", "dev", preset)
-    expect(support).toMatchObject({ adapter: normalizeWorkspaceStoreOptions(undefined, { dev: true, hosting })?.provider, level: "native" })
+    expect(support).toMatchObject({ driver: normalizeWorkspaceStoreOptions(undefined, { dev: true, hosting })?.driver, level: "native" })
   })
 
   const roots: string[] = []

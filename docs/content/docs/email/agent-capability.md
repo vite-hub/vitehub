@@ -106,7 +106,7 @@ Do not pass unrestricted model output into a trusted HTML fragment.
 ## Requirements
 
 - The application must run on Node.js 22.22 or later.
-- Email configuration requires Vite 8 or later and one configured provider (`resend` or `cloudflare-email`).
+- Email configuration requires Vite 8 or later and one configured provider (`resend` or `cloudflare`).
 - The configured provider must authorize the `from` address.
 - Generated Agent routes receive the Email runtime handle (`email` from `@vite-hub/email/server`) only while the Email Vite integration is active.
 
@@ -132,7 +132,7 @@ export default defineConfig({
 })
 ```
 
-Follow [Configure Resend](/docs/email/get-started#configure-resend), or select the `cloudflare-email` provider through the same `driver` option.
+Follow [Configure Resend](/docs/email/get-started#configure-resend), or select the `cloudflare` provider through the same `driver` option.
 Keep credentials in Server Env or the deployment platform's secret store and reference them with an Env declaration without a default. Literal options and non-secret Env defaults are included in build output. ViteHub rejects defaults on declarations marked secret. The Capability never exposes runtime credentials to the model.
 
 ## Security and approval

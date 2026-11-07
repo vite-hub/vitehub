@@ -64,7 +64,7 @@ function planDatabases(rootDir: string, options: DatabaseProvisionOptions | unde
     }
     else plannedByName.set(databaseName, { databaseName, definitions: [definition], nuxt: false, readReplication })
   }
-  const integrationDatabaseName = options && options.driver === "d1" && nuxtHostResource
+  const integrationDatabaseName = options && options.driver === "cloudflare" && nuxtHostResource
     ? resolveConfigValue(options.databaseName)
     : undefined
   if (integrationDatabaseName) {

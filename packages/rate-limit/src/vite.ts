@@ -50,7 +50,7 @@ function mergeNitroConfig(
   value: unknown,
   declarations: RateLimitDeclaration[],
   namespace: string | undefined,
-  provider: "cloudflare" | "memory" | undefined,
+  driver: "cloudflare" | "memory" | undefined,
   nitroCloudflare: boolean,
   projectRoot: string,
 ): Record<string, unknown> {
@@ -59,7 +59,7 @@ function mergeNitroConfig(
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(resolve(projectRoot, generatedNitroPlugin), "start")
   const baseNitro = kit.config
-  if (!nitroCloudflare || provider !== "cloudflare" || declarations.length === 0) {
+  if (!nitroCloudflare || driver !== "cloudflare" || declarations.length === 0) {
     contributeCloudflareProviderOutput(providerOutput, { owner: "rate-limit" })
     return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
   }
@@ -90,8 +90,8 @@ function resolveRateLimitNamespace(configured?: string): string | undefined {
   return configured?.trim() || undefined
 }
 
-function resolveProvider(options: RateLimitModuleOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
-  if (options.provider && options.provider !== "auto") return options.provider
+function resolveDriver(options: RateLimitModuleOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
+  if (options.driver && options.driver !== "auto") return options.driver
   if (command === "serve") return "memory"
   const hosting = getHostingProvider(resolveHost({ nitro }))
   if (hosting === "cloudflare") return "cloudflare"
@@ -99,14 +99,14 @@ function resolveProvider(options: RateLimitModuleOptions, command: "build" | "se
     throw rateLimitErrorDiagnostics.RATE_LIMIT_B0002({ message: `[vitehub] Rate Limit has no native ${hosting} driver. Configure a custom Rate Limiter instead of falling back to per-instance memory.` })
   }
   if (deferUnknown) return
-  throw rateLimitErrorDiagnostics.RATE_LIMIT_B0003({ message: "[vitehub] Rate Limit provider cannot be inferred for a production build. Set rateLimit.provider to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment." })
+  throw rateLimitErrorDiagnostics.RATE_LIMIT_B0003({ message: "[vitehub] Rate Limit driver cannot be inferred for a production build. Set rateLimit.driver to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment." })
 }
 
 function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitModuleOptions, nitro: unknown): boolean {
-  // ViteHub records the deployment preset separately from its memory runtime provider in dev.
+  // ViteHub records the deployment preset separately from its memory runtime driver in dev.
   if ((config as { vitehub?: { preset?: string } }).vitehub?.preset === "cloudflare") return true
-  if (configured.provider === "cloudflare") return true
-  return (configured.provider ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
+  if (configured.driver === "cloudflare") return true
+  return (configured.driver ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
 }
 
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
@@ -116,7 +116,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   let cloudflareBindings = false
   // The dev server runs the memory driver, so it checks the policies that the Cloudflare build rejects.
   let checkCloudflarePolicies = false
-  let provider: "cloudflare" | "memory" = "memory"
+  let driver: "cloudflare" | "memory" = "memory"
   let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
 
@@ -133,7 +133,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     if (!projectRoot || !resolved) return
     collectDeclarations()
     if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
-    await writeRateLimitManifest(projectRoot, declarations, provider)
+    await writeRateLimitManifest(projectRoot, declarations, driver)
   }
 
   const inspectionRoot = (): string => projectRoot ?? resolveViteHubProjectRoot(process.cwd(), { projectRoot: rateLimit.projectRoot })
@@ -169,15 +169,15 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         rateLimit = config.rateLimit ?? rateLimit
         const configuredNitro = (config as { nitro?: unknown }).nitro
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd(), { projectRoot: rateLimit.projectRoot })
-        const configuredProvider = resolveProvider(rateLimit, env?.command ?? "serve", configuredNitro, true)
-        if (configuredProvider) provider = configuredProvider
+        const configuredDriver = resolveDriver(rateLimit, env?.command ?? "serve", configuredNitro, true)
+        if (configuredDriver) driver = configuredDriver
         collectDeclarations()
         const nitro = mergeNitroConfig(
           config,
           configuredNitro,
           declarations,
           resolveRateLimitNamespace(rateLimit.namespace),
-          configuredProvider,
+          configuredDriver,
           resolveHost({ nitro: configuredNitro }) === "cloudflare",
           projectRoot,
         )
@@ -191,8 +191,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const nitroCloudflare = resolveHost({ nitro: configuredNitro }) === "cloudflare"
-      provider = resolveProvider(rateLimit, config.command, configuredNitro)!
-      cloudflareBindings = nitroCloudflare && provider === "cloudflare"
+      driver = resolveDriver(rateLimit, config.command, configuredNitro)!
+      cloudflareBindings = nitroCloudflare && driver === "cloudflare"
       checkCloudflarePolicies = config.command === "serve" && buildTargetsCloudflare(config, rateLimit, configuredNitro)
       collectDeclarations()
       if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
@@ -201,13 +201,13 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         configuredNitro,
         declarations,
         resolveRateLimitNamespace(rateLimit.namespace),
-        provider,
+        driver,
         nitroCloudflare,
         projectRoot,
       )
-      await writeRateLimitManifest(projectRoot, declarations, provider)
+      await writeRateLimitManifest(projectRoot, declarations, driver)
       const pluginFile = resolve(projectRoot, generatedNitroPlugin)
-      const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
+      const runtimeConfig = { driver } satisfies RateLimitRuntimeConfig
       await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase))
     },
     configureServer(server) {

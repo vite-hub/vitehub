@@ -32,7 +32,7 @@
   {
     "key": "docs/content/docs/agents/invocation-storage.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'cloudflare',\n    database: { driver: 'd1' },\n    agent: { invocations: 'database' },\n  })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'cloudflare',\n    database: { driver: 'cloudflare' },\n    agent: { invocations: 'database' },\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/agents/observability.md#1",
@@ -87,7 +87,7 @@
   {
     "key": "docs/content/docs/blob/configure.md#1",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [hubBlob()],\n  blob: {\n    stores: {\n      default: { driver: 'fs' },\n      reports: { driver: 'vercel-blob', access: 'private' },\n    },\n  },\n})\n"
+    "code": "export default defineConfig({\n  plugins: [hubBlob()],\n  blob: {\n    stores: {\n      default: { driver: 'fs' },\n      reports: { driver: 'vercel', access: 'private' },\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/blob/configure.md#2",
@@ -122,12 +122,12 @@
   {
     "key": "docs/content/docs/blob/hosts.md#1",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  blob: {\n    driver: 'cloudflare-r2',\n    binding: 'BLOB',\n    bucketName: 'assets',\n  },\n})\n"
+    "code": "export default defineConfig({\n  blob: {\n    driver: 'cloudflare',\n    binding: 'BLOB',\n    bucketName: 'assets',\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/blob/hosts.md#2",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  blob: {\n    driver: 'cloudflare-r2',\n    bucketName: 'assets',\n    jurisdiction: 'eu',\n  },\n})\n"
+    "code": "export default defineConfig({\n  blob: {\n    driver: 'cloudflare',\n    bucketName: 'assets',\n    jurisdiction: 'eu',\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/blob/hosts.md#3",
@@ -147,12 +147,12 @@
   {
     "key": "docs/content/docs/blob/media.md#1",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [hubBlob()],\n  blob: {\n    driver: 'cloudflare-r2',\n    serve: true,\n    images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },\n  },\n})\n"
+    "code": "export default defineConfig({\n  plugins: [hubBlob()],\n  blob: {\n    driver: 'cloudflare',\n    serve: true,\n    images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/blob/media.md#2",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [hubBlob()],\n  blob: {\n    driver: 'cloudflare-r2',\n    serve: true,\n    images: { transformer: 'photon' },\n  },\n})\n"
+    "code": "export default defineConfig({\n  plugins: [hubBlob()],\n  blob: {\n    driver: 'cloudflare',\n    serve: true,\n    images: { transformer: 'photon' },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/browser/configure.md#1",
@@ -207,12 +207,12 @@
   {
     "key": "docs/content/docs/comments/hosts.md#1",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      database: true,\n      realtime: { authority: 'memory' },\n    }),\n  ],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      database: true,\n      realtime: { driver: 'memory' },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/comments/hosts.md#2",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'cloudflare',\n      database: { driver: 'd1', databaseName: 'site' },\n      realtime: true,\n    }),\n  ],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'cloudflare',\n      database: { driver: 'cloudflare', databaseName: 'site' },\n      realtime: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/comments/index.md#1",
@@ -232,7 +232,7 @@
   {
     "key": "docs/content/docs/comments/with-vite-hub.md#1",
     "file": "vite.config.ts",
-    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      preset: 'node',\n      database: true,\n      realtime: { authority: 'memory' },\n    }),\n  ],\n})\n"
+    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      preset: 'node',\n      database: true,\n      realtime: { driver: 'memory' },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/compare/cloudflare-agents.md#1",
@@ -257,7 +257,7 @@
   {
     "key": "docs/content/docs/content/editing-together.md#1",
     "file": "vite.config.ts",
-    "code": "vitehub({\n  preset: 'node',\n  console: { auth: 'app' },\n  realtime: { authority: 'memory' },\n})\n"
+    "code": "vitehub({\n  preset: 'node',\n  console: { auth: 'app' },\n  realtime: { driver: 'memory' },\n})\n"
   },
   {
     "key": "docs/content/docs/content/get-started.md#1",
@@ -292,7 +292,7 @@
   {
     "key": "docs/content/docs/database/hosts.md#2",
     "file": "nuxt.config.ts",
-    "code": "export default defineNuxtConfig({\n  modules: ['@vite-hub/database/nuxt'],\n  database: {\n    driver: 'd1',\n    databaseName: 'app-content',\n  },\n})\n"
+    "code": "export default defineNuxtConfig({\n  modules: ['@vite-hub/database/nuxt'],\n  database: {\n    driver: 'cloudflare',\n    databaseName: 'app-content',\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/database/index.md#1",
@@ -507,7 +507,7 @@
   {
     "key": "docs/content/docs/frameworks-hosts/cloudflare.md#4",
     "file": "vite.config.ts",
-    "code": "import { hubWorkspace } from '@vite-hub/workspace/vite'\n\nexport default {\n  plugins: [\n    hubWorkspace({\n      store: {\n        provider: 'cloudflare-artifacts',\n        binding: 'WORKSPACE_ARTIFACTS',\n        namespace: 'vitehub',\n      },\n    }),\n  ],\n}\n"
+    "code": "import { hubWorkspace } from '@vite-hub/workspace/vite'\n\nexport default {\n  plugins: [\n    hubWorkspace({\n      store: {\n        driver: 'cloudflare',\n        binding: 'WORKSPACE_ARTIFACTS',\n        namespace: 'vitehub',\n      },\n    }),\n  ],\n}\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/cloudflare.md#5",
@@ -567,12 +567,12 @@
   {
     "key": "docs/content/docs/getting-started/migrate-from-nuxthub.md#1",
     "file": "nuxt.config.ts",
-    "code": "export default defineNuxtConfig({\n  vitehub: {\n    preset: \"cloudflare\",\n    cache: {\n      driver: \"cloudflare-kv-binding\",\n      binding: \"CACHE\",\n      namespaceId: process.env.CLOUDFLARE_CACHE_NAMESPACE_ID,\n    },\n  },\n})\n"
+    "code": "export default defineNuxtConfig({\n  vitehub: {\n    preset: \"cloudflare\",\n    cache: {\n      driver: \"cloudflare\",\n      binding: \"CACHE\",\n      namespaceId: process.env.CLOUDFLARE_CACHE_NAMESPACE_ID,\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/getting-started/migrate-from-nuxthub.md#2",
     "file": "nuxt.config.ts",
-    "code": "export default defineNuxtConfig({\n  modules: [\"vite-hub/nuxt\"],\n  vitehub: {\n    preset: \"cloudflare\",\n    database: true,\n    kv: {\n      driver: \"cloudflare-kv-binding\",\n      binding: \"KV\",\n      namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,\n    },\n    blob: {\n      driver: \"cloudflare-r2\",\n      binding: \"BLOB\",\n      bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,\n    },\n  },\n})\n"
+    "code": "export default defineNuxtConfig({\n  modules: [\"vite-hub/nuxt\"],\n  vitehub: {\n    preset: \"cloudflare\",\n    database: true,\n    kv: {\n      driver: \"cloudflare\",\n      binding: \"KV\",\n      namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,\n    },\n    blob: {\n      driver: \"cloudflare\",\n      binding: \"BLOB\",\n      bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/guides/better-auth-cloudflare.md#1",
@@ -602,7 +602,7 @@
   {
     "key": "docs/content/docs/guides/cloudflare-r2.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tpreset: 'cloudflare',\n\t\tblob: {\n\t\t\tdriver: 'cloudflare-r2',\n\t\t\tbinding: 'BLOB',\n\t\t\tbucketName: 'your-existing-bucket',\n\t\t},\n\t})],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tpreset: 'cloudflare',\n\t\tblob: {\n\t\t\tdriver: 'cloudflare',\n\t\t\tbinding: 'BLOB',\n\t\t\tbucketName: 'your-existing-bucket',\n\t\t},\n\t})],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/codex-sdk.md#1",
@@ -617,7 +617,7 @@
   {
     "key": "docs/content/docs/guides/durable-execution.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      workflow: {\n        provider: 'openworkflow',\n        sqlite: { path: '.data/workflows.sqlite' },\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      workflow: {\n        driver: 'openworkflow',\n        sqlite: { path: '.data/workflows.sqlite' },\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/rate-limiting-algorithms.md#1",
@@ -657,12 +657,12 @@
   {
     "key": "docs/content/docs/guides/vercel-blob.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      blob: { driver: 'vercel-blob', access: 'private' },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      blob: { driver: 'vercel', access: 'private' },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/vercel-blob.md#3",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      blob: {\n        driver: 'vercel-blob',\n        access: 'private',\n        serve: { route: '/files' },\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      blob: {\n        driver: 'vercel',\n        access: 'private',\n        serve: { route: '/files' },\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/vercel-cron-jobs.md#1",
@@ -707,12 +707,12 @@
   {
     "key": "docs/content/docs/queue/configure.md#1",
     "file": "vite.config.ts",
-    "code": "import { hubQueue } from '@vite-hub/queue/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [hubQueue()],\n  queue: {\n    provider: 'cloudflare',\n  },\n})\n"
+    "code": "import { hubQueue } from '@vite-hub/queue/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [hubQueue()],\n  queue: {\n    driver: 'cloudflare',\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/queue/configure.md#2",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' })],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [hubQueue({ driver: 'vercel', region: 'iad1' })],\n})\n"
   },
   {
     "key": "docs/content/docs/queue/get-started.md#1",
@@ -742,12 +742,12 @@
   {
     "key": "docs/content/docs/realtime/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      preset: 'node',\n      realtime: { authority: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
+    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      preset: 'node',\n      realtime: { driver: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/realtime/index.md#1",
     "file": "vite.config.ts",
-    "code": "import vue from '@vitejs/plugin-vue'\nimport { nitro } from 'nitro/vite'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    nitro(),\n    vitehub({\n      preset: 'node',\n      // Keep rooms in this server process\n      realtime: { authority: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
+    "code": "import vue from '@vitejs/plugin-vue'\nimport { nitro } from 'nitro/vite'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    nitro(),\n    vitehub({\n      preset: 'node',\n      // Keep rooms in this server process\n      realtime: { driver: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/reference/config-options.md#1",
@@ -797,7 +797,7 @@
   {
     "key": "docs/content/docs/sandbox/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { hubSandboxTask } from '@vite-hub/sandbox/task/vite'\nimport { defineConfig } from 'vite'\nimport { nitro } from 'nitro/vite'\n\nexport default defineConfig({\n  plugins: [hubSandboxTask({ provider: 'vercel' }), nitro()],\n})\n"
+    "code": "import { hubSandboxTask } from '@vite-hub/sandbox/task/vite'\nimport { defineConfig } from 'vite'\nimport { nitro } from 'nitro/vite'\n\nexport default defineConfig({\n  plugins: [hubSandboxTask({ driver: 'vercel' }), nitro()],\n})\n"
   },
   {
     "key": "docs/content/docs/sandbox/index.md#1",
@@ -857,6 +857,6 @@
   {
     "key": "docs/content/docs/workspace/hosts.md#1",
     "file": "vite.config.ts",
-    "code": "import { hubWorkspace } from '@vite-hub/workspace/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [hubWorkspace()],\n  workspace: {\n    store: {\n      provider: 'cloudflare-artifacts',\n      binding: 'WORKSPACE_ARTIFACTS',\n      namespace: 'vitehub',\n    },\n  },\n})\n"
+    "code": "import { hubWorkspace } from '@vite-hub/workspace/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [hubWorkspace()],\n  workspace: {\n    store: {\n      driver: 'cloudflare',\n      binding: 'WORKSPACE_ARTIFACTS',\n      namespace: 'vitehub',\n    },\n  },\n})\n"
   }
 ]

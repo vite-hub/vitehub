@@ -64,7 +64,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Rename or remove one of the two Markdown files under `server/emails`.",
     },
     EMAIL_HOST_UNSUPPORTED: {
-      why: "The \"cloudflare-email\" driver needs a Cloudflare host.",
+      why: "The \"cloudflare\" driver needs a Cloudflare host.",
       fix: "Deploy to Cloudflare, or use the \"resend\" driver.",
     },
     EMAIL_INVALID_OUTBOX: {
@@ -92,8 +92,8 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
     },
     EMAIL_UNKNOWN_DRIVER: {
-      why: "The Email `driver` must be \"resend\" or \"cloudflare-email\".",
-      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare-email' }`.",
+      why: "The Email `driver` must be \"resend\" or \"cloudflare\".",
+      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`.",
     },
 
     // Tool errors.

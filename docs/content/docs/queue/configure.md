@@ -1,6 +1,6 @@
 ---
 title: Queue configuration
-description: Configure the Queue Vite Integration, Queue Providers, generated names, and Queue Definitions.
+description: Configure the Queue Vite Integration, Queue drivers, generated names, and Queue Definitions.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Register the Queue Vite Integration and choose a Queue Provider with the `queue` Integration Options.
+Register the Queue Vite Integration and choose a Queue driver with the `queue` Integration Options.
 
 ```ts [vite.config.ts]
 import { hubQueue } from '@vite-hub/queue/vite'
@@ -17,7 +17,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [hubQueue()],
   queue: {
-    provider: 'cloudflare',
+    driver: 'cloudflare',
   },
 })
 ```
@@ -26,13 +26,13 @@ You can also pass the same options to `hubQueue()`. A `queue` key in `vite.confi
 
 ```ts [vite.config.ts]
 export default defineConfig({
-  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' })],
+  plugins: [hubQueue({ driver: 'vercel', region: 'iad1' })],
 })
 ```
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | Selects the Queue Provider. ViteHub resolves Cloudflare for Cloudflare hosting, `local` for a Node server (`preset: 'node'` or the Nitro `node-server` preset), and Vercel for other supported production builds. Netlify cannot infer a Queue Provider, so set `provider` or disable Queue there. |
+| `driver` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | Selects the Queue driver. ViteHub resolves Cloudflare for Cloudflare hosting, `local` for a Node server (`preset: 'node'` or the Nitro `node-server` preset), and Vercel for other supported production builds. Netlify cannot infer a Queue driver, so set `driver` or disable Queue there. |
 | `cache` | `boolean` | `true` | Controls named QueueClient reuse for providers that can cache clients. Cloudflare QueueClients still resolve the request-scoped binding for each request. |
 | `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. You can use it with one Queue Definition only. |
 | `namePrefix` | `string` | none | Cloudflare only. Prefixes the generated queue names: `<namePrefix>queue--<hex-name>`. |
@@ -43,15 +43,15 @@ export default defineConfig({
 
 Disables runtime queue dispatch and skips generated Vercel queue consumer functions. Runtime calls throw `QUEUE_DISABLED`.
 
-## Providers
+## Drivers
 
-| Provider | Configure with | Generated output | Notes |
+| Driver | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
-| Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses request-scoped queue bindings. Supports `contentType` and `delaySeconds`. |
-| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
-| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs the stored jobs in the server process. | The default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. The jobs stay on one host. `pnpm dev` uses it for every provider, with the rules of the provider of the build. |
+| Cloudflare | `queue: { driver: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses request-scoped queue bindings. Supports `contentType` and `delaySeconds`. |
+| Vercel | `queue: { driver: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
+| Local | `queue: { driver: 'local', base?: string }` | A Nitro plugin that runs the stored jobs in the server process. | The default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. The jobs stay on one host. `pnpm dev` uses it for every driver, with the rules of the driver of the build. |
 
-ViteHub has no Queue Provider for Deno. The local provider keeps the jobs on one host: see [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a deployment target.
+ViteHub has no Queue driver for Deno. The local driver keeps the jobs on one host: see [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a deployment target.
 
 ### Cloudflare names
 

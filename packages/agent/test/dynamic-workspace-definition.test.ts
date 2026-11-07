@@ -39,7 +39,7 @@ it("keeps colocated Workspace Definitions invocation-local when agent names repe
             },
           }
         : {}),
-      store: { provider: "local", root },
+      store: { driver: "local", root },
     },
     driver: {
       run: async ({ workspace }) => [
@@ -72,7 +72,7 @@ it("keeps concurrent colocated Workspace Definitions invocation-local when agent
     runtime: false,
     workspace: {
       mode: "read",
-      store: { provider: "local", root },
+      store: { driver: "local", root },
     },
     driver: {
       run: async ({ workspace }) => await workspace!.fs.readFile("checkout.txt"),
@@ -105,7 +105,7 @@ it("does not replace a registered Workspace used by named references", async () 
   await writeFile(join(registeredRoot, "checkout.txt"), "registered")
   await writeFile(join(inlineRoot, "checkout.txt"), "inline")
   const name = `registered-workspace-${Math.random().toString(36).slice(2)}`
-  registerWorkspace(name, { store: { provider: "local", root: registeredRoot } })
+  registerWorkspace(name, { store: { driver: "local", root: registeredRoot } })
   const context = {
     memo<T>(_key: string, create: () => T): T {
       return create()
@@ -117,7 +117,7 @@ it("does not replace a registered Workspace used by named references", async () 
   const inline = defineAgent({
     name,
     runtime: false,
-    workspace: { mode: "read", store: { provider: "local", root: inlineRoot } },
+    workspace: { mode: "read", store: { driver: "local", root: inlineRoot } },
     driver: {
       run: async ({ workspace }) => await workspace!.fs.readFile("checkout.txt"),
     },
@@ -148,7 +148,7 @@ it("shares one owned Workspace across concurrent first use and later named refer
   const owner = defineAgent({
     name,
     runtime: false,
-    workspace: { mode: "write", store: { provider: "memory" } },
+    workspace: { mode: "write", store: { driver: "memory" } },
     driver: {
       run: async ({ workspace }) => {
         const call = ++calls

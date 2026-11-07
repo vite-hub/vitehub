@@ -42,7 +42,7 @@ import type {
   ResolvedAgentRuntimeContext,
 } from "../types.ts"
 
-import type { WorkflowProvider, WorkflowProviderContext } from "@vite-hub/workflow"
+import type { WorkflowDriver, WorkflowProviderContext } from "@vite-hub/workflow"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 export { workspaceAgentWithSourceRoot }
 
@@ -126,7 +126,7 @@ export type AgentWorkflowRunner<TRuntimeConfig extends AgentRuntimeConfig = Agen
   input: AgentRunInput<CALL_OPTIONS>,
 ) => Promise<Response | AgentRunResult | unknown>
 
-function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRuntimeName {
+function agentRuntimeFromWorkflowProvider(provider: WorkflowDriver): AgentRuntimeName {
   if (provider === "cloudflare") return "cloudflare-agents"
   if (provider === "vercel") return "vercel"
   return "unknown"

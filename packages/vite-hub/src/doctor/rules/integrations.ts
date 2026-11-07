@@ -360,14 +360,14 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | 
     }
     else if (name === "sandboxTask" && isObject) {
       report = {
-        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The preset selects the provider.",
+        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The preset selects the driver.",
         fix: "Set `sandboxTask: true`.",
       }
     }
     else if (name === "queue" && isObject) {
       report = {
-        why: "`queue` takes only `true` or `false`. ViteHub ignores the fields of this object, because the preset selects the Queue provider.",
-        fix: "Set `queue: true`, and choose the provider with `preset`.",
+        why: "`queue` takes only `true` or `false`. ViteHub ignores the fields of this object, because the preset selects the Queue driver.",
+        fix: "Set `queue: true`, and choose the driver with `preset`.",
       }
     }
     else if (name === "env" && host === "vite" && isObject) {

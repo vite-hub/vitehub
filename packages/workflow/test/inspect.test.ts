@@ -7,7 +7,7 @@ import { expect, it } from "vitest"
 import { hubWorkflow } from "../src/vite.ts"
 
 it("inspects the published Cloudflare worker bundle", async () => {
-  const plugin = hubWorkflow({ provider: "cloudflare" })
+  const plugin = hubWorkflow({ driver: "cloudflare" })
 
   expect(await collectViteHubProviderOutputEntries([plugin])).toEqual([{
     description: "Generated Cloudflare Workflow worker",

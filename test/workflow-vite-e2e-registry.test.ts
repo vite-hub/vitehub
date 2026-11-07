@@ -28,7 +28,7 @@ it("preserves folder steps in Vite e2e compatibility artifacts", async () => {
     clientOutDir: join(root, "dist", "client"),
     hosting: "cloudflare",
     rootDir: root,
-    workflow: { provider: "cloudflare" },
+    workflow: { driver: "cloudflare" },
   })
 
   expect(artifacts.workflowRegistryFile).toBeDefined()

@@ -160,7 +160,7 @@ Set `transformer: 'photon'` to make variants with WebAssembly on Workers and Nod
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {
-    driver: 'cloudflare-r2',
+    driver: 'cloudflare',
     serve: true,
     images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
   },
@@ -183,7 +183,7 @@ pnpm add @cf-wasm/photon
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {
-    driver: 'cloudflare-r2',
+    driver: 'cloudflare',
     serve: true,
     images: { transformer: 'photon' },
   },

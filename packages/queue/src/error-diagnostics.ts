@@ -1,6 +1,6 @@
 import { defineErrors } from "@vite-hub/runtime"
 
-import type { QueueProvider } from "./types.ts"
+import type { QueueDriver } from "./types.ts"
 
 export type QueueProviderOperation = "create-client" | "send" | "send-batch"
 
@@ -10,7 +10,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
   codes: {
     // Runtime errors. `send()`, `sendBatch()`, and `runQueue()` return them as `[error, undefined]`.
     QUEUE_PROVIDER_FAILED: {
-      why: ({ operation, provider }: { operation: QueueProviderOperation, provider: QueueProvider }) => `The ${provider} queue provider failed during ${operation}.`,
+      why: ({ operation, provider }: { operation: QueueProviderOperation, provider: QueueDriver }) => `The ${provider} queue provider failed during ${operation}.`,
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again. Pass `idempotencyKey` on Vercel so that a retry does not enqueue the job two times.",
     },
     QUEUE_PROVIDER_INVALID_RESPONSE: {
@@ -18,7 +18,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Do not send the job again without an `idempotencyKey`, because the provider can have it. Check the installed `@vercel/queue` version.",
     },
     QUEUE_UNSUPPORTED_OPTION: {
-      why: ({ options, provider }: { options: string, provider: QueueProvider }) => `The ${provider} queue provider does not support the enqueue option ${options}.`,
+      why: ({ options, provider }: { options: string, provider: QueueDriver }) => `The ${provider} queue provider does not support the enqueue option ${options}.`,
       fix: "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
@@ -61,9 +61,9 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "A direct Vercel queue client needs a `topic`.",
       fix: "Pass `topic` to `createQueueClient()`, or use `getQueue()` for a discovered Queue Definition.",
     },
-    QUEUE_PROVIDER_MISMATCH: {
-      why: ({ expected, provider }: { expected: QueueProvider, provider: QueueProvider }) => `The ${expected} Queue runtime received the ${provider} provider.`,
-      fix: "Set `queue.provider` to the provider of the deployment preset, and build again.",
+    QUEUE_DRIVER_MISMATCH: {
+      why: ({ driver, expected }: { driver: QueueDriver, expected: QueueDriver }) => `The ${expected} Queue runtime received the ${driver} driver.`,
+      fix: "Set `queue.driver` to the driver of the deployment preset, and build again.",
     },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
@@ -93,7 +93,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_INVALID_CONFIG: {
       why: "`queue` must be a plain object or `false`.",
-      fix: "Pass an object, for example `queue: { provider: 'cloudflare' }`.",
+      fix: "Pass an object, for example `queue: { driver: 'cloudflare' }`.",
     },
     QUEUE_INVALID_DEFINITION: {
       why: "`defineQueue()` needs a handler function.",
@@ -103,13 +103,13 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ name }: { name: string }) => `The Cloudflare queue name "${name}" can contain only letters, numbers, and dashes, and must start and end with a letter or number.`,
       fix: "Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.",
     },
-    QUEUE_INVALID_PROVIDER: {
-      why: ({ provider }: { provider: string }) => `\`queue.provider\` "${provider}" is not a Queue provider.`,
-      fix: "Set `queue.provider` to \"cloudflare\", \"vercel\", or \"local\".",
+    QUEUE_INVALID_DRIVER: {
+      why: ({ driver }: { driver: string }) => `\`queue.driver\` "${driver}" is not a Queue driver.`,
+      fix: "Set `queue.driver` to \"cloudflare\", \"vercel\", or \"local\".",
     },
-    QUEUE_MISSING_PROVIDER: {
-      why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue provider for ${hosting} hosting.`,
-      fix: "Set `queue.provider`, select the Cloudflare, Vercel, or Node deployment preset, or set `queue: false`.",
+    QUEUE_MISSING_DRIVER: {
+      why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue driver for ${hosting} hosting.`,
+      fix: "Set `queue.driver`, select the Cloudflare, Vercel, or Node deployment preset, or set `queue: false`.",
     },
     QUEUE_NAME_COLLISION: {
       why: ({ first, resolved, second }: { first: string, resolved: string, second: string }) => `The Queue Definitions "${first}" and "${second}" have the same provider name "${resolved}".`,

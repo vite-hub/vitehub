@@ -76,7 +76,7 @@ function planStoresByNamespace(options: KVModuleOptions | undefined, env: Record
   const storesByNamespace = new Map<string, string[]>()
   if (!kv) return storesByNamespace
   for (const [storeName, store] of Object.entries(kv.stores || { default: kv.store })) {
-    if (store.driver !== "cloudflare-kv-binding" || store.namespaceId || !store.namespaceName) continue
+    if (store.driver !== "cloudflare" || store.namespaceId || !store.namespaceName) continue
     const stores = storesByNamespace.get(store.namespaceName)
     if (stores) stores.push(storeName)
     else storesByNamespace.set(store.namespaceName, [storeName])

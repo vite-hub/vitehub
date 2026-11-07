@@ -4,7 +4,7 @@ import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { browserProviderError } from "../errors.ts"
 import { cloudflareBrowserTerminated } from "./connections.ts"
 
-import type { BrowserEngine, BrowserProvider } from "../types.ts"
+import type { BrowserEngine, BrowserDriver } from "../types.ts"
 import type { CloudflareBrowserBindingConnection } from "./connections.ts"
 
 interface CloudflareBrowserHandle {
@@ -32,7 +32,7 @@ export type LoadCloudflarePlaywright = () => Promise<CloudflarePlaywrightDriver>
 export function createCloudflareBrowser(
   options: CloudflareBrowserOptions,
   loadCloudflarePlaywright: LoadCloudflarePlaywright,
-): BrowserProvider<CloudflareBrowserBindingConnection> {
+): BrowserDriver<CloudflareBrowserBindingConnection> {
   const bindingOption = options.binding ?? "BROWSER"
   const engine = options.engine ?? "kitesurf"
   return {

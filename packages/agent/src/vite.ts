@@ -1811,7 +1811,7 @@ function generatedHostedWorkspaceRuntimeSetup(
       `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
-      "  return store && typeof store === 'object' && 'provider' in store && typeof store.provider === 'string' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
+      "  return store && typeof store === 'object' && 'driver' in store && typeof store.driver === 'string' && ['cloudflare', 'github'].includes(store.driver)",
       "}",
       "",
       // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
@@ -1820,7 +1820,7 @@ function generatedHostedWorkspaceRuntimeSetup(
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
       "  if (workspace && !store && typeof process === 'object' && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true",
-      "  return store && typeof store === 'object' && 'provider' in store && store.provider === 'vercel-blob'",
+      "  return store && typeof store === 'object' && 'driver' in store && store.driver === 'vercel'",
       "}",
       "",
       `if ([${modules.join(", ")}].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()`,

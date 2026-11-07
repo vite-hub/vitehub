@@ -22,7 +22,7 @@ import type {
   SandboxTaskExecutionOptions,
   SandboxTaskRunResult,
 } from '../module-types'
-import { getSandboxTaskFeatureProvider } from '../module-types'
+import { getSandboxTaskFeatureDriver } from '../module-types'
 import type { ExecutionAuthority } from '@vite-hub/runtime'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -130,7 +130,7 @@ async function resolveSandboxTaskProvider(
   definition: SandboxTaskRegistryEntry,
 ): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
-  const config = getSandboxTaskFeatureProvider(sandboxTaskConfig)
+  const config = getSandboxTaskFeatureDriver(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 
   return await resolveTaskSandbox(

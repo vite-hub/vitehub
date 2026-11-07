@@ -8,7 +8,7 @@ import type { WorkspaceSessionOptions } from "../src/core/types.ts"
 describe("basic session write-back policy", () => {
   it.each(["diff", "commit"] as const)("disables %s when writeBack is false", async (operation) => {
     const workspace = createWorkspace({
-      ...defineWorkspace({ store: { provider: "memory" } }),
+      ...defineWorkspace({ store: { driver: "memory" } }),
       name: "docs",
     })
     await workspace.writeFile("README.md", "authoritative")
@@ -25,7 +25,7 @@ describe("basic session write-back policy", () => {
 
   it("keeps writeBack disabled if the caller mutates session options", async () => {
     const workspace = createWorkspace({
-      ...defineWorkspace({ store: { provider: "memory" } }),
+      ...defineWorkspace({ store: { driver: "memory" } }),
       name: "docs",
     })
     await workspace.writeFile("README.md", "authoritative")

@@ -43,7 +43,7 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 
 ## Limits
 
-A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code.
+A store with the `cloudflare` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code.
 
 | Limit | Cloudflare KV | Code |
 | --- | --- | --- |
@@ -115,7 +115,7 @@ The runtime has no KV configuration. Add `hubKv()` to the Vite config, and do no
 
 ### KV_INVALID_DRIVER
 
-`kv.driver` is not `cloudflare-kv-binding`, `deno-kv`, `upstash`, or `fs-lite`.
+`kv.driver` is not `cloudflare`, `deno-kv`, `upstash`, or `fs-lite`.
 
 ### KV_INVALID_STORE_MODE
 

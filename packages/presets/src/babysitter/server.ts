@@ -1713,7 +1713,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     ...baseWorkspace,
                     commit: false,
                     mode: "write",
-                    store: { provider: "local", root: checkout, locks: "process" },
+                    store: { driver: "local", root: checkout, locks: "process" },
                   } });
               const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
               const snapshotContext = snapshotPrompt(webhookSnapshot);

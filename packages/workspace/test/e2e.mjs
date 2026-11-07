@@ -7,7 +7,7 @@ import { ofetch } from "ofetch";
 const providers = ["cloudflare", "vercel"];
 const expectedWorkspaceProviders = {
   cloudflare: "memory",
-  vercel: "vercel-blob",
+  vercel: "vercel",
 };
 const liveOnlyMessage =
   "Workspace e2e requires a deployed app: vp run workspace:e2e --mode live --provider cloudflare|vercel --url <url>";

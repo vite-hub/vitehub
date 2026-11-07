@@ -5,10 +5,10 @@ import { getCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/run
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import type { QueueClient, QueueDefinition, QueueDefinitionRegistry } from "../../types.ts"
-import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "./types.ts"
+import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
-export type QueueRuntimeClientFactory = (options: QueueRuntimeProviderOptions) => QueueClient | Promise<QueueClient>
+export type QueueRuntimeClientFactory = (options: QueueRuntimeDriverOptions) => QueueClient | Promise<QueueClient>
 
 let runtimeConfig: false | QueueRuntimeOptions | undefined
 let runtimeClientFactory: QueueRuntimeClientFactory | undefined

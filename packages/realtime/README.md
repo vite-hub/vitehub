@@ -32,7 +32,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [
     hubWorkspace(),
-    hubRealtime({ authority: "memory" }),
+    hubRealtime({ driver: "memory" }),
   ],
 })
 ```
@@ -44,7 +44,7 @@ Declare a writable Workspace and a Realtime Definition with the same Workspace n
 import { defineWorkspace } from "@vite-hub/workspace"
 
 export default defineWorkspace({
-  store: { provider: "memory" },
+  store: { driver: "memory" },
   rules: {
     "/**": { write: true, mediaType: "text/markdown" },
   },
@@ -110,11 +110,11 @@ console.log(checkpoint.snapshot.id)
 ## Deployment and security boundaries
 
 - The Vue adapter connects to the generated same-origin `/api/_vitehub/realtime/**` WebSocket route. The Vite integration registers that route and discovers `server/realtime` definitions.
-- `authority: "memory"` is single-process and loses room state when the process stops. ViteHub rejects it for known distributed host presets. It retains at most 128 active rooms.
-- `authority: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `authority: "auto"` selects it only when a Cloudflare Nitro preset or hosting environment can be resolved. Other production builds require an explicit authority.
+- `driver: "memory"` is single-process and loses room state when the process stops. ViteHub rejects it for known distributed host presets. It retains at most 128 active rooms.
+- `driver: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `driver: "auto"` selects it only when a Cloudflare Nitro preset or hosting environment can be resolved. Other production builds require an explicit driver.
 - Durable rooms do not make Workspace files durable. Production checkpoints need a durable Workspace Store with conditional writes; memory Workspace Stores are rejected for durable checkpoints.
 - Realtime Definitions are public by default. Set `auth: true` only after configuring ViteHub Auth; this verifies the session and replaces client-supplied presence identity. Presence in a public definition is untrusted and must not authorize application actions.
-- Other packages can contribute definitions through `hubRealtime({ contribute })`, such as Content live editing. Realtime adds them only when the build has a room authority and leaves them out without an error otherwise. A file in `server/realtime` with the same name wins.
+- Other packages can contribute definitions through `hubRealtime({ contribute })`, such as Content live editing. Realtime adds them only when the build has a Realtime driver and leaves them out without an error otherwise. A file in `server/realtime` with the same name wins.
 - Realtime routes follow the app base, including a Nuxt `app.baseURL`. With Vite `base: "/portal/"`, connections use `/portal/api/_vitehub/realtime/**`; Nitro's own `baseURL` is counted once.
 - `refreshRealtimeDocument(definition, id)` tells an open room that its stored copy changed outside it. Document adapters may implement `hold()` and `release()` to keep a lease while writers are in a room.
 - One WebSocket message is limited to 1 MiB. Document state and awareness state are each limited to 8 MiB per room, and one peer can own at most 1,024 awareness clients.

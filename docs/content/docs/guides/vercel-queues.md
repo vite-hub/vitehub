@@ -37,7 +37,7 @@ export default defineConfig({
 })
 ```
 
-The `vercel` preset selects the Vercel Queue Provider. `vitehub()` includes the Nitro Vite plugin, so `vite build` writes Vercel Build Output to `.vercel/output`. See [Queue configuration](/docs/queue/configure) for every option.
+The `vercel` preset selects the Vercel Queue driver. `vitehub()` includes the Nitro Vite plugin, so `vite build` writes Vercel Build Output to `.vercel/output`. See [Queue configuration](/docs/queue/configure) for every option.
 
 ### Define a queue
 
@@ -222,4 +222,4 @@ The queue file and the route stay the same. To move to Cloudflare Queues:
 3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
 4. Create the queues with `vitehub provision run --provider cloudflare`.
 
-Read [Cloudflare Queues](/docs/guides/cloudflare-queues) for the full steps. On self-hosted Node, Queue uses the local provider. ViteHub has no Queue Provider for Deno. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.
+Read [Cloudflare Queues](/docs/guides/cloudflare-queues) for the full steps. On self-hosted Node, Queue uses the local driver. ViteHub has no Queue driver for Deno. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.

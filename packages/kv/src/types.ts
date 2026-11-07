@@ -1,10 +1,10 @@
 import type { Result } from "@vite-hub/runtime"
 import type { GetItemType, GetItemTypeMap } from "unstorage"
 
-export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lite"
+export type KVDriver = "cloudflare" | "deno-kv" | "upstash" | "fs-lite"
 
 export interface CloudflareKVStoreConfig {
-  driver: "cloudflare-kv-binding"
+  driver: "cloudflare"
   binding?: string
   /** Cloudflare KV namespace id. When omitted, the build reads the id recorded by `vitehub provision run`. */
   namespaceId?: string

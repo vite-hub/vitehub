@@ -61,7 +61,7 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toMatch(/\| Browser \| — \| Browser Run \| — \| — \| — \| — \| — \|/);
     expect(matrixData).toContain("Browser Definitions require ViteHub's Cloudflare preset");
     expect(matrix).toContain(
-      "Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`",
+      "Trusted local and self-hosted Node processes can call `createBrowser({ driver: localBrowser({ executablePath }) })`",
     );
     expect(matrix).toMatch(/\| Schedule \|[^\n]+\| Scheduled fn \| — \| Provider Wake \|/);
     expect(matrix).toContain(
@@ -95,11 +95,11 @@ describe("launch documentation trust boundaries", () => {
     }
     expect(matrix).toContain("Cloudflare Queues");
     expect(matrix).toContain("Vercel Queues");
-    expect(matrix).toMatch(/\| Queue \| Local provider \|[^\n]+\| — \| — \| Cloudflare \/ Vercel \| Local provider \|/);
+    expect(matrix).toMatch(/\| Queue \| Local driver \|[^\n]+\| — \| — \| Cloudflare \/ Vercel \| Local driver \|/);
     expect(matrixData).toContain(
       "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output",
     );
-    expect(matrix).toContain("Local Vite delivers Queue Jobs in the dev server through the local provider");
+    expect(matrix).toContain("Local Vite delivers Queue Jobs in the dev server through the local driver");
     expect(matrix).toContain("The build still generates the hosted provider output");
     expect(matrix).toContain("`vitehub({ queue: true })` fails on Netlify");
     expect(matrix).toContain("every other host requires the explicit built-in Resend driver or a programmatic custom driver");
@@ -187,7 +187,7 @@ describe("launch documentation trust boundaries", () => {
     expect(config).toContain(
       "Email accepts `true` with the Cloudflare preset, where it selects the Cloudflare Email driver; other presets reject that boolean default and require explicit provider options.",
     );
-    expect(config).toContain("Netlify does not infer a provider");
+    expect(config).toContain("Netlify does not infer a driver");
     expect(conventions).toContain("`server/databases/<name>/config.ts`");
     expect(conventions).toContain("`<path>.agent.ts`");
     expect(conventions).toContain("`server/workspaces/<name>/config.ts`");

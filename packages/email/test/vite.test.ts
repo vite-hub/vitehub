@@ -195,7 +195,7 @@ describe("hubEmail", () => {
 
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
     const root = await createTempProject()
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const config = functionHook(plugin.config, "config")
     const cloudflareConfig = { nitro: { preset: "cloudflare-module" } }
 
@@ -221,7 +221,7 @@ describe("hubEmail", () => {
     const serverDir = join(root, ".output", "server")
     const configFile = join(serverDir, "wrangler.json")
     await mkdir(serverDir, { recursive: true })
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
     await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
@@ -246,7 +246,7 @@ describe("hubEmail", () => {
     const serverDir = join(root, ".output", "server")
     const configFile = join(serverDir, "wrangler.json")
     await mkdir(serverDir, { recursive: true })
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
     await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module", cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } } } })
@@ -258,10 +258,10 @@ describe("hubEmail", () => {
   })
 
   it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const config = functionHook(plugin.config, "config")
 
-    await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("The \"cloudflare-email\" driver needs a Cloudflare host.")
+    await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("The \"cloudflare\" driver needs a Cloudflare host.")
   })
 
   it("loads only discovered Email template modules", async () => {
@@ -288,7 +288,7 @@ describe("hubEmail", () => {
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
     await writeFile(template, "Hello {{name}}")
     await writeFile(nestedTemplate, "Nested detail")
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
 
     await resolvePlugin(plugin, root)
 
@@ -333,7 +333,7 @@ describe("hubEmail", () => {
     await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
     // SAFETY: hosting is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({
-      driver: "cloudflare-email",
+      driver: "cloudflare",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
     const config = functionHook(plugin.config, "config")
@@ -361,10 +361,10 @@ describe("hubEmail", () => {
 
   it("exposes its generated definition to explicitly selected Vercel Workflows", async () => {
     const root = await createTempProject()
-    // SAFETY: workflowProvider is a test-only internal option accepted by hubEmail.
+    // SAFETY: workflowDriver is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({
       driver: "resend",
-      workflowProvider: "vercel",
+      workflowDriver: "vercel",
     } as Parameters<typeof hubEmail>[0])
     const config = functionHook(plugin.config, "config")
 
@@ -378,7 +378,7 @@ describe("hubEmail", () => {
     await mkdir(join(root, "server", "emails"), { recursive: true })
     await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
     await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
-    const workflow = hubWorkflow({ provider: "vercel" })
+    const workflow = hubWorkflow({ driver: "vercel" })
     const server = await createServer({
       appType: "custom",
       configFile: false,
@@ -751,7 +751,7 @@ describe("hubEmail", () => {
 
   it("rejects unknown built-in driver names", () => {
     // SAFETY: this deliberately bypasses the public union to cover runtime validation.
-    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend" or "cloudflare-email"')
+    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend" or "cloudflare"')
   })
 
   it("rejects secret defaults that would be included in build output", () => {

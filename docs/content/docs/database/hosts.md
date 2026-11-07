@@ -12,7 +12,7 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle artifacts. |
 | Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep URLs and tokens in Server Env when they are secrets. |
-| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only when you set `remote: true` or `cloudflare.http`. Hosted Vercel output uses D1 only when you set `cloudflare.http`. |
+| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'cloudflare'` | Uses a D1 binding on Cloudflare. Local development uses D1 only when you set `remote: true` or `cloudflare.http`. Hosted Vercel output uses D1 only when you set `cloudflare.http`. |
 | Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Cloudflare Hyperdrive binding on Cloudflare and `connection.url` on other hosts. See [Use Postgres](#use-postgres). |
 
 ### Use the real D1 database in development
@@ -104,7 +104,7 @@ export default defineDatabase({
 })
 ```
 
-In a Nuxt app, or for every Definition that inherits the integration resource, set it on the integration: `database: { driver: 'd1', readReplication: true }`.
+In a Nuxt app, or for every Definition that inherits the integration resource, set it on the integration: `database: { driver: 'cloudflare', readReplication: true }`.
 
 ViteHub then opens one D1 session for each request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
 
@@ -200,7 +200,7 @@ A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declar
 export default defineNuxtConfig({
   modules: ['@vite-hub/database/nuxt'],
   database: {
-    driver: 'd1',
+    driver: 'cloudflare',
     databaseName: 'app-content',
   },
 })

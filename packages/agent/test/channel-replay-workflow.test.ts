@@ -49,7 +49,7 @@ it("reserves concurrent Workflow replays before activity and hands the journal t
     return { id: options.id, provider: "vercel", status: "completed", result: "done" }
   })
   setAgentWorkflowRuntimeLoaders({
-    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
+    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }),
     workflow: async () => ({
       ...await import("@vite-hub/workflow"),
       // SAFETY: The fixture only uses the Workflow handle's run operation.
@@ -87,7 +87,7 @@ it("records durable replay cancellation observed before provider dispatch", asyn
   const runId = channelMessageRunId("mailbox", "m1")
   const providerRun = vi.fn(async () => ({ id: "workflow-should-not-start", provider: "openworkflow", status: "queued" }))
   setAgentWorkflowRuntimeLoaders({
-    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
+    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }),
     workflow: async () => ({
       ...await import("@vite-hub/workflow"),
       createWorkflow: () => {
@@ -115,7 +115,7 @@ it.each([true, false])("recovers an expired Workflow reservation only when no di
     return { id: options.id, provider: "vercel", status: "queued" }
   })
   setAgentWorkflowRuntimeLoaders({
-    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
+    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: The test only needs the Workflow run operation.
       createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
@@ -235,7 +235,7 @@ it.each(["queued", "unknown", "unavailable-marker"] as const)("reconciles an acc
   let lookups = 0
   const getRun = vi.fn(async (id: string) => ({ id, provider: "openworkflow", status: ++lookups === 1 && initialStatus !== "queued" ? "unknown" : "queued" }))
   setAgentWorkflowRuntimeLoaders({
-    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
+    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: This fixture implements the run and lookup operations used by replay recovery.
       createWorkflow: () => ({ getRun, run: providerRun }) as never,
@@ -298,7 +298,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
   })
   const providerRun = vi.fn(async (_payload: unknown, options: { id: string }) => ({ id: options.id, provider: "openworkflow", status: "queued" }))
   setAgentWorkflowRuntimeLoaders({
-    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
+    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: This fixture implements the run and lookup operations used by replay recovery.
       createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
@@ -335,7 +335,7 @@ it.each(["provider", "preparation"] as const)("retains terminal journaling for a
   const providerRun = vi.fn(async () => { throw new Error("Provider rejected the run") })
   const getRun = vi.fn()
   setAgentWorkflowRuntimeLoaders({
-    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }) }),
+    state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }) }),
     workflow: async () => ({ ...await import("@vite-hub/workflow"),
       // SAFETY: This fixture implements the run and lookup operations used by replay recovery.
       createWorkflow: () => ({ getRun, run: providerRun }) as never,

@@ -22,7 +22,7 @@ The Vite config key is `workflow`.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `workflow` | `boolean` or `WorkflowModuleOptions` | disabled, or enabled when `agent` is enabled | Enables Workflow discovery and provider output through `vitehub()` with `true` or an options object; `false` disables it. |
-| `provider` | `WorkflowProvider` | inferred | Selects `cloudflare`, `vercel`, or `openworkflow`. |
+| `driver` | `WorkflowDriver` | inferred | Selects `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Provider binding name for generated output. |
 | `name` | `string` | discovered workflow name | Provider resource name override. |
 | `postgres.url` | `WorkflowRuntimeConfigValue` | none | OpenWorkflow Postgres URL. |
@@ -34,7 +34,7 @@ The Vite config key is `workflow`.
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
 | `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
 
-When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Netlify cannot infer a Workflow Provider, so set `provider` explicitly or disable Workflow there. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `postgres.url` or `sqlite.path`.
+When no driver is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Netlify cannot infer a Workflow driver, so set `driver` explicitly or disable Workflow there. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `postgres.url` or `sqlite.path`.
 
 ## Define a workflow
 

@@ -89,11 +89,11 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
     const builder = await createBuilder({
       logLevel: "silent",
-      workflow: initialWorkflow ? { provider: "vercel" } : false,
+      workflow: initialWorkflow ? { driver: "vercel" } : false,
       plugins: [
         nitro() as never,
         vitehub({ preset: "node", workflow: true }),
-        { name: "final-workflow-config", config: () => ({ workflow: { provider: "vercel" } }) },
+        { name: "final-workflow-config", config: () => ({ workflow: { driver: "vercel" } }) },
       ],
       root,
     });
