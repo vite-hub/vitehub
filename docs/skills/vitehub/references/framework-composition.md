@@ -8,7 +8,7 @@ Start with [Vite Integrations and Provider Output](https://vitehub.dev/raw/docs/
 
 ## Current application contract
 
-Fresh apps install `vite-hub`, register `vitehub()` from the root, and use feature subpaths for runtime APIs. Direct `hubX()` integrations belong to an installed owner-package contract or deliberate advanced composition.
+Fresh apps install `vite-hub`, register `vitehub()` from the root, and use feature subpaths for runtime APIs. Turn features on and set provider options with `vitehub add <feature> --option key=value`, because it checks the host and edits object-literal options in a `vitehub({...})` call, a Nuxt `vite-hub/nuxt` module tuple, or the top-level Nuxt `vitehub` key. Edit the config by hand when `add` exits with `3` and prints a `snippet`, or when the options are an expression that `vitehub status` reports as `manual`. Direct `hubX()` integrations belong to an installed owner-package contract or deliberate advanced composition.
 
 For Vite plus Nitro, keep ordering explicit:
 
@@ -18,7 +18,7 @@ vitehub(...)
 nitro(...)
 ```
 
-For Nuxt, use documented modules or the Vite extension point supported by the installed packages. Do not reproduce app-local aliases or output rewrites from project examples without a source-backed need.
+For Nuxt, register `vite-hub/nuxt` and turn features on under the `vitehub` key, for example `vitehub: { auth: true, database: true, schedule: true }`. It is the only Nuxt module for ViteHub primitives. Owner-package Nuxt entries such as `@vite-hub/auth/nuxt` are internal; do not add them to `modules`. Do not reproduce app-local aliases or output rewrites from project examples without a source-backed need.
 
 ## Generated state
 

@@ -9,5 +9,5 @@ export default defineEventHandler(async (event) => {
   })
 
   if (error) throw error
-  return result
+  return { text: result.text }
 })

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -239,5 +239,30 @@ describe("generated Nitro Process Runtime plugin", () => {
     await hooks.get("request")!()
 
     expect(app.localFetch).toBe(localFetch)
+  })
+})
+
+describe("generated Nitro Process Runtime files", () => {
+  it("keeps unchanged files untouched when another process resolves the same config", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-files-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "daily-report.ts"), "export default { cron: '0 8 * * *', handler() {} }\n")
+    const configure = async () => {
+      const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process" } })
+      await (plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => Promise<unknown>)(
+        { root },
+        { command: "serve", mode: "development" },
+      )
+    }
+    const files = ["plugin.ts", "static-registry.js", "static-registry.d.ts"].map(file => join(root, ".vitehub", "nitro", "schedule", file))
+
+    // The dev server writes the files first. A `vitehub` command then loads the same project while the server watches them.
+    await configure()
+    const written = new Date("2020-01-01T00:00:00Z")
+    await Promise.all(files.map(file => utimes(file, written, written)))
+    await configure()
+
+    for (const file of files) expect((await stat(file)).mtime).toEqual(written)
   })
 })

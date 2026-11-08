@@ -2,18 +2,27 @@ import { memoryRateLimitDriver } from "../drivers/memory.ts"
 import { createRateLimiter } from "../limiter.ts"
 import { normalizeRateLimitPolicy } from "../policy.ts"
 
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+
 import type { RateLimiter, RateLimitPolicy, RateLimitRuntimeConfig } from "../types.ts"
 
 let runtimeConfig: RateLimitRuntimeConfig = { provider: "memory" }
-const memoryLimiters = new Map<string, Map<string, RateLimiter>>()
+const runtimeMemoryLimiters = new Map<string, Map<string, RateLimiter>>()
+
+/** The memory counters of this process, or in app tests the counters of the current test. */
+function memoryLimiters(): Map<string, Map<string, RateLimiter>> {
+  const test = getViteHubTestMode()
+  return test ? test.backend("rate-limit", () => new Map<string, Map<string, RateLimiter>>()) : runtimeMemoryLimiters
+}
 
 export function setRateLimitRuntimeConfig(config: RateLimitRuntimeConfig): void {
   runtimeConfig = config
-  memoryLimiters.clear()
+  runtimeMemoryLimiters.clear()
 }
 
+/** In app tests, Rate Limit counts in memory for the current test, whatever the host. */
 export function getRateLimitRuntimeConfig(): RateLimitRuntimeConfig {
-  return runtimeConfig
+  return getViteHubTestMode() ? { provider: "memory" } : runtimeConfig
 }
 
 function normalizeRateLimitWindowKey(policy: RateLimitPolicy): number {
@@ -21,7 +30,8 @@ function normalizeRateLimitWindowKey(policy: RateLimitPolicy): number {
 }
 
 export function getMemoryRateLimiter(name: string, policy: RateLimitPolicy): RateLimiter {
-  let policies = memoryLimiters.get(name)
+  const limiters = memoryLimiters()
+  let policies = limiters.get(name)
   const policyKey = JSON.stringify([policy.enforcement, policy.failure, policy.limit, normalizeRateLimitWindowKey(policy)])
   const existing = policies?.get(policyKey)
   if (existing) return existing
@@ -29,7 +39,7 @@ export function getMemoryRateLimiter(name: string, policy: RateLimitPolicy): Rat
   const limiter = createRateLimiter({ ...policy, driver: memoryRateLimitDriver(), name })
   if (!policies) {
     policies = new Map()
-    memoryLimiters.set(name, policies)
+    limiters.set(name, policies)
   }
   policies.set(policyKey, limiter)
   return limiter
@@ -37,5 +47,5 @@ export function getMemoryRateLimiter(name: string, policy: RateLimitPolicy): Rat
 
 /** Lists each policy used by this name in the current runtime configuration. */
 export function listMemoryRateLimiters(name: string): RateLimiter[] {
-  return [...memoryLimiters.get(name)?.values() ?? []]
+  return [...memoryLimiters().get(name)?.values() ?? []]
 }

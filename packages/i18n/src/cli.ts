@@ -6,7 +6,7 @@ import { formatter as poFormatter } from "@lingui/format-po"
 
 import { inspectI18n } from "./inspect.ts"
 import { recordsRoot } from "./lingui.ts"
-import { isVisible, messageId, readRecords, removeRecord, saveTranslation } from "./records.ts"
+import { importTranslation, isVisible, removeRecord } from "./records.ts"
 
 import type { CatalogType, LinguiConfigNormalized } from "@lingui/conf"
 import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/internal/cli"
@@ -74,6 +74,22 @@ const usages = {
   prune: "vitehub i18n prune [--yes] [--json]",
 }
 
+const expectedComment = "vitehub-i18n-expected: "
+
+function importBaseline(comments: string[] = []): string | null | undefined {
+  const baselines = comments.filter(comment => comment.startsWith(expectedComment))
+  // A PO file without an export baseline can add records, but cannot replace an existing translation.
+  if (!baselines.length) return null
+  if (baselines.length !== 1) return undefined
+  try {
+    const expected: unknown = JSON.parse(baselines[0]!.slice(expectedComment.length))
+    return expected === null || typeof expected === "string" ? expected : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
 export function createI18nCliContributor(resolveConfig: I18nConfigResolver): ViteHubCliContributor {
   return {
     namespaces: [{
@@ -111,6 +127,7 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
                 message: message.message,
                 ...(message.context ? { context: message.context } : {}),
                 translation: records[id] && isVisible(records[id]) ? records[id].text : "",
+                comments: [`${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`],
                 origin: message.origins.map((origin) => {
                   const index = origin.lastIndexOf(":")
                   return index === -1 ? [origin] : [origin.slice(0, index), Number(origin.slice(index + 1))]
@@ -141,7 +158,6 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             const file = resolve(context.cwd, input)
             const catalog = await poFormatter().parse(await readFile(file, "utf8"), { locale, sourceLocale: config.sourceLocale, filename: file })
             const root = recordsRoot(config.rootDir)
-            const { records } = await readRecords(root, locale)
             const by = flags.by || userInfo().username
             const at = new Date().toISOString()
             let saved = 0
@@ -149,8 +165,12 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             const refused: { message: string, problem: string }[] = []
             for (const entry of Object.values(catalog)) {
               if (!entry.message || !entry.translation) continue
-              const expected = records[messageId(entry.message, entry.context)]?.text ?? null
-              const result = await saveTranslation(root, locale, { message: entry.message, context: entry.context }, entry.translation, { by, at, expected })
+              const expected = importBaseline(entry.comments)
+              if (expected === undefined) {
+                refused.push({ message: entry.message, problem: "The PO export baseline is invalid. Export the locale again before editing it." })
+                continue
+              }
+              const result = await importTranslation(root, locale, { message: entry.message, context: entry.context }, entry.translation, { by, at, expected })
               if (result.ok) saved++
               else if (result.code === "unchanged") unchanged++
               else refused.push({ message: entry.message, problem: result.message })
