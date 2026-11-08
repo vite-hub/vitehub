@@ -810,12 +810,16 @@ const presentationDirectives = new Set([
   "support-matrix",
   // Humans expand a collapsible; agents get its content inline.
   "collapsible",
+  "component-preview",
   "example",
   "examples",
   "important",
   "note",
   "product-hero",
   "product-files",
+  // Hero media: agents get the screenshot as a Markdown image, and nothing for an animation.
+  "product-screenshot",
+  "cms-console-demo",
   "product-features",
   "product-feature-item",
   "steps",
@@ -847,6 +851,12 @@ function directiveLabel(name: string, attributes: string | undefined) {
     ].filter(Boolean).join("\n\n");
   }
 
+  if (name === "product-screenshot") {
+    const src = attributes?.match(/\bsrc=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    const alt = attributes?.match(/\balt=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    return src ? `![${alt ?? ""}](${src})` : "";
+  }
+
   if (["note", "tip", "warning", "important"].includes(name)) {
     return `> **${name[0]!.toUpperCase()}${name.slice(1)}**`;
   }
@@ -855,6 +865,8 @@ function directiveLabel(name: string, attributes: string | undefined) {
     const label = attributes?.match(/\blabel=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
     return label ? `### ${label}` : "";
   }
+
+  if (name === "component-preview") return "_Interactive preview available on the rendered documentation page._";
 
   // A Markdown example keeps its source, which is the example. A Vue example is a file the copy can't show.
   if (name === "example") {

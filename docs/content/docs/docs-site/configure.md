@@ -340,7 +340,7 @@ Lumen does not run on Node.js 22 or older.
 ::
 ```
 
-The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, and cards.
+The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Put an `md`, `markdown`, `mdc`, or `comark` code fence in each example; the default parser adds its preview. A site's parser can still supply its own `example-preview` node. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, and cards.
 
 ### Add Comark plugins
 
