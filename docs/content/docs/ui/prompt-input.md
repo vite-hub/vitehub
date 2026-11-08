@@ -167,6 +167,8 @@ Other attributes go to the root `<form>`.
 #### Types
 
 ```ts
+import type { FileUIPart } from "ai"
+
 interface PromptInputSubmit {
   files: readonly FileUIPart[];
   text: string;

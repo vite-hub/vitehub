@@ -33,7 +33,7 @@ export const content = defineContent({
 
 Then add `content()` to the Agent:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { content } from 'vite-hub/agent/capabilities'
 
@@ -122,7 +122,7 @@ A person who has a document open in the [Console](/docs/content/console) holds i
 
 To let the Agent save over a held lease, opt in on the Capability. The person's next save then fails with `WORKSPACE_CONFLICT`, because the Console saves with `ifDigest`:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 content({ lease: 'override' })
 ```
 
@@ -138,7 +138,7 @@ Without `authorize`, `content.can()` returns `false`, so the Agent can do nothin
 
 When your users live outside ViteHub Auth, map the Actor yourself with `user`. It replaces the Auth lookup:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 content({
   user: async actor => actor.kind === 'authUser' ? await findMember(actor.id) : null,
 })
@@ -155,7 +155,7 @@ The user follows the Agent's [`invoker`](/docs/agents/actors), so the same Auth 
 | A Channel, such as Discord or Slack | `kind: 'chat'`, with the platform user id | `null`, unless your `invoker` maps it |
 | An Agent without `invoker` | Anonymous, or the trusted `context.invoker` of a custom route | `null`, unless the Actor has `meta.authUserId` |
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { content } from 'vite-hub/agent/capabilities'
 import { authenticated } from 'vite-hub/auth/agent'
@@ -169,7 +169,7 @@ export default defineAgent({
 
 A Channel message has no session. Its Actor names the platform user, and `authorize` receives it with `kind: 'chat'` and `user: null`. To act for an Auth user, map the platform user in `invoker.resolve`, for example through an account the person linked when they signed in:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 invoker: {
   async resolve({ defaultInvoker }) {
     if (defaultInvoker.kind !== 'chat') return
@@ -184,6 +184,8 @@ Do not grant `write` or `publish` from an unmapped chat identity.
 `content_publish`, `content_schedule`, and `content_unschedule` use `policy: 'require-approval'`. The call stops with `APPROVAL_REQUIRED` and an Approval Request that shows the input, such as the listed documents and digests, and runs only after approval. `content_save_draft` runs without approval, because drafts are not served. Set `policy` to replace all four defaults. A function receives `{ name, input }`:
 
 ```ts
+import { content } from 'vite-hub/agent/capabilities'
+
 content({
   policy: ({ name }) => name === 'content_save_draft' ? 'allow' : 'require-approval',
 })

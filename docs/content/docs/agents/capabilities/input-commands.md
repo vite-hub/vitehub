@@ -18,7 +18,7 @@ Use it for commands that transform or enrich the user's prompt, not for host UI 
 Define lowercase command names. Add a description to include the command's purpose in CLI and inspection output.
 The default trigger is `/`.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { inputCommands } from 'vite-hub/agent/capabilities'
 
@@ -86,10 +86,7 @@ const history = inputCommands({
         if (!database) return await context.reply('Invocation history is not available on this Worker journal.')
         const { db, schema } = database
         const [latest] = await db
-          .select({
-            agentName: schema.invocations.agentName,
-            id: schema.invocations.id,
-          })
+          .select()
           .from(schema.invocations)
           .orderBy(desc(schema.invocations.sequence))
           .limit(1)
