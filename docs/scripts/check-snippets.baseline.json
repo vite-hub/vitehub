@@ -45,11 +45,6 @@
     "error": "TS2304 Cannot find name 'defineAgent'.\nTS2304 Cannot find name 'telegram'.\nTS2304 Cannot find name 'telegram'."
   },
   {
-    "id": "docs/content/docs/agents/gmail.md#52ea1118141f",
-    "label": "vite.config.ts",
-    "error": "TS2554 Expected 1 arguments, but got 0."
-  },
-  {
     "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineAgentInvocations'.\nTS7006 Parameter 'error' implicitly has an 'any' type.\nTS7006 Parameter 'observation' implicitly has an 'any' type."
