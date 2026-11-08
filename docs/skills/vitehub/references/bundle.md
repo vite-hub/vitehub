@@ -21,4 +21,16 @@ Use `--json` on both commands when you compare numbers or write them into a repo
 
 ## Prove a change
 
-Run the build and `vitehub bundle` before and after the change. Report both numbers for the side and the group that changed, and the import chain that you removed.
+Save the report before you change the code, then compare after the next build:
+
+```sh
+nuxt build                                            # or vite build, with bundle: true
+vitehub bundle --json > .vitehub/bundle-before.json
+# change the code
+nuxt build
+vitehub bundle --against .vitehub/bundle-before.json
+```
+
+`--against` prints, for the client and the server, the bytes and gzip bytes before and after, the same for the startup code, and each group that grew, shrank, was added, or was removed, with its total and startup delta. Groups that did not change are not shown. Add `--json` to get the same data. `--against` also reads a copy of `.vitehub/bundle/` or the project root of another checkout that has one.
+
+If the output says that both reports are from the same build, you did not build again after the change. Report the side and startup deltas and the groups that changed. When you removed a package, also give the import chain from `vitehub bundle why <package>` on the old build.

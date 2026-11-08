@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, normalizeScheduleRuntimeError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, normalizeScheduleRuntimeError, scheduledWakeTime, unwrapScheduleDefinition } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinition, ScheduleDefinitionRegistry } from "../src/types.ts"
 
@@ -116,6 +116,50 @@ describe("Static Schedule runtime", () => {
     expect(calls).toEqual(["cleanup"])
     await executeCloudflareStaticSchedules({ cron: "0 * * * *" }, { cronOverrides: { cleanup: "0 0 * * *" }, registry })
     expect(calls).toEqual(["cleanup", "report"])
+  })
+
+  it("runs a time-zoned Schedule only on the UTC wakes that are local occurrences", async () => {
+    const runs: string[] = []
+    const registry: ScheduleDefinitionRegistry = {
+      brief: async () => ({ cron: "0 8 * * *", handler: async ({ idempotencyKey }) => runs.push(idempotencyKey), timeZone: "Europe/Madrid" }),
+    }
+    const wake = async (scheduledTime: string) => await executeCloudflareStaticSchedules(
+      { cron: "0 6,7 * * *", scheduledTime },
+      { registry, timeZoneCrons: { brief: "0 6,7 * * *" } },
+    )
+    // 06:00Z is 08:00 in Madrid in summer, and 07:00Z is 08:00 in winter.
+    for (const time of ["2026-07-15T06:00:00Z", "2026-07-15T07:00:00Z", "2026-01-15T06:00:00Z", "2026-01-15T07:00:00Z"]) await wake(time)
+    expect(runs).toEqual(["schedule:brief:2026-07-15T06:00:00.000Z", "schedule:brief:2026-01-15T07:00:00.000Z"])
+  })
+
+  it("runs a cron override in UTC, without the time zone check", async () => {
+    const runs: string[] = []
+    await executeMatchingStaticSchedules({
+      cron: "0 7 * * *",
+      cronOverrides: { brief: "0 7 * * *" },
+      registry: { brief: async () => ({ cron: "0 8 * * *", handler: async () => runs.push("brief"), timeZone: "Europe/Madrid" }) },
+      scheduledAt: new Date("2026-07-15T07:00:00Z"),
+      timeZoneCrons: { brief: "0 6,7 * * *" },
+    })
+    expect(runs).toEqual(["brief"])
+  })
+
+  it("gives timestamp-free deliveries within the same host cron interval the same key", async () => {
+    const keys: string[] = []
+    const definition = { cron: "0 4 * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) } satisfies ScheduleDefinition
+    for (const now of ["2026-06-12T04:00:02Z", "2026-06-12T04:03:40Z"]) {
+      await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt: scheduledWakeTime(definition.cron, new Date(now)) })
+    }
+    expect(keys).toEqual(["schedule:report:2026-06-12T04:00:00.000Z", "schedule:report:2026-06-12T04:00:00.000Z"])
+  })
+
+  it("estimates timestamp-free deliveries from the latest host match across cron boundaries", async () => {
+    const keys: string[] = []
+    const definition = { cron: "* * * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) } satisfies ScheduleDefinition
+    for (const now of ["2026-06-12T12:00:59Z", "2026-06-12T12:01:00Z"]) {
+      await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt: scheduledWakeTime(definition.cron, new Date(now)) })
+    }
+    expect(keys).toEqual(["schedule:report:2026-06-12T12:00:00.000Z", "schedule:report:2026-06-12T12:01:00.000Z"])
   })
 
   it("matches equivalent cron whitespace from provider events", async () => {
