@@ -192,6 +192,41 @@ describe("CI merge gate", () => {
     }
   })
 
+  it("accepts the reused build when only the Console deploy job is rerun, and rejects a build of another run", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-rerun-"))
+    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const live = join(directory, "live.html")
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
+    if (!identify || !check) throw new Error("The Console build must mark its output and the deployment must check the live site")
+    const run = (command: string, runId: string, attempt: string) => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
+      cwd: directory,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_SHA: "same-commit", GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: attempt, LIVE_HTML: live, CURL_STATUS: "0" },
+    })
+    try {
+      mkdirSync(output, { recursive: true })
+      for (const [name, contents] of Object.entries({ curl: '#!/bin/sh\ncat "$LIVE_HTML"\nexit "$CURL_STATUS"\n', sleep: "#!/bin/sh\nexit 0\n" })) {
+        const path = join(directory, name)
+        writeFileSync(path, contents)
+        chmodSync(path, 0o755)
+      }
+      for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), "<html><head></head></html>")
+      // Attempt 1 builds and deploys. Only console-deploy is rerun as attempt 2, with the artifact of attempt 1.
+      expect(run(identify, "123", "1").status).toBe(0)
+      writeFileSync(live, readFileSync(join(output, "index.html")))
+      const rerun = run(check, "123", "2")
+      expect(rerun.status, rerun.stderr).toBe(0)
+
+      const otherRun = run(check, "456", "1")
+      expect(otherRun.status, "A build of another run must fail even when the site serves it").not.toBe(0)
+      expect(otherRun.stderr).toContain("no deployment marker for this commit and run")
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it.each(["push", "workflow_dispatch"])("rejects a partial package test rerun with failed shards on %s", (event) => {
     const result = runGate({
       ...successfulJobs,
@@ -224,12 +259,13 @@ describe("CI merge gate", () => {
     "package-tests-success",
     "node-22",
     "docs",
+    "docs-snippets",
     "console",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "node-22", "docs", "console", "prepublish-contracts"].includes(name) ? "success" : "skipped",
+      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "node-22", "docs", "docs-snippets", "console", "prepublish-contracts"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)

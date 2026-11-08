@@ -750,7 +750,7 @@ describe("MCP client section", () => {
   it.each([false, true])("keeps the registration used by each concurrent first sign-in (sealed: %s)", async (durable) => {
     install(durable)
     if (durable) process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
-    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async event => ({ id: event.req?.headers instanceof Headers ? event.req.headers.get("x-test-user") ?? "" : "" }) })
+    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async event => ({ id: event["~standard"].req?.headers instanceof Headers ? event["~standard"].req.headers.get("x-test-user") ?? "" : "" }) })
     const nativeFetch = globalThis.fetch
     const registration = deferred()
     let registrations = 0
@@ -981,7 +981,7 @@ describe("MCP client section", () => {
     installConsoleAccess({
       check: async () => undefined,
       mode: "auth",
-      user: async event => ({ id: event.req?.headers instanceof Headers ? event.req.headers.get("x-test-user") ?? "" : "" }),
+      user: async event => ({ id: event["~standard"].req?.headers instanceof Headers ? event["~standard"].req.headers.get("x-test-user") ?? "" : "" }),
     })
     const maxi = await connectAs("maxi", { user: "admin-1" })
     expect((await rpc<ConsoleMcpOverview>("mcp-client.list", {}, "admin-2")).value.connections).toEqual([])
