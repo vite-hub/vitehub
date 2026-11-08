@@ -162,6 +162,8 @@ Each feature is off until you turn it on in the ViteHub options, for example `kv
 - [First Server Primitive](/docs/getting-started/first-server-primitive): save a setting and read it back.
 - [First Agent](/docs/getting-started/first-agent): run an Agent that answers without a model account.
 
+## Add feature packages
+
 Each feature other than Env, Source, Logs, and the Console needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
 
 ```text [output/missing-package.txt]
