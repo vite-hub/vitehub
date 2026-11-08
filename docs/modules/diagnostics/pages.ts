@@ -114,7 +114,7 @@ function overviewPage(section: string, title: string, codes: DiagnosticCode[], g
   const lines = [
     "---",
     `title: ${yamlString(`${title} diagnostics`)}`,
-    `description: ${yamlString(`Every ${title} error code, what it means, and how to fix it.`)}`,
+    `description: ${yamlString(`Find every ${title} error code, what it means, how to fix it, and the source that raises it in your app.`)}`,
     "navigation.title: Diagnostics",
     "navigation.panel: true",
     "navigation.order: 1000",
@@ -123,7 +123,7 @@ function overviewPage(section: string, title: string, codes: DiagnosticCode[], g
     "",
     generatedNotice,
     "",
-    `Each ${title} error has a stable \`code\`. Its \`docs\` link can open a shared index or a limits and errors page. ${codes.length === 1 ? "This page links to the code page" : `This page links to all ${codes.length} code pages`}, and [All diagnostics](/docs/reference/diagnostics) lists every primitive.`,
+    `Each ${title} error has a stable \`code\`. Its \`docs\` link opens the page of that code. ${codes.length === 1 ? "This page lists the code" : `This page lists all ${codes.length} codes`}, and [All diagnostics](/docs/reference/diagnostics) lists every primitive.`,
     "",
   ]
   for (const [group, groupCodes] of groups) {
@@ -173,7 +173,7 @@ function allPage(sections: { section: string, title: string, count: number }[]):
   return [
     "---",
     "title: All diagnostics",
-    `description: ${yamlString("Find the page of any ViteHub error code, grouped by primitive.")}`,
+    `description: ${yamlString("Find every ViteHub error code, grouped by primitive, with links to its cause, fix, and source in the package that raises it.")}`,
     "navigation.title: All diagnostics",
     "navigation.group: Runtime and output",
     "navigation.order: 59",

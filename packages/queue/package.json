@@ -8,7 +8,6 @@
     "h3",
     "job-queue",
     "nuxt",
-    "nuxt-module",
     "queue",
     "typescript",
     "vercel",
@@ -62,11 +61,6 @@
       "import": "./dist/internal/runtime/vercel-client.js",
       "default": "./dist/internal/runtime/vercel-client.js"
     },
-    "./nuxt": {
-      "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js",
-      "default": "./dist/nuxt.js"
-    },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
@@ -106,7 +100,6 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

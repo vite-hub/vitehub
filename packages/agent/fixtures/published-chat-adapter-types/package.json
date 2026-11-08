@@ -10,7 +10,9 @@
     "drizzle-orm": "0.45.4",
     "vue": "3.5.44",
     "@vite-hub/env": "file:./vite-hub-env-0.0.1.tgz",
-    "@vite-hub/connections": "file:./vite-hub-connections-0.0.1.tgz"
+    "@vite-hub/connections": "file:./vite-hub-connections-0.0.1.tgz",
+    "@vite-hub/blob": "file:./vite-hub-blob-0.0.1.tgz",
+    "@vite-hub/database": "file:./vite-hub-database-0.0.1.tgz"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

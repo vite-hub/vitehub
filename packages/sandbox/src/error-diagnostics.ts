@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/sandbox/diagnostics",
   codes: {
     // Retired: SANDBOX_R0001 to SANDBOX_R0019 belonged to the removed ascii and cloudflare-computer Sandbox runtimes. Do not reuse these codes.
     SANDBOX_R0001: dynamicError,

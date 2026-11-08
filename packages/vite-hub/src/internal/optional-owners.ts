@@ -8,20 +8,33 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 /**
  * Owner packages that `vite-hub` declares as optional peers. An app installs only the packages of the features it
- * enables, so a Blob and Queue app does not install Agent, Auth, or editor dependencies.
+ * enables, so an app without features installs none of them, and a KV app does not install Blob, Queue, or Agent.
  */
 export type OptionalOwnerPackage
   = | "@vite-hub/agent"
     | "@vite-hub/auth"
+    | "@vite-hub/blob"
+    | "@vite-hub/browser"
+    | "@vite-hub/channels"
     | "@vite-hub/cms"
     | "@vite-hub/comments"
+    | "@vite-hub/connections"
     | "@vite-hub/content"
     | "@vite-hub/database"
+    | "@vite-hub/decisions"
+    | "@vite-hub/email"
+    | "@vite-hub/gateways"
+    | "@vite-hub/kv"
+    | "@vite-hub/markdown-template"
     | "@vite-hub/presets"
+    | "@vite-hub/queue"
+    | "@vite-hub/rate-limit"
     | "@vite-hub/realtime"
+    | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
     | "@vite-hub/ui"
+    | "@vite-hub/workflow"
     | "@vite-hub/workspace"
 
 /**
@@ -32,6 +45,9 @@ export type OptionalOwnerPackage
 export const optionalFeaturePackages = {
   "agent": features.agent.packages,
   "auth": features.auth.packages,
+  "blob": features.blob.packages,
+  "browser": features.browser.packages,
+  "channels": features.channels.packages,
   "cms": ["@vite-hub/cms"],
   "comments": features.comments.packages,
   // Connections store grants in the default Database and turn `database` on.
@@ -46,11 +62,22 @@ export const optionalFeaturePackages = {
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,
+  "decisions": ["@vite-hub/decisions"],
+  "email": features.email.packages,
+  "gateways": ["@vite-hub/gateways"],
+  "kv": features.kv.packages,
+  // `.template.md` imports and `vite-hub/markdown-template`.
+  "markdown-template": ["@vite-hub/markdown-template"],
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
+  "queue": features.queue.packages,
+  "rateLimit": features.rateLimit.packages,
   "realtime": features.realtime.packages,
+  "sandboxTask": features.sandboxTask.packages,
   "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
   "ui": ["@vite-hub/ui"],
+  // An Agent turns Workflow on unless the app sets `workflow: false`.
+  "workflow": features.workflow.packages,
   "workspace": features.workspace.packages,
 } as const satisfies Record<string, readonly string[]>
 

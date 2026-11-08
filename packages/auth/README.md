@@ -171,10 +171,6 @@ export default defineAuth({
         route: "/_vitehub/**",
         authorize: ({ user }) => user.isAdmin === true,
       },
-      {
-        route: "/api/_vitehub/console/**",
-        authorize: ({ user }) => user.isAdmin === true,
-      },
     ],
   },
 });
@@ -284,6 +280,20 @@ export default defineAuth({
 ```
 
 `database: true`, `database: { name }`, and `secondaryStorage` are placement metadata. ViteHub removes metadata-shaped values before calling `betterAuth()`, so they do not create Database or KV adapters. Use `authDatabase()` for the app Database, or return another Better Auth `database` or `secondaryStorage` adapter from the Definition callback or `runtime`.
+
+## Nuxt
+
+Enable Auth in a Nuxt app through `vite-hub/nuxt`:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { auth: true },
+})
+```
+
+`@vite-hub/auth/nuxt` is internal. `vite-hub/nuxt` loads it, and it can change in any release. Do not add it to Nuxt `modules`.
 
 ## Client-side Auth
 
