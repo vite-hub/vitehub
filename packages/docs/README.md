@@ -80,6 +80,7 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `title` | Required | Page heading and browser title. |
 | `description` | None | Text under the heading, the meta description, and the llms.txt entry. |
 | `tagline` | `description` | Text under the heading, when it must differ from the meta description. |
+| `eyebrow` | none | A short label above the title, such as the package that the page documents. |
 | `credits` | None | Inline Markdown at the end of the page, such as `Icons from [Lucide](https://lucide.dev).` |
 | `keywords` | None | Words that find the page in search besides its own text: a list, or one string with commas. They rank below the page title and with headings. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
@@ -164,9 +165,9 @@ Most changes are options in `nuxt.config.ts`:
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
-| `socials` | `[]` | Community links at the foot of the sidebar. |
+| `socials` | `[]` | Community links in the header on every page, or in its menu on narrow screens. |
 | `banner` | None | One line above every docs page. |
-| `github` | `false` | `{ repo, branch, dir }`. Adds GitHub links to the header and the sidebar. |
+| `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link to the header, with the star count when available. |
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
@@ -183,9 +184,9 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 
 | Component | Part |
 | --- | --- |
-| `AppHeader` | Site header on narrow screens and on pages outside the docs. |
+| `AppHeader` | Site header on every page, with search, GitHub, social links, and the color mode button. |
 | `AppSearch` | The search dialog. |
-| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The section rail, the page sidebar, and its footer. |
+| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The section rail, the page sidebar, and its title. |
 | `DocsPage`, `DocsArticle`, `DocsLanding`, `DocsMarkdown` | The page and its layouts. |
 | `DocsHeaderActions` | Empty. Replace it to add items to the site header, before search. |
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
@@ -210,12 +211,12 @@ export default { plugins: [tabs()] } satisfies DocsParserOptions
 
 Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert`, replaces it. A plugin that adds a tag needs a component for it in `app/components/content/`.
 
-### Theme
+### Design
 
-The theme is black, white, and zinc, with Geist, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
-- `app.config.ts` `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
-- CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--font-sans`, and the Nuxt UI `--ui-*` colors.
+- `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
+- CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
 
 The build also checks cross-page fragments in the final HTML output. Routes excluded by `routeRules` with `prerender: false` or `nitro.prerender.ignore`, including the enabled ViteHub Console, do not need output files: the server can answer them at request time. Files that do exist still have their fragments checked. More specific `prerender: true` rules remain checked.
 
