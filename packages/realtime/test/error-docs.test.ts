@@ -12,7 +12,7 @@ it("documents each Realtime error code with a why, a fix, and a docs heading", a
     expect(page, code).toContain(`\n### ${code}\n`)
   }
   const error = realtimeErrorDiagnostics.REALTIME_DISABLED({ action: "save" })
-  expect(error.docs).toBe("https://vitehub.dev/docs/realtime/limits-and-errors#realtime_disabled")
+  expect(error.docs).toBe("https://vitehub.dev/docs/realtime/diagnostics/realtime_disabled")
   expect(error.why).toBe("Realtime is disabled, so `save()` cannot run.")
   expect(error.fix).not.toBe("")
 })
@@ -30,7 +30,7 @@ it.each([
 
   expect(conflict).toMatchObject({
     code: "REALTIME_DOCUMENT_CONFLICT",
-    docs: "https://vitehub.dev/docs/realtime/limits-and-errors#realtime_document_conflict",
+    docs: "https://vitehub.dev/docs/realtime/diagnostics/realtime_document_conflict",
     name: "RealtimeDocumentConflict",
     why: expectedWhy,
   })
@@ -38,7 +38,7 @@ it.each([
   const serialized: unknown = JSON.parse(JSON.stringify(conflict))
   expect(serialized).toEqual({
     code: "REALTIME_DOCUMENT_CONFLICT",
-    docs: "https://vitehub.dev/docs/realtime/limits-and-errors#realtime_document_conflict",
+    docs: "https://vitehub.dev/docs/realtime/diagnostics/realtime_document_conflict",
     fix: "Realtime re-seeds the room from the stored document. Listen to `onReset()` to recover text that the room did not save.",
     name: "RealtimeDocumentConflict",
     why: expectedWhy,

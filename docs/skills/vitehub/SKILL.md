@@ -55,7 +55,7 @@ Read only the references whose conditions match, but read them before writing co
 | Capability, tool, secret, rate limit, telemetry, or other granted authority | [Capabilities and authority](references/capabilities-authority.md) |
 | Schedule, Workflow, orchestration retry, idempotency, or terminal state | [Schedules, Workflows, and Invocations](references/schedules-workflows-invocations.md) |
 | Sandbox, trusted host, isolation, required command, or deployment target | [Sandboxes and hosts](references/sandboxes-hosts.md) |
-| Bundle size, startup cost, host size limits, or why a package is in the output | [Bundle size and startup cost](references/bundle.md) |
+| Bundle size, startup cost, host size limits, why a package is in the output, or whether a change made the bundle smaller | [Bundle size and startup cost](references/bundle.md) |
 | A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
 | Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
 
