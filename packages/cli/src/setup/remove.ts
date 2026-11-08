@@ -8,7 +8,7 @@ import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub
 import { dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { confirmSetupChange, featurePackages, readFeatureId, setupDiff } from "./add.ts"
+import { confirmSetupChange, featurePackages, isRecord, readFeatureId, setupDiff } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus, uninstallArgs } from "./status.ts"
@@ -134,14 +134,14 @@ function isStarter(starter: FeatureStarter, path: string, content: string): bool
   return name !== undefined && [starter.template, ...starter.previousTemplates ?? []].some(template => template(name) === content)
 }
 
-/** Features required by selected options, even without a static implication. */
-function optionPrerequisites(id: FeatureId, value: JsonValue | undefined): FeatureId[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return []
-  if (id === "cache" && value.driver === "kv") return ["kv"]
-  if (id === "connections" && value.management) return ["console"]
-  if (id === "observability") return [...(value.posthog ? ["env" as const] : []), ...(value.papercuts ? ["agent" as const, "console" as const] : [])]
-  const invocations = id === "agent" ? value.invocations : undefined
-  if (invocations === "database" || (invocations && typeof invocations === "object" && !Array.isArray(invocations) && invocations.store === "database")) return ["database"]
+/** Features required by selected options. Unknown options can select any supported prerequisite. */
+function optionPrerequisites(id: FeatureId, value: JsonValue | undefined, unknown: boolean): FeatureId[] {
+  const options = isRecord(value) ? value : undefined
+  if (id === "cache" && (unknown || options?.driver === "kv")) return ["kv"]
+  if (id === "connections" && (unknown || options?.management)) return ["console"]
+  if (id === "observability") return [...(unknown || options?.posthog ? ["env" as const] : []), ...(unknown || options?.papercuts ? ["agent" as const, "console" as const] : [])]
+  const invocations = options?.invocations
+  if (id === "agent" && (unknown || invocations === "database" || (isRecord(invocations) && invocations.store === "database"))) return ["database"]
   return []
 }
 
@@ -216,7 +216,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     return key?.kind === "literal" ? key.value : undefined
   }
   for (const id of turnedOff) {
-    const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent)).includes(id))
+    const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent), enabled(after.status, dependent).enabled === "unknown").includes(id))
     if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_REQUIRED({ by: by.join(", "), feature: id }), setupExitCodes.conflict)
   }
   const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset, enabled: ReadonlySet<FeatureId>) => {

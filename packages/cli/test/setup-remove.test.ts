@@ -31,6 +31,52 @@ async function enabled(root: string, id: string): Promise<string | undefined> {
 
 describe("vitehub remove", () => {
   it.each([
+    { feature: "kv", dependent: "cache", options: "kv: true", value: '{ driver: "kv" }' },
+    { feature: "console", dependent: "connections", options: "console: { auth: false }", value: "{ management: true }" },
+    { feature: "env", dependent: "observability", options: "env: true", value: '{ service: "app", posthog: { apiKey: "key" } }' },
+    { feature: "agent", dependent: "observability", options: "agent: true, console: { auth: false }", value: "{ papercuts: true }" },
+    { feature: "console", dependent: "observability", options: "agent: true, console: { auth: false }", value: "{ papercuts: true }" },
+    { feature: "database", dependent: "agent", options: "database: true", value: '{ invocations: "database" }' },
+    { feature: "database", dependent: "agent", options: "database: true", value: '{ invocations: { store: "database" } }' },
+  ])("preserves $feature when dynamic $dependent options may require it ($value)", async ({ feature, dependent, options, value }) => {
+    const config = `const options = ${value}\n${viteConfig(`{ preset: "node", ${options}, ${dependent}: options }`)}`
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": config })
+    const before = await snapshot(root)
+    for (const flags of [[], ["--force"]]) {
+      const refused = await remove([feature, "--yes", ...flags], root)
+      expect(refused.exitCode, refused.stdout).toBe(3)
+      expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_REQUIRED" })
+      expect(await snapshot(root)).toEqual(before)
+    }
+  })
+
+  it.each([
+    { file: "vite.config.ts", config: viteConfig('{ preset: "node", env: true, observability: { posthog: options } }') },
+    { file: "nuxt.config.ts", config: 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], vitehub: { preset: "node", env: true, observability: { posthog: options } } })' },
+    { file: "nuxt.config.ts", config: 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "node", env: true, observability: { posthog: options } }]] })' },
+  ])("preserves prerequisites for nested dynamic options ($config)", async ({ file, config }) => {
+    const root = await createProject({ "package.json": pnpmManifest, [file]: `const options = { apiKey: "key" }\n${config}` })
+    const before = await snapshot(root)
+    const refused = await remove(["env", "--yes"], root)
+    expect(refused.exitCode, refused.stdout).toBe(3)
+    expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_REQUIRED" })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    { feature: "kv", options: 'kv: true, cache: { driver: "memory" }' },
+    { feature: "console", options: 'console: { auth: false }, connections: { management: false }' },
+    { feature: "env", options: 'env: true, observability: { service: "app", posthog: false, papercuts: false }' },
+    { feature: "database", options: 'database: true, agent: { invocations: "filesystem" }' },
+    { feature: "database", options: 'database: true, agent: { invocations: { store: "filesystem" } }' },
+  ])("removes $feature when literal options do not require it ($options)", async ({ feature, options }) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", ${options} }`) })
+    const removed = await remove([feature, "--yes"], root)
+    expect(removed.exitCode, removed.stdout).toBe(0)
+    expect(await enabled(root, feature)).toBe("off")
+  })
+
+  it.each([
     { feature: "kv", dependent: "cache", options: 'kv: true, cache: { driver: "kv" }' },
     { feature: "console", dependent: "connections", options: 'console: { auth: false }, connections: { management: true }' },
     { feature: "env", dependent: "observability", options: 'env: true, observability: { posthog: true }' },
