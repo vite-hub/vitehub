@@ -18,7 +18,6 @@ export const newProjectFeatureIcons: Readonly<Record<FeatureId, string>> = {
   email: "i-vitehub-email",
   env: "i-vitehub-env",
   kv: "i-vitehub-kv",
-  logs: "i-vitehub-logs",
   observability: "i-lucide-activity",
   queue: "i-vitehub-queue",
   rateLimit: "i-vitehub-rate-limit",

@@ -106,17 +106,17 @@ describe("planNewProject", () => {
     ])
   })
 
-  it("requires a Logs source on every host before printing a command", () => {
+  it("requires an Observability service on every host before printing a command", () => {
     for (const { id: host } of newProjectHosts) {
-      const value = stack({ host, features: ["logs"] })
+      const value = stack({ host, features: ["observability"] })
       expect(planNewProject(value).problems).toEqual([
-        { field: "option", path: "logs.source", message: "Enter a value for logs.source." },
+        { field: "option", path: "observability.service", message: "Enter a value for observability.service." },
       ])
       expect(newProjectCommand(value, ticket)).toBeUndefined()
 
-      const filled = { ...value, options: { ...value.options, "logs.source": "./server/logs.ts" } }
+      const filled = { ...value, options: { ...value.options, "observability.service": "my-app" } }
       expect(planNewProject(filled).problems).toEqual([])
-      expect(newProjectCommand(filled, ticket)).toContain(" --option logs.source=./server/logs.ts ")
+      expect(newProjectCommand(filled, ticket)).toContain(" --option observability.service=my-app ")
       expect(readNewProjectQuery(newProjectQuery(filled))).toEqual(filled)
     }
   })

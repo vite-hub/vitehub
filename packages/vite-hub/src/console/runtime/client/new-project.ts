@@ -104,7 +104,6 @@ const optionRequires: Readonly<Record<string, { value: string, feature: FeatureI
 /** The options that `vitehub add` needs for a feature on a host, beyond the `explicit` option of the catalog. */
 function requiredInputs(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
   if (id === "blob" && host === "deno") return [{ feature: id, path: "blob.bucket", placeholder: "app-assets", detail: "The bucket in your S3-compatible store." }]
-  if (id === "logs") return [{ feature: id, path: "logs.source", placeholder: "./server/logs.ts", detail: "The server module that exports your LogSource. Add this module before you build the app." }]
   if (id === "observability") return [{ feature: id, path: "observability.service", placeholder: packageNameOf(dir), detail: "The service name in the telemetry of the app." }]
   if (id === "schedule" && host === "node") return [{ feature: id, path: "schedule.runtime.driver", choices: ["process"], detail: "A Node server runs Schedules in its own process." }]
   if (id === "workspace" && (host === "deno" || host === "netlify")) return [{ feature: id, path: "workspace.store.repository", placeholder: "owner/repo", detail: "The GitHub repository that stores your Workspaces." }]
