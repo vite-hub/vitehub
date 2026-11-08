@@ -28,7 +28,7 @@ Create a GitHub App, install it on the repository, and list `https://<site>/api/
 
 [`vite-hub`](https://www.npmjs.com/package/vite-hub) wires the package for you, with any ViteHub Database, presence over Realtime, Content edits in place, the Console, and MCP tools.
 
-```ts
+```ts [server/comments.ts]
 // server/comments.ts
 import { defineComments } from "vite-hub/comments"
 
@@ -116,6 +116,7 @@ Generated files under `.vitehub/nitro/comments` are inspectable build output, no
 
 ```ts
 import { createCommentsHandler } from "@vite-hub/comments/runtime";
+import { comments } from "./server/comments";
 
 const handler = createCommentsHandler({ comments, realtime: false });
 const response = await handler.fetch(new Request("https://site.test/api/_vitehub/comments/threads?page=/"));
