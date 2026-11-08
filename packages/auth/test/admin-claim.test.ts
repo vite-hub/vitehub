@@ -89,6 +89,25 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     expect(await available(auth, cookie)).toBe(true)
   })
 
+  it("refreshes the browser's cached session after a successful claim", async () => {
+    const code = createAdminClaimCode()
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
+    const auth = createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin()], session: { cookieCache: { enabled: true } } }), new Request(origin))
+    const cookie = await signUp(auth, "owner@example.com")
+    expect(cookie).toContain("better-auth.session_data=")
+    const response = await claim(auth, cookie, code)
+    expect(response.status).toBe(200)
+    const cookies = new Map(cookie.split("; ").map(pair => [pair.slice(0, pair.indexOf("=")), pair]))
+    for (const header of response.headers.getSetCookie()) {
+      const pair = header.split(";")[0]!
+      const name = pair.slice(0, pair.indexOf("="))
+      if (/;\s*max-age=0(?:;|$)/i.test(header)) cookies.delete(name)
+      else cookies.set(name, pair)
+    }
+    const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: { cookie: [...cookies.values()].join("; ") } }))
+    expect(await session.json()).toMatchObject({ user: { role: "admin" } })
+  })
+
   it("needs a session", async () => {
     const { auth, code } = await authWithCode()
     expect((await claim(auth, "", code)).status).toBe(401)
@@ -100,6 +119,82 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     const second = await signUp(auth, "second@example.com")
     const statuses = (await Promise.all([claim(auth, first, code), claim(auth, second, code)])).map(response => response.status).sort()
     expect(statuses).toEqual([200, 409])
+  })
+
+  it("shares claim serialization between Auth instances for the same memory database", async () => {
+    const code = createAdminClaimCode()
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
+    const definition = defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin()] })
+    const one = createAuthForRequest(definition, new Request(origin))
+    const two = createAuthForRequest(definition, new Request(origin))
+    const first = await signUp(one, "first@example.com")
+    const second = await signUp(two, "second@example.com")
+    const statuses = (await Promise.all([claim(one, first, code), claim(two, second, code)])).map(response => response.status).sort()
+    expect(statuses).toEqual([200, 409])
+    expect([await roleOf(one, "first@example.com"), await roleOf(two, "second@example.com")].sort()).toEqual(["admin", "user"])
+  })
+
+  it.each([undefined, false, true])("supports secondary storage with storeInDatabase set to %s", async (storeInDatabase) => {
+    const code = createAdminClaimCode()
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
+    const cache = new Map<string, string>()
+    const definition = defineAuth({
+      emailAndPassword: { enabled: true },
+      plugins: [admin()],
+      verification: { storeInDatabase, storeIdentifier: "hashed" },
+      runtime: {
+        secondaryStorage: {
+          get: async key => cache.get(key) ?? null,
+          set: async (key, value) => { cache.set(key, value) },
+          delete: async (key) => { cache.delete(key) },
+          getAndDelete: async (key) => {
+            const value = cache.get(key) ?? null
+            cache.delete(key)
+            return value
+          },
+        },
+      },
+    })
+    const auth = createAuthForRequest(definition, new Request(origin))
+    const cookie = await signUp(auth, "owner@example.com")
+    expect((await claim(auth, cookie, code)).status).toBe(200)
+    expect(await roleOf(auth, "owner@example.com")).toBe("admin")
+    expect(await available(auth, cookie)).toBe(false)
+    expect((await claim(auth, cookie, code)).status).toBe(409)
+    expect(createBetterAuthOptions(definition).verification).toMatchObject({ storeInDatabase: true, storeIdentifier: "hashed" })
+  })
+
+  it.each(["throw", "cancel", "missing"] as const)("keeps the code available when the role update fails (%s)", async (failure) => {
+    const { auth, code } = await authWithCode()
+    const cookie = await signUp(auth, "owner@example.com")
+    const adapter = (await auth.$context).internalAdapter
+    const update = vi.spyOn(adapter, "updateUser")
+    if (failure === "throw") update.mockRejectedValueOnce(new Error("database unavailable"))
+    else if (failure === "cancel") update.mockResolvedValueOnce(null)
+    else vi.spyOn(adapter, "findUserById").mockResolvedValueOnce(null)
+    expect((await claim(auth, cookie, code)).status).toBeGreaterThanOrEqual(400)
+    expect(await roleOf(auth, "owner@example.com")).toBe("user")
+    expect(await available(auth, cookie)).toBe(true)
+    expect((await claim(auth, cookie, code)).status).toBe(200)
+    expect(await roleOf(auth, "owner@example.com")).toBe("admin")
+    expect(await available(auth, cookie)).toBe(false)
+  })
+
+  it("keeps the reservation when an update error follows a completed role grant", async () => {
+    const { auth, code } = await authWithCode()
+    const cookie = await signUp(auth, "owner@example.com")
+    const guest = await signUp(auth, "guest@example.com")
+    const adapter = (await auth.$context).internalAdapter
+    const update = adapter.updateUser.bind(adapter)
+    vi.spyOn(adapter, "updateUser").mockImplementationOnce(async (...args) => {
+      await update(...args)
+      throw new Error("after hook failed")
+    })
+    expect((await claim(auth, cookie, code)).status).toBe(500)
+    expect(await roleOf(auth, "owner@example.com")).toBe("admin")
+    expect(await available(auth, cookie)).toBe(false)
+    expect((await claim(auth, guest, code)).status).toBe(409)
+    expect(await roleOf(auth, "guest@example.com")).toBe("user")
   })
 
   it("lets only one of two Auth instances on one SQLite database use the code", async () => {
@@ -116,6 +211,30 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     const statuses = (await Promise.all([claim(authOne, first, code), claim(authTwo, second, code)])).map(response => response.status).sort()
     expect(statuses).toEqual([200, 409])
     sqlite.close()
+  })
+
+  it("allows another SQLite Auth instance to retry after a failed role grant", async () => {
+    const code = createAdminClaimCode()
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
+    const sqlite = new DatabaseSync(":memory:")
+    try {
+      const instance = () => defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin()], runtime: { database: sqlite, secret: "admin-claim-test-secret-1234567890abcdef", baseURL: origin } })
+      const [one, two] = [instance(), instance()]
+      await (await getMigrations(createBetterAuthOptions(one))).runMigrations()
+      const [authOne, authTwo] = [createAuthForRequest(one, new Request(origin)), createAuthForRequest(two, new Request(origin))]
+      const first = await signUp(authOne, "first@example.com")
+      const second = await signUp(authTwo, "second@example.com")
+      vi.spyOn((await authOne.$context).internalAdapter, "updateUser").mockRejectedValueOnce(new Error("database unavailable"))
+      expect((await claim(authOne, first, code)).status).toBe(500)
+      expect(await available(authTwo, second)).toBe(true)
+      expect((await claim(authTwo, second, code)).status).toBe(200)
+      expect((await claim(authOne, first, code)).status).toBe(409)
+      expect(await roleOf(authOne, "first@example.com")).toBe("user")
+      expect(await roleOf(authTwo, "second@example.com")).toBe("admin")
+    }
+    finally {
+      sqlite.close()
+    }
   })
 
   it("shows the rule in the Auth Console", async () => {

@@ -163,7 +163,7 @@ class AuthConsoleError extends Error {
 }
 
 const errors = defineErrors({
-  docs: "https://vitehub.dev/docs/auth/limits-and-errors",
+  docs: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
     AUTH_CONSOLE_INVALID_REQUEST: {
       why: "The Auth Console request does not match its field or pagination contract.",

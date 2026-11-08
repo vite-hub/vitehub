@@ -161,6 +161,8 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    // Claim reservations need the database's primary key, including when sessions use secondary storage.
+    ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
     ...(databaseHooks ? { databaseHooks } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
     advanced: withClientAddressHeaders(rest.advanced),

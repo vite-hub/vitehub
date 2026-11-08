@@ -274,12 +274,14 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined) {
     return await writeWorkflowDevRegistryFiles({
       definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
+      dev: !startupBuild,
       importBase: internalOptions.importBase,
       projectRoot: rootDir,
       pluginPath: devStartupPlugin,
       workflow,
     })
   }
+
 
   return {
     name: "@vite-hub/workflow/vite",
@@ -429,6 +431,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           }] : [],
           providerOutput: (() => {
           const rootDir = resolveViteHubProjectRoot(resolved?.root ?? process.cwd())
+          const nitro = Reflect.get(resolved ?? {}, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+          const cloudflareInNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
+          if (outputs.cloudflare && cloudflareInNitro) return [{ description: "Cloudflare Workflow bindings in Nitro's Wrangler config", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json") }]
           if (outputs.cloudflare) return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
           if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
           return []

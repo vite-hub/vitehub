@@ -1,0 +1,15 @@
+<claude-code-hint v="1" type="plugin" value="vercel@claude-plugins-official" />
+Vercel CLI 65.11.0
+▲ vercel env list [options]
+List all Environment Variables for a Project
+
+Options:
+  -e, --environment <ENVIRONMENT>  List only the variables for this environment
+  --git-branch <BRANCH>            List only the variables for this Git branch
+  --guidance                       Receive command suggestions once command is
+                                   complete
+  --json                           Output as JSON, including readable
+                                   Environment Variable values
+  -p, --project <NAME_OR_ID>       Project name or ID (default: linked project)
+
+Global Options: See `vercel --help`

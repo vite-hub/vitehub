@@ -159,7 +159,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 
 Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from '@vite-hub/auth'
 
 export default defineAuth({
@@ -271,6 +271,8 @@ VITEHUB_ADMIN_CLAIM=sha256:3f9a...
 Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in, open `/_vitehub`, and enter the code under **Claim code** on the Access denied page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
 
 The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
+
+With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. A failed role grant releases the reservation so the code can be tried again.
 
 ## Sign MCP clients in
 
@@ -392,6 +394,9 @@ To persist Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-datab
 `hubAuth()` accepts `false` to disable Auth integration. The Vite config key `auth` overrides the plugin argument.
 
 ```ts [vite.config.ts]
+import { hubAuth } from '@vite-hub/auth/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubAuth()],
   auth: false,

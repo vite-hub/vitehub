@@ -1,3 +1,5 @@
+import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
+import { createSessionStore, expireCookie } from "better-auth/cookies"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { authCloudflareEnv } from "./request.ts"
 
@@ -79,31 +81,62 @@ export function adminRoleGrant(plugins: readonly BetterAuthPlugin[], variable: s
 }
 
 /** Adds the admin role to a user. It replaces the default role and keeps the other roles. */
-export async function grantAdminRole(context: AuthContext, userId: string, grant: AdminRoleGrant): Promise<void> {
+export async function grantAdminRole(context: AuthContext, userId: string, grant: AdminRoleGrant): Promise<boolean> {
   const user = await context.internalAdapter.findUserById(userId)
-  if (!user) return
+  if (!user) return false
   const current: unknown = Reflect.get(user, "role")
   const roles = typeof current === "string" ? current.split(",").map(name => name.trim()).filter(Boolean) : []
-  if (roles.includes(grant.role)) return
-  await context.internalAdapter.updateUser(userId, { role: [...roles.filter(name => name !== grant.replaced), grant.role].join(",") })
+  if (roles.includes(grant.role)) return true
+  const updated = await context.internalAdapter.updateUser(userId, { role: [...roles.filter(name => name !== grant.replaced), grant.role].join(",") })
+  const role: unknown = updated && Reflect.get(updated, "role")
+  return typeof role === "string" && role.split(",").some(name => name.trim() === grant.role)
 }
 
 /**
  * Gives the first admin role of Better Auth's `admin()` plugin to a user with one of `admins` as a linked account.
  * It runs when the account is linked and on each sign-in, so an entry added later also works for an existing user.
+ * The admin role replaces the default role of `admin()` and joins any other role. It never removes another role.
  */
 export function createAdminsPlugin(admins: readonly AdminAccount[], plugins: readonly BetterAuthPlugin[]): BetterAuthPlugin & { options: { admins: readonly string[], role: string } } {
   const grant = adminRoleGrant(plugins, adminsVariable)
   const listed = (account: { providerId: string, accountId: string }) => admins.some(entry => entry.providerId === account.providerId && entry.accountId === account.accountId)
+  const linkedAdminContexts = new WeakSet<object>()
   return {
     id: adminsPluginId,
     options: { admins: admins.map(formatAdminAccount), role: grant.role },
-    // Better Auth replaces `internalAdapter` after the plugins' `init`, so the hooks read it from `context` when they run.
+    hooks: {
+      after: [{
+        matcher: ctx => Boolean((ctx.context.newSession || linkedAdminContexts.has(ctx.context)) && ctx.context.options.session?.cookieCache?.enabled),
+        handler: createAuthMiddleware(async (ctx) => {
+          const session = ctx.context.newSession ?? await getSessionFromCtx(ctx, { disableRefresh: true })
+          if (!session) return
+          const user = await ctx.context.internalAdapter.findUserById(session.user.id)
+          if (!user || Reflect.get(user, "role") === Reflect.get(session.user, "role")) return
+          Reflect.set(session.user, "role", Reflect.get(user, "role"))
+          // OAuth serializes the user loaded before the database hooks grant the role.
+          // Linking keeps the existing session, whose incoming cookie can also have the old role.
+          // Drop that cache so get-session reads the granted role, including old cookie chunks.
+          const cookie = ctx.context.authCookies.sessionData
+          expireCookie(ctx, cookie)
+          const store = createSessionStore(cookie.name, cookie.attributes, ctx)
+          store.setCookies(store.clean())
+        }),
+      }],
+    },
     init: (context: AuthContext) => {
+      // Better Auth replaces `internalAdapter` after the plugins' `init`, so read it when a hook runs.
       return {
         options: {
           databaseHooks: {
-            account: { create: { after: async (account) => { if (listed(account)) await grantAdminRole(context, account.userId, grant) } } },
+            account: {
+              create: {
+                after: async (account, endpoint) => {
+                  if (!listed(account)) return
+                  await grantAdminRole(context, account.userId, grant)
+                  if (endpoint) linkedAdminContexts.add(endpoint.context)
+                },
+              },
+            },
             session: {
               create: {
                 after: async (session) => {
