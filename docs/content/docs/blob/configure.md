@@ -29,6 +29,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -47,6 +51,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -90,6 +97,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({ blob: { remote: true } }), nitro()],
 })
@@ -98,6 +109,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({ blob: { remote: true } })],
 })
@@ -130,6 +144,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -184,6 +202,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -236,6 +258,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({ blob: { driver: 'fs', serve: true } }), nitro()],
 })
@@ -244,6 +270,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({ blob: { driver: 'fs', serve: true } })],
 })
@@ -279,6 +308,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -302,6 +335,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -355,6 +391,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -372,6 +412,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
