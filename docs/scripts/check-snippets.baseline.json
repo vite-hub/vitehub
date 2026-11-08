@@ -95,11 +95,6 @@
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/auth/configure.md#a5b1c0c3735d",
-    "label": "server/routes/mcp.ts",
-    "error": "TS1108 A 'return' statement can only be used within a function body.\nTS18048 'event' is possibly 'undefined'.\nTS2339 Property 'req' does not exist on type 'Event'."
-  },
-  {
     "id": "docs/content/docs/auth/console.md#72916b19bb92",
     "label": "server/auth.ts",
     "error": "TS2339 Property 'db' does not exist on type 'never'.\nTS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
