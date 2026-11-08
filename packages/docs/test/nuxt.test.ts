@@ -197,6 +197,19 @@ describe("docs in an existing app", () => {
     expect(docsCss()).toContain('@import "@nuxt/ui";')
   })
 
+  it("lets docs pages link to the app's own pages, which the build does not prerender", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    const options = await setupDocs({ dir: app.dir })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(join(publicDir, "docs/guide"), { recursive: true })
+    writeFileSync(join(publicDir, "docs/guide.html"), `<a href="/">Home</a><a href="/pricing">Pricing</a>`)
+    const compiled: Array<() => void> = []
+    await callHook("nitro:init", { options: { output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } })
+    expect(() => compiled[0]!()).not.toThrow()
+    writeFileSync(join(publicDir, "docs/guide.html"), `<a href="/docs/missing">Missing</a><a href="/raw/docs/missing.md">Raw</a>`)
+    expect(() => compiled[0]!()).toThrow(/\/docs\/missing, which has no page or file[\s\S]*\/raw\/docs\/missing\.md/)
+  })
+
   it("prerenders the docs pages of an app without crawling the app's own pages", async () => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" })
     await setupDocs({ dir: app.dir })
