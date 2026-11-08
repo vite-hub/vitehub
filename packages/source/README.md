@@ -106,7 +106,7 @@ hosts without a runtime file system, such as Cloudflare Workers, serve them.
 Content accepts Source definitions directly. It opens a new reader on each
 refresh, so overlapping loads keep separate revisions:
 
-```ts
+```ts fragment
 import { defineContent } from "@vite-hub/content"
 
 export const content = defineContent({ source: docs })
@@ -114,7 +114,7 @@ export const content = defineContent({ source: docs })
 
 Workspace binds the same definition to a persistent file tree:
 
-```ts
+```ts fragment
 import { defineWorkspace } from "@vite-hub/workspace"
 
 export default defineWorkspace({
@@ -129,7 +129,7 @@ retrieval. Content owns parsed documents, navigation, queries, and search.
 
 ## Optional name lookup
 
-```ts
+```ts fragment
 import { defineSources, registerSources, useSource } from "@vite-hub/source"
 
 const sources = defineSources({ docs })
@@ -197,7 +197,7 @@ A combined reader exposes `items()` only when every input implements it.
 Use `cachedSource()` to add Nitro caching to a keyed reader. It loads
 `nitro/cache` on the first `get()`, so the app must run on Nitro:
 
-```ts
+```ts fragment
 import { cachedSource } from "@vite-hub/source/server"
 
 const cachedDocs = cachedSource(createSource(docs), { name: "docs", maxAge: 60 })
@@ -271,7 +271,7 @@ When the whole data set fits in memory, pass `array()` as the Collection source.
 It filters, searches, sorts, counts, and pages the array, and returns `total` and
 `facets` with each page:
 
-```ts
+```ts fragment
 // server/collections/articles.ts
 import { array, defineCollection } from "@vite-hub/source"
 

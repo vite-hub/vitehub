@@ -31,18 +31,15 @@ async function app(name: string, files: Record<string, string>): Promise<string>
 afterAll(() => rm(scratch, { recursive: true, force: true }))
 
 describe("codemods CLI", () => {
-  it("lists every codemod with one line when it has no arguments or --help", async () => {
-    for (const args of [[], ["--help"]]) {
-      const result = await cli(args)
-      expect(result.code).toBe(0)
-      expect(result.stdout).toContain("Usage: npx @vite-hub/codemods <codemod> [dir] [--dry-run]")
-      const width = Math.max(...codemods.map(codemod => codemod.name.length))
-      for (const codemod of codemods) expect(result.stdout).toContain(`  ${codemod.name.padEnd(width)}  ${codemod.description}\n`)
-    }
+  it("lists every codemod with one line for --help", async () => {
+    const result = await cli(["--help"])
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("Usage: npx @vite-hub/codemods [dir] [--dry-run]\n       npx @vite-hub/codemods <codemod> [dir] [--dry-run]")
+    for (const codemod of codemods) expect(result.stdout).toContain(`  ${codemod.name.padEnd(Math.max(...codemods.map(entry => entry.name.length)))}  ${codemod.description}\n`)
   })
 
-  it("rejects an unknown codemod or option", async () => {
-    expect(await cli(["nope"])).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown codemod \"nope\". Available: nuxt-safe-runtime-config, root-accessors.") })
+  it("treats an argument that is not a codemod name as the app directory", async () => {
+    expect(await cli(["nope"])).toMatchObject({ code: 1, stderr: expect.stringContaining("Cannot find the directory") })
     expect(await cli(["nuxt-safe-runtime-config", "--force"])).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown option --force.") })
   })
 
@@ -67,6 +64,18 @@ describe("codemods CLI", () => {
     expect(await readFile(join(directory, "server/api/limits.get.ts"), "utf8")).toBe(await readFile(join(fixtures, "env-schema/output/server/api/limits.get.ts"), "utf8"))
   })
 
+  it("removes a module that has no schema", async () => {
+    const directory = await app("no-schema", {
+      "nuxt.config.ts": "export default defineNuxtConfig({\n  modules: ['@nuxt/ui', 'nuxt-safe-runtime-config'],\n  safeRuntimeConfig: {\n    // $schema: v.object({}),\n  },\n})\n",
+      "package.json": `${JSON.stringify({ dependencies: { "nuxt-safe-runtime-config": "^0.3.2", "nuxt": "^5.0.0" } }, null, 2)}\n`,
+    })
+    const result = await cli(["nuxt-safe-runtime-config", directory])
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("removed nuxt-safe-runtime-config: it had no envSchema and no $schema")
+    expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toBe("export default defineNuxtConfig({\n  modules: ['@nuxt/ui'],\n})\n")
+    expect(JSON.parse(await readFile(join(directory, "package.json"), "utf8"))).toEqual({ dependencies: { nuxt: "^5.0.0" } })
+  })
+
   it("runs as the package binary", async () => {
     const { stdout } = await execute(process.execPath, [join(packageRoot, "dist/cli.js"), "--help"])
     expect(stdout).toContain("Usage: npx @vite-hub/codemods")
@@ -77,12 +86,47 @@ describe("codemods CLI", () => {
 })
 
 describe("nuxt-safe-runtime-config errors", () => {
+  it.each(["tsx", "jsx", "cts", "cjs"])("keeps a schema-free module used by a .%s file", async (extension) => {
+    const files = {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}\n',
+      [`plugin.${extension}`]: "export const config = useSafeRuntimeConfig()\n",
+    }
+    const directory = await app(`no-schema-${extension}`, files)
+    const result = await cli(["nuxt-safe-runtime-config", directory])
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(`plugin.${extension}:1 calls useSafeRuntimeConfig()`)
+    for (const [file, content] of Object.entries(files)) expect(await readFile(join(directory, file), "utf8")).toBe(content)
+  })
+
+  it.each([
+    "modules: activeModules",
+    "modules: buildModules()",
+    "modules: enabled ? activeModules : []",
+    "...base",
+  ])("keeps a schema-free module in a dynamic list (%s)", async (modules) => {
+    const files = {
+      "nuxt.config.ts": `const activeModules = ['nuxt-safe-runtime-config']\nconst buildModules = () => activeModules\nconst enabled = true\nconst base = { modules: activeModules }\nexport default defineNuxtConfig({ ${modules}, safeRuntimeConfig: {} })\n`,
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}\n',
+    }
+    const directory = await app(`no-schema-dynamic-${modules}`, files)
+    const result = await cli([directory])
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("modules")
+    expect(result.stdout).toContain("array literal")
+    expect(result.stdout).toContain("Files changed (0):\n  none")
+    for (const [file, content] of Object.entries(files)) expect(await readFile(join(directory, file), "utf8")).toBe(content)
+  })
+
   it.each([
     ["no nuxt.config", {}, "Cannot find nuxt.config in"],
     ["a nuxt.config that does not parse", { "nuxt.config.ts": "export default defineNuxtConfig({" }, "Cannot parse nuxt.config.ts"],
     ["a config that is not an object literal", { "nuxt.config.ts": "export default createConfig()" }, "must export an object literal"],
     ["no module", { "nuxt.config.ts": "export default defineNuxtConfig({ modules: [] })" }, "does not use nuxt-safe-runtime-config"],
-    ["no schema", { "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })" }, "has no envSchema and no $schema"],
+    ["no schema and a useSafeRuntimeConfig() call", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })",
+      "plugin.ts": "export default () => useSafeRuntimeConfig()",
+    }, "has no envSchema and no $schema, but plugin.ts:1 calls useSafeRuntimeConfig()"],
     ["both schema sources", {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example', $schema: './schema' } })",
     }, "sets both envSchema and $schema"],

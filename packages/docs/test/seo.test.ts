@@ -74,12 +74,12 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     expect(install).toContain("\"@type\":[\"Article\",\"TechArticle\"]")
     expect(install).toContain("\"@type\":\"BreadcrumbList\"")
 
-    // A `home` page is its own blocks under the site header, which shows on wide screens because there is no docs rail.
+    // A `home` page is its own blocks under the site header, which shows on every page, docs pages included.
     const home = await page("index")
     expect(home).toContain("Read <a")
     expect(home).not.toMatch(/class="[^"]*vh-docs-rail/)
     expect(home).toMatch(/class="sticky top-0 z-50"/)
-    expect(await page("docs/guide/install")).toMatch(/class="sticky top-0 z-50 lg:hidden"/)
+    expect(await page("docs/guide/install")).toMatch(/class="sticky top-0 z-50"/)
     expect.soft(await page("docs/guide/embedded")).toContain("<title>Lumenate · Lumen</title>")
     expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 

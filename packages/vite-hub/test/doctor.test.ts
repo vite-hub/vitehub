@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { runProjectFixture } from "vite-doctor/testkit"
+import { runProjectFixture, runRuleFixture } from "vite-doctor/testkit"
 import type { PluginOption } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 
@@ -299,7 +299,7 @@ describe("vitehub/destructure-result-tuples", () => {
     })).toEqual(Array(4).fill("VHUB0003"))
   })
 
-  it("accepts destructured, indexed, ignored, and unrelated results", async () => {
+  it("accepts destructured, indexed, explicitly ignored, and unrelated results", async () => {
     expect(await codes(destructureResultTuples, {
       "server/api/settings.get.ts": [
         "import { kv } from \"vite-hub/kv\"",
@@ -307,7 +307,8 @@ describe("vitehub/destructure-result-tuples", () => {
         "export default async () => {",
         "  const [error, settings] = await kv.get(\"settings\")",
         "  if (error) throw error",
-        "  await kv.set(\"seen\", true)",
+        "  void await kv.set(\"seen\", true)",
+        "  void kv.set(\"later\", true)",
         "  const missing = (await blob.head(\"a.txt\"))[0]",
         "  return { settings, missing }",
         "}",
@@ -388,6 +389,88 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         "}",
       ].join("\n"),
     })).toEqual([])
+  })
+})
+
+describe("vitehub/destructure-result-tuples dropped results", () => {
+  it("reports Results that a statement drops", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/utils/dispatch.ts": [
+        'import { kv } from "vite-hub/kv"',
+        'import { blob } from "vite-hub/blob"',
+        'import { email } from "vite-hub/email/server"',
+        'import { runQueue, getQueue } from "vite-hub/queue"',
+        'import { useChannel } from "vite-hub/channels/server"',
+        'import { callMcpTool } from "vite-hub/agent/mcp"',
+        'import { cancelChannelTask, enqueueChannelTask } from "vite-hub/agent/server"',
+        "export async function dispatch() {",
+        '  await runQueue("sync", { id: 1 })',
+        '  await kv.set("state", { id: 1 })',
+        '  await email.send({ to: "a@b.c" })',
+        '  await blob.put("a.txt", "a")',
+        '  await blob.media.remove("a.png")',
+        '  await callMcpTool({ connection: "crm" }, "search", {})',
+        '  await enqueueChannelTask("airtable", "close", { data: {} })',
+        '  await cancelChannelTask("airtable", "close", { key: "pair" })',
+        '  kv.del("state")',
+        "}",
+      ].join("\n"),
+      // Doctor keeps one diagnostic per message in a file, so each other `send()` goes in its own file.
+      "server/utils/welcome.ts": 'import { getQueue } from "vite-hub/queue"\nexport async function welcome() {\n  const queue = await getQueue("welcome")\n  await queue.send({})\n}\n',
+      "server/utils/alert.ts": 'import { useChannel } from "vite-hub/channels/server"\nexport async function alert() {\n  await useChannel("alerts").send("hi", { connector: "log" })\n}\n',
+    })).toEqual(Array(11).fill("VHUB0003"))
+  })
+
+  it("names the operation and the way to ignore a failure on purpose", async () => {
+    const result = await runRuleFixture({
+      files: { "server/utils/dispatch.ts": 'import { runQueue } from "vite-hub/queue"\nexport async function dispatchSync(id) {\n  await runQueue("sync", { id })\n}\n' },
+      framework: "vite",
+      rule: destructureResultTuples,
+    })
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      code: "VHUB0003",
+      diagnostic: expect.objectContaining({
+        fix: "Read the error: `const [error] = await runQueue(...)`, then `if (error) throw error`. To ignore a failure on purpose, write `void await runQueue(...)`.",
+      }),
+      message: "`runQueue()` returns an `[error, value]` tuple and does not throw on failures. This statement drops the tuple, so a failure is silent.",
+    })])
+  })
+
+  // Real dropped Results from projects that use ViteHub: Finance `server/dispatch/queue.ts:6` and
+  // `server/utils/connections.ts:138`, and formula-100 `server/utils/learner-emails.ts:12` and `server/queues/daily-lessons.ts:25`.
+  it("reports the dropped Results of Finance and formula-100", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/dispatch/queue.ts": [
+        'import { runQueue } from "vite-hub/queue"',
+        "export async function dispatchSync(connectionId: string, trigger: SyncTrigger) {",
+        '  await runQueue("sync", { connectionId, trigger })',
+        "}",
+      ].join("\n"),
+      "server/utils/connections.ts": [
+        'import { kv } from "vite-hub/kv"',
+        "export async function startBankLink(event: H3Event, who: Member, row: ConnectionRow) {",
+        '  const state = crypto.randomUUID().replace(/-/g, "")',
+        "  await kv.set(`eb-state:${state}`, { connectionId: row.id, userId: who.userId, at: Date.now() } satisfies LinkState)",
+        "  return state",
+        "}",
+      ].join("\n"),
+    })).toEqual(["VHUB0003", "VHUB0003"])
+    expect(await codes(destructureResultTuples, {
+      "server/utils/learner-emails.ts": [
+        "import { email } from 'vite-hub/email/server'",
+        "async function send(to: string, subject: string, html: string, idempotencyKey?: string) {",
+        "  await email.send({ from: sender, to, subject, html, idempotencyKey })",
+        "}",
+      ].join("\n"),
+      "server/queues/daily-lessons.ts": [
+        "import { defineQueue, runQueue } from 'vite-hub/queue'",
+        "async function enqueueNext(subscriber: Subscriber) {",
+        "  if (!subscriber.next_lesson_day || !subscriber.next_send_at)",
+        "    return",
+        "  await runQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delaySeconds: 60 })",
+        "}",
+      ].join("\n"),
+    }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])
   })
 })
 

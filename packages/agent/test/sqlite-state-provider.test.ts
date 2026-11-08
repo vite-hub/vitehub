@@ -283,6 +283,23 @@ describe("SQLite Agent State Provider", () => {
     await restored.disconnect()
   })
 
+  it("commits WAL write transactions with synchronous NORMAL", async () => {
+    const { url } = await createState()
+    const state = createLibsqlAgentState({ url })
+    await state.connect()
+    try {
+      const levels = new Set<number>()
+      for (let index = 0; index < 5; index++) {
+        await state.extension("probe").transaction(async tx => {
+          levels.add(Number((await tx.execute("PRAGMA synchronous"))[0]?.synchronous))
+        })
+      }
+      expect([...levels]).toEqual([1])
+    } finally {
+      await state.disconnect()
+    }
+  })
+
   it("keeps rollback journaling available for network-backed volumes", async () => {
     const { url } = await createState()
     const state = createLibsqlAgentState({ url, journalMode: "delete" })

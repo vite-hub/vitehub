@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { formatReport, runCodemod } from "../src/index.ts"
+import { detectCodemods, formatReport, runCodemod } from "../src/index.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 
@@ -44,6 +44,24 @@ describe("root-accessors edge cases", () => {
     const run = await runCodemod("root-accessors", { cwd: root, dryRun: true })
     return { after: Object.fromEntries(run.result.edits.map(edit => [edit.path, edit.after])), run }
   }
+
+  it("detects former accessor paths for the migration wizard", async () => {
+    await migrate({
+      "server/api/a.ts": "import { db } from 'vite-hub/database/drizzle'\nexport { db }\n",
+    })
+    const detected = await detectCodemods(root)
+    expect(detected.map(entry => [entry.codemod.name, entry.detection.reason])).toEqual([
+      ["root-accessors", "server/api/a.ts uses vite-hub/database/drizzle"],
+    ])
+  })
+
+  it("does not detect browser Public Env or current accessor paths", async () => {
+    await migrate({
+      "app/env.ts": "import { usePublicEnv } from '#vitehub/env/public'\nexport { usePublicEnv }\n",
+      "server/env.ts": "import { useServerEnv } from 'vite-hub/env'\nexport { useServerEnv }\n",
+    })
+    expect(await detectCodemods(root)).toEqual([])
+  })
 
   it("joins a moved import with an existing import of the root", async () => {
     const { after } = await migrate({

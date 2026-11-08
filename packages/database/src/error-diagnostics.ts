@@ -51,7 +51,7 @@ function describeContributionTarget({ choices = [], database, dialect, reason, s
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/database/limits-and-errors",
+  docs: "https://vitehub.dev/docs/database/diagnostics",
   codes: {
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
     DATABASE_D1_INVALID_RESPONSE: {

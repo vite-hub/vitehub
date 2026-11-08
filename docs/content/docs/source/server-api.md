@@ -39,7 +39,7 @@ Source, Source Reader, Source Item, revision, cache, and error types are exporte
 | `source.exists(key)` | Whether a key exists. |
 | `source.list(prefix?)` | File readers only. Direct child files and directories below a prefix. |
 
-```ts [server/api/docs.get.ts]
+```ts [server/api/docs.get.ts] fragment
 import { createSource } from 'vite-hub/source'
 import { docs } from '../sources/docs'
 
@@ -85,6 +85,7 @@ declare global {
 Import the module that registers Sources before you call `useSource()` in a process:
 
 ```ts [server/api/readme.get.ts]
+import { defineEventHandler } from 'h3'
 import '../sources'
 import { useSource } from 'vite-hub/source'
 
@@ -156,7 +157,7 @@ Use ordinary objects or functions for custom keyed readers. Use `defineSource()`
 
 ### Cache a reader
 
-```ts
+```ts fragment
 import { cachedSource } from 'vite-hub/source/server'
 
 const cachedRecaps = cachedSource(githubRecaps(process.cwd()), {
@@ -236,7 +237,7 @@ The generic Collection requests one extra row from the loader, enforces its conf
 
 When the whole data set fits in server memory, use `array()` as the source. It filters, searches, sorts, and pages the array, and each page reports `total` and `facets`:
 
-```ts [server/collections/articles.ts]
+```ts [server/collections/articles.ts] fragment
 import { array, defineCollection } from 'vite-hub/source'
 
 export const articles = defineCollection({

@@ -131,6 +131,30 @@ describe("SQLite invocation journal", () => {
     expect(result.invocations.map(record => record.id)).toEqual(["run"])
   })
 
+  it("lists only invocations updated since a timestamp, in sequence order across pages", async () => {
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    const statuses = ["pending", "running", "completed", "failed", "cancelled"] as const
+    // updatedAt runs out of sequence order: a long run keeps an old sequence and gets a new updatedAt.
+    for (let index = 0; index < 250; index++) {
+      await store.create(invocation(`run-${index}`, { status: statuses[index % statuses.length], updatedAt: at((index * 7919) % 250) }))
+    }
+    const walk = async (options: { status?: readonly (typeof statuses)[number][]; updatedSince?: string }) => {
+      const entries: string[] = []
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ ...options, cursor, limit: 100 })
+        entries.push(...page.invocations.map(record => `${record.id}@${record.updatedAt}`))
+        cursor = page.cursor
+      } while (cursor)
+      return entries
+    }
+    const everything = await walk({})
+    for (const second of [0, 100, 249, 300]) {
+      const since = at(second)
+      expect(await walk({ status: statuses, updatedSince: since })).toEqual(everything.filter(entry => entry.split("@")[1]! >= since))
+    }
+  })
+
   it("backfills null search text even when its version is current", async () => {
     const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     await store.create(invocation("null-search"))

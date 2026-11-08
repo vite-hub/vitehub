@@ -15,7 +15,7 @@ The decision uses one AI SDK model call, or one TypeSafe Jev request for an [ask
 
 Define allow and reject categories with stable keys and short descriptions.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { llmGate } from 'vite-hub/agent/capabilities'
 
@@ -37,6 +37,8 @@ export default defineAgent({
 Set `message` to change the error message that server code receives on rejection:
 
 ```ts
+import { llmGate } from 'vite-hub/agent/capabilities'
+
 llmGate({
   allow: { support: 'Support request the Agent can answer.' },
   reject: { unrelated: 'Request unrelated to support.' },

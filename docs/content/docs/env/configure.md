@@ -170,6 +170,8 @@ Required empty inputs fail even when a default exists. Optional empty strings re
 The default prefix is `VITEHUB_`. Only keys beginning with `VITEHUB_PUBLIC_` enter Public Env. They must be explicitly non-sensitive. Marking a private field `@public` clears sensitivity but keeps it on the server. This rule prevents a metadata annotation alone from moving a value into the browser.
 
 ```ts
+import { envSchema } from '@vite-hub/env/vite'
+
 env: envSchema(new URL('./.env.example', import.meta.url), {
   prefix: 'APP_',
   paths: { APP_DATABASE_URL: 'database.url' },
@@ -189,7 +191,7 @@ Every env-backed declaration reads two kinds of variable name, in this order:
 1. The canonical name: `VITEHUB_` and the declaration path in upper snake case. `env.server.cliproxy.apiKey` reads `VITEHUB_CLIPROXY_API_KEY`, and `env.public.appName` reads `VITEHUB_PUBLIC_APP_NAME`.
 2. The conventional names: the names in `env.source()`, or the path name without a prefix, such as `CLIPROXY_API_KEY`.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 server: {
   // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
   github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },

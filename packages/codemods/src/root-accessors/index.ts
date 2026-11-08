@@ -477,5 +477,16 @@ export const rootAccessors: Codemod = {
   name: "root-accessors",
   description: "Import db, schema, useDatabase, email, runSchedule, and the Env accessors from each primitive root",
   usage: "[dir]",
+  async detect({ cwd }) {
+    const paths = moves("vite-hub/env")
+    const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
+    for (const file of files) {
+      const source = await readFile(join(cwd, file), "utf8")
+      const move = paths.find(move => source.includes(move.from) && (!move.serverOnly || isServerFile(file, source)))
+      if (move) return { reason: `${file} uses ${move.from}` }
+    }
+    if ((await packageImportsFollowUps(cwd)).length) return { reason: "package.json maps the former Env imports" }
+    return undefined
+  },
   run: migrate,
 }

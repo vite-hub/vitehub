@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, Vite 8 or newer, pnpm, a Vite application, and 
 Install ViteHub and Nitro. The distribution includes the Resend driver; you do not need a separate driver package.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/email nitro h3
 pnpm add -D vite
 ```
 

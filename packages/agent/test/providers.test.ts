@@ -73,7 +73,7 @@ vi.mock("../src/internal/provider-runtime-packages.ts", async (importOriginal) =
   return { ...original, resolveProviderRuntimePackages: vi.fn(original.resolveProviderRuntimePackages) }
 })
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const execFileAsync = promisify(execFile)
 
@@ -927,14 +927,14 @@ describe("agent Vite plugin", () => {
         root,
       })
 
-      const registry = await transform("const registry = {}\nexport default registry\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const registry = await transform("const registry = {}\nexport default registry\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
       const providerRegistry = plugin.vitehub?.agent?.transformWorkflowRegistry(
         "const registry = {}\nexport default registry\n",
-        join(root, ".vitehub", "workflow", "registry.mjs"),
+        join(root, ".vitehub", "workflow", "registry-runtime.mjs"),
       )
       const windowsProviderRegistry = plugin.vitehub?.agent?.transformWorkflowRegistry(
         "const registry = {}\nexport default registry\n",
-        "C:\\app\\.vitehub\\workflow\\registry.mjs",
+        "C:\\app\\.vitehub\\workflow\\registry-runtime.mjs",
       )
       const nitroPlugin = hubAgent()
       // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
@@ -951,7 +951,7 @@ describe("agent Vite plugin", () => {
       )
       const nitroRegistry = nitroPlugin.vitehub?.agent?.transformWorkflowRegistry(
         "const registry = {}\nexport default registry\n",
-        join(root, ".vitehub", "workflow", "registry.mjs"),
+        join(root, ".vitehub", "workflow", "registry-runtime.mjs"),
       )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
@@ -968,8 +968,8 @@ describe("agent Vite plugin", () => {
       expect(windowsProviderRegistry).toBe(registry)
       expect(nitroRegistry).toBe(registry)
       if (!registry || !providerRegistry) throw new Error("Expected generated workflow registries")
-      expect(await transform(providerRegistry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
-      expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, join(root, ".vitehub", "workflow", "registry.mjs"))).toBe(registry)
+      expect(await transform(providerRegistry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(registry)
+      expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, join(root, ".vitehub", "workflow", "registry-runtime.mjs"))).toBe(registry)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -997,14 +997,14 @@ describe("agent Vite plugin", () => {
         root,
       })
 
-      const registry = await transform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const registry = await transform("export default {}\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
 
       expect(registry).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
       expect(registry).toContain('import { setAgentChannelDeliveryWorkflowStateResolver } from "@vite-hub/agent/server/internal"')
       expect(registry).toContain('const viteHubChatStateOptions = {"url":"libsql://state.example.test"}')
       expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
       if (!registry) throw new Error("Expected a libSQL workflow registry")
-      expect(await transform(registry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(registry)
 
       const cloudflarePlugin = hubAgent()
       const cloudflareConfigResolvedHook: unknown = cloudflarePlugin.configResolved
@@ -1020,19 +1020,19 @@ describe("agent Vite plugin", () => {
         preset: "cloudflare",
         root,
       } as never)
-      const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
       expect(cloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
       expect(cloudflareRegistry).toContain("(context.cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
       if (!cloudflareRegistry) throw new Error("Expected a Cloudflare workflow registry")
-      expect(await cloudflareTransform(cloudflareRegistry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(cloudflareRegistry)
+      expect(await cloudflareTransform(cloudflareRegistry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(cloudflareRegistry)
 
       await cloudflareConfigResolved({
         command: "build",
         plugins: [],
         root,
       })
-      const nestedCloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const nestedCloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
       expect(nestedCloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
       expect(nestedCloudflareRegistry).not.toContain("createLibsqlAgentState")
     } finally {
@@ -1044,7 +1044,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-rewrite-"))
     try {
-      const registryFile = join(root, ".vitehub", "workflow", "registry.mjs")
+      const registryFile = join(root, ".vitehub", "workflow", "registry-runtime.mjs")
       const plugin = hubAgent({})
       // Nuxt writes the Workflow registry from its Nitro config hook, before Vite resolves the Cloudflare preset.
       const written = plugin.vitehub?.agent?.transformWorkflowRegistry("export default {}\n", registryFile)
@@ -1057,14 +1057,14 @@ describe("agent Vite plugin", () => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({ command: "build", plugins: [], preset: "cloudflare", root })
-      const registry = await transform(written, "/virtual/.vitehub/workflow/registry.mjs")
+      const registry = await transform(written, "/virtual/.vitehub/workflow/registry-runtime.mjs")
       if (!registry) throw new Error("Expected a Cloudflare workflow registry")
 
       expect(registry.match(/import \{ setAgentChannelDeliveryWorkflowStateResolver \}/g)).toHaveLength(1)
       expect(registry).toContain("createCloudflareAgentState({ namespace })")
       expect(registry).not.toContain("createLibsqlAgentState")
       expect(registry.endsWith("export default {}\n")).toBe(true)
-      expect(await transform(registry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(registry)
       expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, registryFile)).toBe(registry)
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -1536,17 +1536,19 @@ describe("agent Vite plugin", () => {
     const handlers = (result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers
     const webhook = {
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
     }
 
     expect(handlers).toEqual([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), route: "/api/_vitehub/ready" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/api/_vitehub/ready" },
       {
         handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+        lazy: true,
         route: "/api/_vitehub/agents/:agent/chat",
       },
       webhook,
-      { handler: join(hostedAgentRoot, ".vitehub/agent/declared-webhook-route.ts"), middleware: true, route: "/**" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/declared-webhook-route.ts"), lazy: true, middleware: true, route: "/**" },
     ])
   })
 
@@ -1558,6 +1560,7 @@ describe("agent Vite plugin", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/internal/agents/:agent/status",
     })
   })
@@ -1608,7 +1611,7 @@ describe("agent Vite plugin", () => {
         return JSON.stringify(config)
       }
       const handler = join(root, ".vitehub", "agent", "invocations-dev-handler.ts")
-      expect(await configFor("serve")).toContain(JSON.stringify({ handler, route: "/_vitehub/agent/invocations/dev" }))
+      expect(await configFor("serve")).toContain(JSON.stringify({ handler, route: "/_vitehub/agent/invocations/dev", lazy: true }))
       expect(await configFor("build")).not.toContain("invocations-dev-handler")
 
       const configResolvedHook: unknown = hubAgent().configResolved
@@ -1813,7 +1816,7 @@ describe("agent Vite plugin", () => {
     const plugin = hubAgent({ routes: { aliases: { "/api/github/webhook": { agent: "support", webhook: "github" } } } })
     const result = await resolveAgentViteConfig(plugin, { root: hostedAgentRoot })
     expect(result).toMatchObject({ nitro: { handlers: expect.arrayContaining([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"), route: "/api/github/webhook" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"), lazy: true, route: "/api/github/webhook" },
     ]) } })
   })
 
@@ -1979,10 +1982,12 @@ describe("agent Vite plugin", () => {
         handlers: expect.arrayContaining([
           {
             handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+            lazy: true,
             route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
           },
           {
             handler: join(hostedAgentRoot, ".vitehub/agent/discord-gateway-route.ts"),
+            lazy: true,
             route: "/api/_vitehub/agents/:agent/discord/gateway",
           },
         ]),
@@ -2021,7 +2026,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
-      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual, toEventRequest } from "@vite-hub/agent/server/internal"')
+      expect(gatewayRoute).toContain('import { getStandardContext, isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
       expect(gatewayRoute).not.toMatch(/from\s*["']h3["']/)
       expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
@@ -2033,10 +2038,10 @@ describe("agent Vite plugin", () => {
       // the route. Run the generated handler with the real request helpers and an H3 1 event.
       const handlerSource = gatewayRoute.slice(gatewayRoute.indexOf("export default defineEventHandler(")).replace("export default ", "return ")
       const { code } = await transform(handlerSource, { loader: "ts" })
-      const { isViteHubBearerSecretEqual, toEventRequest } = await import("../src/server/internal.ts")
+      const { getStandardContext, isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
       const h3 = await import("h3")
       const gatewayHandler = new Function(
-        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "toEventRequest", "isViteHubBearerSecretEqual",
+        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "getStandardContext", "isViteHubBearerSecretEqual",
         "cloudflareFromEvent", "runtimeEnvValue", "agentNames", "handlers", "agentIdentities", "defaultDurationMs", "webhookRoute",
         "routePath", "waitUntilFromEvent", code,
       )(
@@ -2044,7 +2049,7 @@ describe("agent Vite plugin", () => {
         (input: { statusCode: number }) => Object.assign(new Error("H3 error"), input),
         h3.getRequestHeader,
         () => "support",
-        toEventRequest,
+        getStandardContext,
         isViteHubBearerSecretEqual,
         () => undefined,
         (_cloudflare: unknown, key: string) => key === "VITEHUB_DISCORD_GATEWAY_SECRET" ? "gateway-secret" : undefined,
@@ -2062,7 +2067,7 @@ describe("agent Vite plugin", () => {
           headers: { authorization, host: "app.example", "x-forwarded-proto": "https" },
           method: "POST",
           url: "/api/_vitehub/agents/support/discord/gateway",
-        }) },
+        }), res: {} },
       })
       await expect(gatewayHandler(h3V1Event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
       const accepted = await gatewayHandler(h3V1Event("Bearer gateway-secret"))
@@ -2533,10 +2538,12 @@ describe("agent Vite plugin", () => {
 
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
     })
     expect(output.nitro?.cloudflare).toBeUndefined()
@@ -2596,10 +2603,12 @@ describe("agent Vite plugin", () => {
 
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
     })
     expect(output.nitro?.cloudflare).toBeUndefined()
@@ -2667,12 +2676,12 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
-      expect(webhookRoute).toContain("const request = toEventRequest(event)")
+      expect(webhookRoute).toContain("const request = getStandardContext(event).req")
       expect(webhookRoute).toContain("body: request.body ?? undefined")
       expect(webhookRoute).not.toContain("readRawBody(event)")
       expect(webhookRoute).toContain("createAgentWebhookRequest({")
       expect(webhookRoute).toContain("node: event.node")
-      expect(webhookRoute).toContain("signal: event.req?.signal")
+      expect(webhookRoute).toContain("signal: request.signal")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
       expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
@@ -2694,24 +2703,24 @@ describe("agent Vite plugin", () => {
 
       const requestHelpers = webhookRoute.slice(webhookRoute.indexOf("async function toRequest"), webhookRoute.indexOf("type ViteHubGeneratedCloudflare"))
       const { code } = await transform(requestHelpers, { loader: "ts", format: "esm" })
-      const { createAgentWebhookRequest, toEventRequest } = await import("../src/server/internal.ts")
-      const toRequest = new Function("toEventRequest", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
-        toEventRequest,
+      const { createAgentWebhookRequest, getStandardContext } = await import("../src/server/internal.ts")
+      const toRequest = new Function("getStandardContext", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
+        getStandardContext,
         createAgentWebhookRequest,
       ) as (event: unknown) => Promise<Request>
-      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }) })
+      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }), res: { headers: new Headers() } })
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
       // Nitro 2, which Nuxt 4 runs, passes H3 1 events: the H3 2 helpers cannot read their Node request.
       const nodeBody = (async function* () { yield new TextEncoder().encode('{"messages":'); yield new TextEncoder().encode("[]}") })()
       const nodeRequest = Object.assign(nodeBody, { headers: { host: "127.0.0.1:4731", "set-cookie": ["a=1", "b=2"], "x-absent": undefined }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat?x=1" })
-      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest }, req: nodeRequest })
+      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest, res: { once: () => undefined } }, req: nodeRequest })
       expect(fromNode.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
       expect(fromNode.headers.get("set-cookie")).toBe("a=1, b=2")
       expect(fromNode.headers.has("x-absent")).toBe(false)
       await expect(fromNode.text()).resolves.toBe('{"messages":[]}')
       // Behind a TLS proxy, and after a middleware already read the body with H3's readBody().
       const proxiedRequest = Object.assign((async function* () {})(), { headers: { host: "app.example", "x-forwarded-proto": "https" }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat" })
-      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest } })
+      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest, res: { once: () => undefined } } })
       expect(proxied.url).toBe("https://app.example/api/_vitehub/agents/support/chat")
       await expect(proxied.text()).resolves.toBe('{"read":true}')
       expect(webhookRoute).not.toContain("getRequestHeaders(event)")

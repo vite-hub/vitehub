@@ -166,7 +166,7 @@ describe("createEmail", () => {
     expect(await sendError(client)).toMatchObject({
       cause,
       code,
-      docs: `https://vitehub.dev/docs/email/limits-and-errors#${code.toLowerCase()}`,
+      docs: `https://vitehub.dev/docs/email/diagnostics/${code.toLowerCase()}`,
       fix: expect.any(String),
       why: expect.stringContaining("fixture"),
     })

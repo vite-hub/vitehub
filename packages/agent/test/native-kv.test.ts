@@ -27,7 +27,7 @@ it.each(["replacement", "removal"])("updates connector storage after KV %s, incl
   let sent = 0
   const postMessage = vi.fn(async () => ({ id: String(++sent) }))
   // SAFETY: Sending without a thread uses only postMessage on the Slack adapter.
-  const connector = slack.connector({ adapter: { postMessage } as never })
+  const connector = slack({ adapter: { postMessage } as never })
   const options = { recipient: "slack:C123", idempotencyKey: "same-event" }
   await connector.send("First", options)
   expect(first.values.size).toBe(1)

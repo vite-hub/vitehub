@@ -17,7 +17,6 @@ icon: i-lucide-code-2
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
-| `@vite-hub/database/nuxt` | Use the narrow Nuxt D1 host-resource bridge. |
 
 All Database Definition, integration, connection, Cloudflare D1, Drizzle, and runtime config types are exported from `@vite-hub/database`.
 

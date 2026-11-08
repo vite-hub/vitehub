@@ -1,8 +1,6 @@
-import { createClient } from "@libsql/client/http"
-import { drizzle as drizzleLibsql } from "drizzle-orm/libsql/http"
-
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 import { runtimeConfig } from "./definition-config.ts"
+import { hostedLibsql } from "./hosted.ts"
 
 import type { DatabaseDefinition, RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
@@ -18,7 +16,7 @@ export function createConfiguredDatabase<TSchema extends Record<string, unknown>
   schema: TSchema,
 ): RuntimeDrizzleDatabase<TSchema> {
   return createDrizzleSqliteAdapter(config, schema, {
-    libsql: { createClient, drizzle: drizzleLibsql as never },
+    libsql: hostedLibsql,
     missingConnection: "a Cloudflare D1 binding, D1 HTTP configuration, or a remote libSQL URL",
     requireRemoteUrl: true,
   })

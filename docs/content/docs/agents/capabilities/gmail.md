@@ -46,7 +46,7 @@ The access key is `agent:<name>`. This rule allows reads and asks for approval b
 
 ### Add the Capability
 
-```ts [server/agents/inbox.ts]
+```ts [server/agents/inbox.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { gmail } from 'vite-hub/agent/capabilities'
 

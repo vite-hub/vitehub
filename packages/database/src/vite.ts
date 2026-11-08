@@ -20,10 +20,10 @@ import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
-import { dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
-import { inspectDatabaseDefinitions } from "./inspect.ts"
+import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
@@ -459,6 +459,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               viteRoot: resolved?.root,
             }),
           }],
+          resources: () => inspectDatabaseResources({
+            contributions,
+            options: resolvedOptions(),
+            provisionRoot: resolved?.root ?? process.cwd(),
+            rootDir: databaseRoot(),
+            serverDirs: databaseServerDirs(),
+          }),
         }
       },
     },
@@ -506,6 +513,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     buildStart() {
+      // Fail before bundling: without a D1 resource, the server bundle falls back to the Node libSQL client. Under Nuxt,
+      // the module checks this in `nitro:config`, where it can see an alias that the app sets.
+      const database = resolvedOptions()
+      if (resolved && runtimeConfig && !(database && "nuxtHostResource" in database) && !shouldSkipViteProviderBuild(resolved.command, getViteMode()) && resolveHostedProvider(resolved) === "cloudflare") {
+        const { unresolved } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved.root) })
+        assertDefinitionD1Resources(runtimeConfig, contributions, unresolved.map(binding => binding.database))
+      }
       resetProviderOutputRuntime(providerOutput)
       siblingRuntimeGenerations.capture(this, providerOutput)
     },
