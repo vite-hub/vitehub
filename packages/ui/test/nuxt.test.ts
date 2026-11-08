@@ -30,6 +30,11 @@ describe("ViteHub UI Nuxt module", () => {
       ready: true,
     });
     try {
+      // Nuxt UI needs its own module dependencies, such as @nuxt/icon. Without them, every SSR request fails with
+      // `Package import specifier "#imports" is not defined in package @nuxt/icon`.
+      expect(nuxt.options._installedModules.map((module) => module.meta?.name)).toEqual(
+        expect.arrayContaining(["@vite-hub/ui", "@nuxt/ui", "@nuxt/icon"]),
+      );
       expect(nuxt.options.css).toEqual(
         expect.arrayContaining([expect.stringMatching(/\/dist\/styles\.css$/)]),
       );

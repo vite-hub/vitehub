@@ -15,7 +15,7 @@ import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces 
 import { createProvisionNamespace } from "./provision.ts"
 import { setupCommands } from "./setup/commands.ts"
 
-import type { ConfigEnv, InlineConfig } from "vite"
+import type { InlineConfig } from "vite"
 import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -28,7 +28,7 @@ interface ViteHubCliSpawnOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   stderr?: "inherit" | "pipe"
-  stdout?: "inherit" | "pipe"
+  stdout?: "inherit" | "pipe" | "stderr"
 }
 
 type ViteHubCliSpawn = (
@@ -88,7 +88,7 @@ export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOption
   stdout?: ViteHubCliEntrypointStream
 }
 
-async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
+async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
   const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.cts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
   if (!hasNuxtConfig) return
@@ -152,7 +152,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
       shell: process.platform === "win32" && command !== process.execPath,
       stdio: [
         "inherit",
-        options.stdout || "inherit",
+        options.stdout === "stderr" ? process.stderr : options.stdout || "inherit",
         options.stderr || "inherit",
       ],
     })
@@ -161,7 +161,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
   })
 }
 
-async function loadViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<ViteHubCliLoadedConfig> {
+async function loadViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
   const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
     root: rootDir,
@@ -321,13 +321,17 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
 async function runNamespace(namespace: ViteHubCliCommandNamespace, args: string[], context: ViteHubCliContext): Promise<number> {
   const { stderr, stdout } = context
   const featureName = args[1]
+  const defaultFeature = namespace.defaultFeature ? namespace.features.find(item => item.name === namespace.defaultFeature) : undefined
+  // A namespace whose only feature has its own name, such as `vitehub pull`, is one command. It gets every argument,
+  // so `vitehub push push` pushes the Workspace named `push` and `vitehub pull --help` prints the command help.
+  if (defaultFeature?.name === namespace.name && namespace.features.length === 1) return await defaultFeature.run(args.slice(1), context) ?? 0
   if (featureName === "-h" || featureName === "--help") {
     writeNamespaceHelp(namespace, stdout)
     return 0
   }
-  // `vitehub usage` and `vitehub usage --json` run the default feature of the namespace.
-  const defaultFeature = namespace.defaultFeature ? namespace.features.find(item => item.name === namespace.defaultFeature) : undefined
-  if (defaultFeature && (!featureName || featureName.startsWith("-"))) return await defaultFeature.run(args.slice(1), context) ?? 0
+  // `vitehub usage`, `vitehub usage --json`, and `vitehub pull site` run the default feature of the namespace with the
+  // arguments that do not name another feature.
+  if (defaultFeature && (!featureName || featureName.startsWith("-") || !namespace.features.some(item => item.name === featureName))) return await defaultFeature.run(args.slice(1), context) ?? 0
   if (!featureName) {
     writeNamespaceHelp(namespace, stdout)
     return 0

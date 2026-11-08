@@ -147,10 +147,17 @@ task, so both would wait indefinitely. Await child promises directly inside a
 task. If the task needs its own background-work controller, create a separate
 Runtime Context and flush that context instead.
 
+For a [Fetchable](https://fetchable.org) handler, use
+`getRuntimeContext(request, options?)` from `@vite-hub/runtime` or
+`vite-hub/runtime`. It reads the host data that srvx and Nitro put on the
+`Request`: `runtime.cloudflare`, `waitUntil`, and `ip`. `getStandardContext(request)`
+returns the Standard Context of the `Request`.
+
 For H3 2 and Nuxt routes, use `getRuntimeContext(event, options?)` from
 `@vite-hub/runtime/h3` or `vite-hub/runtime/h3`. This framework entry normalizes
 event bindings and lifetime methods. It reads the event by shape, so the Runtime
-owner package has no H3 dependency.
+owner package has no H3 dependency. In Nitro, it also puts the Standard Context of
+each event on `event.req`, so a Fetchable route reads the same context.
 
 `createExecutionContext()` always returns a complete Execution Context. It creates
 fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,

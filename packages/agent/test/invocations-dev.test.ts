@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ensureWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
+import { H3Event } from "h3"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 const modelGenerate = vi.hoisted(() => vi.fn())
@@ -112,14 +113,14 @@ describe("Agent Invocations Nitro dev handler", () => {
       // Execute the generated callback with its real owner handler to verify the authorization boundary.
       const callback: (event: object) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
       const body = { id: "ainv_missing", operation: "cancel" }
-      expect((await callback({ req: devRequest(body) })).status).toBe(403)
+      expect((await callback(new H3Event(devRequest(body)))).status).toBe(403)
       const serverId = workspaceDevTokenServerId(5173)
       const token = await ensureWorkspaceDevToken(root, { serverId })
-      const response = await callback({ req: devRequest(body, {
+      const response = await callback(new H3Event(devRequest(body, {
         [agentInvocationsDevHeader]: "1",
         [agentInvocationsDevTokenServerHeader]: serverId,
         [workspaceDevTokenHeader]: token,
-      }) })
+      })))
       expect(response.status).toBe(404)
       expect(await response.json()).toEqual({ error: { message: "No Agent invocation journal is configured." } })
     }

@@ -154,6 +154,8 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/registry",
   "@vite-hub/agent/runtime/invocations-dev",
+  // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
+  "@vite-hub/agent/invocations/default",
   "@vite-hub/agent/operations",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
@@ -742,7 +744,7 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain(
       'resolveConsoleRouteName(route.name, "vitehub-console-invocation")',
     );
-    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]');
+    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...projectActions.value, ...themeActions.value], label: "Actions" }]');
     expect(consoleSearch).toContain('label: "Overview"');
     expect(consoleSearch).toContain('label: "Go to"');
     expect(consoleSearch).toContain("kbds: [...shortcut]");

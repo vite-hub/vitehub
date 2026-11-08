@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 
@@ -12,7 +13,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-it.each([false, true].flatMap(dev => [undefined, false, true, ["consumer-package"]].map(noExternals => ({ dev, noExternals }))))("registers Agent handlers and Nitro noExternals (dev: $dev, noExternals: $noExternals)", async ({ dev, noExternals }) => {
+it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals => ({ dev, noExternals }))))("registers Agent handlers and applies Nitro 3 inlining (dev: $dev, noExternals: $noExternals)", async ({ dev, noExternals }) => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-nuxt-agent-root-"))
   roots.push(rootDir)
   const srcDir = join(rootDir, "app")
@@ -52,23 +53,14 @@ it.each([false, true].flatMap(dev => [undefined, false, true, ["consumer-package
   const nitroConfig: Record<string, unknown> = noExternals === undefined ? {} : { noExternals }
   await nitroConfigHook(nitroConfig)
 
-  if (noExternals === true) expect(nitroConfig.noExternals).toBe(true)
-  // An explicit `false` keeps only ViteHub's own packages.
-  else if (noExternals === false) {
-    expect(nitroConfig.noExternals).toEqual(expect.arrayContaining(["vite-hub", "@vite-hub/"]))
-    expect(nitroConfig.noExternals).not.toContain("effect")
-  }
-  else {
-    expect(nitroConfig.noExternals).toEqual(expect.arrayContaining([
-      ...Array.isArray(noExternals) ? noExternals : [],
-      "vite-hub",
-      "@vite-hub/",
-      "@t3tools/provider-runtime",
-      "effect",
-      "@effect/platform-node",
-      "@effect/platform-node-shared",
-    ]))
-  }
+  const expectedNoExternals = noExternals === true ? true : [
+    ...(noExternals === false ? [] : ["@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"]),
+    "vite-hub",
+    "@vite-hub/",
+    join(rootDir, ".vitehub"),
+    dirname(fileURLToPath(import.meta.resolve("h3/package.json"))),
+  ]
+  expect(nitroConfig.noExternals).toEqual(expectedNoExternals)
   expect(nitroConfig).toMatchObject({
     // Other plugins, including the development RPC, can register handlers too.
     handlers: expect.arrayContaining([
@@ -98,8 +90,6 @@ it.each([false, true].flatMap(dev => [undefined, false, true, ["consumer-package
     ].map(handler => expect.objectContaining(handler))),
   })
 
-  const expectedNoExternals = structuredClone(nitroConfig.noExternals)
-  if (Array.isArray(expectedNoExternals)) expect(expectedNoExternals).toEqual([...new Set(expectedNoExternals)])
   // Development hooks reject an already registered invocation route on the same config.
   if (!dev) {
     await nitroConfigHook(nitroConfig)
@@ -108,7 +98,10 @@ it.each([false, true].flatMap(dev => [undefined, false, true, ["consumer-package
   expect(nitroConfig).not.toHaveProperty("externals")
 })
 
-it("installs the app-wide Agent Invocation journal first in the Nuxt Nitro config", async () => {
+it.each([
+  [{ invocations: "memory" as const }, `installAgentInvocations({ default: "memory" })`],
+  [{}, "installAgentInvocations({ journal: { projectRoot: "],
+])("installs the app-wide Agent Invocation journal first in the Nuxt Nitro config: %j", async (agent, installation) => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-nuxt-agent-invocations-"))
   roots.push(rootDir)
   const serverDir = join(rootDir, "server")
@@ -128,7 +121,8 @@ it("installs the app-wide Agent Invocation journal first in the Nuxt Nitro confi
       serverDir,
       srcDir: join(rootDir, "app"),
       vite: { define: {} },
-      vitehub: { agent: { invocations: "memory" as const }, preset: "node" as const },
+      // Without `invocations`, ViteHub installs the default journal. The Console is off.
+      vitehub: { agent, preset: "node" as const },
     },
   }
 
@@ -142,7 +136,7 @@ it("installs the app-wide Agent Invocation journal first in the Nuxt Nitro confi
   const workflow = join(rootDir, ".vitehub/nitro/workflow/dev-plugin.mjs")
   expect(nitroConfig.plugins).toEqual([generated, standardContext, workflow, "/app/existing-plugin.mjs", ...(nitroConfig.plugins as string[]).slice(4)])
   expect((nitroConfig.plugins as string[]).filter(plugin => plugin === generated)).toHaveLength(1)
-  await expect(readFile(generated, "utf8")).resolves.toContain(`installAgentInvocations({ default: "memory" })`)
+  await expect(readFile(generated, "utf8")).resolves.toContain(installation)
 })
 
 it("leaves the serve-only Console out of the workflow registry of a Nuxt build", async () => {

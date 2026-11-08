@@ -516,8 +516,8 @@ export interface ViteHubNitroDevHandlerSource {
   /** Additional serialized string arguments passed after the request. */
   arguments?: readonly string[]
   /**
-   * Named export of `module` that takes the Nitro event and returns a `Response`. Read the Fetch `Request` with
-   * `toEventRequest`.
+   * Named export of `module` that takes the Nitro event and returns a `Response`. Read the Fetch `Request` from
+   * `event.req`.
    */
   export: string
   /** Module that exports the owner handler and `defineEventHandler`. */

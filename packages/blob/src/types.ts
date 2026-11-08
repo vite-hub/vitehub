@@ -1,3 +1,4 @@
+import type { ViteHubContext } from "@vite-hub/runtime/h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -150,15 +151,14 @@ export interface BlobDriverAdapter<TOptions> {
   sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
 }
 
-/** The part of an H3 event that `handleUpload()` reads. */
-export interface BlobUploadEvent {
-  req: Request
-}
+/** A request event that `handleUpload()` reads through its Standard Context, such as a Nuxt 5 or Nitro 3 event. */
+export type BlobUploadEvent = ViteHubContext
 
-/** The parts of an H3 event that `handleMultipartUpload()` reads: the request and the `action` and `pathname` route params. */
-export interface BlobMultipartEvent extends BlobUploadEvent {
-  context: { params?: Record<string, string | undefined> }
-}
+/**
+ * A request event that `handleMultipartUpload()` reads: its Standard Context request, and the `action` and `pathname`
+ * route params in `context.params`.
+ */
+export type BlobMultipartEvent = ViteHubContext<{ context: { params?: Record<string, string | undefined> } }>
 
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
@@ -188,17 +188,11 @@ export interface BlobEnsureOptions {
   types?: BlobType[]
 }
 
-export interface BlobServeEvent {
-  req: Pick<Request, "headers" | "method">
-  res: {
-    headers: Headers
-    status?: number
-  }
-}
-
 export interface BlobServeResponseOptions {
   /** Defaults to the event's Cache-Control header, or private, no-cache. */
   cacheControl?: string
+  /** Response headers to set first. `serve()` removes them again when it does not serve the object. */
+  headers?: Record<string, string>
   /**
    * Serve a resized, cropped, or re-encoded image. The generated serve route reads it from `?w=&h=&fit=&fmt=&q=&crop=`.
    * Non-image objects, GIF, SVG, and stores without an image transformer serve the original.
@@ -311,7 +305,12 @@ export interface BlobStorage {
   resumeMultipartUpload(pathname: string, uploadId: string): Promise<BlobResult<BlobMultipartUpload>>
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   /** Returns null for a conditional 304 response. */
-  serve(event: BlobServeEvent, pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
+  /**
+   * Serve an object for the Request of a Fetchable route or for a request event with Standard Context properties, such
+   * as a Nuxt 5 or Nitro 3 event in a ViteHub app. Reads the request from `["~standard"].req` and writes the status and
+   * headers to `["~standard"].res`. A Request without Standard Context gets one.
+   */
+  serve(event: Request | ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
   /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
   store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage

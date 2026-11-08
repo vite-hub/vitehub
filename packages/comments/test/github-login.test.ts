@@ -1,6 +1,6 @@
 
-import { H3 } from "h3"
 import { installStandardContext } from "@vite-hub/runtime/h3"
+import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defaultPolicy, defineComments } from "../src/index.ts"
@@ -9,7 +9,6 @@ import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { anchor, createDatabase } from "./harness.ts"
 
-import type { H3Event } from "h3"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
@@ -157,10 +156,9 @@ describe("createCommentsGitHubLogin", () => {
   })
 
   function event(path: string): H3Event {
-    const event = { req: new Request(`${origin}${path}`), res: { headers: new Headers() } }
+    const event = new H3Event(new Request(`${origin}${path}`))
     installStandardContext(event)
-    // SAFETY: This fixture includes the H3 request and Standard Context read by sign-in.
-    return event as H3Event
+    return event
   }
 
   it("is off without an OAuth client, and says which variables turn it on", async () => {
@@ -187,6 +185,8 @@ describe("createCommentsGitHubLogin", () => {
     // The OAuth state is in a cookie, because there is no database to keep it.
     expect(response.headers.getSetCookie().join("\n")).toContain("vitehub_comments")
     await expect(loginForBase.user(event(`${base}/api/_vitehub/comments/session`))).resolves.toBeNull()
+    const standard = event(`${base}/api/_vitehub/comments/session`)["~standard"]
+    await expect(loginForBase.user({ "~standard": standard })).resolves.toBeNull()
   })
 
   it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("rejects a short %s before starting GitHub sign-in", async (name) => {
