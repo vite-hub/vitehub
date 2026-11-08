@@ -9,7 +9,8 @@ import { useChatGPTCredential } from "../../connections/src/internal/agent-crede
 import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { createChatGPTFake } from "../../connections/test/chatgpt-fake.ts"
 import { createStore } from "../../connections/test/helpers.ts"
-import { defineAgent, defineCapability, runAgent, streamAgent } from "../src/index.ts"
+import { defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import { progressSummary, title } from "../src/capabilities.ts"
 import type { AgentCapabilityDefinition } from "../src/types.ts"
 import { chatgptPlanRequest, collectStream } from "../src/internal/chatgpt-model.ts"
@@ -39,7 +40,7 @@ async function fixture(capabilities: AgentCapabilityDefinition[] = []) {
     runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,
     capabilities: { connections: { runtime: () => runtime, useChatGPTCredential: useChatGPTCredential(runtime) } },
   }
-  return { calls, fake, finish, host, run: () => runAgent(agent, host, { prompt: "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
+  return { calls, fake, finish, host, run: () => runAgentWithContext(agent, host, { prompt: "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
 }
 
 it("answers on the ChatGPT plan over HTTP with the request that plan usage accepts", async () => {
@@ -110,7 +111,7 @@ it("uses the explicit progress-summary Driver's ChatGPT gateway and model", asyn
       yield { type: "finish" }
     })() },
   })
-  const stream = await streamAgent(agent, test.host, { prompt: "Hello" }) as AsyncIterable<{ type: string; data?: { summary?: string } }>
+  const stream = await streamAgentInline(agent, test.host, { prompt: "Hello" }) as AsyncIterable<{ type: string; data?: { summary?: string } }>
   for await (const event of stream) {
     if (event.type === "data-progress-summary") summary = event.data?.summary
   }

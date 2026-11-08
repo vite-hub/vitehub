@@ -11,6 +11,7 @@ const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
 const handlers: Array<{ route: string, method?: string }> = []
 const updateTemplates = vi.hoisted(() => vi.fn<(options: { filter: (template: { filename: string }) => boolean }) => Promise<void>>())
+const logger = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() }))
 vi.mock("@nuxt/kit", () => ({
   defineNuxtModule: (definition: { setup: object, moduleDependencies: unknown }) => Object.assign(definition.setup, { moduleDependencies: definition.moduleDependencies }),
   createResolver: () => ({ resolve: (path: string) => resolve(import.meta.dirname, "../src", path) }),
@@ -25,7 +26,7 @@ vi.mock("@nuxt/kit", () => ({
   addPlugin: vi.fn(),
   addRouteMiddleware: vi.fn(),
   extendPages: vi.fn(),
-  useLogger: () => ({ error: vi.fn() }),
+  useLogger: () => logger,
   updateTemplates,
 }))
 const watchContent = vi.hoisted(() => vi.fn((_dir: string, _options: { recursive: boolean }, _listener: (event: string, file: string | null) => void) => ({ close: vi.fn() })))
@@ -102,7 +103,7 @@ describe("docs Nuxt setup", () => {
         routeRules: { "/docs/old": { redirect: "/docs/start" } },
         output: { publicDir },
       },
-      hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) },
+      hooks: { hook: (name: string, callback: () => void) => name === "compiled" && compiled.push(callback) },
     }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(compiled).toHaveLength(1)
@@ -166,7 +167,7 @@ describe("docs Nuxt setup", () => {
         routeRules: { "/blog/**": { prerender: false, swr: 60 }, "/blog/static": { prerender: true }, "/dynamic/:slug": { prerender: false } },
         prerender: { ignore: ["/changelog", "/media/**", /^\/feed\./g, (path: string) => path === "/api/time", "/_vitehub", `${appBase}_vitehub`] },
       },
-      hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) },
+      hooks: { hook: (name: string, callback: () => void) => name === "compiled" && compiled.push(callback) },
     }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(() => compiled[0]!()).not.toThrow()
@@ -451,12 +452,21 @@ describe("docs search checks", () => {
     { route: "/guides", contents: "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/learn\"></head><body></body></html>" },
   ]
 
-  it("stops the build on a page that fails a check when seoAudit is on", async () => {
-    await expect(prerender({ seoAudit: true }, routes)).rejects.toMatchObject({
+  it.each(["error", true] as const)("stops the build on a page that fails a check when seoAudit is %s", async (seoAudit) => {
+    await expect(prerender({ seoAudit }, routes)).rejects.toMatchObject({
       name: "DocsSeoError",
       problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
     })
-    expect([...(await prerender({}, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
+  })
+
+  it.each([undefined, "warn"] as const)("logs the problems and keeps building when seoAudit is %s", async (seoAudit) => {
+    logger.warn.mockClear()
+    await prerender({ seoAudit }, routes)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("/guides is in the sitemap, but it redirects."))
+  })
+
+  it("adds no prerender hooks when seoAudit is false", async () => {
+    expect([...(await prerender({ seoAudit: false }, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
   })
 
   it.each(["/", "/portal/"])("audits ordinary pages without site.url under %s", async (appBase) => {
@@ -468,7 +478,7 @@ describe("docs search checks", () => {
         <body><h1>${name}</h1><p>${"Useful documentation content. ".repeat(60)}</p>
         <a href="${appBase}${names[1 - index]}">Related page</a></body></html>`,
     }))
-    await expect(prerender({ seoAudit: true }, [
+    await expect(prerender({ seoAudit: "error" }, [
       ...pages,
       { route: "/sitemap.xml", contents: `<urlset>${pages.map(page => `<url><loc>http://docs.invalid${appBase}${page.route.slice(1)}</loc></url>`).join("")}</urlset>` },
     ], appBase)).resolves.toBeInstanceOf(Map)
