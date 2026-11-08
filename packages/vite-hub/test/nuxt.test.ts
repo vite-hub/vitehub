@@ -124,6 +124,7 @@ vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
 
 import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
+import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import { logsVitePlugin } from "../src/logs-vite.ts"
@@ -1308,6 +1309,26 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", database: true }, application.nuxt)
 
     expect((application.nuxt.options as { content?: { database?: unknown } }).content?.database).toBeUndefined()
+    await application.runCloseHook()
+  })
+
+  it.each([false, true])("checks the Cloudflare Agent journal file URL only in a build (prepare: %s)", async (prepare) => {
+    await rm(agentJournalPlugin, { force: true })
+    const invocations = { databaseUrl: "file:./journal.sqlite" }
+    mocks.vitehub.mockReturnValue([agentInvocationsVitePlugin({ database: false, default: invocations, preset: "cloudflare" })])
+    const application = createNuxt(false)
+    Object.assign(application.nuxt.options, { _prepare: prepare })
+    const result = viteHubNuxtModule({ agent: { invocations }, console: false, env: false, preset: "cloudflare" }, application.nuxt)
+
+    if (prepare) {
+      await expect(result).resolves.toBeUndefined()
+      const generated = await generatedAgentJournal(application)
+      expect(generated).toContain('"databaseUrl":"file:./journal.sqlite"')
+      await expect(generatedAgentJournal(application, true)).resolves.toBe(generated)
+    }
+    else {
+      await expect(result).rejects.toThrow("agent.invocations.databaseUrl is a local file")
+    }
     await application.runCloseHook()
   })
 
