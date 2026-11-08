@@ -355,7 +355,7 @@ onBeforeUnmount(() => {
           <div v-else class="min-h-0 flex-1 overflow-auto">
             <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
               <details v-if="description?.access.length && page === 'users'" class="group text-xs text-muted">
-                <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+                <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--vitehub-console-focus)">
                   <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
                   Access rules
                 </summary>
@@ -431,7 +431,7 @@ onBeforeUnmount(() => {
                   <tr v-for="session in sessions" :key="session.id">
                     <td>
                       <button
-                        class="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        class="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-(--vitehub-console-focus)"
                         @click="selectedUser = session.user.id"
                       >
                         <span class="block text-highlighted">{{ session.user.name }}</span
@@ -480,7 +480,7 @@ onBeforeUnmount(() => {
                     </td>
                     <td>
                       <button
-                        class="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        class="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-(--vitehub-console-focus)"
                         @click="selectedUser = client.user.id"
                       >
                         <span class="block">{{ client.user.name }}</span
@@ -602,7 +602,7 @@ onBeforeUnmount(() => {
             <li v-for="member in selectedOrg.members" :key="member.id">
               <button
                 type="button"
-                class="flex w-full justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-elevated/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+                class="flex w-full justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-elevated/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--vitehub-console-focus)"
                 @click="selectedUser = member.user.id"
               >
                 <span class="min-w-0">

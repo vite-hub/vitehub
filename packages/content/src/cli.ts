@@ -364,10 +364,13 @@ function writeCollections(result: ContentDevCollectionsResult, context: ContentC
   context.stdout.write(`${lines.join("\n")}\n`)
 }
 
-/** `2 issues; scheduled 2026-10-20T07:00:00.000Z`, or an empty string. */
-function statusNotes(status: Pick<ContentDocumentStatus, "issues" | "schedule">): string {
+/** `2 issues; scheduled 2026-10-20T07:00:00.000Z; es stale`, or an empty string. */
+function statusNotes(status: Pick<ContentDocumentStatus, "issues" | "schedule" | "translations">): string {
   const notes: string[] = []
   if (status.issues) notes.push(plural(status.issues, "issue"))
+  for (const [locale, state] of Object.entries(status.translations ?? {})) {
+    if (state !== "current") notes.push(`${locale} ${state}`)
+  }
   if (status.schedule) {
     notes.push(status.schedule.status === "failed"
       ? `schedule ${status.schedule.id} failed`
