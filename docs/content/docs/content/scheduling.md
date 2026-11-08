@@ -1,6 +1,6 @@
 ---
 title: Schedule Content publishing
-description: Publish reviewed drafts at a later time with content.schedule(), run due schedules from a Schedule Definition on every host, and inspect pending, overdue, and failed schedules.
+description: "Publish reviewed drafts later with content.schedule(), run due schedules from a Schedule Definition, and inspect pending, overdue, and failed schedules."
 navigation.title: Scheduling
 navigation.order: 11
 icon: i-lucide-calendar-clock
