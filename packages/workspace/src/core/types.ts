@@ -77,6 +77,20 @@ export interface WorkspaceWriteInput {
   metadata?: Record<string, unknown>
   previous?: WorkspaceStat
   rule?: ResolvedWorkspaceRule
+  /** The history commit that the write is part of. Undefined for writes to the working tree. */
+  commit?: WorkspaceWriteCommit
+}
+
+/** What a hook knows of the history commit that a write is part of. It is read-only. */
+export interface WorkspaceWriteCommit {
+  readonly message?: string
+  /**
+   * The revision metadata that the caller passed to `history.commit()`. A plugin can read the intent of the caller from
+   * it. For example, `vitehub push --override-lease` records `lease: "override"`.
+   */
+  readonly metadata: Readonly<Record<string, unknown>>
+  /** Every path that the commit adds, changes, or deletes, in sorted order. A hook can check all of them and name every problem in one error. */
+  readonly paths: readonly string[]
 }
 
 export type WorkspaceWriteValidatorResult = boolean | void | WorkspaceWriteInput
