@@ -3,6 +3,7 @@ import { basename } from "node:path"
 import { end, findProperty, indentAt, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
 
 import { ConfigEditor, findViteHubEntry } from "../shared/config-editor.ts"
+import { blockBindings } from "../shared/bindings.ts"
 import { unwrapExpression } from "../shared/nuxt-config.ts"
 
 import type { File, Node, ObjectExpression, ObjectProperty } from "@babel/types"
@@ -69,16 +70,17 @@ function objectValue(node: Node | undefined): ObjectExpression | undefined {
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
-/** Local names of `imported` from `source`, such as the `vitehub` import of `vite-hub`. Without an import, the name itself. */
+/** Verified, unshadowed value imports of the expected API. Ambiguous bindings stay unchanged. */
 function importedNames(program: File, sources: readonly string[], imported: string): Set<string> {
   const names = new Set<string>()
+  const bindings = blockBindings(program)
   for (const statement of program.program.body) {
-    if (statement.type !== "ImportDeclaration" || !sources.includes(statement.source.value)) continue
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !sources.includes(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportSpecifier" && keyName(specifier.imported) === imported) names.add(specifier.local.name)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === imported
+        && bindings.get(specifier.local.name)?.every(binding => binding === specifier.local)) names.add(specifier.local.name)
     }
   }
-  if (!names.size) names.add(imported)
   return names
 }
 
@@ -161,6 +163,11 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     }
     const logs = property(options, "logs")
     if (!logs) continue
+    const logsValue = unwrapExpression(logs.value)
+    if (logsValue.type === "BooleanLiteral" && !logsValue.value) {
+      remove(logs)
+      continue
+    }
     const observability = property(options, "observability")
     const observabilityValue = observability ? unwrapExpression(observability.value) : undefined
     const observabilityObject = objectValue(observability?.value)
@@ -174,7 +181,6 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       follow(logs, "observability.logs is already set. Merge the logs option into it by hand.")
       continue
     }
-    const logsValue = unwrapExpression(logs.value)
     if (!logsObject && logsValue.type !== "BooleanLiteral") {
       follow(logs, "logs is an expression, so the codemod cannot move it. Move it into observability.logs by hand, and move any evlog options in it to observability.evlog.")
       continue

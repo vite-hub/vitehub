@@ -2,7 +2,8 @@ import { chatgpt, openai } from "@vite-hub/gateways"
 import { github } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { describe, expect, it, vi } from "vitest"
-import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 
 describe("Agent definition layers", () => {
@@ -21,8 +22,8 @@ describe("Agent definition layers", () => {
       capabilities: [{ id: "shared", prepare: replaced }, { id: "development", prepare: added }],
     })
     const runtime = { runtime: "unknown" as const, memo: vi.fn(), waitUntil: vi.fn() }
-    await runAgent(base, runtime, { prompt: "hello" })
-    await runAgent(development, runtime, { prompt: "hello" })
+    await runAgentWithContext(base, runtime, { prompt: "hello" })
+    await runAgentWithContext(development, runtime, { prompt: "hello" })
     expect(prepare).toHaveBeenCalledTimes(1)
     expect(replaced).toHaveBeenCalledTimes(1)
     expect(added).toHaveBeenCalledTimes(1)
@@ -68,7 +69,7 @@ describe("Agent definition layers", () => {
     })
     const child = defineAgent({ extends: base, hooks: { "agent:input": () => void order.push("child") } })
     const grandchild = defineAgent({ extends: child, hooks: { "agent:input": () => void order.push("grandchild") } })
-    await runAgent(grandchild, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    await runAgentWithContext(grandchild, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
     expect(order).toEqual(["parent", "child", "grandchild"])
     expect(finish).toHaveBeenCalledTimes(1)
   })
@@ -84,7 +85,7 @@ describe("Agent definition layers", () => {
     })
     const app = defineAgent({ extends: preset, options: { label: "app" } })
     const replay = defineAgent({ extends: app, hooks: { "agent:finish": () => void order.push("replay") } })
-    await runAgent(replay, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    await runAgentWithContext(replay, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
     expect(order).toEqual(["app", "replay"])
   })
 
@@ -103,7 +104,7 @@ describe("Agent definition layers", () => {
     const finish = vi.fn()
     const base = defineAgent({ driver: { run: () => ({ text: "ok" }) }, hooks: { "agent:finish": finish } })
     const child = defineAgent({ extends: base, hooks: { "agent:finish": finish } })
-    await runAgent(child, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    await runAgentWithContext(child, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
     expect(finish).toHaveBeenCalledTimes(1)
   })
 
@@ -112,7 +113,7 @@ describe("Agent definition layers", () => {
     const child = vi.fn()
     const base = defineAgent({ driver: { run: () => ({ text: "ok" }) }, hooks: { "hook:observe": parent, "agent:input": vi.fn() } })
     const extension = defineAgent({ extends: base, hooks: { "hook:observe": [child] } })
-    await runAgent(extension, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    await runAgentWithContext(extension, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
     expect(parent).toHaveBeenCalledWith(expect.objectContaining({ name: "agent:input" }))
     expect(child).toHaveBeenCalledWith(expect.objectContaining({ name: "agent:input" }))
   })
@@ -191,8 +192,8 @@ describe("Agent definition layers", () => {
     const withChangelog = agentWithSkills(changelog, { "customer-changelog": "# Changelog" })
 
     const runtime = { runtime: "unknown" as const, memo: vi.fn(), waitUntil: vi.fn() }
-    await runAgent(changelog, runtime, { prompt: "hello" })
-    await runAgent(withChangelog, runtime, { prompt: "hello" })
+    await runAgentWithContext(changelog, runtime, { prompt: "hello" })
+    await runAgentWithContext(withChangelog, runtime, { prompt: "hello" })
     expect(seen[0]).toEqual({ "__vitehubAgentSkill:.agents/skills/review/SKILL.md": review })
     expect(seen[1]).toEqual({
       "__vitehubAgentSkill:.agents/skills/review/SKILL.md": review,

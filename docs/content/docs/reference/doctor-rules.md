@@ -164,7 +164,7 @@ The rule checks these calls:
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
-- `runAgent(agent, input)` from `vite-hub/agent`, and `runAgent(agent, input, { output: 'drained' })`
+- `runAgent()` and `streamAgent()` from `vite-hub/agent`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and the helpers that Nuxt auto-imports into `server/`. It reports a result that code:
 
@@ -268,7 +268,7 @@ In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.ser
 
 It also reports credential options of `hubEmail()` and of the `email` option that are string literals or `process.env` reads. In server code, it reports string literals for credential keys in `defineAuth()`, `google()` and `apiKey()` from `vite-hub/connections`, and the Gateway presets from `vite-hub/gateways`, including their `headers`.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -286,7 +286,7 @@ export default defineConfig({
 })
 ```
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -629,7 +629,7 @@ const [error, run] = await runWorkflow('onboard-user', body)
 const run = await runWorkflow('onboard-user', body)
 ```
 
-The rule does not check `runAgent()`. Its tuple forms are tuples, and `runAgent(agent, context, input)` returns the Agent's output, which can be an array.
+The rule does not check `runAgent()` and `streamAgent()`, because they return tuples.
 
 ## VHUB0019
 
@@ -913,7 +913,7 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `contentImportBase` was removed.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 // Invalid
 export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
@@ -922,6 +922,10 @@ export default defineConfig({
 ```
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
 // Valid
 export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],

@@ -36,13 +36,14 @@ Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `bi
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: 'cloudflare-r2',
     binding: 'BLOB',
     bucketName: 'assets',
-  },
+  })],
 })
 ```
 
@@ -52,13 +53,14 @@ Set `jurisdiction` when the bucket uses a [Cloudflare R2 jurisdiction](https://d
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: 'cloudflare-r2',
     bucketName: 'assets',
     jurisdiction: 'eu',
-  },
+  })],
 })
 ```
 
@@ -103,15 +105,16 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: 's3',
     bucket: 'app-assets',
     endpoint: process.env.S3_ENDPOINT,
     region: process.env.S3_REGION,
     publicBaseUrl: 'https://assets.example.com',
-  },
+  })],
 })
 ```
 
@@ -129,11 +132,12 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 
 export default defineConfig({
-  blob: {
+  plugins: [hubBlob({
     driver: 'minio',
-  },
+  })],
 })
 ```
 

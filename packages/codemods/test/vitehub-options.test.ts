@@ -72,6 +72,44 @@ describe("vitehub-options transform", () => {
       .toBe("import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ preset: 'node', observability: { logs: true } })] }\n")
   })
 
+  it.each(["", ", observability: false", ", observability: true", ", observability: { service: 'app' }"])("preserves disabled Logs with observability %s", (observability) => {
+    const input = `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ logs: false${observability} })] }\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code).not.toContain("logs:")
+    expect(result.code.replace(/\s+/g, "")).toContain(`vitehub({${observability.slice(1)}})`.replace(/\s+/g, ""))
+    expect(result.followUps).toEqual([])
+  })
+
+  it.each([
+    "import { env } from 'vite-hub/env'\nfunction vitehub(options) { return options }",
+    "import { vitehub } from 'another-package'\nimport { env } from 'vite-hub/env'",
+  ])("leaves unrelated vitehub calls unchanged", (imports) => {
+    const input = `${imports}\nexport default { plugins: [vitehub({ logs: true, contentImportBase: 'custom' })] }\n`
+    expect(migrateViteHubOptions("vite.config.ts", input).code).toBe(input)
+  })
+
+  it.each([
+    ["hubKv", "kv", "{ driver: 'fs-lite' }"],
+    ["hubEnv", "env", "{ server: {} }"],
+  ])("leaves unrelated %s calls unchanged", (name, key, value) => {
+    const input = `import { env } from 'vite-hub/env'\nfunction ${name}() {}\nexport default { plugins: [${name}()], ${key}: ${value} }\n`
+    expect(migrateViteHubOptions("vite.config.ts", input).code).toBe(input)
+  })
+
+  it.each([
+    ["vitehub", "vite-hub", "{ logs: true }", ""],
+    ["hubEnv", "@vite-hub/env/vite", "", ", env: { server: {} }"],
+    ["hubKv", "@vite-hub/kv/vite", "", ", kv: { driver: 'fs-lite' }"],
+  ])("leaves shadowed %s calls unchanged", (name, source, argument, options) => {
+    const input = `import { ${name} } from '${source}'\nexport default defineConfig((${name}) => ({ plugins: [${name}(${argument})]${options} }))\n`
+    expect(migrateViteHubOptions("vite.config.ts", input).code).toBe(input)
+  })
+
+  it("migrates an imported alias", () => {
+    const input = "import { vitehub as hub } from 'vite-hub'\nexport default { plugins: [hub({ logs: true })] }\n"
+    expect(migrateViteHubOptions("vite.config.ts", input).code).toContain("hub({ observability: { logs: true } })")
+  })
+
   it("adds the Env options to a vitehub() call without options", () => {
     const input = lines(
       "import { defineConfig } from 'vite'",

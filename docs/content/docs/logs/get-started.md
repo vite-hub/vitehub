@@ -28,7 +28,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', observability: { logs: true }, console: { auth: false, local: true } }),
+    vitehub({ preset: 'node', observability: { logs: true }, console: { auth: false } }),
     nitro(),
   ],
 })

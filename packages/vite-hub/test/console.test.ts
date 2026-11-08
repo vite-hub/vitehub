@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
+import { setResolvedFeatureOptions } from "@vite-hub/internal/build/vite"
 import { hubKv } from "@vite-hub/kv/vite"
 import { H3 } from "h3"
 import { desc } from "drizzle-orm"
@@ -68,6 +69,7 @@ import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { agentWithColocatedSkills, workspaceAgentWithSourceRoot } from "@vite-hub/agent/runtime/workflow"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -639,7 +641,6 @@ describe("Agent invocation console", () => {
     }
   })
 
-
   it("registers the configured Agent runtime capabilities for Console invocations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-capabilities-"))
     try {
@@ -919,35 +920,6 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("enables the KV section from resolved Vite configuration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-kv-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
-        resolveKV: kv => Boolean(kv),
-      })
-      const config: {
-        kv?: unknown
-        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
-        root: string
-      } = { root }
-
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      config.kv = { stores: { default: {}, cache: {} } }
-      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
-
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
-      expect(generated).not.toContain("installConsoleKV")
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
   it.each([
     ["node", "before", true],
     ["node", "after", true],
@@ -967,13 +939,12 @@ describe("Agent invocation console", () => {
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKv({ driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" })
+      const kvPlugin = hubKv(enabled ? { driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)
       const config = {
         root,
-        ...(enabled ? {} : { kv: false as const }),
         plugins: configuredPlugins,
       }
       await callPluginHook(kvPlugin.config, {}, [config, { command: "build", mode: "production" }])
@@ -992,37 +963,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("disables Workflow inspection from resolved Vite configuration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-workflow-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
-        sections: ["workflows"],
-      })
-      const config: {
-        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
-        root: string
-        workflow?: boolean
-      } = { root, workflow: true }
-
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      config.workflow = false
-      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
-
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
-      expect(generated).not.toContain("installConsoleDefinitions")
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("disables Queue inspection from resolved Vite configuration", async () => {
+  it("disables Queue inspection from the framework handoff", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-queue-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -1040,7 +981,7 @@ describe("Agent invocation console", () => {
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      config.queue = false
+      setResolvedFeatureOptions(config, "queue", false)
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
@@ -1409,7 +1350,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("uses the resolved Vite Database root when it replaces a configured service root", async () => {
+  it("uses the framework Database root when it replaces a configured service root", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-database-override-"))
     const viteRoot = join(projectRoot, "app")
     try {
@@ -1428,7 +1369,7 @@ describe("Agent invocation console", () => {
       const config: { database?: object; nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      config.database = {}
+      setResolvedFeatureOptions(config, "database", { projectRoot: viteRoot })
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
@@ -1437,108 +1378,6 @@ describe("Agent invocation console", () => {
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
-    }
-  })
-
-  it("uses resolved service overrides as complete Console discovery configuration", async () => {
-    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-service-overrides-"))
-    const viteRoot = join(projectRoot, "app")
-    try {
-      await mkdir(viteRoot, { recursive: true })
-      await writeFile(join(projectRoot, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        databaseDiscoveryRoot: "packages/database",
-        preset: "cloudflare",
-        rateLimitDiscoveryRoot: "packages/rate-limit",
-        rateLimitScanDirs: ["policies"],
-        resolveKV: () => false,
-        sections: ["databases", "rate-limits", "workspaces"],
-        workspaceDiscoveryRoot: "packages/workspace",
-      })
-      const config: {
-        database?: false
-        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
-        rateLimit?: object
-        root: string
-        workspace?: object
-      } = { root: viteRoot }
-
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      config.database = false
-      config.rateLimit = {}
-      config.workspace = {}
-      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
-
-      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(projectRoot)}, ["rate-limits","workspaces"])`)
-      expect(config.nitro!.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-    }
-    finally {
-      await rm(projectRoot, { force: true, recursive: true })
-    }
-  })
-
-  it("disables standalone Workspace and Sandbox inspection from resolved Vite configuration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-services-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
-        resolveKV: () => false,
-        sections: ["sandbox-tasks", "workspaces"],
-      })
-      const config: {
-        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
-        root: string
-        sandboxTask?: boolean
-        workspace?: boolean
-      } = { root, sandboxTask: true, workspace: true }
-
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      config.sandboxTask = false
-      config.workspace = false
-      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
-
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
-      expect(generated).not.toContain("installConsoleDefinitions")
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("reconciles disabled services before initial Console discovery", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-initial-disabled-services-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
-        resolveKV: () => false,
-        sections: ["databases", "sandbox-tasks", "workspaces"],
-      })
-      const config: {
-        database: false
-        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
-        root: string
-        sandboxTask: false
-        workspace: false
-      } = { database: false, root, sandboxTask: false, workspace: false }
-
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
-      expect(generated).not.toContain("installConsoleDefinitions")
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
     }
   })
 
@@ -2310,7 +2149,7 @@ describe("Agent invocation console", () => {
     ], { invocations })).toEqual(["labeller"])
 
     const [error] = await runAgent(labeller, { prompt: "Label this email." })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const { invocations: records } = await invocations.list({ limit: 10 })
     expect(records).toEqual([expect.objectContaining({ agentName: "labeller", status: "completed" })])
     expect(labeller.name).toBeUndefined()
@@ -2334,18 +2173,18 @@ describe("Agent invocation console", () => {
     ], { invocations })
 
     const [error] = await runAgent(shared, { prompt: "Label this email." })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const { invocations: records } = await invocations.list({ limit: 10 })
     expect(records).toEqual([expect.objectContaining({ status: "completed" })])
     expect(records[0]?.agentName).toBeUndefined()
     for (const definition of [first, second]) {
-      await runAgent(definition, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Direct call" })
+      await runAgentWithContext(definition, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Direct call" })
     }
     const direct = await invocations.list({ limit: 10 })
     expect(direct.invocations).toHaveLength(3)
     expect(direct.invocations.every((record) => record.agentName === undefined)).toBe(true)
     for (const [definition, name] of [[first, "first"], [second, "second"]] as const) {
-      await runAgent(definition, { agentIdentity: { name }, memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Host call" })
+      await runAgentWithContext(definition, { agentIdentity: { name }, memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Host call" })
       const hosted = await invocations.list({ agentName: name, limit: 10 })
       expect(hosted.invocations).toEqual([expect.objectContaining({ agentName: name, status: "completed" })])
     }
@@ -2369,7 +2208,7 @@ describe("Agent invocation console", () => {
       { definition: { default: decorated }, fallbackName: "labeller" },
     ], { invocations })).toEqual(["labeller"])
 
-    await expect(runAgent(labeller, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Label this email." })).resolves.toBe("labelled")
+    await expect(runAgentWithContext(labeller, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Label this email." })).resolves.toBe("labelled")
     const { invocations: records } = await invocations.list({ limit: 10 })
     expect(records).toEqual([expect.objectContaining({ agentName: "labeller", status: "completed" })])
   })
@@ -4595,7 +4434,7 @@ describe("Agent invocation console", () => {
       const writer = installDefaultJournal(projectRoot, { databaseUrl })
       expect(installDefaultJournal(projectRoot, { databaseUrl })).toBe(writer)
       const agent = defineAgent({ driver: { run: () => "stored at configured path" }, runtime: false })
-      await runAgent(agent, runtime("configured-console-storage"), {})
+      await runAgentWithContext(agent, runtime("configured-console-storage"), {})
       const readers = [createDefaultAgentInvocations({ databaseUrl, projectRoot }), createDefaultAgentInvocations({ databaseUrl, projectRoot })]
       for (const reader of readers) {
         await expect(reader.getByRunId("configured-console-storage")).resolves.toMatchObject({ status: "completed" })
@@ -4623,7 +4462,7 @@ describe("Agent invocation console", () => {
     try {
       const writer = installDefaultJournal(projectRoot)
       const agent = defineAgent({ driver: { run: () => "persisted" }, runtime: false, version: "1.0.0" })
-      await runAgent(agent, runtime("console-cross-realm"), {})
+      await runAgentWithContext(agent, runtime("console-cross-realm"), {})
 
       const reader = createDefaultAgentInvocations({ projectRoot })
       const invocation = await reader.getByRunId("console-cross-realm")
@@ -4656,7 +4495,7 @@ describe("Agent invocation console", () => {
     try {
       installDefaultJournal(projectRoot)
       const agent = defineAgent({ driver: { run: () => "done" }, runtime: false })
-      await runAgent(agent, { ...runtime("console-drizzle"), agentIdentity: { name: "agent" } }, {})
+      await runAgentWithContext(agent, { ...runtime("console-drizzle"), agentIdentity: { name: "agent" } }, {})
 
       const database = await getAgentInvocationsDatabase()
       if (database?.driver !== "libsql") throw new Error("Expected the libSQL journal database.")
@@ -4766,7 +4605,7 @@ describe("Agent invocation console", () => {
         if (processDescriptor) Object.defineProperty(globalThis, "process", processDescriptor)
       }
       const agent = defineAgent({ driver: { run: () => "in memory" }, runtime: false, version: "1.0.0", invocations })
-      await runAgent(agent, runtime("console-workers"), {})
+      await runAgentWithContext(agent, runtime("console-workers"), {})
 
       await expect(invocations.getByRunId("console-workers")).resolves.toMatchObject({ status: "completed" })
       expect(existsSync(join(projectRoot, ".vitehub"))).toBe(false)
@@ -4888,7 +4727,7 @@ describe("Agent invocation console", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, runtime("console-retention"), { prompt: "Find the receipt date." })
+      await runAgentWithContext(agent, runtime("console-retention"), { prompt: "Find the receipt date." })
       const invocation = await createDefaultAgentInvocations({ projectRoot }).getByRunId("console-retention")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({ "vitehub.session.title": "Receipt date lookup" }),
@@ -4918,7 +4757,7 @@ describe("Agent invocation console", () => {
           })() },
         runtime: false,
       })
-      const result = await runAgent(agent, runtime("console-progress-summary"), {})
+      const result = await runAgentWithContext(agent, runtime("console-progress-summary"), {})
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
@@ -4949,7 +4788,7 @@ describe("Agent invocation console", () => {
           })() },
         runtime: false,
       })
-      const result = await runAgent(agent, runtime("console-tool-error"), {})
+      const result = await runAgentWithContext(agent, runtime("console-tool-error"), {})
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
@@ -4980,7 +4819,7 @@ describe("Agent invocation console", () => {
           })() },
         runtime: false,
       })
-      const result = await runAgent(agent, runtime("console-fixture-tool"), {})
+      const result = await runAgentWithContext(agent, runtime("console-fixture-tool"), {})
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 

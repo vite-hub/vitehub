@@ -152,7 +152,7 @@ function renderAuthServerModule(options: { importBase?: string } = {}): string {
   const serverImport = `${options.importBase ?? authPackageName}/server`
   return [
     `export * from ${JSON.stringify(serverImport)}`,
-    `export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
+    `export { default } from ${JSON.stringify(serverImport)}`,
     "",
   ].join("\n")
 }
@@ -220,7 +220,7 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
   return [
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
     `  export * from ${JSON.stringify(serverImport)}`,
-    `  export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
+    `  export { default } from ${JSON.stringify(serverImport)}`,
     "}",
     "",
   ].join("\n")

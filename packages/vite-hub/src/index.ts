@@ -89,6 +89,7 @@ export type { KVOptions } from "@vite-hub/kv"
 export type { QueueOptions } from "@vite-hub/queue"
 export type { RateLimitOptions } from "@vite-hub/rate-limit"
 export type { RealtimeOptions } from "@vite-hub/realtime"
+export type { SandboxTaskOptions } from "@vite-hub/sandbox/task/vite"
 export type { ScheduleOptions } from "@vite-hub/schedule/vite"
 export type { WorkflowOptions } from "@vite-hub/workflow"
 export type { WorkspaceOptions } from "@vite-hub/workspace"
@@ -1363,8 +1364,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     } as EmailOptions))
   }
   else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
-  if (options.kv) {
-    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(presetKVOptions || undefined))
+  // A KV cache also needs the owner plugin when no KV options were set.
+  if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
+    // hubKv() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, options.kv ? { hosting: plan.nitroPreset } : {}))
   }
   else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
