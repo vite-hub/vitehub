@@ -364,7 +364,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-Use `@vite-hub/ui/markdown` with the owner packages. The Nuxt UI module auto-imports `Markdown`. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
+Use `@vite-hub/ui/markdown` with the owner packages. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
 
 `markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
 

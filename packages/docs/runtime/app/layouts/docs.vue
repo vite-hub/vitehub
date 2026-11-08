@@ -22,7 +22,8 @@ const docsShellUi = {
     <UPage :ui="docsShellUi">
       <template v-if="showsNavigation" #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
-          <DocsSidebars class="vh-docs-aside-sidebars" panel />
+          <!-- Phones hide this column and open the sidebar from the header menu, so it hydrates only once it shows. -->
+          <LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel />
         </UPageAside>
       </template>
 
