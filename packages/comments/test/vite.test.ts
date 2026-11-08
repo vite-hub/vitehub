@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { createNitro } from "nitro/builder"
-import { H3 } from "h3"
+import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveConfig } from "vite"
 
@@ -14,7 +14,6 @@ import { comments, componentNames, githubRepository, hubComments, readCommentsBu
 
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
 import type { NitroConfig } from "nitro/types"
-import type { H3Event } from "h3"
 import type { RealtimeDefinition } from "@vite-hub/realtime"
 import type { createCommentsHandler } from "../src/runtime/handler.ts"
 
@@ -150,7 +149,7 @@ describe("hubComments", () => {
     const plugin = hubComments()
     await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), "build", { base: "/portal/" })
     const page = transform(plugin, html)
-    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=18\")")
+    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=19\")")
     // A second owner, such as the Console, sees the loader and adds no other.
     expect(transform(plugin, page!)).toBeUndefined()
   })
@@ -281,7 +280,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
 
     const { default: room } = await import(pathToFileURL(join(directory, "comments.mjs")).href) as { default: RealtimeDefinition }
     // SAFETY: the room only keys access by this event; the Auth reader must never run.
-    const event = {} as H3Event
+    const event = new H3Event(new Request("http://site.test/"))
     const context = { event, definition: "comments", request: new Request("http://site.test?page=%2F") }
     const user = await room.identify!(context)
     expect(user).toEqual({ id: "custom", name: "Custom" })
@@ -317,7 +316,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const transform = typeof hook === "function" ? hook : hook?.handler
     if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
-    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=18")')
+    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=19")')
   })
 
   it.each([
@@ -412,7 +411,7 @@ describe("comments() without vite-hub", () => {
     const transform = plugin.transformIndexHtml
     if (!transform) throw new Error("Expected a standalone Comments HTML transform")
     const page: unknown = await Reflect.apply(typeof transform === "function" ? transform : transform.handler, {}, ["<body>Guide</body>"])
-    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=18")')
+    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=19")')
   }, 30_000)
 
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {

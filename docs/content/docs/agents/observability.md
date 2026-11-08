@@ -9,6 +9,7 @@ navigation.kind: Guides
 Configure observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
@@ -39,13 +40,13 @@ ViteHub then:
 - declares `posthog.apiKey` as Server Env `observability.posthog.apiKey` and reads it at startup, so the Console Env page shows it;
 - generates a Nitro plugin that installs one host instance, assigns request IDs, connects the evlog drain and HTTP error hooks, and flushes on shutdown;
 - adds the observability Capability to every Agent, and with `papercuts`, the `report_papercut` tool;
-- reports `status()` as `observability` in the Console status endpoint, `/api/_vitehub/console/status`.
+- reports `status()` as `observability` in the Console status endpoint, `/_vitehub/api/status`.
 
 Remove an existing evlog Nitro module and host plugin when you adopt this option. Without an API key, events still reach local evlog output, `status().configured` is `false`, and `capture()` rejects.
 
 Read the instance in server code:
 
-```ts
+```ts fragment
 import { useObservability } from 'vite-hub/agent/observability'
 
 const observability = useObservability()
