@@ -1,0 +1,1 @@
+{"success":true,"errors":[],"messages":[],"result":[{"id":"023e105f4ecef8ad9ca31a8372d0c353","name":"Demo Account","type":"standard","created_on":"2014-03-01T12:21:02Z"},{"id":"9a7806061c88ada191ed06f989cc3dac","name":"Team Account","type":"enterprise","created_on":"2019-05-01T10:00:00Z"}],"result_info":{"count":2,"page":1,"per_page":50,"total_count":2}}
