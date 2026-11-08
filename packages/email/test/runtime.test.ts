@@ -36,7 +36,7 @@ afterEach(async () => {
 
 it("rejects missing configuration before capturing a test email", async () => {
   vi.doMock("#vitehub/email/definition", () => ({ default: undefined }))
-  const { email } = await import("../src/server.ts")
+  const { email } = await import("../src/index.ts")
   const mode = enableViteHubTestMode()
 
   await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_NOT_CONFIGURED" })
@@ -45,7 +45,7 @@ it("rejects missing configuration before capturing a test email", async () => {
 
 it.each(["imported", "generated"])("captures test emails with an %s definition without starting its driver", async (source) => {
   vi.doMock("#vitehub/email/definition", () => ({ default: source === "imported" ? definition : undefined }))
-  const { email } = await import("../src/server.ts")
+  const { email } = await import("../src/index.ts")
   if (source === "generated") Reflect.set(globalThis, Symbol.for("vitehub.email.definition"), definition)
   const mode = enableViteHubTestMode()
 
