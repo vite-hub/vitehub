@@ -1,22 +1,22 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext, installStandardContext } from "@vite-hub/runtime/h3"
 import { H3Event } from "h3"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
 import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-page.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
-import { consoleRequestURL } from "./runtime/server/request.ts"
+import { consolePublicURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
+import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 import type { ConsoleUser } from "./auth-types.ts"
-import type { ViteHubContext } from "@vite-hub/runtime"
 
-export const consoleAuthBasePath = "/api/_vitehub/console/auth"
+export const consoleAuthBasePath = "/_vitehub/api/auth"
 
 function escapeHTML(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
@@ -28,7 +28,10 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
   const label = provider.toLowerCase() === "github" ? "GitHub" : provider
   if (query.has("sig") && query.has("client_id")) return consoleAuthOAuthPage({ password: false, providers: [{ id: provider, label }] }, consoleAuthPath(mountBaseURL, consoleAuthBasePath), consoleAuthPath(mountBaseURL, "/_vitehub"))
   const buttonLabel = `Sign in with ${label}`
-  const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
+  const start = new URL(consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1"), request.url)
+  const target = consoleAuthReturnPath(request, mountBaseURL)
+  if (target) start.searchParams.set("redirect", target)
+  const startPath = `${start.pathname}${start.search}`
   const search = new URL(request.url).searchParams
   const message = search.has("denied")
     ? "Your previous account cannot access this Console. Choose a different account with your sign-in provider before signing in again."
@@ -185,10 +188,34 @@ export function consoleImpersonationPage(input: {
   })
 }
 
+/**
+ * The Console page that a Console Auth sign-in returns to, or `undefined` for the Console home. A visit to the home
+ * names the page in its `redirect` query parameter, and a visit to any other Console page is that page.
+ */
+function consoleAuthReturnPath(request: Request, mountBaseURL: string): string | undefined {
+  const url = new URL(request.url)
+  const mount = consoleAuthPath(mountBaseURL, "")
+  const home = `${mount}/_vitehub`
+  const asked = url.pathname === home || url.pathname === `${home}/sign-in` ? url.searchParams.get("redirect") : `${url.pathname}${url.search}`
+  const target = consoleReturnPath(asked, url, mount)
+  return target === home ? undefined : target
+}
+
+/** Where Better Auth returns after a Console Auth sign-in that `/_vitehub?auth_start=1&redirect=<page>` starts. */
+export function consoleAuthSignInURLs(request: Request, mountBaseURL = "/"): { callbackURL: string, errorCallbackURL: string } | undefined {
+  const target = consoleAuthReturnPath(request, mountBaseURL)
+  if (!target) return undefined
+  const failed = new URL(consoleAuthPath(mountBaseURL, "/_vitehub?auth_error=signin"), request.url)
+  failed.searchParams.set("redirect", target)
+  return { callbackURL: target, errorCallbackURL: `${failed.pathname}${failed.search}` }
+}
+
 export function consoleAuthPageResponse(request: Request, response: Response | undefined, mountBaseURL = "/", authBasePath: string = consoleAuthBasePath): Response | undefined {
   if (response?.status === 401 && request.method === "GET" && request.headers.get("accept")?.includes("text/html")) {
     const signIn = new URL(consoleAuthPath(mountBaseURL, "/_vitehub/sign-in"), request.url)
     if (new URL(request.url).searchParams.has("auth_error")) signIn.searchParams.set("auth_error", "signin")
+    const target = consoleAuthReturnPath(request, mountBaseURL)
+    if (target) signIn.searchParams.set("redirect", target)
     return Response.redirect(signIn, 302)
   }
   if (
@@ -282,7 +309,7 @@ export interface ConsoleAppAuthInstance extends ConsoleSessionReader {
 export type ConsoleAppAuthResolver = (
   request: Pick<Request, "headers" | "url">,
   runtimeOptions?: { baseURL?: string },
-  event?: ViteHubContext,
+  event?: ConsoleRequestEvent,
 ) => ConsoleAppAuthInstance | Promise<ConsoleAppAuthInstance>
 
 /** Use the app's configured social providers and session without a second Auth Definition or client. */
@@ -291,11 +318,11 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
   authBasePath: (event: object) => Promise<string>
 } {
   async function requestAuth(event: object) {
-    const request = toEventRequest(event)
     // Request-only callers need a response target before Auth can read Standard Context.
-    const authEvent = "~standard" in event || "res" in event || "node" in event ? event : new H3Event(request)
+    const authEvent = "~standard" in event || "res" in event || "node" in event ? event : new H3Event(toEventRequest(event))
     installStandardContext(authEvent)
-    const url = consoleRequestURL({ req: request })
+    const request = getStandardContext(authEvent).req
+    const url = consolePublicURL(request)
     const authRequest = { headers: request.headers, url: url.href }
     let auth = await resolveAuth(authRequest, undefined, authEvent)
     let context = await auth.$context
@@ -469,12 +496,12 @@ export async function readConsoleSessionUser(auth: ConsoleSessionReader, request
 
 /** The app Auth access routes that protect the Console, and the Auth functions that check them. */
 export interface ConsoleAppAuthAccessOptions {
-  getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader | Promise<ConsoleSessionReader>
+  getAuthForRequest: (request: Request, runtimeOptions: undefined, event: ConsoleRequestEvent) => ConsoleSessionReader | Promise<ConsoleSessionReader>
   /** `console.impersonation`. An impersonation session then never opens the Console. */
   impersonation?: boolean
-  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
+  requireAuthAccessRoutes: (event: ConsoleRequestEvent, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
   /** Rejects a request without a session. Used for a Console path that no access route matches. */
-  requireSession: (event: object) => Promise<Response | undefined>
+  requireSession: (event: ConsoleRequestEvent) => Promise<Response | undefined>
   routes: readonly { authorize: boolean, index: number, method?: string, route: string }[]
 }
 
@@ -483,15 +510,15 @@ export interface ConsoleAppAuthAccessOptions {
  * works for an H3 2 event and for an H3 1 event such as Nuxt 4's, which has no `url`.
  */
 export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions): {
-  check: (event: object) => Promise<Response | undefined>
-  user: (event: object) => Promise<ConsoleUser | undefined>
+  check: (event: ConsoleRequestEvent) => Promise<Response | undefined>
+  user: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined>
 } {
   // One session read per request serves the impersonation check and the user reader.
   const sessions = new WeakMap<object, Promise<unknown>>()
-  function readSession(event: object): Promise<unknown> {
+  function readSession(event: ConsoleRequestEvent): Promise<unknown> {
     let session = sessions.get(event)
     if (!session) {
-      const request = toEventRequest(event)
+      const request = getStandardContext(event).req
       session = Promise.resolve(options.getAuthForRequest(request, undefined, event)).then(auth => auth.api.getSession({ headers: request.headers })).catch((error: unknown) => {
         // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`. The access
         // routes then send the browser to sign in.
@@ -510,7 +537,7 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
           status: 403,
         })
       }
-      const request = toEventRequest(event)
+      const request = getStandardContext(event).req
       const path = consoleEventPath(event, request)
       const method = request.method.toUpperCase()
       const matched = options.routes.filter((route) => {

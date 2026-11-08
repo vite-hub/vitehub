@@ -1,51 +1,84 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
+import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 /**
  * Owner packages that `vite-hub` declares as optional peers. An app installs only the packages of the features it
- * enables, so a Blob and Queue app does not install Agent, Auth, or editor dependencies.
+ * enables, so an app without features installs none of them, and a KV app does not install Blob, Queue, or Agent.
  */
 export type OptionalOwnerPackage
   = | "@vite-hub/agent"
     | "@vite-hub/auth"
+    | "@vite-hub/blob"
+    | "@vite-hub/browser"
+    | "@vite-hub/channels"
     | "@vite-hub/cms"
     | "@vite-hub/comments"
+    | "@vite-hub/connections"
     | "@vite-hub/content"
     | "@vite-hub/database"
+    | "@vite-hub/decisions"
+    | "@vite-hub/email"
+    | "@vite-hub/gateways"
+    | "@vite-hub/kv"
+    | "@vite-hub/markdown-template"
     | "@vite-hub/presets"
+    | "@vite-hub/queue"
+    | "@vite-hub/rate-limit"
     | "@vite-hub/realtime"
+    | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
     | "@vite-hub/ui"
+    | "@vite-hub/workflow"
     | "@vite-hub/workspace"
 
 /**
  * The packages that the app installs for each feature, in `pnpm add` order. `vite-hub` declares each one as an optional
- * peer, so it resolves them from the app.
+ * peer, so it resolves them from the app. Features in the catalog of `@vite-hub/internal/features` read their packages
+ * from it.
  */
 export const optionalFeaturePackages = {
-  "agent": ["@vite-hub/agent"],
-  "auth": ["@vite-hub/auth", "better-auth"],
+  "agent": features.agent.packages,
+  "auth": features.auth.packages,
+  "blob": features.blob.packages,
+  "browser": features.browser.packages,
+  "channels": features.channels.packages,
   "cms": ["@vite-hub/cms"],
-  "comments": ["@vite-hub/comments"],
+  "comments": features.comments.packages,
   // Connections store grants in the default Database and turn `database` on.
-  "connections": ["@vite-hub/database", "drizzle-orm"],
-  // The Console journal of Agent Invocations.
-  "console agents": ["@libsql/client", "drizzle-orm"],
-  "console sign-in": ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+  "connections": features.connections.packages,
+  // The Console reads the Agent Invocation journal with libSQL, and its /debug command with Drizzle.
+  "console agents": consoleFeaturePackages.agents,
+  // `console: { mcpClient: true }` connects the Console to MCP servers.
+  "console mcp-client": ["@modelcontextprotocol/sdk"],
+  "console sign-in": consoleFeaturePackages.signIn,
+  // The Agent Invocation components of `vite-hub/console/ui`.
+  "console ui": ["@vite-hub/ui", "@json-render/core", "@json-render/vue", "@vueuse/core"],
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
-  "database": ["@vite-hub/database", "drizzle-orm"],
+  "database": features.database.packages,
+  "decisions": ["@vite-hub/decisions"],
+  "email": features.email.packages,
+  "gateways": ["@vite-hub/gateways"],
+  "kv": features.kv.packages,
+  // `.template.md` imports and `vite-hub/markdown-template`.
+  "markdown-template": ["@vite-hub/markdown-template"],
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
-  "realtime": ["@vite-hub/realtime"],
-  "schedule": ["@vite-hub/schedule"],
+  "queue": features.queue.packages,
+  "rateLimit": features.rateLimit.packages,
+  "realtime": features.realtime.packages,
+  "sandboxTask": features.sandboxTask.packages,
+  "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
   "ui": ["@vite-hub/ui"],
-  "workspace": ["@vite-hub/workspace"],
+  // An Agent turns Workflow on unless the app sets `workflow: false`.
+  "workflow": features.workflow.packages,
+  "workspace": features.workspace.packages,
 } as const satisfies Record<string, readonly string[]>
 
 export type OptionalFeature = keyof typeof optionalFeaturePackages

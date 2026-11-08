@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands 
 Install ViteHub and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/rate-limit nitro h3
 pnpm add -D vite
 ```
 
@@ -40,7 +40,7 @@ export default defineConfig({
 
 Require the Rate Limit directly in ordinary server code. The guard does not need a dedicated directory, file suffix, or module-scope declaration.
 
-The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. Put the guard before any upload or other side effect.
+The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. On the Node preset, the window is a fixed window that starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window. Put the guard before any upload or other side effect.
 
 ```ts [server/api/image-upload.post.ts]
 import { defineEventHandler } from 'h3'

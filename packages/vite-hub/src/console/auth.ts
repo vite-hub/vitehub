@@ -1,17 +1,16 @@
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "./auth-types.ts"
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 import { createAuthForRequest } from "@vite-hub/auth/server"
-import { installStandardContext } from "@vite-hub/runtime/h3"
 import { consoleOAuthPlugins } from "./auth-oauth.ts"
 import { consoleAuthBasePath } from "./auth-pages.ts"
 import { consoleAuthPath } from "./auth-path.ts"
 
 export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
 export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
-export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
+export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
 export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
-export type { ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleUser } from "./auth-types.ts"
+export type { ConsoleAgentAuthorizeContext, ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleSessionAuthorizeContext, ConsoleTokenAuthorizeContext, ConsoleUser } from "./auth-types.ts"
 
 export interface ConsoleAuthDefinition {
   auth: AuthDefinition
@@ -30,12 +29,11 @@ export async function prepareConsoleAuth(
   input: ConsoleAuthDefinition,
   definition: AuthDefinition,
   request: Request,
-  event?: ViteHubContext,
+  event?: ConsoleRequestEvent,
 ): Promise<void> {
   if (input.migrate === false) return
   let migration = migrations.get(definition)
   if (!migration) {
-    if (event) installStandardContext(event)
     migration = createAuthForRequest(definition, request, undefined, event).$context
       .then(context => context.runMigrations())
       .catch((error: unknown) => {
@@ -84,7 +82,7 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
         access: {
           routes: [
             { route: consoleAuthPath(mountBaseURL, "/_vitehub/**"), authorize: definition.authorize },
-            { route: consoleAuthPath(mountBaseURL, "/api/_vitehub/console/**"), authorize: definition.authorize },
+            { route: consoleAuthPath(mountBaseURL, "/_vitehub/api/**"), authorize: definition.authorize },
           ],
           signIn: {
             callbackURL: consoleAuthPath(mountBaseURL, "/_vitehub"),

@@ -187,11 +187,11 @@ describe("generated readiness route", () => {
   })
 
   it("registers /api/_vitehub/ready with Nitro unless preparation or the application owns it", async () => {
-    expect(await nitroHandlers({})).toContainEqual({ handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), route: "/api/_vitehub/ready" })
+    expect(await nitroHandlers({})).toContainEqual({ handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/api/_vitehub/ready" })
 
     const withPreparation = await nitroHandlers({ preparation: { workspace: "docs" } })
     expect(withPreparation.filter(handler => handler.route === "/api/_vitehub/ready")).toEqual([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/preparation-route.ts"), route: "/api/_vitehub/ready" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/preparation-route.ts"), lazy: true, route: "/api/_vitehub/ready" },
     ])
 
     const own = { handler: "/app/ready.ts", route: "/api/_vitehub/ready" }

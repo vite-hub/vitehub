@@ -1,8 +1,7 @@
 import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
-import { installStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
-import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
+import { bindConsoleAccess, consoleOperationAccess, consoleRequest } from "./access.ts"
 import { consoleAttachmentRequestBytes, consoleDocumentActionNames, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -43,7 +42,7 @@ type ConsoleOperationContext = Omit<OperationContext, "access"> & { access: Cons
 
 function legacyEvent(route: string, method: "GET" | "POST", request: LegacyRequest, context: ConsoleOperationContext): ConsoleRequestEvent {
   const id = request.id ? `/${encodeURIComponent(request.id)}` : ""
-  const url = new URL(`/api/_vitehub/console/${route}${id}`, "http://vitehub.local")
+  const url = new URL(`/_vitehub/api/${route}${id}`, "http://vitehub.local")
   for (const [key, value] of Object.entries(request.query ?? {})) {
     if (value === undefined) continue
     if (Array.isArray(value)) value.forEach(entry => url.searchParams.append(key, entry))
@@ -52,23 +51,18 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
   const params: Record<string, string> = {}
   if (request.agent) params.agent = request.agent
   if (request.id) params.id = request.id
-  const req = new Request(url, {
-    ...(method === "POST" ? { body: JSON.stringify(request.body) } : {}),
-    headers: context.request?.headers,
-    method,
-    signal: context.request?.signal,
-  })
-  // An omitted RPC body is already decoded; Fetch's empty-body JSON parser would reject it.
-  if (method === "POST" && request.body === undefined) req.json = async () => undefined
+  const body = method === "POST" && request.body !== undefined ? JSON.stringify(request.body) : undefined
   const event: ConsoleRequestEvent = {
-    env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
-    method,
-    req,
-    res: Object.assign(context.response ?? {}, { headers: new Headers() }),
+    // The handlers of an operation read this request event as they read the one of an HTTP route.
+    "~standard": {
+      vendor: "vitehub-console",
+      req: new Request(url, { body, headers: context.request?.headers, method, signal: context.request?.signal }),
+      res: context.response ?? {},
+      runtime: context.env ? { cloudflare: { env: context.env } } : {},
+      ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
+    },
   }
-  if (context.waitUntil) event.waitUntil = context.waitUntil
-  installStandardContext(event)
   return bindConsoleAccess(context.access, event)
 }
 
@@ -200,7 +194,14 @@ const documentsAction = defineConsoleOperation({
     : consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
-    const result = actionResult(await (await import("./documents.ts")).default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
+    const documents = await import("./documents.ts")
+    // JSON cannot preserve an omitted body. Use the checked operation's access for that call.
+    if (body === undefined) {
+      const actions = await documents.loadConsoleDocumentActions(section)
+      const user = await documents.consoleDocumentActionContext(context.access)
+      return await documents.runConsoleDocumentAction(() => actions[action](body, user)) ?? null
+    }
+    const result = actionResult(await documents.default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
     return result.value
   },
   section: input => input.section,
@@ -297,6 +298,16 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
+const projectGet = defineConsoleOperation({
+  cli: { command: "info", namespace: "project" },
+  description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "project.get",
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  section: false,
+})
+
 const searchQuery = defineConsoleOperation({
   cli: { namespace: "search", command: "query", positional: ["search"] },
   description: "Search the Agent Invocations of the Console.",
@@ -305,7 +316,7 @@ const searchQuery = defineConsoleOperation({
   name: "search.query",
   run: async (input, context) => {
     const event = legacyEvent("search", "GET", { query: input }, context)
-    const response = await (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./search.get.ts"))).consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: "GET" }))
+    const response = await (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./search.get.ts"))).consoleSearchCollectionHandler.fetch(new Request(consoleRequest(event).url, { method: "GET" }))
     if (!response.ok) throw await searchError(response)
     return await response.json()
   },
@@ -385,6 +396,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  projectGet,
   searchQuery,
   sectionsList,
   skillsInspect,

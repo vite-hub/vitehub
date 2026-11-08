@@ -77,9 +77,10 @@ export default defineConfig({
 
 ```ts
 // server/sync.ts
+import type { ViteHubContext } from "@vite-hub/env/server";
 import { useServerEnv } from "#vitehub/env/server";
 
-export async function sync(event: unknown) {
+export async function sync(event: ViteHubContext) {
   const { airtableToken } = useServerEnv(event);
 
   await fetch("https://api.airtable.com/v0/app/table", {
@@ -96,7 +97,7 @@ export async function sync(event: unknown) {
 
 Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
 
-```ts
+```ts fragment
 // vite.config.ts
 env: {
   server: {
@@ -157,7 +158,7 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 
 The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
 
-```ts
+```ts fragment
 env: {
   server: {
     typesafe: typesafeEnv(),
@@ -231,7 +232,7 @@ Install the shared runtime package before inspecting structured errors:
 pnpm add @vite-hub/runtime
 ```
 
-```ts
+```ts fragment
 import { getViteHubErrorShape } from "@vite-hub/runtime";
 
 try {
@@ -286,10 +287,10 @@ Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support m
 
 ```bash
 vitehub env inspect [--stage <name>] [--json]
-vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]
+vitehub env check [--stage <name>] [--json]
 ```
 
-Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail. Where the host adds secrets at runtime, such as Worker secrets on Cloudflare, the build environment does not have them. In that build, `--allow-missing-secrets` lets a missing secret from the host environment pass. A missing value that is not secret, an invalid value, or a missing provider value still fails.
+Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
 
 ### Managed credentials
 

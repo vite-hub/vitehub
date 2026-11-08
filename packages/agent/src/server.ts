@@ -28,7 +28,7 @@ export {
 export { defineAgentRunEvents } from "./run-events.ts"
 export { channelMessageRunId, describeChannelHistory, replayChannel } from "./channel-replay.ts"
 export { cancelChannelTask, enqueueChannelTask } from "./channel-tasks.ts"
-export type { CancelChannelTaskOptions, ChannelTaskReceipt, EnqueueChannelTaskOptions } from "./channel-tasks.ts"
+export type { CancelChannelTaskOptions, ChannelTaskErrorCode, ChannelTaskReceipt, EnqueueChannelTaskOptions } from "./channel-tasks.ts"
 export type {
   ChannelHistoryDescription,
   ReplayChannelItem,

@@ -59,6 +59,35 @@ describe("@vite-hub/runtime request context", () => {
     expect(finished).toBe(true)
   })
 
+  it("keeps host data and the same context on a non-extensible Request", () => {
+    const { env, request, waitUntil } = cloudflareRequest("https://example.test/")
+    Object.preventExtensions(request)
+
+    const standard = getStandardContext(request)
+    const context = getRuntimeContext(request)
+    const work = Promise.resolve()
+    context.waitUntil(work)
+
+    expect(getStandardContext(request)).toBe(standard)
+    expect(standard.req).toBe(request)
+    expect(context.cloudflare?.env).toBe(env)
+    expect(waitUntil).toHaveBeenCalledWith(work)
+    expect(request).not.toHaveProperty("~standard")
+  })
+
+  it("shares the H3 event context with a non-extensible Request", () => {
+    const request = new Request("https://example.test/")
+    const event = new H3Event(request)
+    Object.preventExtensions(request)
+    const env = { BUCKET: "event bucket" }
+    event.context.cloudflare = { env }
+    installStandardContext(event)
+
+    expect(getStandardContext(request)).toBe(getStandardContext(event))
+    expect(getRuntimeContext(request).cloudflare?.env).toBe(env)
+    expect(request).not.toHaveProperty("~standard")
+  })
+
   it("returns the Standard Context that Nitro set on an event", () => {
     const event = new H3Event(new Request("https://example.test/"))
     installStandardContext(event)
@@ -71,21 +100,28 @@ describe("@vite-hub/runtime request context", () => {
     expect(() => getStandardContext({ context: {} } as never)).toThrowError(expect.objectContaining({ name: "RUNTIME_R0015" }))
   })
 
-  it("gives a Fetchable handler in H3 the event's Standard Context and response headers", async () => {
+  it.each([200, 429, 500])("keeps Standard Context headers on a returned %s Response in H3", async (status) => {
     const app = new H3()
     app.use((event) => { installStandardContext(event) })
     app.get("/fetchable", {
       fetch(request: Request) {
-        getStandardContext(request).res.headers?.set("ratelimit-remaining", "4")
-        return new Response("ok", { headers: { "content-type": "text/plain" } })
+        const res = getStandardContext(request).res
+        res.headers = new Headers({ "ratelimit-remaining": "5", "x-remove": "unused" })
+        res.headers.set("ratelimit-remaining", "4")
+        res.headers.delete("x-remove")
+        res.headers.append("set-cookie", "first=1; Path=/")
+        res.headers.append("set-cookie", "second=2; Path=/")
+        return new Response("ok", { status, headers: { "content-type": "text/plain" } })
       },
     })
 
     const response = await app.fetch(new Request("https://example.test/fetchable"))
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(status)
     expect(await response.text()).toBe("ok")
     expect(response.headers.get("ratelimit-remaining")).toBe("4")
     expect(response.headers.get("content-type")).toBe("text/plain")
+    expect(response.headers.has("x-remove")).toBe(false)
+    expect(response.headers.getSetCookie()).toEqual(["first=1; Path=/", "second=2; Path=/"])
   })
 })
