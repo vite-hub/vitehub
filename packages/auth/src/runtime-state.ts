@@ -1,9 +1,10 @@
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { AuthAuthorization, AuthDefinition, AuthRequestInput, ViteHubAuth } from "./types.ts"
 
 // The Vite plugin resets this state without loading Better Auth. Keep this module free of provider imports.
 const authRuntimeStateKey = Symbol.for("vitehub.auth.runtime")
 
-export type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
+export type AuthRuntimeEnvResolver = (event?: ViteHubContext) => Record<string, unknown>
 export type AuthAccessIdentityResolver = (request: Request, event: AuthRequestInput, hasSession: boolean) => Promise<AuthAuthorization["user"] | Response | undefined>
 
 export interface AuthRuntimeState {
@@ -18,6 +19,8 @@ export interface AuthRuntimeState {
   accessIdentityResolvers?: Map<string, AuthAccessIdentityResolver>
   /** The in-memory tables of each Auth Definition without a database, shared by all of its Better Auth instances. */
   memoryDatabases?: WeakMap<object, Record<string, unknown[]>>
+  /** Serializes claim reservations across Auth instances in this process. */
+  adminClaimQueues?: Map<string, Promise<boolean>>
 }
 
 export function getAuthRuntimeState(): AuthRuntimeState {

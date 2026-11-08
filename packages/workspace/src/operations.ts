@@ -1,10 +1,10 @@
 import { defineOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import { workspaceHistoryDefaultLimit, workspaceHistoryMaximumLimit } from "./results.ts"
+import { workspaceCommitRequestBytes, workspaceHistoryDefaultLimit, workspaceHistoryMaximumLimit } from "./results.ts"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
-import type { WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
+import type { WorkspaceChanges, WorkspaceCommitResult, WorkspaceStaleList, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
 
 // The runtime module reads the Workspace registry of the app, which only exists in the Nitro runtime. The operations
 // load it when they run, so the CLI and `vitehub inspect` can list them without it.
@@ -13,9 +13,9 @@ const runtime = () => import("./runtime/operations.ts")
 const name = v.pipe(v.string(), v.check(value => value.trim() !== "", "Name a Workspace."))
 const nonEmpty = (message: string) => v.pipe(v.string(), v.check(value => value !== "", message))
 
-function defineWorkspaceOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "kind" | "section" | "user">): OperationDefinition<Input, Output> {
-  // Console section `workspaces` grants these. They only read the retained history, and none reads the signed-in user.
-  return defineOperation({ ...definition, kind: "read", section: "workspaces", user: false })
+function defineWorkspaceOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "kind" | "section" | "user">, kind: "read" | "write" = "read"): OperationDefinition<Input, Output> {
+  // Console section `workspaces` grants these. Only a write reads the signed-in user: the commit records it as the author.
+  return defineOperation({ ...definition, kind, section: "workspaces", ...(kind === "read" ? { user: false as const } : {}) })
 }
 
 function table(rows: readonly (readonly string[])[]): string {
@@ -107,7 +107,62 @@ const show = defineWorkspaceOperation<{ path?: string, target: string, workspace
   run: async input => await (await runtime()).runWorkspaceOperation("show", input),
 })
 
-/** The `workspace.*` operations: history, refs, and show. The Console, `vitehub workspace`, and agents run them. */
-export const workspaceOperations: readonly AnyOperation[] = [history, refs, show]
+function formatChanges(result: WorkspaceChanges): string {
+  if (!result.head) return `Ref ${result.ref} has no revisions.\n`
+  if (!result.files.length) return `No changes. Ref ${result.ref} is at ${result.head.id}.\n`
+  return `${table([["PATH", "CHANGE"], ...result.files.map(file => [file.path, file.deleted ? "deleted" : file.base ? "changed" : "added"])])}\nHead: ${result.head.id}\n`
+}
 
-export type { WorkspaceHistoryContent, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
+const encodedFile = v.object({ content: v.string(), encoding: v.picklist(["base64", "utf8"]) })
+
+const changes = defineWorkspaceOperation<{ content?: boolean, ref?: string, since?: string | null, workspace: string }, WorkspaceChanges>({
+  cli: { command: "changes", format: formatChanges, namespace: "workspace", positional: ["workspace"] },
+  description: "List the files of a ref that changed since a revision, with their content at the head and at that revision. Without `since`, list every file of the head. `vitehub pull` reads it.",
+  input: v.object({
+    content: v.optional(v.boolean()),
+    ref: v.optional(nonEmpty("The ref cannot be empty.")),
+    since: v.optional(v.nullable(nonEmpty("The revision cannot be empty."))),
+    workspace: name,
+  }),
+  name: "workspace.changes",
+  run: async input => await (await runtime()).runWorkspaceChanges(input),
+})
+
+const commit = defineWorkspaceOperation<{ delete?: string[], ifHead: string | null, lease?: "override", message?: string, put?: Record<string, { content: string, encoding: "base64" | "utf8" }>, ref?: string, workspace: string }, WorkspaceCommitResult>({
+  cli: { command: "commit", namespace: "workspace", positional: ["workspace"] },
+  description: "Commit files to a ref when its head is still `ifHead`, else fail with WORKSPACE_CONFLICT. `put` writes files and `delete` removes paths; other files keep their content. A replaced file keeps its media type and metadata. The revision records the signed-in user as its author. Workspace write rules and validators run, and a file that someone else holds an edit lease on fails the commit unless lease is override. `vitehub push` calls it.",
+  input: v.object({
+    delete: v.optional(v.array(nonEmpty("A path cannot be empty."))),
+    ifHead: v.nullable(nonEmpty("The head cannot be empty.")),
+    lease: v.optional(v.literal("override")),
+    message: v.optional(v.string()),
+    put: v.optional(v.record(nonEmpty("A path cannot be empty."), encodedFile)),
+    ref: v.optional(nonEmpty("The ref cannot be empty.")),
+    workspace: name,
+  }),
+  // A push sends whole files. 4 MiB fits the request body limit of every host; `vitehub push` refuses a larger push.
+  maxRequestBytes: workspaceCommitRequestBytes,
+  name: "workspace.commit",
+  run: async (input, context) => await (await runtime()).runWorkspaceCommit(input, context),
+}, "write")
+
+function formatStale(result: WorkspaceStaleList): string {
+  if (!result.head) return `Ref ${result.ref} has no revisions.\n`
+  if (!result.stale.length) return `No stale derived files on ${result.ref}.\n`
+  return `${table([["PATH", "SOURCE", "REASON", "SOURCE DIGEST"], ...result.stale.map(file => [file.path, file.derivedFrom.path, file.reason, file.sourceDigest ?? "-"])])}\nWrite SOURCE DIGEST as derivedFrom.digest after you update a file.\n`
+}
+
+const stale = defineWorkspaceOperation<{ ref?: string, workspace: string }, WorkspaceStaleList>({
+  cli: { command: "stale", format: formatStale, namespace: "workspace", positional: ["workspace"] },
+  description: "List the derived files on a ref, such as translations, whose `derivedFrom` source changed or is gone. Each changed entry has `sourceDigest`: write it as `derivedFrom.digest` after you update the file.",
+  input: v.object({ ref: v.optional(nonEmpty("The ref cannot be empty.")), workspace: name }),
+  name: "workspace.stale",
+  run: async input => await (await runtime()).runWorkspaceStale(input),
+})
+
+/** The `workspace.*` operations: history, refs, show, changes, commit, and stale. The Console, `vitehub workspace`, and agents run them. */
+export const workspaceOperations: readonly AnyOperation[] = [history, refs, show, changes, commit, stale]
+
+export { workspaceCommitRequestBytes } from "./results.ts"
+export type { WorkspaceStaleFile } from "./lineage.ts"
+export type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceStaleList, WorkspaceHistoryContent, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"

@@ -46,6 +46,6 @@ const codes: Record<RuntimeErrorCode, typeof dynamicError> = {
 }
 
 export const runtimeErrorDiagnostics: Diagnostics<typeof codes, []> = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics",
+  docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes,
 })

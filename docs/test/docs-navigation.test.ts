@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { docsCatalog, docsRailGroups, docsSectionForPath, docsSidebarGroups, findDocsPage } from "@vite-hub/docs";
+import { docsPanelPages, docsSectionPanels } from "@vite-hub/docs/navigation";
 import { createDocsManifest } from "@vite-hub/docs/server";
 import { describe, expect, it } from "vitest";
 import config from "../nuxt.config";
@@ -83,7 +84,7 @@ describe("docs product navigation", () => {
 
     for (const sectionId of serverPrimitiveSections) {
       const product = section(sectionId);
-      const pages = product.pages.filter(page => page.navigation);
+      const pages = docsPanelPages(product, null).filter(page => page.navigation);
       const titles = pages.map(page => page.title);
       const templateTitles = titles.filter(title => template.includes(title));
 
@@ -164,7 +165,7 @@ describe("docs product navigation", () => {
       if (candidate.id === "ui") continue;
       const pathsByTitle = new Map<string, string[]>();
 
-      for (const page of candidate.pages.filter(page => page.navigation && page.title !== "Overview")) {
+      for (const page of docsPanelPages(candidate, null).filter(page => page.navigation && page.title !== "Overview")) {
         const title = page.title.toLowerCase();
         pathsByTitle.set(title, [...(pathsByTitle.get(title) || []), page.path]);
       }
@@ -172,6 +173,17 @@ describe("docs product navigation", () => {
       const duplicates = [...pathsByTitle].filter(([, paths]) => paths.length > 1);
       expect(duplicates, candidate.id).toEqual([]);
     }
+  });
+
+  it("keeps generated diagnostic codes in their own sidebar panels", () => {
+    for (const sectionId of ["agents", "auth", "queue", "ui"]) {
+      const product = section(sectionId);
+      const panel = docsSectionPanels(product).find(candidate => candidate.page.id === "diagnostics");
+      expect(panel?.count, sectionId).toBeGreaterThan(0);
+      expect(docsPanelPages(product, panel!.page).length).toBe(panel!.count + 1);
+      expect(docsSidebarGroups(product).flatMap(group => group.pages).some(page => page.id.startsWith("diagnostics"))).toBe(false);
+    }
+    expect(findDocsPage(docsManifest, "/docs/queue/diagnostics/queue_disabled")?.page.title).toBe("QUEUE_DISABLED");
   });
 
   it("renders the catalog and every product Overview as a landing page", () => {

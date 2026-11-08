@@ -107,7 +107,7 @@
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "vite": {

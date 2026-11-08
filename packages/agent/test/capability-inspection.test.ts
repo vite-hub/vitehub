@@ -1,6 +1,7 @@
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createAgentInvocationContextStore, agentInvocationConfigurationUpdatedContextKey } from "../src/invocation-context.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, setAgentCapabilityInspection, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { mcp } from "../src/capabilities/mcp.ts"
@@ -70,7 +71,7 @@ describe("Capability inspection snapshots", () => {
       empty: { tools: async () => ({}), close: vi.fn() },
       optional: () => false,
     } })
-    await runAgent(defineAgent({ capabilities: [capability], driver: { model: model() }, invocations }), runtime("mcp-inspection"), { prompt: "Read docs" })
+    await runAgentWithContext(defineAgent({ capabilities: [capability], driver: { model: model() }, invocations }), runtime("mcp-inspection"), { prompt: "Read docs" })
     const record = await invocations.getByRunId("mcp-inspection")
     expect(configuration(record)).toMatchObject({
       capabilities: [{ id: "mcp", inspection: { label: "MCP", view: capability.inspection?.view, state: { servers: [
@@ -97,7 +98,7 @@ describe("Capability inspection snapshots", () => {
       } }))
       context.tools.transform(current => ({ renamed: { ...current!.mcp_docs_read!, name: "renamed" } }))
     } })
-    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [mcp({ servers: { docs: { tools, close: vi.fn() } } }), replace], driver: { model: model() }, invocations }), runtime("mcp-transformed"), { prompt: "Read docs" })
+    await runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [mcp({ servers: { docs: { tools, close: vi.fn() } } }), replace], driver: { model: model() }, invocations }), runtime("mcp-transformed"), { prompt: "Read docs" })
     expect(configuration(await invocations.getByRunId("mcp-transformed"))).toMatchObject({
       tools: [{ name: "renamed", capabilityId: "mcp", mcp: { server: "docs", name: "read" }, description: "Replacement", inputSchema: { type: "string" } }],
     })
@@ -118,7 +119,7 @@ describe("Capability inspection snapshots", () => {
         metadata: preserve ? { ...current!.mcp_docs_read!.metadata } : undefined,
       } }))
     } })
-    const result = runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+    const result = runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [
       mcp({ servers: { docs: () => ({ tools: async () => ({ read: { execute: async () => "original" } }), close }) } }),
       transform,
     ], driver: { model: languageModel }, invocations }), runtime("reconstructed-mcp"), { prompt: "Read docs" })
@@ -143,7 +144,7 @@ describe("Capability inspection snapshots", () => {
       context.tools.add({ local: { name: "local", execute: async () => "local" } })
       context.tools.transform(current => ({ local: current!.local! }))
     } })
-    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+    await runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [
       mcp({ servers: { docs: { tools: async () => ({ read: { execute: async () => "original" } }), close: vi.fn() } } }),
       transform,
     ], driver: { model: model() }, invocations }), runtime("local-tools"), { prompt: "Use local tools" })
@@ -152,7 +153,7 @@ describe("Capability inspection snapshots", () => {
 
   it("applies tool transforms with the default Capability CLI surface", async () => {
     const languageModel = model()
-    await runAgent(defineAgent({ capabilities: [
+    await runAgentWithContext(defineAgent({ capabilities: [
       defineCapability({ id: "lookup", tools: {
         keep: { name: "keep", execute: async () => "keep" },
         drop: { name: "drop", execute: async () => "drop" },
@@ -167,7 +168,7 @@ describe("Capability inspection snapshots", () => {
   it("keeps Capability CLI ownership when a transform renames the CLI tool", async () => {
     const invocations = journal()
     const languageModel = model()
-    await runAgent(defineAgent({ capabilities: [
+    await runAgentWithContext(defineAgent({ capabilities: [
       defineCapability({ id: "inventory-runtime", cli: { name: "inventory", commands: { list: { run: () => "items" } } } }),
       defineCapability({ id: "rename", resolve(context) {
         context.tools.transform(current => ({ stock: current!.inventory! }))
@@ -197,7 +198,7 @@ describe("Capability inspection snapshots", () => {
         return current
       })
     } })
-    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+    await runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [
       mcp({ servers: { docs: { tools: async () => ({ read: { execute: async () => "original" } }), close: vi.fn() } } }),
       transform,
     ], driver: { model: languageModel }, invocations }), runtime("renamed-local-tools"), { prompt: "Use local tools" })
@@ -217,7 +218,7 @@ describe("Capability inspection snapshots", () => {
     const languageModel = model()
     const shared = { name: "shared", execute: async () => "shared" }
     const secondName = renameBoth ? "renamed_b" : "b"
-    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+    await runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [
       defineCapability({ id: "first", tools: { a: shareDuringTransform ? { ...shared } : shared } }),
       defineCapability({ id: "second", tools: { b: shareDuringTransform ? { ...shared } : shared } }),
       defineCapability({ id: "rename", resolve(context) {
@@ -252,7 +253,7 @@ describe("Capability inspection snapshots", () => {
       response,
     ] })
     const invocations = journal()
-    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [defineCapability({
+    await runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [defineCapability({
       id: "local", tools: { read: new ReadTool() }, resolve(context) { context.tools.transform(current => current) },
     })], driver: { model: languageModel }, invocations }), runtime("class-tool"), { prompt: "Read" })
     expect(configuration(await invocations.getByRunId("class-tool"))).toMatchObject({ tools: [{ name: "read", capabilityId: "local" }] })
@@ -262,7 +263,7 @@ describe("Capability inspection snapshots", () => {
 
   it.each([false, true])("retains final MCP inspection with non-enumerable replacement metadata, accessor=%s", async (accessor) => {
     const invocations = journal()
-    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+    await runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [
       mcp({ servers: { docs: { tools: async () => ({ read: { execute: async () => "original" } }), close: vi.fn() } } }),
       defineCapability({ id: "replace", resolve(context) {
         context.tools.transform(() => {
@@ -285,7 +286,7 @@ describe("Capability inspection snapshots", () => {
       if (phase === "resolve") throw failure
       return { tools: async () => { throw failure }, close }
     })
-    await expect(runAgent(defineAgent({ capabilities: [mcp({ servers: { broken: resolver } })], driver: { model: model() }, invocations }), runtime(`mcp-${phase}`), {})).rejects.toThrow("Discovery unavailable")
+    await expect(runAgentWithContext(defineAgent({ capabilities: [mcp({ servers: { broken: resolver } })], driver: { model: model() }, invocations }), runtime(`mcp-${phase}`), {})).rejects.toThrow("Discovery unavailable")
     expect(configuration(await invocations.getByRunId(`mcp-${phase}`))).toMatchObject({ capabilities: [{ id: "mcp", inspection: { state: { servers: [{ name: "broken", status: phase === "resolve" ? "Resolution failed" : "Discovery failed" }] } } }] })
     expect(resolver).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(phase === "discover" ? 1 : 0)
@@ -296,7 +297,7 @@ describe("Capability inspection snapshots", () => {
     const execute = vi.fn(({ text }: { text: string }) => text)
     const capability = title({ id: "conversation-title", execute })
     const agent = defineAgent({ capabilities: [capability], driver: { run: () => "Done" }, invocations })
-    await Promise.all(["First title", "Second title"].map(prompt => runAgent(agent, runtime(prompt), { prompt })))
+    await Promise.all(["First title", "Second title"].map(prompt => runAgentWithContext(agent, runtime(prompt), { prompt })))
     for (const value of ["First title", "Second title"]) {
       const record = await invocations.getByRunId(value)
       expect(configuration(record)).toMatchObject({ capabilities: [{ id: "conversation-title", inspection: { label: "Title", state: { status: "Completed", title: value, generation: "Custom execute", maxLength: 39 } } }] })
@@ -315,7 +316,7 @@ describe("Capability inspection snapshots", () => {
       response,
     ] })
     const invocations = journal(mode)
-    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [defineCapability({
+    await runAgentWithContext(defineAgent({ cli: { capabilities: false }, capabilities: [defineCapability({
       id: "meals",
       tools: { search_meals: { name: "search_meals", description: "Search logged meals.", execute: async () => "Found", icon: "i-lucide-utensils", title: "Searched meals" } },
     })], driver: { model: languageModel }, invocations }), runtime(`tool-display-${mode}`), { prompt: "Search" })
@@ -334,7 +335,7 @@ describe("Capability inspection snapshots", () => {
 
   it("keeps inspection content out of metadata-only journals", async () => {
     const invocations = journal("metadata")
-    await runAgent(defineAgent({ capabilities: [title({ execute: () => "Private result" })], driver: { run: () => "Done" }, invocations }), runtime("metadata-inspection"), { prompt: "Private input" })
+    await runAgentWithContext(defineAgent({ capabilities: [title({ execute: () => "Private result" })], driver: { run: () => "Done" }, invocations }), runtime("metadata-inspection"), { prompt: "Private input" })
     const snapshot = configuration(await invocations.getByRunId("metadata-inspection"))
     expect(snapshot).toMatchObject({ capabilities: [{ id: "title", inspection: { label: "Title" } }] })
     expect(JSON.stringify(snapshot)).not.toContain("Private result")
@@ -345,7 +346,7 @@ describe("Capability inspection snapshots", () => {
   it.each([false, true])("respects independent telemetry content choices with full capture %s", async (full) => {
     const exporter = vi.fn()
     const tasks: Promise<unknown>[] = []
-    await runAgent(defineAgent({ capabilities: [
+    await runAgentWithContext(defineAgent({ capabilities: [
       title({ execute: () => "Private title" }),
       defineCapability({ id: "export", telemetry: { exporter, content: { instructions: true, inputs: full, outputs: full } } }),
     ], driver: { run: () => "Done" } }), { ...runtime("telemetry-inspection"), waitUntil: task => { tasks.push(task) } }, { prompt: "Private input" })
@@ -359,14 +360,14 @@ describe("Capability inspection snapshots", () => {
   it.each([false, true])("finishes Title inspection without generation for skipped=%s", async (skip) => {
     const invocations = journal()
     const execute = vi.fn(() => "Unused")
-    await runAgent(defineAgent({ capabilities: [title({ execute, when: () => !skip })], driver: { run: () => "Done" }, invocations }), runtime("no-title"), skip ? { prompt: "Skip" } : {})
+    await runAgentWithContext(defineAgent({ capabilities: [title({ execute, when: () => !skip })], driver: { run: () => "Done" }, invocations }), runtime("no-title"), skip ? { prompt: "Skip" } : {})
     expect(configuration(await invocations.getByRunId("no-title"))).toMatchObject({ capabilities: [{ id: "title", inspection: { state: { status: skip ? "Skipped" : "No title generated" } } }] })
     expect(execute).not.toHaveBeenCalled()
   })
 
   it("captures capability-owned state through the public API and redacts credential fields", async () => {
     const invocations = journal()
-    await runAgent(defineAgent({ capabilities: [defineCapability({
+    await runAgentWithContext(defineAgent({ capabilities: [defineCapability({
       id: "example",
       inspection: { label: "Example" },
       async configure(context) { await context.inspection.set({ status: "Ready", apiToken: "private-key" }) },
