@@ -42,14 +42,14 @@ pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-For Database, add the Database package and `drizzle-orm` as a direct
-dependency because your schema imports it. `@vite-hub/database` needs
-`drizzle-orm` 0.45.3 or newer. With an older version, the package manager
-installs a second copy, and the query types stop matching. Add `drizzle-kit`
-for the migration commands.
+Add the package of each feature that you use. For Database, also keep or add
+`drizzle-orm` as a direct dependency because your schema imports it.
+`@vite-hub/database` needs `drizzle-orm` 0.45.3 or newer. With an older
+version, the package manager installs a second copy, and the query types stop
+matching. Add `drizzle-kit` for the migration commands.
 
 ```bash [Terminal]
-pnpm add @vite-hub/database drizzle-orm
+pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
