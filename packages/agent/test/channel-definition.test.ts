@@ -109,6 +109,62 @@ describe("defineChannel() on the Agent webhook route", () => {
     expect(handler.mock.calls.map(([event]) => (event as ChannelEvent).id)).toEqual(["evt_retry", "evt_retry"])
   }, 20_000)
 
+  it.each([["invoice.paid", "charge.failed"], ["paid", "failed"]])("routes %s and %s to their own triggers and retries the selected task", async (paidEvent, failedEvent) => {
+    const paid = vi.fn(async (..._args: unknown[]) => undefined).mockRejectedValueOnce(new Error("retry paid")).mockResolvedValue(undefined)
+    const failed = vi.fn(async (..._args: unknown[]) => undefined)
+    const prepared = vi.fn()
+    const target = (run: typeof paid) => defineChannelTrigger({
+      input: {
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate(value: unknown) {
+            // SAFETY: This test sends the Stripe webhook input that the route builds.
+            return { value: (value as { payload: { id: string } }).payload }
+          },
+        },
+      },
+      tasks: { record: { prepare: prepared, run } },
+      invoke: (_context, input: { id: string }) => ({
+        task: "record",
+        input: { data: input },
+        webhook: { deliveryId: input.id, serialize: "payments" },
+      }),
+    })
+    const { send } = await routeFor(hostAgent(defineChannel({
+      adapter: stripe({ secret }),
+      on: { [paidEvent]: target(paid), [failedEvent]: target(failed) },
+    })))
+
+    const body = stripeEvent("evt_paid", paidEvent)
+    const accepted = await send(body)
+    expect(accepted.status).toBe(200)
+    await expect(accepted.json()).resolves.toMatchObject({ accepted: true, queued: true })
+    await until(() => paid.mock.calls.length === 2, 15_000)
+    expect(failed).not.toHaveBeenCalled()
+    await expect((await send(body)).json()).resolves.toMatchObject({ duplicate: true })
+
+    expect((await send(stripeEvent("evt_failed", failedEvent))).status).toBe(200)
+    await until(() => failed.mock.calls.length === 1)
+    expect(prepared).toHaveBeenCalledTimes(3)
+    expect(paid.mock.calls[0]![1]).toMatchObject({ input: { data: { id: "evt_paid" } } })
+    expect(failed.mock.calls[0]![1]).toMatchObject({ input: { data: { id: "evt_failed" } } })
+    const other = await send(stripeEvent("evt_other", "customer.created"))
+    await expect(other.json()).resolves.toMatchObject({ accepted: false, reason: 'no target for event "customer.created"' })
+  }, 20_000)
+
+  it("filters the event of a single trigger target", async () => {
+    const invoke = vi.fn(() => ignored("paid"))
+    const { send } = await routeFor(hostAgent(defineChannel({
+      adapter: stripe({ secret }),
+      on: { "invoice.paid": defineChannelTrigger({ invoke }) },
+    })))
+    await expect((await send(stripeEvent("evt_other", "charge.failed"))).json()).resolves.toMatchObject({ accepted: false })
+    expect(invoke).not.toHaveBeenCalled()
+    await expect((await send(stripeEvent("evt_paid", "invoice.paid"))).json()).resolves.toMatchObject({ reason: "paid" })
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+
   it("runs the handler before the answer without webhook State", async () => {
     const handler = vi.fn(() => { throw new Error("down") })
     const agent = hostAgent(defineChannel({

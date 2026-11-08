@@ -1,3 +1,4 @@
+import "./channel-extensions.ts"
 import { formatChannelCitationStream, formatChannelCitationText } from "./internal/channel-citations.ts"
 import { createForgeChannelSyncProvider } from "./internal/forge-channel-sync.ts"
 import { forgeIngest, forgeWebhookInput, forgeChannelMetadata, forgeChannelPullRequest, forgeActivityComment } from "./internal/forge-events.ts"
@@ -72,6 +73,7 @@ import type {
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import { defineMessageChannelInstructions } from "./internal/channels.ts"
+import { withChannelWebhookEvent } from "./internal/channel-webhook-events.ts"
 import { forgeAccessKey, type ForgeAccess } from "./internal/forge-access.ts"
 import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKey, clearChatFinalReplyText, setChatFinalReplyText, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
@@ -3851,6 +3853,13 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
   const triggers: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>> = {}
   for (const [name, target] of Object.entries(on)) {
     if (hasRuntimeType(target, "function")) handlers[name] = target as ChannelHandler
+    else if (isWebhookAdapter(adapter) && (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks === undefined) {
+      // Event names can contain dots and other characters that Agent trigger IDs cannot use.
+      let key = /^[a-z][a-z0-9-_]*$/i.test(name) ? name : `on-${Buffer.from(name).toString("hex")}`
+      while (key !== name && (Object.hasOwn(on, key) || Object.hasOwn(triggers, key))) key += "-"
+      const trigger = target as AgentChannelTriggerDefinition<TRuntimeConfig>
+      triggers[key] = withChannelWebhookEvent({ ...trigger }, { name, webhook: adapter.webhook })
+    }
     else triggers[name] = target as AgentChannelTriggerDefinition<TRuntimeConfig, any, any>
   }
   const base: AgentChannelDefinition<TRuntimeConfig> = isWebhookAdapter(adapter)
