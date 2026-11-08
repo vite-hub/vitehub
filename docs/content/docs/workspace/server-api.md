@@ -218,6 +218,18 @@ Commands reject existing symbolic links in the checkout folder and its ancestors
 
 A push sends whole files, is limited to 4 MiB, and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
 
+#### On the GitHub Store
+
+The commands work the same on the GitHub Store, with these differences:
+
+- A revision id is a commit sha, and the digest of a file is its Git blob sha. `vitehub.lock` still records SHA-256.
+- Each instance of the app keeps the head of a ref for up to 5 seconds. A pull right after a commit on GitHub, or through another instance, can report the older head. A push still checks the real head before it commits, so it cannot overwrite that commit. If your push reaches an instance with an older head, the push can first undo the newer commit in your folder and then pull it again. A line that you also changed then gets conflict markers.
+- The media type of a file comes from its name. A push keeps the Git mode of an executable file or a symbolic link (`gitMode` metadata). The Store keeps no other file metadata.
+- GitHub records the account of the token as the author of each commit, and the revision `author` is that account. The signed-in user is in the `Vitehub-Metadata` trailer of the commit message. Anyone with write access to the repository can write that trailer, so the Store does not report it as the author.
+- The first push to a ref that does not exist creates a branch from the published branch when the Store sets `refs.published`, else from the default branch. The push then pulls the files that the new branch has from that branch.
+- A pull reads up to two blobs for each changed file: the head version and the version at the last pull. The first pull reads one blob for each file. GitHub allows 5,000 API requests per hour for most tokens, so the first pull of a large Workspace can use a large part of that limit. `vitehub status` and `vitehub pull --dry-run` read no file content.
+- A force push can remove the revision that `vitehub.lock` records. A pull then fails with `WORKSPACE_NOT_FOUND`. Move the folder away, remove its entry from `vitehub.lock`, pull again, and copy your changes back.
+
 ### Derived files
 
 A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown (`.md`, `.markdown`, `.mdx`), at the top of a YAML file (`.yaml`, `.yml`), or as a top-level key of a JSON file (`.json`). Other files have no lineage:
