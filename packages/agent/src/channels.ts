@@ -4475,7 +4475,7 @@ export async function pollGmailChannel(channel: AgentChannelDefinition, options:
   }
   // Standalone Schedule functions do not load the webhook route or its startup plugin.
   // The generated registry loads the same handlers and durable State configuration on demand.
-  if (!channelsConsoleHost()) await (await import("#vitehub/agent/registry")).loadChannelsHost()
+  if (!channelsConsoleHost()) await (await import("#vitehub/agent/registry")).loadAgentHost()
   const host = channelsConsoleHost()
   if (!host) {
     throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() needs the Agent webhook routes of this app in the same process, with durable Agent State: libSQL with VITEHUB_AGENT_STATE_URL or Cloudflare Durable Objects." })
