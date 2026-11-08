@@ -9,14 +9,14 @@ it.each([false, true])("publishes response image bytes before exposing links, fa
   const bytes = new Uint8Array([137, 80, 78, 71])
   const put = vi.fn(async (_pathname: string, _bytes: Uint8Array) => {
     if (fail) throw new Error("storage offline")
-    return [null, { url: "/blob/persistent.png" }]
+    return [undefined, { url: "/blob/persistent.png" }]
   })
   let render!: AgentOutputRenderer
   // Only these public capability context fields participate in artifact publication.
   const context = {
     capabilities: { blob: { put } }, context: new Map(), driver: { kind: "provider" },
     output: { final(renderer: AgentOutputRenderer) { render = renderer } },
-    request: new Request("http://vitehub.local/api/_vitehub/console/agents/test/invocations"),
+    request: new Request("http://vitehub.local/_vitehub/api/agents/test/invocations"),
     run: { runId: "test" },
     workspace: { fs: { stat: async () => ({ type: "file", mediaType: "image/png" }), readFile: async () => bytes } },
   } as unknown as AgentCapabilityRuntimeContext
@@ -33,11 +33,11 @@ it.each([false, true])("publishes response image bytes before exposing links, fa
 it("keeps the Workspace diff available to later output Capabilities", async () => {
   const renders: AgentOutputRenderer[] = []
   const context = {
-    capabilities: { blob: { put: vi.fn(async () => [null, { url: "/blob/persistent.png" }]) } },
+    capabilities: { blob: { put: vi.fn(async () => [undefined, { url: "/blob/persistent.png" }]) } },
     context: createAgentInvocationContextStore(),
     driver: { kind: "provider" },
     output: { final(renderer: AgentOutputRenderer) { renders.push(renderer) } },
-    request: new Request("http://vitehub.local/api/_vitehub/console/agents/test/invocations"),
+    request: new Request("http://vitehub.local/_vitehub/api/agents/test/invocations"),
     run: { runId: "test" },
     workspace: { fs: { stat: async () => ({ type: "file", mediaType: "image/png" }), readFile: async () => new Uint8Array([137, 80, 78, 71]) } },
   } as unknown as AgentCapabilityRuntimeContext

@@ -24,4 +24,21 @@ describe("Console dev-server discovery", () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it("leaves discovery to the host when Vite runs in middleware mode, as in Nuxt", async () => {
+    const root = await mkdtemp(join(import.meta.dirname, ".dev-discovery-"))
+    const http = Object.assign(new EventEmitter(), { listening: true, address: () => ({ address: "::1", port: 3000, family: "IPv6" }) })
+    const plugin = consoleVitePlugin({ rpcOnly: true })
+    const hook = plugin.configureServer
+    const configure = typeof hook === "function" ? hook : hook?.handler
+    if (!configure) throw new Error("Missing configureServer hook")
+    try {
+      // The hook only registers listeners and reads the listening socket and resolved config.
+      await configure.call({} as never, { httpServer: http, resolvedUrls: null, config: { root, base: "/_nuxt/", server: { middlewareMode: true } }, watcher: new EventEmitter() } as never)
+      await expect(readFile(join(root, ".vitehub/dev-server.json"))).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

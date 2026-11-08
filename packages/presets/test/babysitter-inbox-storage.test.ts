@@ -183,3 +183,36 @@ it('finds stack parents in the summary through the refs index instead of every P
   expect(plan).toMatch(/SEARCH parent USING INDEX vitehub_agent_state_babysitter_pull_requests_refs/)
   await state.disconnect()
 })
+
+it('moves the JSON columns of a version 1 inbox last and fills its pending heads', async () => {
+  const path = join(await directory(), 'inbox.db')
+  const db = new DatabaseSync(path)
+  db.exec(`CREATE TABLE vitehub_babysitter_schema_version (version INTEGER PRIMARY KEY);
+    INSERT INTO vitehub_babysitter_schema_version VALUES (1);
+    CREATE TABLE vitehub_babysitter_pull_requests (scope TEXT NOT NULL, repository TEXT NOT NULL, number INTEGER NOT NULL,
+      value TEXT NOT NULL, summary TEXT NOT NULL, status TEXT NOT NULL, generation INTEGER NOT NULL, handled INTEGER NOT NULL,
+      dirty_at INTEGER NOT NULL, next_at INTEGER NOT NULL, lease TEXT, lease_until INTEGER NOT NULL, waiting INTEGER NOT NULL,
+      progress_blocked INTEGER NOT NULL, state TEXT, head_sha TEXT, head_ref TEXT, base_ref TEXT, PRIMARY KEY(scope, repository, number));
+    CREATE TABLE vitehub_babysitter_deliveries (scope TEXT NOT NULL, id TEXT NOT NULL, event TEXT, received INTEGER NOT NULL,
+      payload TEXT, result TEXT, PRIMARY KEY(scope, id));
+    CREATE TABLE vitehub_babysitter_meta (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(scope, key));`)
+  const insert = db.prepare(`INSERT INTO vitehub_babysitter_pull_requests VALUES ('', ?, ?, ?, '{}', 'waiting', 1, 1, 0, 0, ?, 0, ?, 0, 'open', 'h', 'f', 'main')`)
+  insert.run(repository, 1, JSON.stringify({ wait: { headSha: 'a' } }), null, 1)
+  insert.run(repository, 2, JSON.stringify({ lease: 't', sourcePushHeads: ['b'], prospectivePush: { token: 't', heads: ['c', 'b'] } }), 't', 0)
+  insert.run(repository, 3, JSON.stringify({ lease: 't', prospectivePush: { token: 'old', heads: ['d'] } }), 't', 0)
+  insert.run(repository, 4, 'not json', null, 0)
+  db.close()
+  const inbox = new PullRequestInbox({ path, repositories: [repository] })
+  await inbox.metaNumber('init')
+  await inbox.close()
+  const migrated = new DatabaseSync(path)
+  const columns = migrated.prepare(`SELECT name FROM pragma_table_info('vitehub_babysitter_pull_requests')`).all().map(row => row.name)
+  expect(columns.slice(-4)).toEqual(['wait_head', 'lease_heads', 'summary', 'value'])
+  const rows = migrated.prepare('SELECT number, wait_head, lease_heads, value FROM vitehub_babysitter_pull_requests ORDER BY number').all()
+  expect(rows.map(row => [row.number, row.wait_head, row.lease_heads && JSON.parse(String(row.lease_heads)).sort()])).toEqual([
+    [1, 'a', null], [2, null, ['b', 'c']], [3, null, []], [4, null, null],
+  ])
+  expect(rows[3]?.value).toBe('not json')
+  expect(migrated.prepare('SELECT MAX(version) AS version FROM vitehub_babysitter_schema_version').get()?.version).toBe(2)
+  migrated.close()
+})
