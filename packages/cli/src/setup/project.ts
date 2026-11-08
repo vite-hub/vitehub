@@ -124,9 +124,11 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
   if (!manifest && !nuxtConfig && !viteConfig) throw cliErrorDiagnostics.SETUP_NOT_A_PROJECT({ root })
 
   const framework: SetupFramework = nuxtConfig || dependencies.nuxt ? "nuxt" : viteConfig || dependencies.vite ? "vite" : "none"
-  const configFile = framework === "nuxt" ? nuxtConfig ?? viteConfig : viteConfig
+  const configFile = framework === "nuxt" ? nuxtConfig : viteConfig
   const configSource = configFile ? await readFile(join(root, configFile), "utf8") : undefined
-  const config = configFile && configSource !== undefined ? locateViteHubConfig(configFile, configSource) : undefined
+  let config = configFile && configSource !== undefined ? locateViteHubConfig(configFile, configSource) : undefined
+  // Nuxt automatically registers local layers, which can install ViteHub themselves.
+  if (framework === "nuxt" && (!config || (!config.ok && config.reason === "no-vitehub")) && existsSync(join(root, "layers"))) config = { ok: false, reason: "dynamic-options" }
   const folders = parentFolders(root)
   const require = createRequire(join(root, "package.json"))
   return {

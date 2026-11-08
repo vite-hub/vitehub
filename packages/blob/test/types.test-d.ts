@@ -3,7 +3,7 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { blob, file, image, type BlobModuleOptions, type BlobReference, type BlobReferenceInput, type BlobObject, type BlobResult, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, file, image, type BlobModuleOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobObject, type BlobResult, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -168,5 +168,36 @@ describe("types", () => {
 
     // @ts-expect-error maxSize uses the same BlobSize values as ensureBlob().
     image({ maxSize: "5MB" })
+  })
+  it("returns a read-only handle without write methods", () => {
+    const reader = blob.store("default", { mode: "read" })
+    expectTypeOf(reader).toEqualTypeOf<ReadonlyBlobStorage>()
+    expectTypeOf(blob.store("assets")).toEqualTypeOf<BlobStorage>()
+    expectTypeOf(blob.store("assets", { mode: "write" })).toEqualTypeOf<BlobStorage>()
+    expectTypeOf(reader.get).toEqualTypeOf<BlobStorage["get"]>()
+    expectTypeOf(reader.head).toEqualTypeOf<BlobStorage["head"]>()
+    expectTypeOf(reader.list).toEqualTypeOf<BlobStorage["list"]>()
+    expectTypeOf(reader.serve).toEqualTypeOf<BlobStorage["serve"]>()
+    expectTypeOf(reader.media.get).toEqualTypeOf<BlobStorage["media"]["get"]>()
+    void reader.sign("report.pdf", { expiresIn: 60, method: "GET" })
+
+    // @ts-expect-error A read-only handle has no put().
+    void reader.put("report.pdf", "text")
+    // @ts-expect-error A read-only handle has no del().
+    void reader.del("report.pdf")
+    // @ts-expect-error A read-only handle has no handleUpload().
+    void reader.handleUpload
+    // @ts-expect-error A read-only handle has no createMultipartUpload().
+    void reader.createMultipartUpload
+    // @ts-expect-error A read-only handle has no media.put().
+    void reader.media.put
+    // @ts-expect-error A read-only handle has no media.remove().
+    void reader.media.remove
+    // @ts-expect-error A read-only handle signs GET requests only.
+    void reader.sign("report.pdf", { expiresIn: 60, method: "PUT" })
+    // @ts-expect-error A read-only handle cannot select a writable store.
+    void reader.store
+    // @ts-expect-error mode is "read" or "write".
+    void blob.store("default", { mode: "readonly" })
   })
 })

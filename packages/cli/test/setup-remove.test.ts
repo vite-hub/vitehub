@@ -176,13 +176,27 @@ describe("vitehub remove", () => {
     expect(await enabled(root, "workflow")).toBe("off")
   })
 
-  it("names the root feature of a chained implication", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", console: true }`) })
+  it("names the feature that implies the removed feature", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", comments: true }`) })
 
     const { exitCode, json } = await remove(["database", "--dry-run"], root)
 
     expect(exitCode).toBe(3)
-    expect(json.impliedBy).toEqual(["console"])
+    expect(json.impliedBy).toEqual(["comments"])
+  })
+
+  it("keeps the Console's Agent packages when removing Database", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@libsql/client": "1.0.0", "@vite-hub/database": "1.0.0", "drizzle-orm": "1.0.0" }, devDependencies: { "drizzle-kit": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "vite.config.ts": viteConfig(`{ preset: "cloudflare", agent: true, console: { auth: false }, database: true }`),
+    })
+    const pm = fakePackageManager(root)
+
+    const { exitCode, json } = await remove(["database", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.uninstall).toMatchObject({ devPackages: ["drizzle-kit"], packages: ["@vite-hub/database"] })
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8")).dependencies).toEqual({ "@libsql/client": "1.0.0", "drizzle-orm": "1.0.0" })
   })
 
   it("refuses while app code imports the feature, with file and line", async () => {

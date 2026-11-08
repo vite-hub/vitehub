@@ -9,11 +9,14 @@ import { H3 } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { describeConsoleContributedSections } from "../src/console/contributions.ts"
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { consoleVitePlugin, resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { UserConfig } from "vite"
+
+const pageProject = consoleProject()
 
 describe("Comments activation from the Console", () => {
   it.each([
@@ -96,13 +99,14 @@ describe("Comments activation from the Console", () => {
         return session
       })
       vi.stubGlobal("fetch", fetch)
-      const consoleMount = mount
-      await loadConsoleNavigation(`${consoleMount}/api/_vitehub/console/sections?${encodeURIComponent(root)}`)
+      setConsoleProject({ origin: "", base: mount })
+      await loadConsoleNavigation(`/api/_vitehub/console/sections?${encodeURIComponent(root)}`)
       await vi.waitFor(() => expect(session?.status).toBe(200))
       expect(session?.headers.get("set-cookie")).toContain("vitehub-tools=1")
       expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })
     }
     finally {
+      setConsoleProject(pageProject)
       vi.unstubAllGlobals()
       await rm(root, { recursive: true, force: true })
     }

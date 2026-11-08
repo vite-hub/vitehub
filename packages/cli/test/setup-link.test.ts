@@ -110,7 +110,7 @@ describe("vitehub link", () => {
     // The package.json name, normalized as the build does: `@acme/My App` deploys as `acme-my-app`.
     expect(api.requests.map(request => request.url)).toEqual([`https://api.cloudflare.com/client/v4/accounts/${cloudflareAccount}/workers/workers/acme-my-app`])
     expect(json).toMatchObject({ credentials: { source: "host-cli" } })
-    expect(wrangler.calls).toEqual(["wrangler auth token --json", "wrangler whoami --json"])
+    expect(wrangler.calls).toEqual(["wrangler auth token --json --env-file .env --config wrangler.json", "wrangler whoami --json --env-file .env --config wrangler.json"])
     expect(stdout).not.toContain(TOKEN)
   })
 

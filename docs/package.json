@@ -26,6 +26,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vueuse/core": "catalog:ui",
@@ -40,6 +41,7 @@
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@types/node": "catalog:tooling",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",

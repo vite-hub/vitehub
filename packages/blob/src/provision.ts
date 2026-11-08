@@ -31,6 +31,7 @@ interface VercelBlobStore {
 }
 
 interface VercelBlobProjectMetadata {
+  environmentVariables?: unknown
   environments?: string[]
   projectId?: string
 }
@@ -95,9 +96,7 @@ async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, { j
     await request("/r2/buckets", { method: "POST", body: { name: bucketName }, headers })
   }
   catch (error) {
-    const duplicate = error instanceof ProvisionRequestError
-      && (error.status === 409 || (error.status === 400 && error.codes.includes(10004)))
-    if (!duplicate) throw error
+    if (!(error instanceof ProvisionRequestError) || error.kind !== "conflict") throw error
     const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`, {
       headers,
       parse: parseCloudflareBucket,
@@ -148,6 +147,20 @@ function vercelConnectionState(store: VercelBlobStore, projectId: string): "abse
   return connections.some(connection => VERCEL_PROJECT_ENVIRONMENTS.every(environment => connection.environments?.includes(environment)))
     ? "equivalent"
     : "mismatched"
+}
+
+// A connection made through the Vercel API adds `BLOB_STORE_ID` for OIDC. An older connection
+// can list only `BLOB_READ_WRITE_TOKEN`. Returns false only when the listed names prove that.
+function vercelConnectionHasStoreId(store: VercelBlobStore, projectId: string): boolean {
+  const names: string[] = []
+  for (const project of store.projectsMetadata ?? []) {
+    if (project.projectId !== projectId || !Array.isArray(project.environmentVariables)) continue
+    const variables: readonly unknown[] = project.environmentVariables
+    for (const name of variables) {
+      if (typeof name === "string") names.push(name)
+    }
+  }
+  return !names.length || names.includes("BLOB_STORE_ID")
 }
 
 async function readVercelBlobStore(
@@ -207,7 +220,9 @@ async function ensureVercelBlobConnection(
     })
   }
   catch (error) {
-    if (!(error instanceof ProvisionRequestError) || error.status !== 400) throw error
+    // Vercel does not document the code of an existing connection, so a rejected input also reads
+    // the store again. The read decides: an equivalent connection is success, anything else fails.
+    if (!(error instanceof ProvisionRequestError) || (error.kind !== "conflict" && error.kind !== "invalid")) throw error
     const current = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
     if (current === "equivalent") return
     if (current === "mismatched") {
@@ -292,6 +307,9 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
       const connectionState = found?.state ?? "absent"
       if (connectionState === "mismatched") {
         throw blobErrorDiagnostics.BLOB_R0020({ message: "Vercel Blob is connected to the project without all required environments." })
+      }
+      if (existing && connectionState === "equivalent" && !vercelConnectionHasStoreId(existing, projectId)) {
+        context.logger.warn(`blob: Vercel Blob store ${existing.name ?? existing.id} is connected without BLOB_STORE_ID, so deployments use BLOB_READ_WRITE_TOKEN. Reconnect the store to the project in the Vercel dashboard to use OIDC.`)
       }
 
       return [{

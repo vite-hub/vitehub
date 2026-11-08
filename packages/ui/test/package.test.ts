@@ -96,13 +96,20 @@ describe("@vite-hub/ui package contract", () => {
     expect(packageJson.peerDependenciesMeta).toEqual({
       "@iconify-json/ph": { optional: true },
       "@nuxt/ui": { optional: true },
+      // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
+      "@tiptap/core": { optional: true },
+      "@tiptap/extension-image": { optional: true },
+      "@tiptap/extension-list": { optional: true },
+      "@tiptap/extension-table": { optional: true },
+      "@tiptap/pm": { optional: true },
+      "@tiptap/starter-kit": { optional: true },
+      "@tiptap/vue-3": { optional: true },
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.8.1",
       "comark-chat": "catalog:",
       comark: "catalog:markdown-ui",
-      "vega-canvas": "^2.0.0",
       "vega-loader": "^5.1.3",
       katex: "^0.18.7",
       "@nuxt/kit": "4.6.2",
@@ -135,6 +142,7 @@ describe("@vite-hub/ui package contract", () => {
     ".",
     ...componentEntries,
     "./headless",
+    "./markdown-editor",
     "./nuxt",
     "./primitive-rail",
     "./vite",
@@ -170,6 +178,13 @@ describe("@vite-hub/ui package contract", () => {
     expect(webContainerImporters.every((name) => name === "workspace.js" || name.startsWith("use-workspace-"))).toBe(true);
     expect(read("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
     expect(read("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+  });
+
+  it("keeps Tiptap out of the root barrel and its own dependency", () => {
+    const dist = new URL("../dist/", import.meta.url);
+    expect(readFileSync(new URL("index.js", dist), "utf8")).not.toContain("@tiptap/");
+    // Bundled Tiptap would be a second copy beside the one Nuxt UI's editor menus use.
+    expect(readFileSync(new URL("markdown-editor.js", dist), "utf8")).toMatch(/from\s*"@tiptap\/vue-3"/);
   });
 
   it("keeps KaTeX out of the global stylesheet", () => {

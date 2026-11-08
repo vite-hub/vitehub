@@ -84,6 +84,10 @@ const runtimeEntries = [
   "src/console/runtime/client/mcp-client.ts",
   "src/console/runtime/client/operation-view.ts",
   "src/console/runtime/client/problem.ts",
+  "src/console/runtime/client/project.ts",
+  "src/console/runtime/client/project-link.ts",
+  "src/console/runtime/client/project-session.ts",
+  "src/console/runtime/client/projects.ts",
   "src/console/runtime/client/rate-limit.ts",
   "src/console/runtime/client/read-only.ts",
   "src/console/runtime/client/route-query.ts",
@@ -101,6 +105,7 @@ const runtimeEntries = [
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
   "src/console/runtime/server/client.get.ts",
+  "src/console/runtime/server/console-preflight.ts",
   "src/console/runtime/server/database.get.ts",
   "src/console/runtime/server/definitions.get.ts",
   "src/console/runtime/server/documents.ts",
@@ -143,6 +148,8 @@ export default defineConfig({
   pack: [
     {
       tsconfig: "tsconfig.build.json",
+      // `project.get` reports this version, without the package manifest in the app's server output.
+      define: { __VITE_HUB_VERSION__: JSON.stringify(frameworkPackageManifest.version) },
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
@@ -235,6 +242,22 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-rail.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-problem.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-switcher.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-token.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -351,6 +374,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-code-text.vue", to: "dist/console/runtime/components" },
         ...["console-mcp-client.vue", "console-mcp-callback.vue", "console-mcp-connect.vue", "console-mcp-connection.vue", "console-mcp-content.vue", "console-mcp-items.vue"].map(file => ({ from: `src/console/runtime/components/${file}`, to: "dist/console/runtime/components" })),
         { from: "src/console/runtime/components/console-skills.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-skill-tree.vue", to: "dist/console/runtime/components" },
@@ -466,6 +490,10 @@ export default defineConfig({
           delete exports["./console/runtime/client/preview"];
           delete exports["./console/runtime/client/publish"];
           delete exports["./console/runtime/client/problem"];
+          delete exports["./console/runtime/client/project"];
+          delete exports["./console/runtime/client/project-link"];
+          delete exports["./console/runtime/client/project-session"];
+          delete exports["./console/runtime/client/projects"];
           delete exports["./console/runtime/client/rate-limit"];
           delete exports["./console/runtime/client/read-only"];
           delete exports["./console/runtime/client/route-query"];
@@ -497,6 +525,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/env.get"];
           delete exports["./console/runtime/server/auth-manage"];
           delete exports["./console/runtime/server/env-manage"];
+          delete exports["./console/runtime/server/console-preflight"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp"];

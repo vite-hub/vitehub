@@ -8,14 +8,13 @@ import { featureIds, featurePackages, features, featureSupport, impliedFeatures 
 import { dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { confirmSetupChange, readFeatureId, setupDiff } from "./add.ts"
+import { confirmSetupChange, readFeatureId, setupConsolePackages, setupDiff } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus, uninstallArgs } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
 import type { FeatureId, FeatureStarter } from "@vite-hub/internal/features"
 import type { SetupChange } from "./add.ts"
 import type { SetupProject } from "./project.ts"
@@ -204,10 +203,11 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     const key = source?.ok ? source.site.keys[id] : undefined
     return key?.kind === "literal" ? key.value : undefined
   }
-  const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset) => {
-    return [...featurePackages(id, value, preset), ...features[id].devPackages]
+  const packagesOf = (id: FeatureId, value: JsonValue | undefined, state = status) => {
+    const active = new Set(state.features.filter(item => item.enabled !== "off").map(item => item.id))
+    return [...featurePackages(id, value, host), ...(id === "console" ? setupConsolePackages(value, active) : [])]
   }
-  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host)))
+  const stillNeeded = new Set(remaining.flatMap(id => [...packagesOf(id, valueOf(afterKeys, id), after.status), ...features[id].devPackages]))
 
   // Starter Definitions go; other files in a Definition folder are uses of the feature.
   const starters = new Map<string, string>()
@@ -235,7 +235,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const modules = new Map<string, FeatureId>()
   for (const id of turnedOff) {
     modules.set(runtimeModule(id), id)
-    for (const name of packagesOf(id, valueOf(project.config, id), host)) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
+    for (const name of [...packagesOf(id, valueOf(project.config, id)), ...features[id].devPackages]) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
   }
   const imported = new Set<string>()
   for (const file of listMatchingFiles(project.root, name => sourceFile.test(name) && !declarationFile.test(name))) {
@@ -250,7 +250,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
         if (!importsModule(specifier, module)) continue
         // Framework subpaths still need their optional owner packages.
         if (module === runtimeModule(id)) {
-          for (const name of packagesOf(id, valueOf(project.config, id), host)) imported.add(name)
+          for (const name of [...packagesOf(id, valueOf(project.config, id)), ...features[id].devPackages]) imported.add(name)
         }
         if (!starters.has(path) && !edited.includes(path)) blocking.push({ feature: id, file: path, line: lineAt(content, match.index), module: specifier })
       }
@@ -265,7 +265,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const prod: string[] = []
   const dev: string[] = []
   for (const id of turnedOff) {
-    const packages = featurePackages(id, valueOf(project.config, id), host)
+    const packages = packagesOf(id, valueOf(project.config, id))
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
     for (const name of packages) if (removable(name) && project.declared(name, false)) prod.push(name)
     for (const name of features[id].devPackages) if (removable(name) && project.declared(name, true)) dev.push(name)
