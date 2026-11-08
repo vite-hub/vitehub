@@ -70,6 +70,37 @@ describe("queue-workflow-verbs", () => {
     await expect(codemod.detect({ cwd: empty })).resolves.toBeUndefined()
   })
 
+  it.each([
+    'import { deferWorkflow } from "vite-hub/workflow"; const run = await deferWorkflow("welcome")',
+    'import { deferWorkflow } from "@vite-hub/workflow"; await deferWorkflow("welcome")',
+    'import { createWorkflow } from "vite-hub/workflow"; const handle = createWorkflow("welcome"); const run = await handle.defer()',
+    'import { createWorkflow } from "@vite-hub/workflow"; const handle = createWorkflow("welcome"); await handle.run()',
+    'import * as workflow from "vite-hub/workflow"; const run = await workflow.deferWorkflow("welcome")',
+    'import { createWorkflow as create } from "vite-hub/workflow"; const handle = create("welcome"); const alias = handle; await alias.run()',
+  ])("detects a Workflow contract change without renamed imports: %s", async (source) => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
+    directories.push(cwd)
+    await writeFile(join(cwd, "workflow.ts"), source)
+    const codemod = codemods.find(entry => entry.name === "queue-workflow-verbs")!
+    await expect(codemod.detect({ cwd })).resolves.toBeDefined()
+    await runCodemod("queue-workflow-verbs", { cwd })
+    await expect(codemod.detect({ cwd })).resolves.toBeUndefined()
+  })
+
+  it("does not detect unchanged Workflow contracts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
+    directories.push(cwd)
+    await writeFile(join(cwd, "workflow.ts"), [
+      'import { createWorkflow, deferWorkflow } from "vite-hub/workflow"',
+      'const handle = createWorkflow("welcome")',
+      'await handle.start()',
+      'handle.defer()',
+      'deferWorkflow("welcome")',
+    ].join("\n"))
+    const codemod = codemods.find(entry => entry.name === "queue-workflow-verbs")!
+    await expect(codemod.detect({ cwd })).resolves.toBeUndefined()
+  })
+
   it("changes nothing on a second run", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
     directories.push(cwd)

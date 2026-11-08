@@ -976,9 +976,9 @@ export function createWorkflowRegistryContents(
   const imports = [
     ...(needsAgentRuntime
       ? [
-          `import { agentWithColocatedInstructions, runAgentInline } from ${JSON.stringify(agentImportBase)}`,
+          `import { agentWithColocatedInstructions } from ${JSON.stringify(agentImportBase)}`,
           `import { agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
-          `import { installAgentChannelDeliveryWorkflowResolver } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`,
+          `import { installAgentChannelDeliveryWorkflowResolver, runAgentInline } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`,
           ...(installAgentWorkflowRuntime
             ? [`import { setAgentWorkflowRuntimeLoaders } from ${JSON.stringify(`${agentImportBase}/server/internal`)}`]
             : []),

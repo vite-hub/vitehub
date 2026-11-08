@@ -66,8 +66,14 @@ it("retains a deferred start from a Nitro Cloudflare application route before it
       },
     })
     workflowState.setWorkflowRuntimeConfig({ provider: "cloudflare", binding: "WORKFLOW_CUSTOM" })
-    const definition = Promise.withResolvers<{ default: { handler: () => Promise<string> } }>()
-    workflowState.setWorkflowRuntimeRegistry({ welcome: () => definition.promise })
+    let resolveDefinition!: () => void
+    const definition = new Promise<void>((resolve) => { resolveDefinition = resolve })
+    workflowState.setWorkflowRuntimeRegistry({
+      welcome: async () => {
+        await definition
+        return { default: { handler: async () => "done" } }
+      },
+    })
     const event = { context: {} }
     module.exports.default(event)
     expect(workflowState.getWorkflowRuntimeEvent()).toBe(event)
@@ -78,7 +84,7 @@ it("retains a deferred start from a Nitro Cloudflare application route before it
     expect(response.status).toBe(200)
     expect(waitUntil).toHaveBeenCalledOnce()
     expect(createBatch).not.toHaveBeenCalled()
-    definition.resolve({ default: { handler: async () => "done" } })
+    resolveDefinition()
     await Promise.all(pending)
     expect(createBatch).toHaveBeenCalledExactlyOnceWith([{ id: "welcome-1", params: { email: "test@example.com" } }])
   }

@@ -519,6 +519,9 @@ async function detect({ cwd }: CodemodContext): Promise<Detection | undefined> {
     const name = oldVerbPattern.exec(source)?.[0]
     if (name) return { reason: `${file} uses \`${name}\`` }
   }
+  // Unchanged import names can still need a call-site migration, such as a consumed deferred run.
+  const edit = (await migrate({ cwd })).edits[0]
+  if (edit) return { reason: `${edit.path} uses the old Queue or Workflow contract` }
   return undefined
 }
 
