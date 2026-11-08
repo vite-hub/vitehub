@@ -95,7 +95,7 @@ export const handleAuth = createAuthHandler(definition)
 At the framework boundary, pass the peer address from Node's
 `incomingMessage.socket.remoteAddress`:
 
-```ts
+```ts fragment
 const response = await handleAuth(webRequest, {
   clientAddress: incomingMessage.socket.remoteAddress,
 })

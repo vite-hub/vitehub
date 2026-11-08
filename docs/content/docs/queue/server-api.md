@@ -54,7 +54,7 @@ In `vite dev`, a Cloudflare or Vercel app runs its jobs with the local provider 
 
 Throw `ViteHubError` when the Queue Definition needs a stable application failure code. Application error codes do not choose retry policy. Use `onError` or `callbackOptions.retry` for that.
 
-```ts [server/queues/image-expiry.ts]
+```ts [server/queues/image-expiry.ts] fragment
 import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 import { defineQueue } from 'vite-hub/queue'
 import { deleteImage } from '../utils/images'
@@ -231,7 +231,7 @@ Creates a direct provider QueueClient. Most application code can use `runQueue()
 
 Cloudflare direct clients require a concrete binding object, supplied here as `binding` by the Worker host.
 
-```ts [examples/cloudflare-client.ts]
+```ts [examples/cloudflare-client.ts] fragment
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({

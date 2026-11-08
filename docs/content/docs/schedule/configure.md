@@ -64,7 +64,7 @@ The keys are Schedule names. The cron replaces the declared one in the generated
 
 Use a Static Schedule Definition when the host needs build-time Provider Output such as cron entries or provider wake configuration.
 
-```ts [server/schedules/daily-report.ts]
+```ts [server/schedules/daily-report.ts] fragment
 import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
@@ -88,7 +88,7 @@ Cron expressions use UTC unless the definition sets `timeZone`. The discovered f
 
 Set `manual: true` to enable on-demand runs for a Static Schedule Definition:
 
-```ts [server/schedules/daily-report.ts]
+```ts [server/schedules/daily-report.ts] fragment
 export default defineSchedule({
   cron: '0 8 * * *',
   manual: true,
@@ -102,7 +102,7 @@ export default defineSchedule({
 
 Set `timeZone` when the cron must follow local clock time:
 
-```ts [server/schedules/morning-brief.ts]
+```ts [server/schedules/morning-brief.ts] fragment
 export default defineSchedule({
   cron: '0 8 * * 1-5',
   timeZone: 'Europe/Madrid',

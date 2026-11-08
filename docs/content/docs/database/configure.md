@@ -267,7 +267,7 @@ A package that needs a Database does not add one. It contributes its tables with
 
 A package that keeps data with its own SQL and has no Drizzle tables contributes an entry without `definition`. ViteHub checks its Database and dialect as for tables:
 
-```ts [my-package/vite.ts]
+```ts [my-package/vite.ts] fragment
 vitehub: {
   databases: () => [{ name: 'my-package', database: 'default', dialect: 'sqlite', reason: 'Stores my-package state with its own SQL.' }],
 },
@@ -279,7 +279,7 @@ vitehub: {
 
 A package that owns a Named Database can add a whole Database Definition. For the default Database, read [Need the default Database](#need-the-default-database) instead. Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`, next to its tables. Here `definition` is the absolute path of the module, not a `{ module, export }` object:
 
-```ts [my-package/vite.ts]
+```ts [my-package/vite.ts] fragment
 // In the plugin object:
 vitehub: {
   databases: async ({ rootDir }) => {
@@ -320,7 +320,7 @@ The factory context also has `rootDir`, the root that Database Definitions are d
 
 A package that keeps its own tables, such as [Comments](/docs/comments/configure#choose-the-database), can connect to the app's database without a Database Definition and without migrations. `connectDatabase()` takes a string that says where the database is, and returns a Drizzle SQLite database:
 
-```ts [server/utils/notes.ts]
+```ts [server/utils/notes.ts] fragment
 import { connectDatabase } from '@vite-hub/database/connect'
 import { notes } from './schema'
 

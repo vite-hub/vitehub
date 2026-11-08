@@ -118,6 +118,8 @@ cloudflared tunnel --url http://localhost:3000
 Vite blocks requests for host names that it does not know. Add the tunnel domain to `server.allowedHosts` in `vite.config.ts`:
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [/* ... */],

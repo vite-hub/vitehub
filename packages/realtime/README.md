@@ -90,6 +90,8 @@ Open the page in two tabs. Each tab first reports `Realtime: connecting`, then `
 `realtime.extensions` also draws other people's carets and selections with TipTap's CollaborationCaret classes. Pass `carets: { render, selectionRender }` to change their markup, or `carets: false` to leave them out:
 
 ```ts
+import { useRealtimeTiptap } from "@vite-hub/realtime/vue"
+
 const realtime = useRealtimeTiptap("docs", "guides/welcome.md", {
   carets: {
     selectionRender: user => ({ class: "ProseMirror-yjs-selection", style: `background-color: ${user.color}33` }),
@@ -99,7 +101,7 @@ const realtime = useRealtimeTiptap("docs", "guides/welcome.md", {
 
 Room updates do not write the Workspace document. Save the current Markdown and create a Workspace snapshot explicitly:
 
-```ts
+```ts fragment
 const [error, checkpoint] = await realtime.history.checkpoint()
 if (error) throw error
 

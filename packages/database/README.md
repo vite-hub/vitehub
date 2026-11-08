@@ -59,7 +59,7 @@ Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(va
 
 The table shorthand covers inserts binding at most one parameter per column. The helper does not inspect row contents or SQL defaults. For SQL expressions with more bindings, supply a numeric `per` covering the maximum bindings of a whole row, including defaults: a one-column row containing `` sql`${first} || ${second}` `` needs `{ per: 2 }`.
 
-```ts
+```ts fragment
 for (const chunk of chunkParameters(ids, { reserved: 1 })) {
   await db.delete(schema.files).where(and(eq(schema.files.ownerId, ownerId), inArray(schema.files.id, chunk)))
 }
@@ -159,7 +159,7 @@ The CMS preset, Comments, Connections, and Auth's `authDatabase()` use this rule
 
 `vite dev` uses local SQLite by default. Set `remote: true` on a Database Definition to query its real D1 database during development. Writes then change real data.
 
-```ts
+```ts fragment
 export default defineDatabase({
   cloudflare: {
     databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,

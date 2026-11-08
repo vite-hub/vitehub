@@ -11,6 +11,7 @@ icon: i-lucide-circle-alert
 Each KV operation returns `[error, value]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page. `error.cause` keeps the provider error.
 
 ```ts [server/api/settings.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
