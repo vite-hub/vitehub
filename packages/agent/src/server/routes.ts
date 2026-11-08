@@ -1,4 +1,5 @@
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
+import { isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
@@ -7427,7 +7428,7 @@ async function handleChatSdkMessages(
     for (const queuedMessage of messages) {
       let claimedDelivery: AgentChannelDeliveryTracker | undefined
       try {
-        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
+        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
         const queuedDelivery = individualMessages
@@ -7702,6 +7703,8 @@ async function createChannelChat(
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
 ): Promise<Chat> {
+  // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
+  if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
   const resolvedState = providedState || (await resolveChatState(options, context, registration, handlerOptions))
   const lockTracker = createChatLockTracker(resolvedState.state)
   const transcripts = effectiveTranscripts(options, resolvedState.state)
@@ -10509,7 +10512,12 @@ export function createDiscordGatewayRouteHandler(
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const chatOptions = getAgentChatOptions(agent)
       const adapters = await resolveChatAdapters(chatOptions, context)
-      const entries = resolveDiscordAdapters(adapters)
+      const discordAdapters = resolveDiscordAdapters(adapters)
+      const entries = discordAdapters.filter(([, adapter]) => !isSimulatedChatAdapter(adapter))
+      if (entries.length === 0 && discordAdapters.length > 0) {
+        // A simulated Discord Channel has no Gateway: there is nothing to listen to.
+        return new Response(null, { status: 204 })
+      }
       if (entries.length === 0) {
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }

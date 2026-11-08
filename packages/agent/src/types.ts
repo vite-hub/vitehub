@@ -2388,9 +2388,19 @@ export interface AgentShutdownOptions {
   drainMs?: number
 }
 
+export interface AgentChannelsOptions {
+  /**
+   * In `vite dev`, run the Slack, Discord, Teams, and Telegram Channels on a simulated chat with no provider
+   * credentials. Each Channel's webhook route then accepts AI SDK chat requests and streams the reply.
+   * The plugin sets `VITEHUB_CHANNELS=simulate` in `vite dev` only; the runtime ignores it when `NODE_ENV` is `production`.
+   */
+  simulate?: boolean
+}
+
 export interface AgentModuleOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
+  channels?: AgentChannelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
