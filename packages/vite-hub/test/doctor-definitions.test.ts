@@ -9,7 +9,7 @@ import {
   noDestructureNonTuples,
   noModuleScopeDispatch,
   queuePayloadOptions,
-  validOutboundChannel,
+  validChannel,
   validScheduleCron,
   workflowStepNames,
 } from "../src/doctor/rules/definitions.ts"
@@ -294,17 +294,20 @@ describe("vitehub/manual-schedule-run", () => {
   })
 })
 
-describe("vitehub/valid-outbound-channel", () => {
-  it("reports empty connectors, connectors without send, and an unknown default", async () => {
-    expect(await codes(validOutboundChannel, {
-      "server/channels/a.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nexport default defineOutboundChannel({ connectors: {} })\n',
-      "server/channels/b.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nexport default defineOutboundChannel({ connectors: { slack: { url: "x" } }, defaultConnector: "email" })\n',
-    })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023"])
+describe("vitehub/valid-channel", () => {
+  it("reports a missing adapter, an adapter without kind, and handlers on adapters that do not receive webhooks", async () => {
+    expect(await codes(validChannel, {
+      "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ on: {} })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { send: async () => ({}) }, on: { webhook: event => event } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
+    })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023", "VHUB0023"])
   })
 
-  it("accepts configured connectors", async () => {
-    expect(await codes(validOutboundChannel, {
-      "server/channels/a.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nimport { slack } from "./slack"\nexport default defineOutboundChannel({ connectors: { slack: slack(), log: { send: async () => ({}) } }, defaultConnector: "log" })\n',
+  it("accepts webhook adapters with handlers and chat adapters with triggers", async () => {
+    expect(await codes(validChannel, {
+      "server/channels/a.ts": 'import { defineChannel, stripe } from "vite-hub/channels"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { defineChannelTrigger, teams } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { kind: "log", send: async () => ({}) } })\n',
     })).toEqual([])
   })
 })
