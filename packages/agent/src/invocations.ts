@@ -76,6 +76,7 @@ const TERMINAL_RETRY_TIMEOUT_MS = 60_000
 const CANCELLATION_VERIFICATION_TIMEOUT_MS = 5_000
 const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
+const STORE_OPEN_TIMEOUT_MS = 10_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
 const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
 const brandedErrorValues = new WeakSet<object>()
@@ -216,6 +217,12 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
+  /**
+   * Prepares a store that connects on first use, such as one that loads its database client and runs migrations.
+   * The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`.
+   * Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried.
+   */
+  open?(): MaybePromise<void>
   claim(id: string, claimId: string, leaseMs: number, options?: {
     /** Atomically rotate only an absent claim or one of these owned generations, unless replaceExisting is true. */
     expectedClaimIds?: readonly string[]
@@ -2182,9 +2189,32 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (!Number.isSafeInteger(storeTimeoutMs) || storeTimeoutMs < 1 || storeTimeoutMs > 60_000) {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
   }
-  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => boundedStoreOperation(operation, timeoutMs)
+  // A lazy store opens once, outside the bound of the operation that comes first.
+  let opening: Promise<void> | undefined
+  const storeOpen = options.store.open
+  const openStore = storeOpen && (async () => {
+    const task = opening ??= Promise.resolve().then(() => storeOpen.call(options.store)).catch((error: unknown) => {
+      opening = undefined
+      throw error
+    })
+    const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
+    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+  })
+  const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
+    if (openStore) {
+      try {
+        await openStore()
+      }
+      catch (error) {
+        if (propagateErrors) throw error
+        return undefined
+      }
+    }
+    return boundedStoreOperation(operation, timeoutMs, propagateErrors)
+  }
+  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => storeOperation(operation, timeoutMs)
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
-    const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+    const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
       throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
     }
@@ -2225,6 +2255,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     [agentInvocationsBrand]: true,
     get supportsDelete() { return hasRuntimeType(store.delete, "function") },
     async [recoverInterruptedAgentInvocationsSymbol](recoveryOptions) {
+      if (openStore) await openStore()
       return await failInterruptedAgentInvocations(store, recoveryOptions)
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2352,50 +2383,52 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
-        if (!creationTask) {
-          const task = Promise.resolve().then(async () => {
-            if (!bindOptions.existingOnly) return await store.create(createInput)
-            const record = await store.get(recordId)
-            return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
-              ? { created: false, record }
-              : undefined
-          }).then((result) => {
-            if (result) {
-              traceId = result.record.traceId
-              if (bindOptions.existingOnly) existingTraceId = result.record.traceId
-              if (bindOptions.existingOnly) existingCursor = result.record.cursor
-              limits = observationLimits(result.record.observationLimits)
-              observationCount = result.record.observations.length
-              observationsTruncated = result.record.observationsTruncated === true
-                || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
-              truncationPersisted = result.record.observationsTruncated === true
-              observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
-              invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
-              reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
-              finished = terminalStatus(result.record.status) && !reopenFailed
-              boundToTerminalRecord = finished
-              workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
-              createdNew = result.created
-              created = true
-              cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
-                || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
-              readCancellationRequest(result.record)
-            }
-            else if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return result
-          }, () => {
-            if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return undefined
-          })
-          creationTask = task
-        }
-        const result = await boundedStore(() => creationTask!, timeoutMs)
+        const result = await boundedStore(() => {
+          if (!creationTask) {
+            const task = Promise.resolve().then(async () => {
+              if (!bindOptions.existingOnly) return await store.create(createInput)
+              const record = await store.get(recordId)
+              return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
+                ? { created: false, record }
+                : undefined
+            }).then((result) => {
+              if (result) {
+                traceId = result.record.traceId
+                if (bindOptions.existingOnly) existingTraceId = result.record.traceId
+                if (bindOptions.existingOnly) existingCursor = result.record.cursor
+                limits = observationLimits(result.record.observationLimits)
+                observationCount = result.record.observations.length
+                observationsTruncated = result.record.observationsTruncated === true
+                  || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+                truncationPersisted = result.record.observationsTruncated === true
+                observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+                invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
+                reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
+                finished = terminalStatus(result.record.status) && !reopenFailed
+                boundToTerminalRecord = finished
+                workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
+                createdNew = result.created
+                created = true
+                cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
+                  || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
+                readCancellationRequest(result.record)
+              }
+              else if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return result
+            }, () => {
+              if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return undefined
+            })
+            creationTask = task
+          }
+          return creationTask!
+        }, timeoutMs)
         if (result === storeOperationTimedOut) creationTimedOut = true
         return created
       }
@@ -3128,7 +3161,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         return result
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
-        const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+        const result = await storeOperation(operation, storeTimeoutMs, true)
         if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
         return result
       }
