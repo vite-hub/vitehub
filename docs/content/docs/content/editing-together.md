@@ -117,7 +117,7 @@ Other Workspace writers to the draft check leases too, such as [`vitehub push`](
 pnpm vitehub push --override-lease
 ```
 
-```ts
+```ts fragment
 await workspace.history.commit({ ref: 'draft', ifHead, changes, metadata: { lease: 'override' } })
 ```
 
