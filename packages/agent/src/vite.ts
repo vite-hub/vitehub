@@ -2953,7 +2953,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         channelSimulationPreviousValue = env[channelSimulationEnv]
         if (env[channelSimulationEnv] !== "simulate") {
           env[channelSimulationEnv] = "simulate"
-          config?.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. POST an AI SDK chat request to /api/_vitehub/agents/<agent>/webhooks/<channel>.")
+          config?.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. Open /api/_vitehub/agents/<agent>/webhooks/<channel> in a browser to chat, or POST an AI SDK chat request to it.")
         }
       }
       channelSimulationOwners.add(channelSimulationOwner)

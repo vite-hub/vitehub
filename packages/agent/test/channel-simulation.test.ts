@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Script } from "node:vm"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -84,6 +85,78 @@ describe("simulated chat Channels", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
+  })
+
+  it("opens a chat page in the look of the platform on a browser GET of the webhook route", async () => {
+    const agent = defineAgent({
+      channels: { discord: discord(), slack: slack(), teams: teams(), telegram: telegram() },
+      driver: { run: () => "ok" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const platforms = { discord: "Discord", slack: "Slack", teams: "Microsoft Teams", telegram: "Telegram" }
+    for (const [channel, platform] of Object.entries(platforms)) {
+      const route = `/api/_vitehub/agents/support/webhooks/${channel}`
+      const response = await handler(new Request(`https://example.com${route}`), channel, { agentName: "support" })
+      expect(response.status, channel).toBe(200)
+      expect(response.headers.get("content-type"), channel).toBe("text/html; charset=utf-8")
+      const html = await response.text()
+      expect(html.match(/Unofficial simulator/g), channel).toHaveLength(1)
+      expect(html, channel).toContain(`<div class="sim-strip"><span class="sim-label">Unofficial simulator · not affiliated with ${platform}</span></div>`)
+      // The embed check runs in <head>, before the first paint, so an embedded page never shows its app chrome.
+      const head = html.slice(0, html.indexOf("</head>"))
+      expect(head, channel).toContain("<script>if(self!==top)document.documentElement.dataset.embed=\"\"</script>")
+      expect(html, channel).toContain("[data-embed]")
+      expect(html, channel).toContain(`"route":"${route}"`)
+      expect(html, channel).not.toMatch(/<link|<img|\bsrc=|@import|url\(\s*["']?https?:/)
+      const script = /<script type="module">([\s\S]*)<\/script>/.exec(html)?.[1] ?? ""
+      expect(() => new Script(script), channel).not.toThrow()
+    }
+  })
+
+  it("opens canonical, declared, and alias routes for the same Channel and posts to the opened alias", { timeout: 20_000 }, async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-simulation-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const agent = defineAgent({
+      channels: {
+        support: discord({ webhooks: { path: "/hooks/support", aliases: ["/legacy/slack/"] } }),
+        slack: slack(),
+      },
+      driver: { run: context => `echo: ${lastUserText(context)}` },
+    })
+    const handler = createChannelWebhookRouteHandler(agent)
+    try {
+      for (const [route, webhook] of [
+        ["/api/_vitehub/agents/support/webhooks/support", "support"],
+        ["/api/_vitehub/agents/support/webhooks/support", undefined],
+        ["/hooks/support", ""],
+        ["/legacy/slack/", ""],
+        ["/legacy/slack/", undefined],
+      ] as const) {
+        const url = `https://example.com${route}`
+        const options = { agentName: "support", state }
+        const response = await handler(new Request(url), webhook, options)
+        expect(response.status, route).toBe(200)
+        const html = await response.text()
+        expect(html, route).toContain("Unofficial simulator · not affiliated with Discord")
+        expect(html, route).toContain(`"route":"${route}"`)
+      }
+      const route = "/legacy/slack/"
+      const reply = await handler(new Request(`https://example.com${route}`, chatRequest("support", "hi alias")), "", { agentName: "support", state })
+      expect(reply.status).toBe(200)
+      expect(streamedText(await reply.text())).toBe("echo: hi alias")
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("escapes the Agent name in the chat page", async () => {
+    const agent = defineAgent({ channels: { slack: slack() }, driver: { run: () => "ok" } })
+    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/api/_vitehub/agents/x/webhooks/slack"), "slack", { agentName: "</script><img>" })
+    const html = await response.text()
+    expect(html).not.toContain("</script><img>")
+    expect(html).toContain("&lt;/script&gt;&lt;img&gt;")
   })
 
   it("keeps the Channel instructions and turns off provider listeners and webhook verification", () => {
@@ -180,5 +253,12 @@ describe("simulated chat Channels", () => {
   it("leaves Channels alone when simulation is off", () => {
     delete process.env[channelSimulationEnv]
     expect(telegram({ mode: "polling" }).listener).toEqual({ kind: "telegram-polling" })
+  })
+
+  it("answers a GET with 405 when simulation is off", async () => {
+    delete process.env[channelSimulationEnv]
+    const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
+    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord"), "discord", { agentName: "support" })
+    expect(response.status).toBe(405)
   })
 })
