@@ -1,4 +1,4 @@
-import { docsManifestPages, isDocsPath } from "./navigation.ts"
+import { docsManifestPages, docsPanelOf, docsPanelPages, isDocsPath } from "./navigation.ts"
 
 import type { DocsDocument } from "./markdown.ts"
 import type { DocsPageFrontmatter } from "./schema.ts"
@@ -22,9 +22,10 @@ export interface DocsPageResponse {
   next: DocsPageLink | null
 }
 
-/** Previous and next follow the sidebar order of the page's section. */
+/** Previous and next follow the sidebar order of the page's section, or of its panel for a page inside one. */
 export function docsPageResponse(manifest: DocsManifest, found: { page: DocsPage, section: DocsSection | null }, document: DocsDocument, credits: DocsDocument | null = null): DocsPageResponse {
-  const pages = found.section?.pages.filter(page => page.navigation) ?? []
+  const section = found.section
+  const pages = section ? docsPanelPages(section, docsPanelOf(section, found.page)).filter(page => page.navigation) : []
   const index = pages.findIndex(page => page.path === found.page.path)
   const link = (page: DocsPage | undefined): DocsPageLink | null => page ? { path: page.path, title: page.title, description: page.description } : null
   return {
@@ -49,6 +50,7 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     sourceTitle: frontmatter.title,
     description: frontmatter.description ?? null,
     tagline: frontmatter.tagline ?? frontmatter.description ?? null,
+    eyebrow: frontmatter.eyebrow ?? null,
     credits: frontmatter.credits?.trim() || null,
     keywords: (typeof frontmatter.keywords === "string" ? frontmatter.keywords.split(",") : frontmatter.keywords ?? []).map(word => word.trim()).filter(Boolean),
     icon: frontmatter.icon ?? null,
@@ -61,6 +63,8 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     kind: navigation?.kind ?? null,
     group: navigation?.group ?? null,
     navigation: frontmatter.navigation !== false,
+    // Only the Overview of a folder below the section can open a panel. The section's own Overview cannot.
+    ...(navigation?.panel && at.id !== "index" && at.file.endsWith("/index.md") ? { panel: true as const } : {}),
     order: navigation?.order ?? Number.MAX_SAFE_INTEGER,
   }
 }

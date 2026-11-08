@@ -1,7 +1,6 @@
 /**
  * Removed docs pages and the page that now owns their content.
  * Keep each entry: published package versions and external sites link to these URLs.
- * `/docs/reference/diagnostics` is also the `docsBase` of every package diagnostic catalog.
  */
 
 /** Server Primitive pages that moved from `/docs/server-primitives/<id>` to their own product section. */
@@ -113,7 +112,6 @@ export const docsPageRedirects = {
   "/docs/concepts/server-primitives-for-any-host": "/docs/getting-started/server-primitives",
   "/docs/console/usage": "/docs/development/console",
   "/docs/reference/channels": "/docs/channels",
-  "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/box-tutorial": "/docs/agents/sandbox-tutorial",
