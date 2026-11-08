@@ -47,7 +47,7 @@ describe("Channels section", () => {
   })
 
   it("maps the page requests to the operations", () => {
-    const call = (route: string, query: Record<string, string>) => consoleOperationCall(`/api/_vitehub/console/${route}`, { method: "GET", query })
+    const call = (route: string, query: Record<string, string>) => consoleOperationCall(`/_vitehub/api/${route}`, { method: "GET", query })
     expect(call("channels", {})).toEqual({ input: {}, operation: "channels.list" })
     expect(call("channels/threads", { agent: "support", channel: "telegram", cursor: "25" })).toEqual({ input: { agent: "support", channel: "telegram", cursor: "25" }, operation: "channels.threads" })
     expect(call("channels/conversation", { agent: "support", channel: "telegram", thread: "telegram:1" }).operation).toBe("channels.conversation")

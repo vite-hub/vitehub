@@ -166,17 +166,17 @@ describe("vitehub agent invocations delete and prune", () => {
     }
   }
 
-  async function consoleJournal() {
+  async function defaultJournal() {
     const rootDir = await temporaryDirectory()
     await mkdir(join(rootDir, ".vitehub/data"), { recursive: true })
-    const url = `file:${join(rootDir, ".vitehub/data/console.sqlite")}`
+    const url = `file:${join(rootDir, ".vitehub/data/agent-invocations.sqlite")}`
     await seed(createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }))
     const read = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }) })
     return { read, rootDir }
   }
 
-  it("deletes a terminal record from the default Console journal", async () => {
-    const { read, rootDir } = await consoleJournal()
+  it("deletes a terminal record from the default journal", async () => {
+    const { read, rootDir } = await defaultJournal()
     const io = output()
 
     await expect(runAgentInvocationsCli(["delete", "old-completed"], { env: {}, rootDir, ...io })).resolves.toBe(0)
@@ -193,7 +193,7 @@ describe("vitehub agent invocations delete and prune", () => {
   })
 
   it("previews and prunes terminal records older than the requested age", async () => {
-    const { read, rootDir } = await consoleJournal()
+    const { read, rootDir } = await defaultJournal()
     const preview = output()
 
     await expect(runAgentInvocationsCli(["prune", "--older-than", "30d", "--dry-run", "--json"], { env: {}, rootDir, ...preview })).resolves.toBe(0)
@@ -209,7 +209,7 @@ describe("vitehub agent invocations delete and prune", () => {
   })
 
   it("previews and prunes terminal records by size and count", async () => {
-    const { read, rootDir } = await consoleJournal()
+    const { read, rootDir } = await defaultJournal()
 
     const counted = output()
     await expect(runAgentInvocationsCli(["prune", "--max-records", "1", "--dry-run", "--json"], { env: {}, rootDir, ...counted })).resolves.toBe(0)
@@ -245,7 +245,7 @@ describe("vitehub agent invocations delete and prune", () => {
   })
 
   it.each(["list", "prune"])("rejects an invocation id for %s before reading or deleting records", async (action) => {
-    const { read, rootDir } = await consoleJournal()
+    const { read, rootDir } = await defaultJournal()
     const io = output()
     const fetch = vi.fn<typeof globalThis.fetch>()
 
@@ -255,7 +255,7 @@ describe("vitehub agent invocations delete and prune", () => {
     expect((await read.list()).invocations).toHaveLength(4)
   })
 
-  it.each(["C:\\app\\.vitehub\\data\\console.sqlite", "C:/app/.vitehub/data/console.sqlite"])("treats Windows drive paths as local journals: %s", async (database) => {
+  it.each(["C:\\app\\.vitehub\\data\\agent-invocations.sqlite", "C:/app/.vitehub/data/agent-invocations.sqlite"])("treats Windows drive paths as local journals: %s", async (database) => {
     const io = output()
     vi.mocked(createClient).mockClear()
     expect(await runAgentInvocationsCli(["prune", "--database", database], { env: {}, ...io })).toBe(1)
@@ -265,21 +265,21 @@ describe("vitehub agent invocations delete and prune", () => {
   })
 
   it("uses an explicit database path and rejects a missing journal without creating it", async () => {
-    const { read, rootDir } = await consoleJournal()
+    const { read, rootDir } = await defaultJournal()
     const elsewhere = await temporaryDirectory()
     const explicit = output()
-    await expect(runAgentInvocationsCli(["prune", "--database", join(rootDir, ".vitehub/data/console.sqlite"), "--json"], { env: {}, rootDir: elsewhere, ...explicit })).resolves.toBe(0)
+    await expect(runAgentInvocationsCli(["prune", "--database", join(rootDir, ".vitehub/data/agent-invocations.sqlite"), "--json"], { env: {}, rootDir: elsewhere, ...explicit })).resolves.toBe(0)
     expect([...JSON.parse(explicit.chunks.stdout).ids].sort()).toEqual(["old-completed", "old-failed"])
     expect((await read.list()).invocations).toHaveLength(2)
 
     const missing = output()
     await expect(runAgentInvocationsCli(["prune"], { env: {}, rootDir: elsewhere, ...missing })).resolves.toBe(1)
-    expect(missing.chunks.stderr).toContain(`No Agent Invocation journal exists at ${join(elsewhere, ".vitehub/data/console.sqlite")}`)
+    expect(missing.chunks.stderr).toContain(`No Agent Invocation journal exists at ${join(elsewhere, ".vitehub/data/agent-invocations.sqlite")}`)
   })
 
   it("treats a Windows drive path as a local database path", async () => {
     const io = output()
-    await expect(runAgentInvocationsCli(["prune", "--database", "C:\\app\\.vitehub\\data\\console.sqlite"], { env: {}, ...io })).resolves.toBe(1)
+    await expect(runAgentInvocationsCli(["prune", "--database", "C:\\app\\.vitehub\\data\\agent-invocations.sqlite"], { env: {}, ...io })).resolves.toBe(1)
     expect(io.chunks.stderr).toContain("No Agent Invocation journal exists at")
   })
 
@@ -289,7 +289,7 @@ describe("vitehub agent invocations delete and prune", () => {
     await mkdir(join(projectRoot, "server", "agents"), { recursive: true })
     await mkdir(appRoot)
     await mkdir(join(projectRoot, ".vitehub/data"), { recursive: true })
-    const url = `file:${join(projectRoot, ".vitehub/data/console.sqlite")}`
+    const url = `file:${join(projectRoot, ".vitehub/data/agent-invocations.sqlite")}`
     await seed(createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }))
     const io = output()
 
@@ -312,7 +312,7 @@ describe("vitehub agent invocations delete and prune", () => {
   })
 
   it("rejects dry-run for delete without opening the journal", async () => {
-    const { read, rootDir } = await consoleJournal()
+    const { read, rootDir } = await defaultJournal()
     const io = output()
     vi.mocked(createClient).mockClear()
 
@@ -324,7 +324,7 @@ describe("vitehub agent invocations delete and prune", () => {
   })
 
   it("rejects prune durations outside the Date range without changing the journal", async () => {
-    const { read, rootDir } = await consoleJournal()
+    const { read, rootDir } = await defaultJournal()
     const io = output()
 
     await expect(runAgentInvocationsCli(["prune", "--older-than", "8700000000000000ms"], { env: {}, rootDir, ...io })).resolves.toBe(1)
@@ -358,35 +358,32 @@ describe("vitehub agent invocations delete and prune", () => {
   })
 
   it.each([
-    { source: "explicit", agentToken: "agent-secret", consoleToken: "console-secret", expectedToken: "agent-secret" },
-    { source: "explicit", agentToken: undefined, consoleToken: "console-secret", expectedToken: undefined },
-    { source: "agent", agentToken: "agent-secret", consoleToken: "console-secret", expectedToken: "agent-secret" },
-    { source: "agent", agentToken: undefined, consoleToken: "console-secret", expectedToken: undefined },
-    { source: "console", agentToken: "agent-secret", consoleToken: "console-secret", expectedToken: "console-secret" },
-    { source: "console", agentToken: "agent-secret", consoleToken: undefined, expectedToken: undefined },
-    { source: "local", agentToken: "agent-secret", consoleToken: "console-secret", expectedToken: "console-secret" },
-    { source: "local", agentToken: "agent-secret", consoleToken: undefined, expectedToken: undefined },
-  ])("binds $source journal credentials with Agent token $agentToken and Console token $consoleToken", async ({ source, agentToken, consoleToken, expectedToken }) => {
+    { source: "explicit", token: "agent-secret", expectedToken: "agent-secret" },
+    { source: "explicit", token: undefined, expectedToken: undefined },
+    { source: "agent", token: "agent-secret", expectedToken: "agent-secret" },
+    { source: "agent", token: undefined, expectedToken: undefined },
+    { source: "local", token: "agent-secret", expectedToken: undefined },
+  ])("binds $source journal credentials with token $token", async ({ source, token, expectedToken }) => {
     const rootDir = await temporaryDirectory()
     const localDirectory = join(rootDir, ".vitehub/data")
     await mkdir(localDirectory, { recursive: true })
-    const localPath = join(localDirectory, "console.sqlite")
+    const localPath = join(localDirectory, "agent-invocations.sqlite")
     const localClient = createClient({ url: `file:${localPath}` })
     await localClient.execute("SELECT 1")
     localClient.close()
 
     const explicitUrl = "https://explicit.example.com"
     const agentUrl = "https://agent.example.com"
-    const consoleUrl = "https://console.example.com"
-    const expectedUrl = source === "explicit" ? explicitUrl : source === "agent" ? agentUrl : source === "console" ? consoleUrl : `file://${localPath}`
+    const expectedUrl = source === "explicit" ? explicitUrl : source === "agent" ? agentUrl : `file://${localPath}`
     vi.mocked(createClient).mockImplementationOnce(() => { throw new Error("Database client creation intercepted") })
     const io = output()
     const code = await runAgentInvocationsCli(["prune", ...(source === "explicit" ? ["--database", explicitUrl] : [])], {
       env: {
         ...(source === "explicit" || source === "agent" ? { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: agentUrl } : {}),
-        ...(source !== "local" ? { VITEHUB_CONSOLE_DATABASE_URL: consoleUrl } : {}),
-        ...(agentToken ? { VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN: agentToken } : {}),
-        ...(consoleToken ? { VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN: consoleToken } : {}),
+        // The old Console journal variables select nothing.
+        VITEHUB_CONSOLE_DATABASE_URL: "https://console.example.com",
+        VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN: "console-secret",
+        ...(token ? { VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN: token } : {}),
       },
       rootDir,
       ...io,

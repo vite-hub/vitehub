@@ -9,16 +9,16 @@ defineProps<{
 }>()
 
 // A small site has no rail. The panel lists every section with its pages.
-const rail = docsHasRail(useDocsManifest(), useDocsConfig().icons)
+const config = useDocsConfig()
+const rail = docsHasRail(useDocsManifest(), config.icons, config.groups, config)
 </script>
 
 <template>
   <div class="vh-docs-sidebars">
     <DocsRail v-if="rail" :labeled="labeled" />
     <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': !rail }">
-      <DocsAsideLeftTop :brand="!rail" />
+      <DocsAsideLeftTop v-if="rail" />
       <DocsAsideLeftBody />
-      <DocsAsideFooter />
     </div>
   </div>
 </template>
@@ -38,17 +38,12 @@ const rail = docsHasRail(useDocsManifest(), useDocsConfig().icons)
   flex: 0 1 auto;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid var(--ui-border);
-  background: var(--ui-bg-muted);
 }
 
 /* Without the rail, the panel takes the whole sidebar width. */
 .vh-docs-panel.is-single {
   width: auto;
   flex: 1 1 auto;
-}
-
-.dark .vh-docs-panel {
-  background: var(--ui-bg);
+  padding-top: 0.75rem;
 }
 </style>

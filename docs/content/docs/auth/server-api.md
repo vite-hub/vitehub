@@ -46,6 +46,7 @@ App Auth loads Better Auth with the first Auth request, the first request that a
 Server code can read the discovered Auth instance or require a session for a request.
 
 ```ts [server/api/me.get.ts]
+import { defineEventHandler, getRequestHeaders } from 'h3'
 import { auth } from '@vite-hub/auth/server'
 
 export default defineEventHandler(async (event) => {
@@ -58,6 +59,7 @@ export default defineEventHandler(async (event) => {
 To protect a route, wrap its handler. The guard checks the request first. Your handler runs only when the check passes, and it receives the checked `authorization`. You do not branch on the check result yourself, so a missing `if` cannot run the protected action.
 
 ```ts [server/api/profile.get.ts]
+import { defineEventHandler } from 'h3'
 import { withAuth } from '@vite-hub/auth/server'
 
 export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id })))
@@ -65,7 +67,7 @@ export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id }
 
 On H3 2, you can put the check in route middleware. `requireAuth()` rejects like `withAuth()`. `requireAuthorization(authorize)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`, and the handler reads the checked `authorization` with `getAuthorization(event)`.
 
-```ts [server/app.ts]
+```ts [server/app.ts] fragment
 import { getAuthorization, requireAuth, requireAuthorization } from '@vite-hub/auth/server'
 import { H3 } from 'h3'
 
@@ -87,10 +89,10 @@ export const app = new H3()
 | `auth` | Proxy to the discovered Better Auth instance. |
 | `getAuth(runtimeOptions?)` | Returns the discovered Better Auth instance. |
 | `getAuthForRequest(request, runtimeOptions?, event?)` | Returns a request-aware Better Auth instance. |
-| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 1 or H3 2 event in a ViteHub app. |
+| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. |
 | `handleAuthRequest(definition, input, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
-| `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. On H3 1, such as a Nuxt 4 server event, that `Request` keeps the app base path. |
-| `createAuthHandler(definition, runtimeOptions?)` | Creates a Better Auth handler from a Definition. |
+| `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
+| `createAuthHandler(definition, runtimeOptions?)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass their peer address for rate limiting and session IPs. |
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches discovered route metadata, then authenticates and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Otherwise it returns an unauthorized or sign-in response. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Otherwise it returns JSON `401` without a session, `403` when `authorize` returns `false`, or the callback's `Response`. |
@@ -140,10 +142,6 @@ export default defineAuth({
         route: '/_vitehub/**',
         authorize: ({ user }) => user.isAdmin === true,
       },
-      {
-        route: '/api/_vitehub/console/**',
-        authorize: ({ user }) => user.isAdmin === true,
-      },
     ],
   },
 })
@@ -153,7 +151,7 @@ The callback receives the authenticated `user`, `session`, and request. ViteHub 
 
 The same callback signature protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the protected read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it does not start a sign-in redirect, so image and fetch requests receive a status code.
 
-Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request that an access route matches. Manual hosts can use it with a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 1 or H3 2 event in a ViteHub app. Pass `{ route, method?, authorize?: true }` metadata in the same order as the Definition's `access.routes`. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply, and `authorize: true` requires the corresponding runtime callback. Unmatched requests do not load the Auth Definition or session.
+Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request that an access route matches. Manual hosts can use it with a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Pass `{ route, method?, authorize?: true }` metadata in the same order as the Definition's `access.routes`. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply, and `authorize: true` requires the corresponding runtime callback. Unmatched requests do not load the Auth Definition or session.
 
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` for an unauthenticated browser request instead of starting the configured provider sign-in redirect. Use it when the host shows its own sign-in page and starts provider sign-in after an explicit action. By default, it keeps the `access.signIn` redirect.
 

@@ -1,6 +1,6 @@
 ---
 title: ViteHub
-description: Server primitives for Vite. Write server code once and deploy it across supported hosts.
+description: ViteHub is an open-source Vite plugin. Use one API for databases, storage, queues, workflows, and AI Agents, and deploy to Cloudflare, Vercel, Netlify, or Node.
 ---
 
 # The server layer for Vite apps

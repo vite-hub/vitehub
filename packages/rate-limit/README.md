@@ -85,12 +85,12 @@ export default defineConfig({
 
 Then require a budget before expensive work:
 
-```ts
+```ts fragment
 import { requireRateLimit } from "@vite-hub/rate-limit";
 
-export async function handleImageUpload(event): Promise<Response> {
-  await requireRateLimit(event, "image-upload", {
-    key: authenticatedUser.id,
+export async function handleImageUpload(request: Request, userId: string): Promise<Response> {
+  await requireRateLimit(request, "image-upload", {
+    key: userId,
     limit: 10,
     window: "1m",
   });
@@ -99,13 +99,13 @@ export async function handleImageUpload(event): Promise<Response> {
 }
 ```
 
-The stable ID and provider policy must use static literals so the Vite integration can discover them and generate provider configuration. `event` and `key` are runtime values. If you omit `key`, the guard uses the request client address and fails when it cannot find one.
+The stable ID and provider policy must use static literals so the Vite integration can discover them and generate provider configuration. The request and `key` are runtime values. The guard takes a Web `Request` or a request event with Standard Context properties, such as an H3 event in a ViteHub app. If you omit `key`, the guard uses the client address of the event and fails when it cannot find one. A `Request` has no client address, so pass `key`, except on Cloudflare, where the guard reads `cf-connecting-ip`.
 
 An allowed request continues. An exhausted budget throws an H3 `HTTPError` with status `429`. The default `failure: "deny"` turns an expected driver outage into status `503`; `failure: "allow"` lets the request continue. Use fail-open behavior only when the protected operation is safe without enforcement. Invalid configuration, malformed provider results, missing bindings, and driver defects still throw instead of following the failure policy.
 
 Local Vite development uses the process-local memory driver. A Cloudflare Nitro preset selects Cloudflare Rate Limiting, and every deployed Worker and environment needs a unique namespace. ViteHub has no native Rate Limit driver for Vercel, Netlify, or Deno. Automatic provider selection fails for an unknown production host instead of falling back to unsafe per-instance memory. Select memory explicitly only for a known single-process deployment; otherwise supply a direct production driver. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
-Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and `1m` windows. It does not report portable remaining, reset, or retry metadata. A policy that requests strict enforcement or another window fails before deployment. The [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare#rate-limiting-bindings) covers generated bindings and deployment verification.
+Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and `1m` windows. It does not report portable remaining, reset, or retry metadata. A policy that requests strict enforcement or another window fails before deployment, and `vite dev` fails the same way when the build targets Cloudflare, although the dev server counts in memory. The [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare#rate-limiting-bindings) covers generated bindings and deployment verification.
 
 ## Supply a direct driver
 

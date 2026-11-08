@@ -36,6 +36,10 @@ export function findTrustedResponseConstructor(constructor: unknown): Function |
 
 export function isResponse(value: unknown): value is Response {
   if (isRuntimeResponse(value)) return true
+  // A Node server such as srvx in Nitro replaces the global Response after this module loads. Code that runs later,
+  // such as `ignored()` in a trigger, creates that host Response, so trust it like the intrinsic one.
+  const hostResponse: unknown = globalThis.Response
+  if (typeof hostResponse === "function" && hostResponse !== runtimeResponseConstructor) trustedResponseConstructors.add(hostResponse)
   try {
     const constructor = (value as { constructor?: unknown }).constructor
     if (typeof constructor !== "function") return false

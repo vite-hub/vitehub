@@ -6,7 +6,7 @@ export type QueueProviderOperation = "create-client" | "send" | "send-batch"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/queue/limits-and-errors",
+  docs: "https://vitehub.dev/docs/queue/diagnostics",
   codes: {
     // Runtime errors. `send()`, `sendBatch()`, and `runQueue()` return them as `[error, undefined]`.
     QUEUE_PROVIDER_FAILED: {
@@ -27,7 +27,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ binding }: { binding?: string }) => binding
         ? `The Cloudflare queue binding "${binding}" is not in the Worker env.`
         : "The Cloudflare queue client has no binding.",
-      fix: "The dev server has no local Queue delivery. Run the built Worker with `wrangler dev`, or deploy it. In a deployed Worker, add the binding to the Worker configuration.",
+      fix: "Run the Worker that `vite build` writes, with `wrangler dev` or a deployment, so its configuration has the generated binding. A custom Worker configuration must keep that binding. `vite dev` runs Queue jobs in the dev server and needs no binding.",
     },
     QUEUE_DEFINITION_LOAD_FAILED: {
       why: ({ queue }: { queue?: string }) => queue ? `The Queue Definition "${queue}" failed to load.` : "A Queue Definition failed to load.",
@@ -52,6 +52,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_MISSING_QUEUE: {
       why: "A direct local queue client needs a `queue` name.",
       fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `getQueue()`.",
+    },
+    QUEUE_LOCAL_MODE_MISMATCH: {
+      why: "The local Queue directory already has an engine with a different development error disclosure mode.",
+      fix: "Use `getQueue()` in the generated server runtime, or give the direct client a separate directory.",
     },
     QUEUE_MISSING_TOPIC: {
       why: "A direct Vercel queue client needs a `topic`.",
