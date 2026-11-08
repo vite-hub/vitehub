@@ -927,14 +927,14 @@ describe("agent Vite plugin", () => {
         root,
       })
 
-      const registry = await transform("const registry = {}\nexport default registry\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const registry = await transform("const registry = {}\nexport default registry\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
       const providerRegistry = plugin.vitehub?.agent?.transformWorkflowRegistry(
         "const registry = {}\nexport default registry\n",
-        join(root, ".vitehub", "workflow", "registry.mjs"),
+        join(root, ".vitehub", "workflow", "registry-runtime.mjs"),
       )
       const windowsProviderRegistry = plugin.vitehub?.agent?.transformWorkflowRegistry(
         "const registry = {}\nexport default registry\n",
-        "C:\\app\\.vitehub\\workflow\\registry.mjs",
+        "C:\\app\\.vitehub\\workflow\\registry-runtime.mjs",
       )
       const nitroPlugin = hubAgent()
       // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
@@ -951,7 +951,7 @@ describe("agent Vite plugin", () => {
       )
       const nitroRegistry = nitroPlugin.vitehub?.agent?.transformWorkflowRegistry(
         "const registry = {}\nexport default registry\n",
-        join(root, ".vitehub", "workflow", "registry.mjs"),
+        join(root, ".vitehub", "workflow", "registry-runtime.mjs"),
       )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
@@ -968,8 +968,8 @@ describe("agent Vite plugin", () => {
       expect(windowsProviderRegistry).toBe(registry)
       expect(nitroRegistry).toBe(registry)
       if (!registry || !providerRegistry) throw new Error("Expected generated workflow registries")
-      expect(await transform(providerRegistry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
-      expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, join(root, ".vitehub", "workflow", "registry.mjs"))).toBe(registry)
+      expect(await transform(providerRegistry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(registry)
+      expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, join(root, ".vitehub", "workflow", "registry-runtime.mjs"))).toBe(registry)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -997,14 +997,14 @@ describe("agent Vite plugin", () => {
         root,
       })
 
-      const registry = await transform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const registry = await transform("export default {}\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
 
       expect(registry).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
       expect(registry).toContain('import { setAgentChannelDeliveryWorkflowStateResolver } from "@vite-hub/agent/server/internal"')
       expect(registry).toContain('const viteHubChatStateOptions = {"url":"libsql://state.example.test"}')
       expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
       if (!registry) throw new Error("Expected a libSQL workflow registry")
-      expect(await transform(registry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(registry)
 
       const cloudflarePlugin = hubAgent()
       const cloudflareConfigResolvedHook: unknown = cloudflarePlugin.configResolved
@@ -1020,19 +1020,19 @@ describe("agent Vite plugin", () => {
         vitehub: { host: "cloudflare" },
         root,
       } as never)
-      const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
       expect(cloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
       expect(cloudflareRegistry).toContain("(context.cloudflare?.env || getActiveCloudflareEnv())?.CHAT_STATE")
       expect(cloudflareRegistry).toContain("setAgentChannelDeliveryWorkflowStateResolver(context =>")
       if (!cloudflareRegistry) throw new Error("Expected a Cloudflare workflow registry")
-      expect(await cloudflareTransform(cloudflareRegistry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(cloudflareRegistry)
+      expect(await cloudflareTransform(cloudflareRegistry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(cloudflareRegistry)
 
       await cloudflareConfigResolved({
         command: "build",
         plugins: [],
         root,
       })
-      const nestedCloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry.mjs")
+      const nestedCloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
       expect(nestedCloudflareRegistry).toContain('import { createCloudflareAgentState, getActiveCloudflareEnv } from "@vite-hub/agent/cloudflare"')
       expect(nestedCloudflareRegistry).not.toContain("createLibsqlAgentState")
     } finally {
@@ -1044,7 +1044,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-rewrite-"))
     try {
-      const registryFile = join(root, ".vitehub", "workflow", "registry.mjs")
+      const registryFile = join(root, ".vitehub", "workflow", "registry-runtime.mjs")
       const plugin = hubAgent({})
       // Nuxt writes the Workflow registry from its Nitro config hook, before Vite resolves the Cloudflare preset.
       const written = plugin.vitehub?.agent?.transformWorkflowRegistry("export default {}\n", registryFile)
@@ -1057,14 +1057,14 @@ describe("agent Vite plugin", () => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({ command: "build", plugins: [], vitehub: { host: "cloudflare" }, root })
-      const registry = await transform(written, "/virtual/.vitehub/workflow/registry.mjs")
+      const registry = await transform(written, "/virtual/.vitehub/workflow/registry-runtime.mjs")
       if (!registry) throw new Error("Expected a Cloudflare workflow registry")
 
       expect(registry.match(/import \{ setAgentChannelDeliveryWorkflowStateResolver \}/g)).toHaveLength(1)
       expect(registry).toContain("createCloudflareAgentState({ namespace })")
       expect(registry).not.toContain("createLibsqlAgentState")
       expect(registry.endsWith("export default {}\n")).toBe(true)
-      expect(await transform(registry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry-runtime.mjs")).toBe(registry)
       expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, registryFile)).toBe(registry)
     } finally {
       await rm(root, { force: true, recursive: true })

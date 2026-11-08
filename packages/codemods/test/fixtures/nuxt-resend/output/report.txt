@@ -1,0 +1,22 @@
+resend: moved 3 emails.send() calls to email.send() with the ViteHub Resend driver, host "cloudflare".
+Dry run: no files were written.
+
+Files to change (4):
+  nuxt.config.ts
+  server/api/contact.post.ts
+  server/utils/mail.ts
+  package.json
+
+Manual follow-ups (4):
+  1. server/api/contact.post.ts:4 This code reads runtimeConfig.resend. runtimeConfig.resend.apiKey stays in nuxt.config, and NUXT_RESEND_API_KEY still sets it, so the read keeps working. ViteHub Email reads the key itself; remove the read when nothing else needs it.
+  2. server/utils/mail.ts:6 The tags field is not one of the portable Email fields. Check that the ViteHub Resend driver sends it.
+  3. server/utils/mail.ts:6 data is now ViteHub's EmailSendResult, { id, driver }. Resend's data had { id }.
+  4. server/utils/mail.ts:11 The message spreads another object. Check that it uses replyTo instead of reply_to.
+
+Notes:
+  - The API key is Secret Env read from NUXT_RESEND_API_KEY. It resolves on each send, so builds do not need it.
+  - In vite dev, email.send() stores messages in the development outbox instead of sending them. Set vitehub.email.remote to true to send real email in dev.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and remove nuxt-resend.
+  - Run `npx nuxi prepare`, then type-check the app.
