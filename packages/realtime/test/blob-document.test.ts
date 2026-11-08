@@ -12,11 +12,11 @@ function memoryBlob() {
   const store: RealtimeBlobStore = {
     async get(pathname) {
       const file = files.get(decodeURIComponent(pathname))
-      return [null, file ? new Blob([file.body], { type: file.contentType }) : null]
+      return [undefined, file ? new Blob([file.body], { type: file.contentType }) : null]
     },
     async put(pathname, body, { contentType }) {
       files.set(decodeURIComponent(pathname), { body, contentType })
-      return [null, { pathname }]
+      return [undefined, { pathname }]
     },
   }
   return { files, store }
@@ -81,7 +81,7 @@ describe("blobDocument", () => {
   it("treats BLOB_NOT_FOUND as a missing file and throws other Blob errors", async () => {
     const failing = (code: string): RealtimeBlobStore => ({
       async get() { return [Object.assign(new Error(code), { code }), undefined] },
-      async put() { return [null, {}] },
+      async put() { return [undefined, {}] },
     })
     expect(await blobDocument(failing("BLOB_NOT_FOUND")).load(context)).toEqual({ body: "", digest: null })
     await expect(blobDocument(failing("BLOB_OPERATION_FAILED")).load(context)).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED" })

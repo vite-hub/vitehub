@@ -82,7 +82,8 @@
     "@ai-sdk/openai": "^4.0.0",
     "@ai-sdk/openai-compatible": "^3.0.0",
     "@ai-sdk/provider": "^4.0.0",
-    "advocaat": "catalog:ai"
+    "advocaat": "catalog:ai",
+    "ai": "catalog:ai-compat"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/anthropic": {
@@ -98,6 +99,9 @@
       "optional": true
     },
     "advocaat": {
+      "optional": true
+    },
+    "ai": {
       "optional": true
     }
   },

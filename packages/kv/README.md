@@ -81,6 +81,8 @@ Upstash also supports `kv.getAndDelete(key)` and `kv.increment(key, ttl)`. These
 `kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
 
 ```ts
+import { kv } from "@vite-hub/kv"
+
 const flags = kv.store("default", { mode: "read" })
 const [error, value] = await flags.get("flags")
 ```
@@ -93,7 +95,7 @@ Call `disposeKVStores()` from `@vite-hub/kv` (or `vite-hub/kv`) after stopping n
 
 For Nitro, register the cleanup in a server plugin:
 
-```ts
+```ts fragment
 // server/plugins/kv-cleanup.ts
 import { disposeKVStores } from "@vite-hub/kv"
 

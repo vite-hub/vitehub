@@ -13,13 +13,15 @@ import { jpegOrientation, probeImage } from "../src/media/probe.ts"
 import { setBlobPhotonLoader } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobImageOperation } from "../src/media/types.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode } from "../src/types.ts"
 
 const fixture = (name: string) => readFile(new URL(`./fixtures/photon/${name}`, import.meta.url))
 const transformer = createPhotonImageTransformer()
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 
@@ -187,7 +189,7 @@ describe("photon transformer in Blob storage", () => {
 
     const event = new H3Event(new Request("https://example.test/meals/lunch.jpg"))
     const [error, body] = await storage.serve(event, "meals/lunch.jpg", { variant: { format: "jpeg", width: 16 } })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(event.res.headers.get("content-type")).toBe("image/jpeg")
     expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ format: "jpeg", height: 24, width: 16 })
     expect(ok(await storage.media.variants("meals/lunch.jpg"))[0]!.key).toContain("engine=photon")

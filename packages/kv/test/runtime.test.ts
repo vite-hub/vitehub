@@ -184,7 +184,7 @@ describe("kv runtime", () => {
     expect(error).toMatchObject({
       cause,
       code: "KV_OPERATION_FAILED",
-      docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_operation_failed",
+      docs: "https://vitehub.dev/docs/kv/diagnostics/kv_operation_failed",
       fix: expect.stringContaining("error.cause"),
       why: "kv.get() failed on the \"default\" store.",
     })
@@ -202,7 +202,7 @@ describe("kv runtime", () => {
     expect(error).toMatchObject({
       cause,
       code: "KV_OPERATION_FAILED",
-      docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_operation_failed",
+      docs: "https://vitehub.dev/docs/kv/diagnostics/kv_operation_failed",
       fix: expect.stringContaining("error.cause"),
       why: "kv.get() failed on the \"default\" store.",
     })
@@ -321,7 +321,7 @@ describe("kv runtime", () => {
     expect(count).toBeUndefined()
     expect(ttlError).toMatchObject({
       code: "KV_INVALID_TTL",
-      docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_invalid_ttl",
+      docs: "https://vitehub.dev/docs/kv/diagnostics/kv_invalid_ttl",
       fix: expect.any(String),
       why: expect.any(String),
     })
