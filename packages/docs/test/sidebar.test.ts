@@ -16,15 +16,15 @@ const files: Record<string, string> = {
   "docs/annotate/index.md": "---\ntitle: Annotate\n---\nMarks on screenshots.\n",
   "docs/charts/.navigation.yml": "title: Charts\nicon: i-lucide-chart-line\norder: 3\ncategory: Charts\ngroup: Components\n",
   "docs/charts/index.md": "---\ntitle: Charts\n---\nCharts.\n",
-  "docs/charts/notes.md": "---\ntitle: Notes\n---\nNotes on charts.\n",
+  "docs/charts/notes.md": "---\ntitle: Notes\nicon: i-lucide-sticky-note\n---\nNotes on charts.\n",
   "docs/table/.navigation.yml": "title: Table\nicon: i-lucide-table\norder: 4\ncategory: Charts\ngroup: Components\n",
   "docs/table/index.md": "---\ntitle: Table\n---\nTables.\n",
   // The rules fold, as a list of hundreds of rules would bury the sidebar.
   "docs/lint/.navigation.yml": "title: Linter\nicon: i-lucide-stethoscope\norder: 5\ncategory: Linter\nfold: true\n",
   "docs/lint/index.md": "---\ntitle: Linter\n---\nLint.\n",
-  "docs/lint/unclosed-block.md": "---\ntitle: unclosed-block\nnavigation.group: Core\n---\nRule.\n",
-  "docs/lint/empty-link.md": "---\ntitle: empty-link\nnavigation.group: Core\n---\nRule.\n",
-  "docs/lint/missing-src.md": "---\ntitle: missing-src\nnavigation.group: annotate\n---\nRule.\n",
+  "docs/lint/unclosed-block.md": "---\ntitle: unclosed-block\nicon: i-lucide-code\nnavigation.group: Core\n---\nRule.\n",
+  "docs/lint/empty-link.md": "---\ntitle: empty-link\nicon: i-ph-link-light\nnavigation.group: Core\n---\nRule.\n",
+  "docs/lint/missing-src.md": "---\ntitle: missing-src\nicon: i-ph-image-light\nnavigation.group: annotate\n---\nRule.\n",
   "docs/lint/missing-alt.md": "---\ntitle: missing-alt\nnavigation.group: annotate\n---\nRule.\n",
   "docs/migrate/.navigation.yml": "title: Migrate\nicon: i-lucide-arrow-right-left\norder: 6\ncategory: Linter\n",
   "docs/migrate/index.md": "---\ntitle: Migrate\n---\nMigrate.\n",
@@ -58,6 +58,12 @@ it("shows one rail item per group and lists every section of the group in its si
         categories: ["Start", "Review blocks", "Charts", "Linter", "Reference"],
         railExclude: ["Charts", "Reference"],
         start: { section: "start" },
+        icons: {
+          pages: { "/docs/charts/notes": "i-lucide-book-open" },
+          aliases: { "i-ph-link-light": "i-lucide-link" },
+          family: "i-lucide-",
+          page: "i-lucide-file",
+        },
         groups: [
           { title: "Components", icon: "i-lucide-blocks", sections: ["annotate"] },
           { title: "Reference topics", sections: ["reference", "api"] },
@@ -78,7 +84,7 @@ it("shows one rail item per group and lists every section of the group in its si
     const rail = /<nav[^>]*aria-label="Lumen navigation"[\s\S]*?<\/nav>/.exec(charts)?.[0] ?? ""
     const railLabels = [...rail.matchAll(/<a [^>]*aria-label="([^"]+)"/g)].map(match => match[1])
     // Components stands for annotate, charts, and table. It opens annotate, its first section.
-    expect(railLabels).toEqual(["Lumen", "Start", "Components", "Linter", "Migrate"])
+    expect(railLabels).toEqual(["Start", "Components", "Linter", "Migrate"])
     expect(/<a [^>]*href="\/docs\/annotate"[^>]*>/.exec(rail)?.[0]).toContain('aria-current="true"')
     // Excluded members with a visible group mark that group alone, without the start fallback.
     expect.soft(currentRailLabels(charts)).toEqual(["Components"])
@@ -88,12 +94,22 @@ it("shows one rail item per group and lists every section of the group in its si
     // The sections span two categories, so each category has a heading. A section opens its home page, and its other pages follow.
     expect(text(sidebar)).toBe("Review blocks Annotate Charts Charts Notes Table")
     expect(/<a [^>]*href="\/docs\/charts\/notes"[^>]*>/.exec(sidebar)?.[0]).toContain('aria-current="page"')
+    const pageLink = (html: string, path: string) => html.match(new RegExp(`<a [^>]*href="${path}"[^>]*>[\\s\\S]*?</a>`))?.[0] ?? ""
+    // Configured maps still override frontmatter in a group's page rows.
+    expect.soft(pageLink(sidebar, "/docs/charts/notes")).toContain("i-lucide:book-open")
 
     // A section outside every group keeps its own sidebar. Its rule groups fold, and only the current page's group opens.
     const folds = (html: string) => [...html.matchAll(/<details([^>]*)>\s*<summary[^>]*>([\s\S]*?)<\/summary>/g)].map(match => [text(match[2]!), /\sopen(=""|\s|$)/.test(match[1]!)])
     expect(await page("docs/lint")).toMatch(/<nav[^>]*aria-label="Linter pages"/)
     expect(folds(await page("docs/lint"))).toEqual([["Core", false], ["annotate", false]])
     expect(folds(await page("docs/lint/missing-src"))).toEqual([["Core", false], ["annotate", true]])
+    const lint = await page("docs/lint")
+    const lintSidebar = /<nav[^>]*aria-label="Linter pages"[\s\S]*?<\/nav>/.exec(lint)?.[0] ?? ""
+    // Standalone folded groups honor frontmatter, aliases, the allowed family, and the fallback.
+    expect.soft(pageLink(lintSidebar, "/docs/lint/unclosed-block")).toContain("i-lucide:code")
+    expect.soft(pageLink(lintSidebar, "/docs/lint/empty-link")).toContain("i-lucide:link")
+    expect.soft(pageLink(lintSidebar, "/docs/lint/missing-src")).toContain("i-lucide:file ")
+    expect.soft(pageLink(lintSidebar, "/docs/lint/missing-alt")).toContain("i-lucide:file ")
     // A section without `fold` keeps its groups open.
     expect(folds(charts)).toEqual([])
 
@@ -105,7 +121,10 @@ it("shows one rail item per group and lists every section of the group in its si
       expect(currentRailLabels(html)).toEqual(["Start"])
     }
     // Ungrouped excluded sections keep the existing start-section fallback.
-    expect(currentRailLabels(await page("docs/glossary"))).toEqual(["Start"])
+    const glossary = await page("docs/glossary")
+    expect(currentRailLabels(glossary)).toEqual(["Start"])
+    // Glossary has one page, so its sidebar lists its category instead of a single link to itself.
+    expect(text(/<nav[^>]*aria-label="Reference pages"[\s\S]*?<\/nav>/.exec(glossary)?.[0] ?? "")).toBe("Reference API Glossary")
   }
   finally {
     await nuxt?.close()

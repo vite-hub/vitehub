@@ -13,7 +13,7 @@ icon: i-ph-files-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the composable. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import it from `@vite-hub/ui`:
 
 ```ts
 import { useAgentAttachments } from "@vite-hub/ui";
@@ -25,7 +25,7 @@ import { useAgentAttachments } from "@vite-hub/ui";
 import { useAgentAttachments } from "@vite-hub/ui";
 ```
 
-```ts
+```ts fragment
 const attachments = useAgentAttachments({
   accept: "image/*,.pdf",
   maxFiles: 5,
@@ -92,7 +92,7 @@ The composable renders nothing, so the application owns the markup:
 
 Keeps the selected files and their rules. Returns the files and the functions that change them.
 
-```ts
+```ts fragment
 function useAgentAttachments(options?: UseAgentAttachmentsOptions): AgentAttachments;
 ```
 

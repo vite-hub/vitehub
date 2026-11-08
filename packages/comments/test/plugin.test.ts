@@ -1,3 +1,4 @@
+import { H3Event } from "h3"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
@@ -11,7 +12,7 @@ import { defineComments } from "../src/index.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=18" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=19" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -29,7 +30,7 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
 
 async function pageSession(app: object, cookie: string, page?: string) {
   const request = new Request(`http://site.test/_vitehub/page/session${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
-  const response = await respondViteHubPageSession(app, request, { req: request })
+  const response = await respondViteHubPageSession(app, request, new H3Event(request))
   return { cookie: response.headers.get("set-cookie"), body: await response.json() }
 }
 

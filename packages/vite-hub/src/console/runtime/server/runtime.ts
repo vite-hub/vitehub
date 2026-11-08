@@ -1,4 +1,4 @@
-import { installOperationRegistryLoader } from "@vite-hub/internal/operations"
+import { installOperationRegistryLoader } from "@vite-hub/internal/operation-registry"
 
 /**
  * The Console runtime installs the operations, Definitions, Schedules, Database, Blob, and Env of the Console. It

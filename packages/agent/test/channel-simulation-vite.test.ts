@@ -4,6 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
+import { telegram } from "../src/channels.ts"
 import { channelSimulationEnv } from "../src/internal/channel-simulation.ts"
 import { hubAgent } from "../src/vite.ts"
 
@@ -79,11 +80,21 @@ it("ends plugin-owned simulation when a dev server closes or disables the Agent"
   expect(process.env[channelSimulationEnv]).toBeUndefined()
 })
 
+it("enables simulation in middleware-mode development servers such as Nuxt", async () => {
+  const plugin = await pluginFixture()
+  await plugin.resolve(true, { server: { middlewareMode: true } })
+  expect(process.env[channelSimulationEnv]).toBe("simulate")
+  expect(telegram({ mode: "polling" }).listener).toBeUndefined()
+  await plugin.close()
+  expect(process.env[channelSimulationEnv]).toBeUndefined()
+  expect(telegram({ mode: "polling" }).listener).toEqual({ kind: "telegram-polling" })
+})
+
 it.each([
-  { server: { middlewareMode: true } },
+  { server: { middlewareMode: true }, vitehubCliDiscovery: true },
   { vitehubCliDiscovery: true },
   { command: "build" },
-])("does not enable simulation outside an interactive dev server: %j", async (config) => {
+])("does not enable simulation during CLI discovery or builds: %j", async (config) => {
   const plugin = await pluginFixture()
   await plugin.resolve(true, config)
   expect(process.env[channelSimulationEnv]).toBeUndefined()

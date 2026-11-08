@@ -33,7 +33,7 @@ The former `workflow.database` option was never connected to Named Databases. It
 
 ## Define a workflow
 
-```ts
+```ts fragment
 // server/workflows/onboard-user.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
@@ -52,7 +52,7 @@ ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server
 
 ## Configure the provider
 
-```ts
+```ts fragment
 // server/workflow-runtime.ts
 import type {
   ResolvedWorkflowOptions,
@@ -88,7 +88,7 @@ export function installWorkflowRuntime() {
 }
 ```
 
-```ts
+```ts fragment
 // vite.config.ts
 import { hubWorkflow } from "@vite-hub/workflow/vite";
 import { defineConfig } from "vite";
@@ -108,7 +108,7 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 `runWorkflow()` only enqueues an OpenWorkflow run. Start one worker in a long-lived Node or Docker process:
 
-```ts
+```ts fragment
 // worker.ts
 import { startOpenWorkflowWorker } from "@vite-hub/workflow/runtime/openworkflow-worker";
 import { installWorkflowRuntime } from "./server/workflow-runtime.ts";
@@ -121,7 +121,7 @@ Keep this process running while it should consume queued runs, and do not start 
 
 ## Start and inspect a run
 
-```ts
+```ts fragment
 // server/api/onboard.post.ts
 import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow";
 import { defineEventHandler, readBody } from "h3";
@@ -160,7 +160,7 @@ A plain Vercel definition executes inline and does not survive a function restar
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
-```ts
+```ts fragment
 import { defineWorkflow, type WorkflowExecutionContext, type WorkflowProviderContext } from "@vite-hub/workflow";
 
 interface OnboardPayload {
@@ -194,7 +194,7 @@ ViteHub transforms `native` when it generates Vercel output. Other providers kee
 
 Throw `ViteHubError` when app callers need a stable, inspectable Workflow failure instead of parsing log output or provider-specific messages. ViteHub-owned failures use the package's fixed `WorkflowErrorCode` vocabulary.
 
-```ts
+```ts fragment
 import { ViteHubError } from "@vite-hub/runtime";
 
 async function transcribe(recordingId: string) {
@@ -232,7 +232,7 @@ async function transcribe(recordingId: string) {
 
 A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
-```ts
+```ts fragment
 const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })

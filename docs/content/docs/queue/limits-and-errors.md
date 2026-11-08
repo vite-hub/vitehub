@@ -35,7 +35,7 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 | `QUEUE_PROVIDER_FAILED` | Every send method | `getQueue()`, when the client cannot start |
 | `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `runQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
-| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
+| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
 | `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_PROVIDER`, `QUEUE_MISSING_PROVIDER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, when Vite reads the config, or during the build |
 
 ### Errors in a Queue handler
@@ -44,7 +44,7 @@ A handler can throw. Queue Delivery logs the error and lets the provider retry i
 
 Throw `ViteHubError` from `@vite-hub/runtime` when the handler needs a stable application code. Its code does not change the retry policy.
 
-```ts
+```ts fragment
 new ViteHubError('WELCOME_EMAIL_REJECTED', 'Welcome email was rejected.', {
   cause,
   details: { campaign: 'welcome' },
@@ -86,6 +86,10 @@ The Vite config sets `queue: false`, or Queue is not configured in this runtime.
 ### QUEUE_INVALID_BINDING
 
 The Cloudflare binding does not have `send()` and `sendBatch()`. Pass a Queue producer binding.
+
+### QUEUE_LOCAL_MODE_MISMATCH
+
+One process shares one local engine per directory. Clients that request different development error disclosure modes cannot share it. Direct clients from `createQueueClient()` always redact plain handler errors. Use `getQueue()` to share the generated dev runtime, or give the direct client a separate `base` directory.
 
 ### QUEUE_MISSING_QUEUE
 
@@ -199,9 +203,11 @@ Dev does not emulate these parts of the host:
 - `idempotencyKey` deduplicates only while a job is pending or running. Vercel deduplicates for the retention, up to 24 hours.
 - `getQueue()` returns the local client, so `client.provider` is `'local'`.
 
-`vitehub queue jobs list|show|retry|clear` and the Console read the stored jobs through the `queue.jobs-*` operations. A handler that throws a plain `Error` reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and a message. On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, because those providers do not let the app read the queue. A missing message ID fails with `QUEUE_JOB_NOT_FOUND`, and a job that runs now fails `retry` with `QUEUE_JOB_RUNNING`.
+`vitehub queue jobs list|show|retry|clear` and the Console read the stored jobs through the `queue.jobs-*` operations. In `vite dev`, a handler that throws a plain `Error` reports its message and stack, and `jobs show` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and a message there. On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, because those providers do not let the app read the queue. A missing message ID fails with `QUEUE_JOB_NOT_FOUND`, and a job that runs now fails `retry` with `QUEUE_JOB_RUNNING`.
 
 ## Production checks
+
+When a production local server reopens jobs stored by `vite dev`, it redacts stored errors without a code. Queue errors and `ViteHubError` keep their code and message.
 
 - A successful `runQueue()` means that the provider accepted the job. Track handler results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
 - Providers can deliver a job more than once. Make handlers safe to run again after a partial side effect.

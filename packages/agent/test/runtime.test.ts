@@ -5791,7 +5791,7 @@ describe("agent message protocol", () => {
         telegram: { allowedUserIds: [123] },
       },
       driver: { run: () => "ok" },
-    })).toThrow('Channel "telegram" must be an Agent Channel definition')
+    })).toThrow('Channel "telegram" must be a Channel from defineChannel()')
   })
 
   it("lets usage() request OpenRouter usage metadata", async () => {
@@ -5856,7 +5856,7 @@ describe("agent message protocol", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { support: { messages: false } as never },
       driver: { run: () => "ok" },
-    })).toThrow('Channel "support" must be an Agent Channel definition. Create it with a factory')
+    })).toThrow('Channel "support" must be a Channel from defineChannel()')
   })
 
   it("rejects invalid Channel factory results with the Channel id", async () => {
@@ -7963,7 +7963,7 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("emits title data for the first user message in streams", async () => {
+  it("emits title data for the latest user message in streams", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
@@ -7988,11 +7988,11 @@ describe("agent message protocol", () => {
     }
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.objectContaining({ id: "user-1" }),
-      text: "First user request",
+      message: expect.objectContaining({ id: "user-2" }),
+      text: "Latest user request",
     }))
     expect(events).toContainEqual({
-      data: { title: "Title: First user request", type: "title" },
+      data: { title: "Title: Latest user request", type: "title" },
       type: "data",
     })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
@@ -9210,12 +9210,15 @@ describe("agent message protocol", () => {
     await reader.cancel()
   })
 
-  it("preserves an established UI title when once-per-thread delivery was already claimed", async () => {
+  it.each([[false, false], [false, true], [true, false], [true, true]])("preserves an established UI title when once-per-thread delivery was already claimed, journal: %s, history: %s", async (journaled, withHistory) => {
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
     const { messageChannelTitleSupportContextKey } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Replacement title")
     const agent = defineAgent({
+      invocations: journaled ? invocations : undefined,
       capabilities: [
         defineCapability({
           id: "delivered-title-state",
@@ -9238,12 +9241,12 @@ describe("agent message protocol", () => {
           }),
         }) },
     })
+    const establishedMessage = createMessage({
+      parts: [{ data: { title: "Critical Overstock", type: "title" }, id: "title", type: "data-title" }],
+      role: "assistant",
+    })
     const messages = [
-      createMessage({ role: "user", text: "Explain critical overstock" }),
-      createMessage({
-        parts: [{ data: { title: "Critical Overstock", type: "title" }, id: "title", type: "data-title" }],
-        role: "assistant",
-      }),
+      ...(withHistory ? [createMessage({ role: "user", text: "Explain critical overstock" }), establishedMessage] : []),
       createMessage({ role: "user", text: "Existing thread title" }),
     ]
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -9262,10 +9265,77 @@ describe("agent message protocol", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ type: "data-title" }))
     const { createAgentChatData } = await import("../src/messages.ts")
     expect(createAgentChatData([
+      ...establishedMessage.parts,
       ...messages.flatMap(message => message.parts),
       ...events,
     ]).get("title", "title")).toBe("Critical Overstock")
-    expect(execute).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledTimes(journaled ? 1 : 0)
+    if (journaled) expect((await invocations.getByRunId("run-2"))?.title).toBe("Replacement title")
+  })
+
+  it.each([false, true])("streams UI answers while a title delivery claim is pending, journal: %s", async (journaled) => {
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
+    const { messageChannelTitleSupportContextKey } = await import("../src/channels.ts")
+    const claim = deferred<boolean>()
+    const get = vi.fn(() => claim.promise)
+    const execute = vi.fn(() => "Invocation title")
+    const agent = defineAgent({
+      invocations: journaled ? invocations : undefined,
+      capabilities: [
+        defineCapability({
+          id: "pending-title-state",
+          output(context) {
+            context.context.set(messageChannelTitleSupportContextKey, true)
+            context.context.set(messageChannelStateContextKey, {
+              keyPrefix: "chat:test:",
+              state: { get },
+            })
+          },
+        }),
+        title({ execute }),
+      ],
+      driver: { run: () => ({
+          toUIMessageStream: () => new ReadableStream({
+            start(controller) {
+              controller.enqueue({ messageId: "message-1", type: "start" })
+              controller.enqueue({ id: "text-1", type: "text-start" })
+              controller.enqueue({ delta: "Answer before title ownership", id: "text-1", type: "text-delta" })
+              controller.close()
+            },
+          }),
+        }) },
+    })
+    // SAFETY: A ui-message-stream output is a ReadableStream of UI message chunks.
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "pending-title-run", threadId: "thread-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { messages: [createMessage({ role: "user", text: "Follow-up request" })] }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    try {
+      await expect(reader.read()).resolves.toMatchObject({ value: { type: "start" } })
+      for (const value of [
+        { id: "text-1", type: "text-start" },
+        { delta: "Answer before title ownership", id: "text-1", type: "text-delta" },
+      ]) {
+        await expect(Promise.race([
+          reader.read(),
+          new Promise(resolve => setTimeout(() => resolve("title claim blocked the answer"), 100)),
+        ])).resolves.toEqual({ done: false, value })
+      }
+      expect(get).toHaveBeenCalledTimes(1)
+      expect(execute).not.toHaveBeenCalled()
+    }
+    finally {
+      claim.resolve(true)
+      while (!(await reader.read()).done) { /* Drain invocation cleanup after releasing State. */ }
+    }
+    expect(execute).toHaveBeenCalledTimes(journaled ? 1 : 0)
+    if (journaled) expect((await invocations.getByRunId("pending-title-run"))?.title).toBe("Invocation title")
   })
 
   it("starts a UI error with the code of a diagnostic that has a fix", async () => {

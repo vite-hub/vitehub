@@ -90,7 +90,7 @@ For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL`
 
 A spawned `SandboxProcess` can also expose `stdin` as a `WritableStream<Uint8Array>`. The `trusted-host` and `crabbox` runtimes always forward it to the process. The `vercel` runtime forwards it only when you pass `stdin: true`, because a command that reads its input then waits until you close the writer. Close the writer to end the process input. Runtimes that cannot forward input leave `stdin` undefined:
 
-```ts
+```ts fragment
 const child = await session.spawn!("node", ["workspace/filter.mjs"], { stdin: true });
 const writer = child.stdin?.getWriter();
 if (!writer) throw new Error("This Sandbox runtime does not forward process input.");
@@ -113,7 +113,7 @@ const vercel = await resolveSandbox({
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.
 
-The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds transient transport operations with retries and deadlines. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
+The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds each transport operation with a deadline. It retries only operations that are safe to repeat, such as file reads and full file writes, when Cloudflare marks the error `retryable`. It retries a command or a new process only when the Container was not ready to receive it; other errors keep the Cloudflare flag in `error.data.retryable`. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
 
 If Cloudflare Sandbox or Vercel cleanup fails, retry `session.close()`. The session rejects new operations after the first close attempt. Concurrent close calls wait for the same cleanup.
 
@@ -159,7 +159,7 @@ Requirement names, commands, and argv are inspectable declaration metadata. They
 
 A Sandbox does not assume that Node.js, npm, pnpm, Yarn, or Corepack exist on the host or image. Declare `toolchain` and the Sandbox installs the versions that the project pins:
 
-```ts
+```ts fragment
 const sandbox = await resolveSandbox({
   runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/sandboxes" },
   checkout: { ref, remote, sha },
@@ -200,7 +200,7 @@ Cache entries are content-addressed and read-only once published. Global install
 
 ## Run through Crabbox
 
-```ts
+```ts fragment
 sandbox: {
   runtime: {
     kind: "crabbox",
@@ -271,7 +271,7 @@ This transport grants arbitrary command execution as the configured user. It is 
 
 On Linux, set `runtime.resources` to cap the combined memory of one session's commands and their descendants:
 
-```ts
+```ts fragment
 runtime: {
   kind: "trusted-host",
   resources: {

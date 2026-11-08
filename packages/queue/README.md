@@ -101,6 +101,10 @@ The local provider stores each accepted job as a file in `.vitehub/data/queue`, 
 
 ```ts
 // vite.config.ts
+import { nitro } from "nitro/vite"
+import { hubQueue } from "@vite-hub/queue/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   nitro: { preset: "node-server", serverEntry: "./src/server.ts" },
   plugins: [hubQueue(), nitro()],
@@ -108,6 +112,10 @@ export default defineConfig({
 ```
 
 `hubQueue({ provider: "local", base: "data/queue" })` selects it explicitly and changes the directory.
+
+Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `getQueue()` in the dev server, or give the direct client a separate `base` directory.
+
+When a production server reopens a dev store, it redacts stored errors without a code before it exposes the jobs. Queue errors and `ViteHubError` keep their code and message.
 
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs of each Queue Definition.
 - The server writes the attempt count before the handler runs. A job whose handler was running when the process stopped runs again after the restart. If that was the fourth attempt, the job becomes a dead job instead.
@@ -153,7 +161,7 @@ pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```
 
-`--json` prints JSON. `jobs list` takes `--queue` and `--state`. `jobs retry` runs the job now: a dead job gets a new set of attempts, and a delayed job does not wait. `jobs clear` removes pending and dead jobs, not running ones. It asks for confirmation on a terminal and needs `--yes` elsewhere. The handler of a successful job deletes it, so the list shows pending, running, and dead jobs. A plain `Error` from a handler shows as `Queue Delivery failed.`; throw a `ViteHubError` to keep a code and message. The same commands work on a Node server with the local provider. Cloudflare and Vercel do not let the app read their queue, so the commands fail there with `QUEUE_JOBS_UNAVAILABLE`.
+`--json` prints JSON. `jobs list` takes `--queue` and `--state`. `jobs retry` runs the job now: a dead job gets a new set of attempts, and a delayed job does not wait. `jobs clear` removes pending and dead jobs, not running ones. It asks for confirmation on a terminal and needs `--yes` elsewhere. The handler of a successful job deletes it, so the list shows pending, running, and dead jobs. In `vite dev`, a plain `Error` from a handler shows its message and stack. A production server shows `Queue Delivery failed.` instead, because a message can hold private data; throw a `ViteHubError` to keep a code and message. The same commands work on a Node server with the local provider. Cloudflare and Vercel do not let the app read their queue, so the commands fail there with `QUEUE_JOBS_UNAVAILABLE`.
 
 ## Treat acceptance and delivery separately
 
@@ -182,7 +190,6 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `@vite-hub/queue`                | Queue Definitions, enqueue helpers, direct clients, host adapters, and public types |
 | `@vite-hub/queue/vite`           | Vite discovery and Cloudflare, Vercel, or local Nitro configuration                 |
-| `@vite-hub/queue/nuxt`           | Nuxt module that composes Queue into Nitro                                          |
 | `@vite-hub/queue/runtime/hosted` | Advanced hosted Vercel callback adapter                                             |
 
 `@vite-hub/queue/internal/*` exists for generated framework integration. Application code should not import it.

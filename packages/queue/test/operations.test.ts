@@ -121,12 +121,12 @@ describe("queue job operations", () => {
     base = undefined
   })
 
-  async function installDev(handler: (job: { attempts: number, payload: unknown }) => unknown) {
+  async function installDev(handler: (job: { attempts: number, payload: unknown }) => unknown, development = true) {
     base = await mkdtemp(join(tmpdir(), "vitehub-queue-jobs-"))
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "warn").mockImplementation(() => {})
     // The config that the generated plugin installs in `vite dev` for a Cloudflare app.
-    const config = { base, provider: "local", rules: "cloudflare" } as const
+    const config = { base, ...(development ? { development } : {}), provider: "local", rules: "cloudflare" } as const
     setQueueRuntimeConfig(config, createLocalQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ handler }) })
     startLocalQueue(config)
@@ -165,6 +165,31 @@ describe("queue job operations", () => {
     await expect(run("queue.jobs-clear", { state: "dead" })).resolves.toEqual({ cleared: 0 })
     await expect(run("queue.jobs-clear", {})).resolves.toEqual({ cleared: 1 })
     await expect(run("queue.jobs-show", { id: "job-2" })).rejects.toMatchObject({ code: "QUEUE_JOB_NOT_FOUND", status: 404 })
+  })
+
+  it("shows the message and stack of a plain Error in `vite dev`", async () => {
+    await installDev(async () => { throw new Error("SMTP down") })
+
+    await run("queue.send", { id: "job-1", payload: {}, queue: "welcome" })
+    await vi.waitFor(async () => {
+      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ id: "job-1", state: "dead" }] })
+    })
+    const shown = await run("queue.jobs-show", { id: "job-1" }) as { job: { error?: { message: string, stack?: string } } }
+    expect(shown.job.error).toMatchObject({ message: "SMTP down", name: "Error" })
+    expect(shown.job.error?.stack).toContain("operations.test.ts")
+    const format = operation("queue.jobs-show").cli?.format as (result: unknown) => string
+    expect(format(shown)).toContain("Error: SMTP down\nStack:\nError: SMTP down\n    at ")
+  })
+
+  it("keeps the fixed message for a plain Error outside `vite dev`", async () => {
+    await installDev(async () => { throw new Error("SMTP down for ada@example.com") }, false)
+
+    await run("queue.send", { id: "job-1", payload: {}, queue: "welcome" })
+    await vi.waitFor(async () => {
+      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ id: "job-1", state: "dead" }] })
+    })
+    const shown = await run("queue.jobs-show", { id: "job-1" }) as { job: { error?: unknown } }
+    expect(shown.job.error).toEqual({ message: "[vitehub] Queue Delivery failed.", name: "Error" })
   })
 
   it("runs a delayed job now on retry", async () => {

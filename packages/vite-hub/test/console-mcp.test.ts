@@ -66,12 +66,15 @@ async function read<T>(response: Response): Promise<T> {
   return body as T
 }
 
-function post(message: unknown, headers: Record<string, string> = {}, url = `${origin}/_vitehub/mcp`) {
-  return defineHandler(consoleMcpHandler).fetch(new Request(url, {
+/** An MCP request. `clientAddress` is the peer address that a host adapter reports in `request.context`. */
+function post(message: unknown, headers: Record<string, string> = {}, url = `${origin}/_vitehub/mcp`, clientAddress?: string) {
+  const request = new Request(url, {
     body: JSON.stringify(message),
     headers: { "accept": "application/json, text/event-stream", "content-type": "application/json", ...headers },
     method: "POST",
-  }))
+  })
+  if (clientAddress) Object.assign(request, { context: { clientAddress } })
+  return defineHandler(consoleMcpHandler).fetch(request)
 }
 
 const rpc = (id: number, method: string, params?: unknown) => ({ id, jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) })
@@ -154,7 +157,7 @@ describe("MCP endpoint", () => {
     installConsoleAccess({ authorize: () => ({ sections: ["other"] }), mode: "open" })
     const second = await read<{ result: { tools: Array<{ name: string }> } }>(await post(rpc(2, "tools/list")))
     // Operations for any Console user stay, such as the section list.
-    expect(second.result.tools.map(tool => tool.name)).toEqual(["definitions_list", "other_greet", "sections_list"])
+    expect(second.result.tools.map(tool => tool.name)).toEqual(["definitions_list", "other_greet", "project_get", "sections_list"])
   })
 
   it("limits read-only section grants to read tools", async () => {
@@ -181,7 +184,7 @@ describe("MCP endpoint", () => {
   it("uses the local developer for operations without sign-in only in development", async () => {
     install()
     const user = async () => {
-      const response = await post(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" }), {}, "http://localhost:5173/_vitehub/mcp")
+      const response = await post(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" }), {}, "http://localhost:5173/_vitehub/mcp", "127.0.0.1")
       expect(response.status).toBe(200)
       const answer = await read<{ result: { structuredContent: { user: string | null } } }>(response)
       return answer.result.structuredContent.user
@@ -260,10 +263,15 @@ describe("MCP endpoint", () => {
     vi.stubEnv("NODE_ENV", "development")
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
-      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp")).status).toBe(200)
-      const lan = await post(rpc(1, "tools/list"), {}, "http://192.168.1.20:5173/_vitehub/mcp")
+      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp", "127.0.0.1")).status).toBe(200)
+      // A dev worker behind a proxy sees no peer address. Without the front process's evidence, it refuses.
+      expect((await post(rpc(1, "tools/list"), { "x-forwarded-for": "127.0.0.1" }, "http://localhost:5173/_vitehub/mcp")).status).toBe(403)
+      const lan = await post(rpc(1, "tools/list"), {}, "http://192.168.1.20:5173/_vitehub/mcp", "127.0.0.1")
       expect(lan.status).toBe(403)
       await expect(lan.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", fix: expect.stringContaining("console.auth") })
+      // A remote client can send `Host: localhost`. The peer address that the host adapter reports decides.
+      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp", "203.0.113.9")).status).toBe(403)
+      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp", "::1")).status).toBe(200)
     }
     installConsoleAccess({ mode: "open" })
     vi.stubEnv("NODE_ENV", "production")

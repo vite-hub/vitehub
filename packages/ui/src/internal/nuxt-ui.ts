@@ -1,7 +1,18 @@
 import { type Component, defineAsyncComponent, getCurrentInstance, inject, type InjectionKey } from "vue";
 
 /** The Nuxt UI components that the styled parts render. */
-export type ViteHubUIComponentName = "UBadge" | "UButton" | "UChatReasoning" | "UChatTool" | "UCollapsible" | "UIcon" | "UInput" | "UModal";
+export type ViteHubUIComponentName =
+  | "UBadge"
+  | "UButton"
+  | "UChatReasoning"
+  | "UChatTool"
+  | "UCollapsible"
+  | "UEditorDragHandle"
+  | "UEditorSuggestionMenu"
+  | "UEditorToolbar"
+  | "UIcon"
+  | "UInput"
+  | "UModal";
 
 /** Components that replace the Nuxt UI ones in the parts, by name. Give them to `createViteHubUI({ components })`. */
 export type ViteHubUIComponents = Partial<Record<ViteHubUIComponentName, Component>>;
@@ -17,6 +28,9 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
   UChatReasoning: defineAsyncComponent(() => import("@nuxt/ui/components/ChatReasoning.vue")),
   UChatTool: defineAsyncComponent(() => import("@nuxt/ui/components/ChatTool.vue")),
   UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
+  UEditorDragHandle: defineAsyncComponent(() => import("@nuxt/ui/components/EditorDragHandle.vue")),
+  UEditorSuggestionMenu: defineAsyncComponent(() => import("@nuxt/ui/components/EditorSuggestionMenu.vue")),
+  UEditorToolbar: defineAsyncComponent(() => import("@nuxt/ui/components/EditorToolbar.vue")),
   // Nuxt UI's Vite plugin swaps in its Vue icon only for imports inside Nuxt UI, so import the Vue one here. The Nuxt
   // plugin of this package provides Nuxt UI's Nuxt icon, which reads the @nuxt/icon bundle.
   UIcon: defineAsyncComponent(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
