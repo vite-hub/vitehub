@@ -19,6 +19,8 @@ export interface AuthRuntimeState {
   accessIdentityResolvers?: Map<string, AuthAccessIdentityResolver>
   /** The in-memory tables of each Auth Definition without a database, shared by all of its Better Auth instances. */
   memoryDatabases?: WeakMap<object, Record<string, unknown[]>>
+  /** Serializes claim reservations across Auth instances in this process. */
+  adminClaimQueues?: Map<string, Promise<boolean>>
 }
 
 export function getAuthRuntimeState(): AuthRuntimeState {

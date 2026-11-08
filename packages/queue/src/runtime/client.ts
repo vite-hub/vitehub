@@ -1,4 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
@@ -6,6 +7,7 @@ import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
+import { createTestQueueClient } from "./test-client.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
@@ -92,6 +94,9 @@ async function getDynamicQueue(name: string): Promise<QueueClient> {
   if (!definition) {
     throw queueErrorDiagnostics.QUEUE_DEFINITION_NOT_FOUND({ queue: normalizePublicQueueIdentifier(name) })
   }
+
+  const test = getViteHubTestMode()
+  if (test) return createTestQueueClient(test, name, config.provider === "local" ? config.rules ?? "local" : config.provider)
 
   const bypassCache = definition.options?.cache === false || config.cache === false || config.provider === "cloudflare" || (config.provider === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
   if (bypassCache) {
