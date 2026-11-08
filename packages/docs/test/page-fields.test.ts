@@ -10,9 +10,12 @@ import type { DocsSearchSection } from "../src/types.ts"
 
 const files: Record<string, string> = {
   "index.md": "---\ntitle: Lumen\nlayout: home\ncredits: Built on [Comark](https://comark.dev).\n---\nRead [Annotate](/docs/annotate).\n",
+  "docs/index.md": "---\ntitle: All docs\nlayout: landing\neyebrow: Catalog label\n---\nAll docs.\n",
+  "about.md": "---\ntitle: About\neyebrow: About label\n---\nAbout.\n",
   "docs/annotate/index.md": [
     "---",
     "title: Annotate",
+    "eyebrow: Annotate label",
     "description: Marks on screenshots.",
     "tagline: Hand-drawn marks, numbered notes, and arrows on screenshots.",
     "keywords: image annotation, PR evidence",
@@ -24,7 +27,7 @@ const files: Record<string, string> = {
   "docs/annotate/plain.md": "---\ntitle: Plain\ndescription: A page without a tagline.\n---\nPlain.\n",
 }
 
-it("shows the tagline under the heading, ends the page with its credits, and searches its keywords", async () => {
+it("shows the eyebrow and tagline, ends the page with its credits, and searches its keywords", async () => {
   // Inside the package, so the build resolves Tailwind and Nuxt UI as an installed app does.
   const root = await mkdtemp(join(import.meta.dirname, ".tmp-page-fields-"))
   const docs = (await import(pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href)).default as never
@@ -44,6 +47,11 @@ it("shows the tagline under the heading, ends the page with its credits, and sea
     await build(nuxt)
     const output = (path: string) => readFile(join(root, ".output/public", path), "utf8")
     const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+
+    for (const [path, label] of [["docs/annotate", "Annotate label"], ["docs", "Catalog label"], ["about", "About label"]]) {
+      const html = await output(`${path}.html`)
+      expect(text(/<[^>]+data-slot="headline"[^>]*>([\s\S]*?)<\/(?:div|p)>/.exec(html)?.[1] ?? "")).toBe(label)
+    }
 
     const annotate = await output("docs/annotate.html")
     const description = /<[^>]+data-slot="description"[^>]*>([\s\S]*?)<\/(?:div|p)>/.exec(annotate)?.[1] ?? ""

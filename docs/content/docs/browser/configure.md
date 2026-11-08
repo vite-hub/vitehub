@@ -49,6 +49,8 @@ export default defineConfig({
 Keep the default `'kitesurf'` unless an Agent or a route must keep one page open across requests or hand a session to another process.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'cloudflare',
   browser: { engine: 'chromium' },
