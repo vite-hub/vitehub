@@ -8,7 +8,7 @@ import { createWorkspaceWritePolicy } from "./rules.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -35,6 +35,12 @@ export function forwardWorkspaceHistoryFiles(options: WorkspaceStoreHistoryCommi
     : { ...base, files: forwardFiles(options.files) }
   forwardedHistoryCommits.add(forwarded)
   return forwarded
+}
+
+function deepFreeze<T>(value: T): T {
+  if (Object(value) !== value) return value
+  for (const child of Object.values(Object(value))) deepFreeze(child)
+  return Object.freeze(value)
 }
 
 export function requireWorkspaceHistory(workspace: Pick<Workspace, "history">): WorkspaceRetainedHistory {
@@ -188,6 +194,8 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     const deleted: string[] = []
     const inputs: WorkspaceWriteInput[] = []
     const grants: WorkspaceSourceWriteGrant[] = []
+    // Find every path that the commit changes first, so each hook sees the whole commit.
+    const writes: Array<{ path: string, file: WorkspaceFile | undefined, before: WorkspaceEntry | undefined }> = []
     for (const path of [...candidates].sort()) {
       const put = commit.puts.get(path)
       const file = put?.file
@@ -199,8 +207,18 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
         desired[path] = { ...file, mediaType: before.mediaType, metadata: before.metadata }
         continue
       }
+      writes.push({ path, file, before })
+    }
+    const writeCommit: WorkspaceWriteCommit = Object.freeze({
+      ...(options.message === undefined ? {} : { message: options.message }),
+      // A separate copy: a hook cannot change the metadata that the Store records.
+      metadata: deepFreeze(copyJsonWorkspaceMetadata("history revision", metadata) ?? {}),
+      paths: Object.freeze(writes.map(write => write.path)),
+    })
+    for (const { path, file, before } of writes) {
       const requested = await files.assertWritable(path)
       const input = await beforeWrite({
+        commit: writeCommit,
         content: file?.content,
         mediaType: file?.mediaType,
         metadata: file?.metadata,

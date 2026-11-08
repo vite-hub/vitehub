@@ -1,7 +1,7 @@
 import { admin } from "better-auth/plugins"
 import { H3 } from "h3"
 import type { UserConfig } from "vite"
-import handleVirtualAuth, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
+import virtualAuthRoute, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
 import { describe, expectTypeOf, it } from "vitest"
 import { requestEvent } from "./request-event.ts"
@@ -142,7 +142,8 @@ describe("types", () => {
 
     expectTypeOf(handleAuthRequest(defineAuth({ appName: "ViteHub" }), h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
     expectTypeOf(withAuth(() => "ok")(h3LikeRequest)).toEqualTypeOf<Promise<string | Response>>()
-    expectTypeOf(handleVirtualAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(virtualAuthRoute.fetch).parameters.toEqualTypeOf<[Request]>()
+    expectTypeOf(virtualAuthRoute.fetch).returns.toEqualTypeOf<Promise<Response>>()
     expectTypeOf(withVirtualAuth(() => "ok")(h3LikeRequest)).toEqualTypeOf<Promise<string | Response>>()
   })
 
