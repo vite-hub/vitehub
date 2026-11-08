@@ -537,6 +537,7 @@ jobs:
       - consumer-contracts-success
       - windows-agent-credentials
       - node-22
+      - docs-snippets
       - console
       - verify-providers
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

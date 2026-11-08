@@ -74,12 +74,13 @@ import { blob } from 'vite-hub/blob'
 
 const [error, record] = await blob.media.get('posts/cover.jpg')
 
-await blob.media.update('posts/cover.jpg', {
+const [updateError, updated] = await blob.media.update('posts/cover.jpg', {
   alt: 'A field at sunrise',
   caption: null, // null removes a field
   focal: { x: 0.2, y: 0.5 },
   crops: { square: { aspect: '1:1' }, story: null },
 })
+if (updateError) throw updateError
 ```
 
 `update()` merges crops by name, and `null` removes one. Changing the focal point or crops clears the cached variants of the object, so the next request crops again.
@@ -94,10 +95,10 @@ import { blob } from 'vite-hub/blob'
 const [, page] = await blob.media.list({ prefix: 'posts/' })
 // page.folders: ['posts/2026/'], page.items: MediaRecord[]
 
-await blob.media.createFolder('posts/drafts')
-await blob.media.moveFolder('posts/drafts', 'archive/drafts')
-await blob.media.removeFolder('archive/drafts')                  // fails with BLOB_CONFLICT when not empty
-await blob.media.removeFolder('archive/drafts', { force: true }) // removes every object and its record
+const [createError] = await blob.media.createFolder('posts/drafts')
+const [moveError, moved] = await blob.media.moveFolder('posts/drafts', 'archive/drafts')
+const [removeError] = await blob.media.removeFolder('archive/drafts')                       // BLOB_CONFLICT when not empty
+const [forceError, removed] = await blob.media.removeFolder('archive/drafts', { force: true }) // removes every object and its record
 ```
 
 An empty folder holds an empty `.keep` object, because object stores have no directories. `media.list()` hides it; `blob.list()` shows it.
@@ -113,7 +114,7 @@ import { blob } from 'vite-hub/blob'
 
 const [error, record] = await blob.media.move('posts/cover.jpg', 'posts/2026/cover.jpg')
 // error.code === 'BLOB_CONFLICT' when the destination exists; pass { overwrite: true } to replace it
-await blob.media.remove('posts/2026/cover.jpg') // object, record, crops, and variants
+const [removeError] = await blob.media.remove('posts/2026/cover.jpg') // object, record, crops, and variants
 ```
 
 Content that stores a pathname, such as an `image()` field, keeps pointing at the old pathname after a move. Update those references in the same request.
@@ -231,8 +232,8 @@ A crop names an aspect ratio, such as a 4:5 image for narrow screens. Without an
 When a generated crop is not good enough, upload a replacement for that crop. ViteHub stores it under `_vitehub/media/crops/` and serves it for `?crop=mobile` at the same URL.
 
 ```ts fragment
-await blob.media.replaceCrop('posts/cover.jpg', 'mobile', portraitFile) // a new crop takes the file's aspect
-await blob.media.replaceCrop('posts/cover.jpg', 'mobile', null)         // back to cropping the original
+const [replaceError] = await blob.media.replaceCrop('posts/cover.jpg', 'mobile', portraitFile) // a new crop takes the file's aspect
+const [resetError] = await blob.media.replaceCrop('posts/cover.jpg', 'mobile', null)         // back to cropping the original
 ```
 
 Replacements must be JPEG, PNG, WebP, or AVIF images. They crop from their center when their aspect differs from the crop.

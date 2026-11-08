@@ -27,9 +27,10 @@ export function method<T extends (...args: never[]) => unknown>(handle: unknown,
   return fn.bind(handle) as T
 }
 
-export async function storageValue<T>(result: MaybePromise<T | [Error, undefined] | [null, T]>): Promise<T> {
+/** Reads the value of a KV or Blob `Result`, `[error, undefined]` or `[undefined, value]`, and throws its error. */
+export async function storageValue<T>(result: MaybePromise<T | [Error, undefined] | [undefined, T]>): Promise<T> {
   const resolved = await result
-  if (!Array.isArray(resolved) || resolved.length !== 2 || (resolved[0] !== null && !(resolved[0] instanceof Error))) {
+  if (!Array.isArray(resolved) || resolved.length !== 2 || (resolved[0] !== undefined && !(resolved[0] instanceof Error))) {
     return resolved as T
   }
   if (resolved[0]) throw resolved[0]

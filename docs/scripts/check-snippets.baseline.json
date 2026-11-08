@@ -500,16 +500,6 @@
     "error": "TS2322 Type 'BlobReferenceSchema' is not assignable to type 'BaseSchema<unknown, unknown, BaseIssue<unknown>> | SchemaWithFallback<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown> | OptionalEntrySchema'.\n  Type 'BlobReferenceSchema' is missing the following properties from type 'OptionalSchema<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown>': type, reference, expects, wrapped, and 4 more."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#0a11b2f3e675",
-    "label": "server/api/signup.post.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS2345 Argument of type '\"welcom-email\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#04dd22dff12a",
-    "label": "server/api/signup.post.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer."
-  },
-  {
     "id": "docs/content/docs/reference/doctor-rules.md#a7f75e406bf5",
     "label": "server/plugins/warmup.ts",
     "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
@@ -613,11 +603,6 @@
     "id": "packages/blob/README.md#0f443e92375d",
     "label": null,
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
-  },
-  {
-    "id": "packages/blob/README.md#f9b91514e273",
-    "label": null,
-    "error": "TS2304 Cannot find name 'file'."
   },
   {
     "id": "packages/blob/README.md#49ae73a1f27e",
