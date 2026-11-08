@@ -513,9 +513,12 @@ async function addD1Binding(projectRoot: string, nitro: NitroOptions, where: str
 
 /** Whether `vite-hub` is in the app, so Comments runs through `vitehub()` and not `comments()`. */
 function hasViteHubComments(config: UserConfig): boolean {
-  const find = (value: unknown): boolean => Array.isArray(value)
-    ? value.some(find)
-    : value !== null && typeof value === "object" && Reflect.get(value, "name") === "@vite-hub/comments/vite"
+  const find = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(find)
+    if (value === null || typeof value !== "object") return false
+    const name = Reflect.get(value, "name")
+    return name === "@vite-hub/comments/vite" || name === "vite-hub/comments-off"
+  }
   return find(config.plugins)
 }
 
