@@ -158,7 +158,7 @@ function binaryOperator(op: number, offset: number): StatementSeparator | undefi
   }
 }
 
-function createSourceIndex(source: string): SourceIndex {
+export function createSourceIndex(source: string): SourceIndex {
   const indexes = [0]
   let byteOffset = 0
   for (let index = 0; index < source.length;) {

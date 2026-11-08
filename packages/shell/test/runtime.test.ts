@@ -1135,6 +1135,17 @@ describe("@vite-hub/shell analyzer", () => {
     await expect(analyzeShellCommand(command)).resolves.toMatchObject({ commands, hasPipelines, ok: true })
   })
 
+  it("keeps declaration and let builtins in analyzed commands", async () => {
+    await expect(analyzeShellCommand("export FOO=bar")).resolves.toMatchObject({
+      commands: ["export"],
+      ok: true,
+    })
+    await expect(analyzeShellCommand("let n+=1")).resolves.toMatchObject({
+      commands: ["let"],
+      ok: true,
+    })
+  })
+
   it("parses shell commands with sh-syntax and returns conservative metadata", async () => {
     await expect(analyzeShellCommand("FOO=bar echo $(pwd) | tr a-z A-Z > out")).resolves.toMatchObject({
       commands: ["echo", "tr"],

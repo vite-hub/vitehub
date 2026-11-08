@@ -1,6 +1,6 @@
 import { BinCmdOperator, LangVariant, parse, walk, type File, type Stmt } from "sh-syntax"
 
-import { wordText } from "./parse.ts"
+import { createSourceIndex, wordText } from "./parse.ts"
 
 import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
@@ -45,7 +45,8 @@ async function parseWithShSyntax(command: string) {
 
 function analyzeAst(file: File, command: string) {
   const commands: string[] = []
-  collectTopLevelCommands(file.stmts, command, commands)
+  const toIndex = createSourceIndex(command)
+  collectTopLevelCommands(file.stmts, command, toIndex, commands)
   let hasCommandSubstitution = false
   let hasHeredocs = false
   let hasPipelines = false
@@ -92,20 +93,34 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-function collectTopLevelCommands(stmts: Stmt[], command: string, commands: string[]) {
+function collectTopLevelCommands(stmts: Stmt[], command: string, toIndex: (offset: number) => number, commands: string[]) {
   for (const stmt of stmts) {
-    collectStatementCommand(stmt, command, commands)
+    collectStatementCommand(stmt, command, toIndex, commands)
   }
 }
 
-function collectStatementCommand(stmt: Stmt | null, command: string, commands: string[]) {
-  if (!stmt?.cmd) return
-  if (stmt.cmd.type === "CallExpr") {
-    if (stmt.cmd.args.length) commands.push(wordText(stmt.cmd.args[0]!, command))
+function collectStatementCommand(
+  stmt: Stmt | null,
+  command: string,
+  toIndex: (offset: number) => number,
+  commands: string[],
+) {
+  const cmd = stmt?.cmd
+  if (!cmd) return
+  if (cmd.type === "CallExpr") {
+    if (cmd.args.length) commands.push(wordText(cmd.args[0]!, command, toIndex))
     return
   }
-  if (stmt.cmd.type === "BinaryCmd") {
-    collectStatementCommand(stmt.cmd.x, command, commands)
-    collectStatementCommand(stmt.cmd.y, command, commands)
+  if (cmd.type === "DeclClause") {
+    if (cmd.variant) commands.push(cmd.variant.value)
+    return
+  }
+  if (cmd.type === "LetClause") {
+    commands.push("let")
+    return
+  }
+  if (cmd.type === "BinaryCmd") {
+    collectStatementCommand(cmd.x, command, toIndex, commands)
+    collectStatementCommand(cmd.y, command, toIndex, commands)
   }
 }
