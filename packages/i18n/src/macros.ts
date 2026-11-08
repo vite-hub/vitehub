@@ -71,7 +71,7 @@ function bindVueMessages(importBase: string, tNames: ReadonlySet<string>) {
               })
               if (!setup || !(setup.isObjectMethod() || setup.isFunctionExpression() || setup.isArrowFunctionExpression())) continue
               const body = setup.get("body")
-              if (!body.isBlockStatement()) continue
+              if (Array.isArray(body) || !body.isBlockStatement()) continue
               let instance = instances.get(setup.node)
               if (!instance) {
                 instance = setup.scope.generateUidIdentifier("componentI18n")
