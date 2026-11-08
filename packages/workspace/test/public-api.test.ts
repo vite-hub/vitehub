@@ -423,6 +423,31 @@ describe("workspace public API", () => {
     }
   })
 
+  it.each([
+    { base: "/api/data/", baseURL: "/api/data/", pathname: "/api/data/api/data/" },
+    { base: "/api/data/", baseURL: "/app/api/data/", pathname: "/app/api/data/api/data/" },
+    { base: "/", baseURL: "/app/", pathname: "/app/" },
+    { base: "/", baseURL: "/", pathname: "/" },
+    { base: "/api/data", baseURL: "/app", pathname: "/app/api/data/" },
+  ])("serves route $base under application base $baseURL", async ({ base, baseURL, pathname }) => {
+    registerWorkspace("application-base-files", defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace("application-base-files", { mode: "write" })
+    await workspace.fs.writeFile("a.json", "{\"a\":1}")
+    await workspace.fs.writeFile("api/data/my file.json", "{\"nested\":true}")
+
+    const { defineWorkspaceFileHandler } = await import("../src/server.ts")
+    const options = { base, baseURL, workspace: "application-base-files" }
+    const handler = defineWorkspaceFileHandler(options)
+    const get = (path: string) => handler.fetch(new Request(`https://example.test${path}`))
+    await expect((await get(`${pathname}a.json`)).text()).resolves.toBe("{\"a\":1}")
+    // A repeated route base in the file path must remain part of the file name.
+    await expect((await get(`${pathname}api/data/my%20file.json`)).text()).resolves.toBe("{\"nested\":true}")
+    expect((await get(`/wrong${pathname}a.json`)).status).toBe(404)
+    if (pathname !== "/") {
+      expect((await get(`${pathname.slice(0, -1)}-other/a.json`)).status).toBe(404)
+    }
+  })
+
   it("mounts inline files at the workspace root", async () => {
     registerWorkspace("root-file", defineWorkspace({
       store: { provider: "memory" },

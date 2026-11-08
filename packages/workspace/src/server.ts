@@ -49,8 +49,10 @@ export interface WorkspaceFileResponseOptions<Name extends WorkspaceName = Works
 }
 
 export interface WorkspaceFileHandlerOptions<Name extends WorkspaceName = WorkspaceName> extends Omit<WorkspaceFileResponseOptions<Name>, "path"> {
-  /** The route path, such as `"/api/data/"`. The rest of the URL path is the file path. A Nitro `baseURL` before it is allowed. */
+  /** The route path, such as `"/api/data/"`, relative to `baseURL`. The rest of the URL path is the file path. */
   base: string
+  /** The retained application prefix, such as Nitro's `baseURL`. Set this when the app is mounted below `/`. */
+  baseURL?: string
 }
 
 export interface WorkspaceDevCommandInput<Name extends WorkspaceName = WorkspaceName> {
@@ -341,14 +343,15 @@ export async function readWorkspaceFileResponse<Name extends WorkspaceName>(
 export function defineWorkspaceFileHandler<Name extends WorkspaceName>(
   options: WorkspaceFileHandlerOptions<Name>,
 ): { fetch(request: Request): Promise<Response> } {
-  const { base, ...fileOptions } = options
-  const segments = base.replace(/^\/+|\/+$/g, "")
+  const { base, baseURL, ...fileOptions } = options
+  const segments = [baseURL ?? "", base].map(part => part.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/")
   const prefix = segments ? `/${segments}/` : "/"
   return {
     async fetch(request) {
       const pathname = new URL(request.url).pathname
-      // Nitro keeps its `baseURL` in the request URL, so `base` can start after it.
-      const start = pathname.indexOf(prefix)
+      if (baseURL !== undefined && !pathname.startsWith(prefix)) return workspaceFileNotFound()
+      // Preserve the existing route search when no application prefix is supplied.
+      const start = baseURL === undefined ? pathname.indexOf(prefix) : 0
       if (start < 0) return workspaceFileNotFound()
       let path: string
       try {
