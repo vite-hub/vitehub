@@ -1,0 +1,17 @@
+// console.vitehub.dev: the hosted Console build as a static-assets Worker with no Worker script.
+// Build it first with `pnpm --dir packages/vite-hub run build:console-hosted`. CI deploys it on every push to main.
+// To self-host the Console on Cloudflare, copy this file, change `name` and `routes`, and run `wrangler deploy --config <file>`.
+{
+  "$schema": "../../.github/ci-tools/node_modules/wrangler/config-schema.json",
+  "name": "vitehub-console",
+  "compatibility_date": "2026-07-19",
+  "assets": {
+    // The build also writes `_headers`, with the Content Security Policy and the cache rules.
+    "directory": ".vitehub/console-hosted",
+    // Console routes such as /kv are client routes, so unknown paths get index.html.
+    "not_found_handling": "single-page-application"
+  },
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "console.vitehub.dev", "custom_domain": true }]
+}

@@ -61,6 +61,7 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt). Read
 `seo()` is a field like any other. Add it to the collections whose pages need their own search and social text:
 
 ```ts [server/content.ts]
+import { z } from 'zod'
 import { documents, image, seo } from 'vite-hub/content'
 
 const posts = documents({
@@ -128,7 +129,7 @@ A document from a collection with [locales](/docs/content/configure#pages-in-eac
 - When the document has its own version in two or more locales, `link` has `{ rel: 'alternate', hreflang, href }` for each of them, and `hreflang: 'x-default'` for the source locale page.
 - A page that shows the source locale because its locale has no translation (`fallback: true`) has `lang` of the source locale, and its canonical link points to the source locale page. `seo.canonical` still wins.
 
-```ts
+```ts fragment
 contentHead(await docs.get('guide', { locale: 'es' }), { site: { url: 'https://vitehub.dev' } })
 // htmlAttrs: { lang: 'es' }
 // link: canonical https://vitehub.dev/es/docs/guide, alternate en /docs/guide, es /es/docs/guide, x-default /docs/guide
@@ -138,7 +139,7 @@ contentHead(await docs.get('guide', { locale: 'es' }), { site: { url: 'https://v
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   workspace: 'site',
   collections: { posts, home },

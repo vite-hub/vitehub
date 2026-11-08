@@ -106,7 +106,7 @@ A document id is the file path below the collection folder, without the extensio
 
 Pass a list of globs when documents of one collection live in different folders. All globs share one extension.
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 pages: documents({
   path: ['content/guides/**/*.md', 'content/news/*.md'],
   fields: { title: z.string() },
@@ -136,7 +136,7 @@ Content builds the map from paths to documents once per revision of the ref and 
 
 Set `locales` to keep one document in several languages. The first locale is the source locale: you write it, and the other locales are translations of it. `{locale}` in the path marks the folder of each locale.
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 docs: documents({
   path: 'docs/{locale}/**/*.md',
   locales: ['en', 'es'],
@@ -147,7 +147,7 @@ docs: documents({
 
 A document keeps its id in every locale: `guide` is `docs/en/guide.md` in English and `docs/es/guide.md` in Spanish. `{locale}` must be a whole folder before the first wildcard, and with several globs, all of them must share the folder that holds it.
 
-```ts
+```ts fragment
 const docs = content.collection('docs')
 await docs.save('guide', { data: { title: 'Guide' }, body: 'Hello.' })
 const english = await docs.get('guide', { ref: 'draft', locale: 'es' }) // { locale: 'en', fallback: true, source: { path, digest }, ... }: no translation yet
@@ -167,7 +167,7 @@ await docs.status('guide') // { locale: 'en', translations: { es: 'current' }, .
 
 A catch-all page serves every locale with the calls a page already makes. `content.resolve(path)` gives the document and the locale of the path, and `get(id, { locale })` reads that locale:
 
-```ts [server/api/page.get.ts]
+```ts [server/api/page.get.ts] fragment
 import { defineEventHandler, getQuery, HTTPError } from 'h3'
 import { content } from '../content'
 
@@ -330,7 +330,7 @@ Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and
 
 `save()` stores fields that fail validation in the draft and returns them as `issues`, so an editor can autosave half-finished work. The stored values come back in `data` as written. `status()` counts the issues, and `get({ ref: 'draft' })` and `list({ ref: 'draft' })` return them.
 
-```ts
+```ts fragment
 const draft = await posts.save('hello', { data: { title: '' } })
 draft.issues // [{ field: 'title', path: [], message: 'Add a title.' }]
 await content.publish({ collection: 'posts' }) // CONTENT_INVALID naming posts/hello
@@ -350,7 +350,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 `authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Auth user behind the Invocation's Actor as `user`, and the Actor as `actor`.
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   extends: cms,
   collections: { posts },
@@ -368,7 +368,7 @@ export const content = defineContent({
 
 One policy covers people and Agents. Check `actor` to give Agents less than the user they act for:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 authorize: ({ user, actor, action }) => {
   if (user?.role !== 'editor') return false
   return actor === undefined || action !== 'publish'
@@ -430,7 +430,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-Use `@vite-hub/ui/markdown` with the owner packages. The Nuxt UI module auto-imports `Markdown`. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
+Use `@vite-hub/ui/markdown` with the owner packages. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
 
 `markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
 
@@ -445,7 +445,7 @@ import { defineHandler, getRouterParam } from 'h3'
 import { renderContentHtml } from 'vite-hub/content'
 import { content } from '../../content'
 
-export default defineEventHandler(async (event) => {
+export default defineHandler(async (event) => {
   const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)
   if (!guide) return new Response('Not found', { status: 404 })
   return new Response(`<article>${await renderContentHtml(guide)}</article>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
@@ -454,7 +454,7 @@ export default defineEventHandler(async (event) => {
 
 Pass `components` to render the app's own blocks, such as `::alert`. A component gets the node and a `render()` for its children:
 
-```ts
+```ts fragment
 await renderContentHtml(guide, {
   components: {
     alert: async ([, attributes, ...children], { render }) => `<aside class="alert">${await render(children)}</aside>`,

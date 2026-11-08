@@ -21,12 +21,22 @@ The [content playground](https://github.com/vite-hub/vitehub/tree/main/playgroun
 The collection needs [locales](/docs/content/configure#locales). This page uses the `docs` collection with English as the source locale:
 
 ```ts [server/content.ts]
-docs: documents({
-  path: 'docs/{locale}/**/*.md',
-  locales: ['en', 'es'],
-  url: '/docs/:id',
-  fields: { title: z.string().min(1), description: z.string().optional() },
-}),
+import { defineContent, documents } from 'vite-hub/content'
+import { cmsContentAuthorize } from 'vite-hub/cms/access'
+import { z } from 'zod'
+
+export const content = defineContent({
+  workspace: 'site',
+  collections: {
+    docs: documents({
+      path: 'docs/{locale}/**/*.md',
+      locales: ['en', 'es'],
+      url: '/docs/:id',
+      fields: { title: z.string().min(1), description: z.string().optional() },
+    }),
+  },
+  authorize: cmsContentAuthorize,
+})
 ```
 
 Turn on Agents and Queue in the existing `vitehub()` options, and set `AI_GATEWAY_API_KEY` in the server environment for the model. See [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver).
@@ -90,7 +100,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
 
 `write:after` runs once for each changed file after a commit, on every ref. Content saves, Console edits, and `vitehub push` all commit to `draft`. Add the hook to the Workspace that `defineContent({ workspace })` names:
 
-```ts [server/workspaces/site.ts]
+```ts [server/workspaces/site.ts] fragment
 import { runQueue } from 'vite-hub/queue'
 import { defineWorkspace } from 'vite-hub/workspace'
 

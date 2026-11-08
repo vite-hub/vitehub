@@ -242,7 +242,7 @@
     "sharp": "^0.34.0 || ^0.35.0",
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-s3": {

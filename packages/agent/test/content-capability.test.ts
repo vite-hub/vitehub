@@ -623,6 +623,39 @@ describe("content capability", () => {
     }))
   })
 
+  it("schedules only the source locale of localized collections", async () => {
+    const runtime = defineContent({
+      workspace: await historyWorkspace(cleanup),
+      collections: {
+        docs: documents({ path: "docs/{locale}/*.md", locales: ["en", "es"], fields: { title: z.string() } }),
+      },
+      authorize: editorsOnly,
+      logger: false,
+    })
+    cleanup.push(() => runtime.dispose())
+    const all = await tools(content({ policy: "allow" }), runtime)
+    const localeSchema = (locales: string[]) => ({
+      properties: {
+        documents: {
+          items: { properties: { locale: { anyOf: [{ enum: locales, type: "string" }, { type: "null" }] } } },
+        },
+      },
+    })
+    expect.soft(all.content_schedule!.inputSchema).toMatchObject(localeSchema(["en"]))
+    expect(all.content_publish!.inputSchema).toMatchObject(localeSchema(["en", "es"]))
+
+    const saved = await runtime.collection("docs").save("guide", { data: { title: "Guide" } })
+    const document = { collection: "docs", id: "guide", digest: saved.digest }
+    for (const locale of [undefined, null, "en"]) {
+      const result = await run(all.content_schedule, { at: inAnHour(), documents: [{ ...document, locale }] })
+      expect(result).toMatchObject({ ok: true, schedule: { status: "pending" } })
+      await runtime.unschedule(result.schedule.id)
+    }
+    expect(await run(all.content_schedule, { at: inAnHour(), documents: [{ ...document, locale: "es" }] }))
+      .toMatchObject({ ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["documents.0.locale"] }] } })
+    expect(await runtime.schedules()).toEqual([])
+  })
+
   it("lists missing and stale translations and saves them with locale", async () => {
     const runtime = defineContent({
       workspace: await historyWorkspace(cleanup),
