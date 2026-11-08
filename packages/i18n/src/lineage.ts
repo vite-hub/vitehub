@@ -54,10 +54,11 @@ function placeholders(text: string): string | undefined {
 
 /**
  * For each message without a translation, the unused record that it most likely replaced: the closest source text
- * with the same context and the same placeholders. Each record matches one message at most.
+ * with the same context and the same placeholders. Each record matches one message at most. A match can move to
+ * its next closest candidate when that lets another missing message use its only compatible record.
  */
 export function findPreviousTranslations(messages: SourceMessages, records: TranslationRecords): Map<string, PreviousTranslation> {
-  const missing = Object.entries(messages).filter(([id]) => !(id in records))
+  const missing = Object.entries(messages).filter(([id]) => !records[id] || !isVisible(records[id]))
   const unused = Object.entries(records).filter(([id, record]) => !(id in messages) && isVisible(record))
   const candidates: Array<{ next: string } & PreviousTranslation> = []
   for (const [next, message] of missing) {
@@ -70,11 +71,32 @@ export function findPreviousTranslations(messages: SourceMessages, records: Tran
     }
   }
   const result = new Map<string, PreviousTranslation>()
-  const taken = new Set<string>()
+  const taken = new Map<string, string>()
+  const choices = new Map<string, PreviousTranslation[]>()
   for (const candidate of candidates.sort((left, right) => right.similarity - left.similarity)) {
+    const options = choices.get(candidate.next) ?? []
+    options.push(candidate)
+    choices.set(candidate.next, options)
     if (result.has(candidate.next) || taken.has(candidate.id)) continue
-    taken.add(candidate.id)
+    taken.set(candidate.id, candidate.next)
     result.set(candidate.next, { id: candidate.id, record: candidate.record, similarity: candidate.similarity })
+  }
+
+  // Keep the closest matches unless moving one makes room for an unmatched message.
+  function match(next: string, visited: Set<string>): boolean {
+    for (const candidate of choices.get(next) ?? []) {
+      if (visited.has(candidate.id)) continue
+      visited.add(candidate.id)
+      const owner = taken.get(candidate.id)
+      if (owner !== undefined && !match(owner, visited)) continue
+      taken.set(candidate.id, next)
+      result.set(next, { id: candidate.id, record: candidate.record, similarity: candidate.similarity })
+      return true
+    }
+    return false
+  }
+  for (const [next] of missing) {
+    if (!result.has(next)) match(next, new Set())
   }
   return result
 }

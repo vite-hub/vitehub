@@ -2,6 +2,7 @@ import { defineHandler, H3Event } from "h3"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { assertUniqueOperationNames } from "../src/console/build.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -9,7 +10,10 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
-import { consoleOperationRegistry as installedRegistry, installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
+import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+import { consoleOperationRegistry as installedRegistry, installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
 import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -35,12 +39,13 @@ const secret = defineOperation({
   section: "fixture",
 })
 
-function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc/__call") {
+/** A Console RPC request. `remoteAddress` is the peer address that the host reports, as plain `vite dev` does. `null` is no address. */
+function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc/__call", remoteAddress: string | null = "127.0.0.1") {
   return handleConsoleRpcRequest(new Request(url, {
     body: JSON.stringify({ input, operation }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
-  }))
+  }), { remoteAddress: remoteAddress ?? undefined })
 }
 
 afterEach(() => {
@@ -52,6 +57,19 @@ afterEach(() => {
 })
 
 describe("operations that run app code", () => {
+  it("keeps the request cookies when an operation calls an Env provider", async () => {
+    installConsoleSections("/work/app", ["env"])
+    const inspect = vi.fn(async (event: ConsoleRequestEvent) => {
+      expect(getStandardContext(event).req.headers.get("cookie")).toBe("sid=ada")
+      return { entries: [] }
+    })
+    installConsoleEnv("/work/app", { entries: [] }, undefined, inspect)
+    const response = await call("env.get", { status: true }, { cookie: "sid=ada" })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { entries: [], status: [] } })
+    expect(inspect).toHaveBeenCalledOnce()
+  })
+
   const start = defineOperation({
     description: "Start a job.",
     input: v.strictObject({}),
@@ -140,7 +158,7 @@ describe("operations that run app code", () => {
     const { scheduleOperations } = await import("@vite-hub/schedule/operations")
     const { taskOperations } = await import("../src/task/operations.ts")
     const invoking = [...workflowOperations, ...queueOperations, ...scheduleOperations, ...taskOperations].filter(operation => operation.invoke).map(operation => operation.name).sort()
-    expect(invoking).toEqual(["queue.jobs-retry", "queue.send", "schedule.run", "task.run", "workflow.resume", "workflow.start"])
+    expect(invoking).toEqual(["queue.jobs-retry", "queue.send", "schedule.run", "schedule.start", "task.run", "workflow.resume", "workflow.start"])
   })
 })
 
@@ -318,6 +336,9 @@ describe("contributed operations over the Console RPC", () => {
       expect(tunnel.status).toBe(403)
       const rebound = await call("fixture.greet", { name: "Ada" }, { host: "attacker.example" }, "http://localhost:5173/_vitehub/rpc/__call")
       expect(rebound.status).toBe(403)
+      // A dev worker behind a proxy sees no peer address. Without the front process's evidence, it refuses.
+      const unknown = await call("fixture.greet", { name: "Ada" }, { "x-forwarded-for": "127.0.0.1" }, "http://localhost:5173/_vitehub/rpc/__call", null)
+      expect(unknown.status).toBe(403)
     }
   })
 

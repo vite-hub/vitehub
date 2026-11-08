@@ -7,7 +7,7 @@ import { readRecord, serialiseRecord } from "@diglot/store"
 import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 import { lock } from "proper-lockfile"
 
-import { diglotSegment, messageSegment, recordPath, recordSegment, validateMessageArguments } from "./record-format.ts"
+import { diglotSegment, isVisible, messageSegment, recordPath, recordSegment, validateMessageArguments } from "./record-format.ts"
 
 import type { ReviewTransition } from "@diglot/core"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
@@ -141,6 +141,15 @@ async function publishRecord(file: string, record: TranslationRecord): Promise<v
  */
 export function saveTranslation(root: string, locale: string, message: MessageRef, text: string, input: ReviewInput): Promise<ReviewTransition> {
   return review(root, locale, message, (current, segment) => editRecord(current, { ...input, segment, text }))
+}
+
+/** Import an edit against its export baseline, or leave an already saved translation unchanged. */
+export function importTranslation(root: string, locale: string, message: MessageRef, text: string, input: ReviewInput & { expected: string | null }): Promise<ReviewTransition> {
+  return review(root, locale, message, (current, segment) => {
+    // Repeated imports may have an older baseline. Decide whether they change anything under the same lock as edits.
+    if (current && isVisible(current) && current.text === text) return { ok: false, code: "unchanged", message: "The translation is unchanged." }
+    return editRecord(current, { ...input, segment, text })
+  })
 }
 
 /** Mark the current translation as verified with Diglot's `verifyRecord()`. A changed text is refused as `stale`. */

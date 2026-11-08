@@ -7,15 +7,17 @@ import { consoleAuthOAuthPage } from "../src/console/auth-oauth-page.ts"
 const windows: Window[] = []
 afterEach(() => { for (const window of windows.splice(0)) window.close() })
 
-async function consentPage(scope: string) {
+async function consentPage(scope: string, options: { signedIn?: boolean, clientName?: boolean } = {}) {
+  const { signedIn = true, clientName = true } = options
   const query = new URLSearchParams({ client_id: "executor", redirect_uri: "https://agent.example.com/callback", scope, sig: "signed" })
   for (const name of ["client_id", "redirect_uri", "scope"]) query.append("ba_param", name)
   const window = new Window({ url: `https://app.example.com/portal/_vitehub/sign-in?${query}` })
   windows.push(window)
   window.document.write(await consoleAuthOAuthPage({ providers: [], password: false }, "/portal/api/auth", "/portal/_vitehub").text())
   const fetch = vi.fn(async (url: string) => {
-    if (url.endsWith("/get-session")) return Response.json({ user: { name: "Ada Lovelace", email: "ada@example.com" } })
-    if (url.includes("/oauth2/public-client?")) return Response.json({ client_name: "Executor" })
+    if (url.endsWith("/get-session")) return Response.json(signedIn ? { user: { name: "Ada Lovelace", email: "ada@example.com" } } : null)
+    // Better Auth answers 401 for a client lookup without a session.
+    if (url.includes("/oauth2/public-client?")) return clientName && signedIn ? Response.json({ client_name: "Executor" }) : new Response(null, { status: 401 })
     return Response.json({ success: true })
   })
   const reload = vi.fn()
@@ -48,6 +50,15 @@ describe("OAuth consent document", () => {
     expect(document.querySelector("#text")!.textContent).toBe(read || write
       ? "It acts as you, with the Console sections you may use."
       : "No Console data access is requested.")
+  })
+
+  it.each([
+    { signedIn: false, clientName: false, heading: "Sign in to connect an agent" },
+    { signedIn: true, clientName: false, heading: "Allow an agent to use app.example.com?" },
+    { signedIn: true, clientName: true, heading: "Allow Executor to use app.example.com?" },
+  ])("names the agent in the heading (signed in: $signedIn, name: $clientName)", async ({ signedIn, clientName, heading }) => {
+    const { document } = await consentPage("vitehub:read", { signedIn, clientName })
+    await vi.waitFor(() => expect(document.querySelector("h1")!.textContent).toBe(heading))
   })
 
   it("shows failed sign-out, enables retry, and reloads only after sign-out succeeds", async () => {

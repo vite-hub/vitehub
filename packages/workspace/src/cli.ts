@@ -16,12 +16,15 @@ import {
 } from "./server.ts"
 
 import type { WorkspaceDevTokenOptions } from "./server.ts"
+import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
+import { workspaceHooksNamespace } from "./hooks-cli.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 interface WorkspaceCliContext {
   cwd: string
   env: NodeJS.ProcessEnv
+  fetch?: typeof fetch
   rootDir: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
@@ -29,6 +32,7 @@ interface WorkspaceCliContext {
 
 interface WorkspaceCliContributor {
   namespaces: Array<{
+    defaultFeature?: string
     description?: string
     features: Array<{
       description?: string
@@ -388,6 +392,6 @@ export function createWorkspaceCliContributor(): WorkspaceCliContributor {
         usage: "vitehub workspace dev <workspace> [exec <command...>]",
       }],
       name: "workspace",
-    }],
+    }, ...workspaceCheckoutFeatures().map(feature => ({ defaultFeature: feature.name, description: feature.description, features: [feature], name: feature.name })), workspaceHooksNamespace()],
   }
 }

@@ -26,11 +26,11 @@ if (error) {
   error.code // 'KV_OPERATION_FAILED'
   error.why // 'kv.get() failed on the "default" store.'
   error.fix // 'Read `error.cause` for the provider error. ...'
-  error.docs // 'https://vitehub.dev/docs/kv/limits-and-errors#kv_operation_failed'
+  error.docs // 'https://vitehub.dev/docs/kv/diagnostics/kv_operation_failed'
 }
 ```
 
-`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why` and a `fix`, and a heading on the `limits-and-errors` page of the package, so `error.docs` opens the right section. See [KV errors](/docs/kv/limits-and-errors), [Email errors](/docs/email/limits-and-errors), and [Queue errors](/docs/queue/limits-and-errors).
+`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
 
 Catalog definitions can provide static or computed `data`. Each factory infers its data type; `ResultError<Code, Data>` names it explicitly. Without a data type, `ResultError` keeps `data` as `unknown`. Diagnostic data stays in memory. The `toJSON()` type preserves the literal code and name and remains compatible with Nostics `Diagnostic`, so catalog errors can be passed directly to `formatDiagnostic()`. Nostics 1.3 requires `data` in its serializer type: this inherited type does not describe redaction. Read metadata from the error itself; runtime JSON still omits it.
 
@@ -68,7 +68,7 @@ Some code runs where the Nostics package cannot load. Browser page evaluation, u
 
 ## Operational errors
 
-Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, missing Blob values, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
 
 `ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen. Its `cause` stays on the in-memory error and `toJSON()` omits it. Public details must be bounded JSON data.
 
@@ -143,6 +143,8 @@ server error. It is safe to serialize to a caller or use in an application-owned
 reply:
 
 ```ts
+import type { AgentPublicErrorCode } from 'vite-hub/agent'
+
 interface AgentPublicError {
   code: AgentPublicErrorCode
   error: string
@@ -225,7 +227,7 @@ pnpm --filter @vite-hub/sandbox test
 
 ## Verify a diagnostic
 
-The `docs` link of a ViteHub diagnostic opens this page. Use these steps to repair the defect:
+The `docs` link of a ViteHub diagnostic opens the page of its code, such as [`QUEUE_DISABLED`](/docs/queue/diagnostics/queue_disabled). Use these steps to repair the defect:
 
 1. Read the complete `code` and `fix` fields.
 2. Inspect the Provider Output, source locations, or trace events named by the diagnostic.

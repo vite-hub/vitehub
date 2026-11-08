@@ -46,7 +46,8 @@ describe("agent memory capability", () => {
       read: vi.fn(async request => ({ item: records.find(record => record.id === request.id) || null })),
       search: vi.fn(async () => ({ items: [{ createdAt: records[0]!.createdAt, id: "mem_1", kind: "procedural", snippet: records[0]!.content, title: records[0]!.title, updatedAt: records[0]!.updatedAt }] })),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: unknown }> = {}
     const agent = defineAgent({
@@ -68,7 +69,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toMatchObject({
       text: "memory_delete,memory_read,memory_remember,memory_search",
     })
     await expect(capturedTools.memory_search!.execute({ query: "github" })).resolves.toMatchObject({ items: [{ id: "mem_1" }] })
@@ -93,7 +94,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: (context: { input?: unknown }) => unknown }> = {}
     const agent = defineAgent({
@@ -123,7 +125,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await runAgent(agent, runtime(), {})
+    await runAgentWithContext(agent, runtime(), {})
     expect(await capturedTools.memory_remember!.policy!({ input: { store: "agent" } })).toBe("allow")
     expect(await capturedTools.memory_remember!.policy!({ input: { store: "guarded" } })).toBe("deny")
     await expect(Promise.resolve().then(() => capturedTools.memory_remember!.execute({ content: "Keep this.", kind: "semantic", store: "readonly" }))).rejects.toThrow("does not allow writes")
@@ -147,7 +149,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
@@ -172,7 +175,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toMatchObject({
       text: "memory_read,memory_search",
     })
     await expect(Promise.resolve().then(() => capturedTools.memory_search!.execute({ query: "anything", store: "hidden" }))).rejects.toThrow("does not allow search")
@@ -189,7 +192,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(async () => ({ items: [] })),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
@@ -210,7 +214,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await runAgent(agent, runtime(), {})
+    await runAgentWithContext(agent, runtime(), {})
     await capturedTools.memory_search!.execute({ query: "anything" })
     await capturedTools.memory_remember!.execute({ content: "Remember this.", kind: "semantic" })
     expect(adapter.search).toHaveBeenCalledWith(expect.objectContaining({ store: "project" }))
@@ -225,7 +229,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
@@ -243,7 +248,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await runAgent(agent, runtime(), {})
+    await runAgentWithContext(agent, runtime(), {})
     await expect(Promise.resolve().then(() => capturedTools.memory_search!.execute({ query: "anything" }))).rejects.toThrow("pass `store` explicitly")
   })
 
@@ -255,7 +260,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { inputSchema?: unknown }> = {}
     const agent = defineAgent({
@@ -276,7 +282,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await runAgent(agent, runtime(), {})
+    await runAgentWithContext(agent, runtime(), {})
     expect(capturedTools.memory_search?.inputSchema).toMatchObject({ required: ["query"], type: "object" })
     expect(capturedTools.memory_read?.inputSchema).toMatchObject({ required: ["id"], type: "object" })
     expect(capturedTools.memory_remember?.inputSchema).toMatchObject({ required: ["content", "kind"], type: "object" })
@@ -291,7 +297,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     const agent = defineAgent({
       driver: { async run(context) {
@@ -309,7 +316,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toMatchObject({
       text: "memory_read,memory_search",
     })
   })
@@ -401,7 +408,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
@@ -422,7 +430,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await runAgent(agent, { ...runtime(), run: { runId: "run_1", threadId: "thread_1" } }, {})
+    await runAgentWithContext(agent, { ...runtime(), run: { runId: "run_1", threadId: "thread_1" } }, {})
     await capturedTools.memory_remember!.execute({ content: "Remember this.", kind: "semantic" })
     expect(adapter.append).toHaveBeenCalledWith(expect.objectContaining({
       provenance: expect.objectContaining({ threadId: "thread_1" }),
@@ -438,7 +446,8 @@ describe("agent memory capability", () => {
       read: vi.fn(),
       search: vi.fn(),
     }
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
@@ -459,7 +468,7 @@ describe("agent memory capability", () => {
       ],
     })
 
-    await runAgent(agent, { ...runtime(), run: { runId: "run_1", threadId: "thread_1" } }, {})
+    await runAgentWithContext(agent, { ...runtime(), run: { runId: "run_1", threadId: "thread_1" } }, {})
     await capturedTools.memory_remember!.execute({ content: "Remember this.", kind: "semantic" })
     expect(adapter.append).toHaveBeenCalledWith(expect.objectContaining({
       scope: { agent: "support", thread: "thread_1" },

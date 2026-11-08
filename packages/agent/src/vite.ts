@@ -1,4 +1,5 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
+import { channelSimulationEnv } from "./internal/channel-simulation.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
@@ -472,7 +473,7 @@ function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
   const normalizedId = id.replaceAll("\\", "/")
-  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry.mjs")
+  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry-runtime.mjs")
 }
 
 function getCloudflareStateImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
@@ -548,11 +549,11 @@ async function isColocatedAgentInstructionDependency(root: string, file: string,
   return false
 }
 
-function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")]): boolean {
+function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")], standaloneChannels = discoverStandaloneChannels(root, serverDirs)): boolean {
   return discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: serverDirs,
-  }).length > 0 || discoverStandaloneChannels(serverDirs).length > 0
+  }).length > 0 || standaloneChannels.length > 0
 }
 
 function subpath(base: string, path: string): string {
@@ -839,7 +840,9 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
   const existingHandlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
   return {
     ...nitro,
-    handlers: [...existingHandlers, ...handlers],
+    // Nitro imports a lazy handler on its first request. The Agent runtime and the Agent Definitions then do not load
+    // at server startup, which is Worker startup on Cloudflare.
+    handlers: [...existingHandlers, ...handlers.map(handler => ({ ...handler, lazy: true }))],
   }
 }
 
@@ -912,6 +915,12 @@ function routeRegexSource(route: false | string | undefined, captureParams: stri
     const param = part.slice(1)
     return captured.has(param) ? `(?<${param}>[^/]+)` : "[^/]+"
   }).join("/")}$`
+}
+
+/** Like `routeRegexSource()`, but matches the end of a pathname, so a base URL before the route does not change the match. */
+function routeSuffixRegexSource(route: false | string | undefined, captureParams: string[] = []): string {
+  const source = routeRegexSource(route, captureParams)
+  return source.startsWith("^") ? source.slice(1) : source
 }
 
 function routeUsesParam(route: false | string | undefined, param: string): boolean {
@@ -1640,39 +1649,33 @@ async function resolveEveExtensionPackage(
 function generatedRuntimeHelpers(): string[] {
   return [
     "type ViteHubGeneratedCloudflare = { context?: unknown, env?: Record<string, unknown> }",
-    "type ViteHubGeneratedEvent = H3Event & {",
-    "  context: H3Event['context'] & {",
-    "    _platform?: { cloudflare?: ViteHubGeneratedCloudflare }",
-    "    cloudflare?: ViteHubGeneratedCloudflare",
-    "  }",
-    "  env?: Record<string, unknown>",
-    "  node?: { req?: { runtime?: { cloudflare?: ViteHubGeneratedCloudflare } } }",
+    "type ViteHubGeneratedContext = Parameters<typeof getStandardContext>[0]",
+    "",
+    // In a ViteHub app, the Request of a route and the event of a Nitro hook carry Standard Context, with the host
+    // lifetime and the Cloudflare bindings.
+    "export function waitUntilFromContext(context: ViteHubGeneratedContext): AgentWaitUntil | undefined {",
+    "  return getStandardContext(context).waitUntil",
     "}",
     "",
-    "function waitUntilFromValue(value: unknown): AgentWaitUntil | undefined {",
-    "  const candidate = value as { waitUntil?: AgentWaitUntil } | undefined",
-    "  return value && typeof value === 'object' && typeof candidate?.waitUntil === 'function' ? candidate.waitUntil.bind(value) : undefined",
+    "function cloudflareFromContext(context: ViteHubGeneratedContext): ViteHubGeneratedCloudflare | undefined {",
+    "  return getStandardContext(context).runtime?.cloudflare",
     "}",
     "",
-    "export function waitUntilFromEvent(event: H3Event) {",
-    "  const runtimeEvent = event as ViteHubGeneratedEvent",
-    "  return waitUntilFromValue(runtimeEvent)",
-    "    || waitUntilFromValue(runtimeEvent.context)",
-    "    || waitUntilFromValue(runtimeEvent.context?.cloudflare?.context)",
-    "    || waitUntilFromValue(runtimeEvent.context?._platform?.cloudflare?.context)",
-    "    || waitUntilFromValue(runtimeEvent.node?.req?.runtime?.cloudflare?.context)",
-    "}",
-    "",
-    "function cloudflareFromEvent(event: H3Event): ViteHubGeneratedCloudflare | undefined {",
-    "  const runtimeEvent = event as ViteHubGeneratedEvent",
-    "  const env = runtimeEvent.env || runtimeEvent.context?.cloudflare?.env || runtimeEvent.context?._platform?.cloudflare?.env || runtimeEvent.node?.req?.runtime?.cloudflare?.env",
-    "  const context = runtimeEvent.context?.cloudflare?.context || runtimeEvent.context?._platform?.cloudflare?.context || runtimeEvent.node?.req?.runtime?.cloudflare?.context",
-    "  return env && typeof env === 'object' ? { env, ...(context ? { context } : {}) } : undefined",
-    "}",
-    "",
-    "function runtimeFromEvent(event: H3Event) {",
-    "  if (cloudflareFromEvent(event)) return 'cloudflare-agents' as const",
+    "function runtimeFromContext(context: ViteHubGeneratedContext) {",
+    "  if (cloudflareFromContext(context)) return 'cloudflare-agents' as const",
     "  if (typeof process === 'object' && (process.env.VERCEL || process.env.VERCEL_ENV)) return 'vercel' as const",
+    "}",
+    "",
+    // The routes answer every expected failure with a Response. The body has the `{ status, message }` shape of an H3 error.
+    "function errorResponse(status: number, message: string): Response {",
+    "  return Response.json({ status, message }, { status })",
+    "}",
+    "",
+    // A Fetchable gets no router parameters, so the routes read them from this path. Like the H3 router, it decodes the
+    // escapes of characters that need none, such as `%70` for `p`. Other escapes, such as `%20` and `%2F`, stay.
+    "function routePathname(request: Request): string {",
+    "  const pathname = new URL(request.url).pathname.replace(/%(?:2[146-9A-E]|3[0-9ABD]|4[0-9A-F]|5[0-9ABDF]|6[1-9A-F]|7[0-9ACE])/gi, escape => String.fromCharCode(Number.parseInt(escape.slice(1), 16)))",
+    "  return pathname.replace(/\\/+$/, '') || '/'",
     "}",
   ]
 }
@@ -1835,7 +1838,7 @@ function generatedHostedWorkspaceRuntimeSetup(
 async function writeAgentRuntimeRegistry(
   root: string,
   definitions: DiscoveredAgentDefinition[],
-  options: { agentImportBase: string, workspaceImportBase: string, channelsHost?: boolean },
+  options: { agentImportBase: string, workspaceImportBase: string, agentHost?: boolean },
 ): Promise<void> {
   const seen = new Set<string>()
   for (const definition of definitions) {
@@ -1875,7 +1878,7 @@ async function writeAgentRuntimeRegistry(
     "resetPublicUrlAgentNames()",
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
-    `export async function loadChannelsHost() {${options.channelsHost ? ' await import("./chat-webhook-route") ' : ""}}`,
+    `export async function loadAgentHost() {${options.agentHost ? ' await import("./chat-webhook-route") ' : ""}}`,
     "",
   ].join("\n"))
 }
@@ -2015,7 +2018,7 @@ async function generateAgentDeploymentCatalog(
         ? [
             // A standalone Channel's host Agent only serves the Channel's webhooks. Its trigger selects the Agent that runs.
             ...standaloneChannels.flatMap((channel, index) => [
-              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
+              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
               `agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
             ]),
             "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent)]))",
@@ -2068,8 +2071,6 @@ async function generateAgentWebhookRouteHandler(
     typescript: true,
     workspaceImportBase,
   })
-  const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
-  const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
   const webhookStateOption = options.cloudflareState
     ? "state: chatStateFromCloudflare(cloudflare), webhookState: chatStateFromCloudflare(cloudflare), "
     : options.libsqlState
@@ -2093,23 +2094,17 @@ async function generateAgentWebhookRouteHandler(
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    // Nitro 2, which Nuxt 4 runs, passes H3 1 events to these routes. toEventRequest reads both H3 1 and H3 2 events.
-    `import { toEventRequest } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
-    `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    // In a ViteHub app, the Request that Nitro passes to `fetch(request)` carries the Standard Context of the event.
+    `import { getStandardContext } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
     ...deploymentCatalog.setup,
-    "async function toRequest(event: H3Event) {",
-    "  const request = toEventRequest(event)",
-    "  return createAgentWebhookRequest({",
-    "    body: request.body ?? undefined,",
-    "    headers: request.headers,",
-    "    method: request.method,",
-    "    node: event.node,",
-    "    signal: event.req?.signal,",
-    "    url: request.url,",
-    "  })",
+    // On Node, Nitro passes a srvx Request that builds its native Request lazily, from a body that the handlers have
+    // already read when they copy the request. The handlers get a plain Request with the same body stream instead.
+    "function toWebhookRequest(request: Request): Request {",
+    "  const { headers, method, signal, url } = request",
+    "  return createAgentWebhookRequest({ body: request.body ?? undefined, headers, method, signal, url })",
     "}",
     "",
     ...generatedRuntimeHelpers(),
@@ -2172,9 +2167,11 @@ async function generateAgentWebhookRouteHandler(
           "",
         ]
       : []),
-    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
+    // The patterns match the end of the path, so a Nitro base URL before the route does not move them.
+    `const chatRoutePattern = new RegExp(${JSON.stringify(routeSuffixRegexSource(defaultAgentChatRoute, ["agent"]))})`,
+    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeSuffixRegexSource(options.webhookRoute, ["agent", "webhook"]))});`,
     ...(options.inspectionRoute
-      ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.inspectionRoute))})`]
+      ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeSuffixRegexSource(options.inspectionRoute, ["agent"]))})`]
       : []),
     "",
     `const webhookAliases: Record<string, { agent: string, webhook: string }> = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, "") || "/", target])))};`,
@@ -2183,10 +2180,10 @@ async function generateAgentWebhookRouteHandler(
     // This middleware runs for every request of the app. Declared paths come from the Agent Definitions, so it resolves
     // them once. After that, a request that no Agent declares leaves before the middleware builds a Request or copies headers.
     "let declaredWebhookMatchers: DeclaredWebhookMatcher[] | undefined",
-    "async function resolveDeclaredWebhookMatchers(event: H3Event, url: URL, optionsForAgent: (agent: string) => AgentChannelWebhookRouteOptions) {",
+    "async function resolveDeclaredWebhookMatchers(req: Request, url: URL, optionsForAgent: (agent: string) => AgentChannelWebhookRouteOptions) {",
     "  if (declaredWebhookMatchers) return declaredWebhookMatchers",
     // Resolve before acquiring the body stream, so unrelated application routes can still read it.
-    "  const request = new Request(url, { headers: toEventRequest(event).headers, method: event.method || 'GET', signal: event.req?.signal })",
+    "  const request = new Request(url, { headers: req.headers, method: req.method, signal: req.signal })",
     "  const matchers: DeclaredWebhookMatcher[] = []",
     "  for (const [agent, handler] of Object.entries(webhookHandlers)) {",
     "    matchers.push({ agent, matches: await handler.declaredPathMatcher(request, optionsForAgent(agent)) })",
@@ -2194,21 +2191,22 @@ async function generateAgentWebhookRouteHandler(
     "  return declaredWebhookMatchers = matchers",
     "}",
     "",
-    "export const declaredWebhookHandler = defineEventHandler(async (event) => {",
-    "  const url = new URL(toEventRequest(event).url)",
+    // The declared webhook middleware runs this for every request. `undefined` passes the request on to the next handler.
+    "export async function declaredWebhookResponse(request: Request): Promise<Response | undefined> {",
+    "  const url = new URL(request.url)",
     "  const pathname = url.pathname.replace(/\\/+$/, '') || '/'",
     "  const alias = webhookAliases[pathname]",
     "  if (!alias && declaredWebhookMatchers?.every(({ matches }) => !matches(url.pathname))) return",
-    "  const cloudflare = cloudflareFromEvent(event)",
-    `  const optionsForAgent = (agent: string): AgentChannelWebhookRouteOptions => ({ agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) })`,
-    "  const matchers = await resolveDeclaredWebhookMatchers(event, url, optionsForAgent)",
+    "  const cloudflare = cloudflareFromContext(request)",
+    `  const optionsForAgent = (agent: string): AgentChannelWebhookRouteOptions => ({ agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromContext(request) })`,
+    "  const matchers = await resolveDeclaredWebhookMatchers(request, url, optionsForAgent)",
     "  if (alias) {",
     "    const configuredAlias = configuredWebhookAliasPaths.has(pathname)",
     "    const conflicting = matchers.some(({ agent, matches }) => agent !== alias.agent && matches(url.pathname))",
-    "    if (!configuredAlias && conflicting) throw createError({ statusCode: 409, statusMessage: 'Several Agents declare this webhook path. Configure agent.routes.aliases to select its owner.' })",
+    "    if (!configuredAlias && conflicting) return errorResponse(409, 'Several Agents declare this webhook path. Configure agent.routes.aliases to select its owner.')",
     "    const handler = webhookHandlers[alias.agent]",
-    "    if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
-    "    return await handler(await toRequest(event), alias.webhook, optionsForAgent(alias.agent))",
+    "    if (!handler) return errorResponse(404, 'Unknown ViteHub agent.')",
+    "    return await handler(toWebhookRequest(request), alias.webhook, optionsForAgent(alias.agent))",
     "  }",
     "  const matches = matchers.filter(({ matches }) => matches(url.pathname)).map(({ agent }) => agent)",
     "  if (!matches.length) return",
@@ -2218,42 +2216,45 @@ async function generateAgentWebhookRouteHandler(
     "    return publicUrl && new URL(publicUrl).host === url.host",
     "  })",
     "  const agent = scoped.length === 1 ? scoped[0] : matches.length === 1 ? matches[0] : undefined",
-    "  if (!agent) throw createError({ statusCode: 409, statusMessage: 'Several Agents declare this webhook path. Configure agent.routes.aliases to select its owner.' })",
+    "  if (!agent) return errorResponse(409, 'Several Agents declare this webhook path. Configure agent.routes.aliases to select its owner.')",
     "  const handler = webhookHandlers[agent]",
-    "  if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
-    "  return await handler(await toRequest(event), '', optionsForAgent(agent))",
-    "})",
+    "  if (!handler) return errorResponse(404, 'Unknown ViteHub agent.')",
+    "  return await handler(toWebhookRequest(request), '', optionsForAgent(agent))",
+    "}",
     "",
-    "export default defineEventHandler(async (event) => {",
-    "  const pathname = new URL(toEventRequest(event).url).pathname",
-    "  const alias = webhookAliases[pathname.replace(/\\/+$/, '') || '/']",
-    "  const isWebhookRoute = Boolean(alias) || webhookRoutePattern.test(pathname)",
-    ...(options.inspectionRoute ? ["  const isInspectionRoute = inspectionRoutePattern.test(pathname)"] : []),
-    "  const agent = alias?.agent || getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
-    `  const webhook = alias?.webhook || (${webhookSelector})`,
+    // One Fetchable serves the chat, webhook, inspection, and alias routes (https://fetchable.org).
+    "export default {",
+    "  async fetch(request: Request): Promise<Response> {",
+    "    const pathname = routePathname(request)",
+    "    const alias = webhookAliases[pathname]",
+    ...(options.inspectionRoute ? ["    const inspectionMatch = inspectionRoutePattern.exec(pathname)"] : []),
+    "    const webhookMatch = webhookRoutePattern.exec(pathname)",
+    `    const groups = (${options.inspectionRoute ? "inspectionMatch || " : ""}webhookMatch || chatRoutePattern.exec(pathname))?.groups || {}`,
+    "    const isWebhookRoute = Boolean(alias || webhookMatch)",
+    "    const agent = alias?.agent || groups.agent || (agentNames.length === 1 ? agentNames[0] : undefined)",
+    "    const webhook = alias?.webhook || groups.webhook || ''",
+    "    const cloudflare = cloudflareFromContext(request)",
+    "    const waitUntil = waitUntilFromContext(request)",
     ...(options.inspectionRoute
       ? [
-          "  if (isInspectionRoute) {",
-          "    const cloudflare = cloudflareFromEvent(event)",
-          "    const { headers, method, url } = toEventRequest(event)",
-          "    const request = createAgentWebhookRequest({ headers, method, node: event.node, signal: event.req?.signal, url })",
-          `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption || ", runtime: runtimeFromEvent(event)"}, waitUntil: waitUntilFromEvent(event) })`,
-          "  }",
+          "    if (inspectionMatch) {",
+          "      const { headers, method, signal, url } = request",
+          "      const inspectionRequest = createAgentWebhookRequest({ headers, method, signal, url })",
+          `      return await agentInspectionResponse(agent, inspectionRequest, { ${routeCapabilities.requestOption}cloudflare, event: request${runtimeRouteOption || ", runtime: runtimeFromContext(request)"}, waitUntil })`,
+          "    }",
         ]
       : []),
-    "  if (!agent) {",
-    "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
-    "  }",
-    "  const cloudflare = cloudflareFromEvent(event)",
-    "  if (isWebhookRoute) {",
-    "    const handler = webhookHandlers[agent]",
-    "    if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
-    `    return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) })`,
-    "  }",
-    "  const handler = chatHandlers[agent]",
-    "  if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
-    `  return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, event, waitUntil: waitUntilFromEvent(event) })`,
-    "})",
+    "    if (!agent) return errorResponse(404, 'Unknown ViteHub agent.')",
+    "    if (isWebhookRoute) {",
+    "      const handler = webhookHandlers[agent]",
+    "      if (!handler) return errorResponse(404, 'Unknown ViteHub agent.')",
+    `      return await handler(toWebhookRequest(request), webhook, { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil })`,
+    "    }",
+    "    const handler = chatHandlers[agent]",
+    "    if (!handler) return errorResponse(404, 'Unknown ViteHub agent.')",
+    `    return await handler(toWebhookRequest(request), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, event: request, waitUntil })`,
+    "  },",
+    "}",
     "",
   ].join("\n")
 }
@@ -2366,13 +2367,20 @@ async function writeAgentWebhookRouteHandler(
     mode: "server-agents",
     scanDirs: serverDirs,
   })
-  const standaloneChannels = discoverStandaloneChannels(serverDirs)
+  const standaloneChannels = options.standaloneChannels ?? discoverStandaloneChannels(root, serverDirs)
   const owner = standaloneChannels.find(channel => definitions.some(definition => definition.name === channel.agent))
   if (owner) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${owner.handler} serves its webhooks as "${owner.agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.` })
   options = { ...options, standaloneChannels, explicitWebhookAliasPaths: Object.keys(options.webhookAliases || {}), webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFileIfChanged(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options))
-  await writeFileIfChanged(join(root, generatedAgentDeclaredWebhookRouteHandler), 'export { declaredWebhookHandler as default } from "./chat-webhook-route"\n')
+  // Nitro middleware passes a request on when it returns nothing, so this one stays an event handler. A Fetchable must
+  // return a Response. It imports nothing from H3: it gives the Request to the route module.
+  await writeFileIfChanged(join(root, generatedAgentDeclaredWebhookRouteHandler), [
+    `import { declaredWebhookResponse } from "./chat-webhook-route"`,
+    "",
+    "export default (event: { req: Request }) => declaredWebhookResponse(event.req)",
+    "",
+  ].join("\n"))
   if (options.preparation) {
     const { route: _route, ...preparation } = options.preparation
     await writeFileIfChanged(join(root, "agent/preparation.ts"), [
@@ -2392,17 +2400,18 @@ async function writeAgentWebhookRouteHandler(
       ? [
           `import { preparation } from "./preparation"`,
           `import { warmWebhookRoutes, webhookRoutesReadiness, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
-          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
-          `  const method = event.req?.method || event.method || event.node?.req?.method`,
-          `  void warmWebhookRoutes()`,
-          `  // The Workspace is not ready to serve deliveries before the webhook handlers are warm.`,
-          `  if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(method)`,
-          `  return preparation.response(method)`,
+          `export default {`,
+          `  fetch(request: Request) {`,
+          `    void warmWebhookRoutes()`,
+          `    // The Workspace is not ready to serve deliveries before the webhook handlers are warm.`,
+          `    if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(request.method)`,
+          `    return preparation.response(request.method)`,
+          `  },`,
           `}`,
         ].join("\n")
       : [
           `import { preparation } from "./preparation"`,
-          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) { return preparation.response(event.req?.method || event.method || event.node?.req?.method) }`,
+          `export default { fetch: (request: Request) => preparation.response(request.method) }`,
         ].join("\n"))
   }
   else {
@@ -2414,9 +2423,11 @@ async function writeAgentWebhookRouteHandler(
       `import { warmWebhookRoutes, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
       "",
       "/** 200 once every webhook handler is warm, 503 before. Point a readiness probe here. */",
-      `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
-      `  void warmWebhookRoutes()`,
-      `  return webhookRoutesReadyResponse(event.req?.method || event.method || event.node?.req?.method)`,
+      `export default {`,
+      `  fetch(request: Request) {`,
+      `    void warmWebhookRoutes()`,
+      `    return webhookRoutesReadyResponse(request.method)`,
+      `  },`,
       `}`,
       "",
     ].join("\n"))
@@ -2468,8 +2479,8 @@ async function writeAgentWebhookRouteHandler(
       "}",
       "",
     ].join("\n"))
-    await writeFileIfChanged(processHostFiles[2]!, `import { defineEventHandler } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => ({ status: host.status() }))\n`)
-    await writeFileIfChanged(processHostFiles[3]!, `import { defineEventHandler } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => host.health())\n`)
+    await writeFileIfChanged(processHostFiles[2]!, `import { host } from "./process-hosts"\n\nexport default { fetch: () => Response.json({ status: host.status() }) }\n`)
+    await writeFileIfChanged(processHostFiles[3]!, `import { host } from "./process-hosts"\n\nexport default { fetch: async () => Response.json(await host.health()) }\n`)
   }
   else {
     await Promise.all(processHostFiles.map(file => rm(file, { force: true })))
@@ -2483,7 +2494,7 @@ async function writeAgentWebhookRouteHandler(
     const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
     const internalImport = JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))
     await writeFileIfChanged(queuePluginPath, [
-      `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromContext"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, registerChannelTaskQueueStarter, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
@@ -2543,7 +2554,7 @@ async function writeAgentWebhookRouteHandler(
             "  nitroApp.hooks.hook('request', event => {",
             "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
             "    if (stop || !(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return;",
-            "    waitUntil ||= waitUntilFromEvent(event)",
+            "    waitUntil ||= waitUntilFromContext(event)",
             "    void warmWebhookRoutes()",
             "    startWebhookQueues()",
             "  })",
@@ -2582,11 +2593,10 @@ async function generateAgentDiscordGatewayRouteHandler(
   return [
     ...deploymentCatalog.imports,
     `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
-    `import { isViteHubBearerSecretEqual, toEventRequest } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { getStandardContext, isViteHubBearerSecretEqual } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
@@ -2607,31 +2617,26 @@ async function generateAgentDiscordGatewayRouteHandler(
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     "const handlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
+    // The pattern matches the end of the path, so a Nitro base URL before the route does not move it.
+    `const discordGatewayRoutePattern = new RegExp(${JSON.stringify(routeSuffixRegexSource(options.discordGatewayRoute, ["agent"]))})`,
     "",
-    "export default defineEventHandler(async (event) => {",
-    "  const cloudflare = cloudflareFromEvent(event)",
-    "  const secret = runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_SECRET')",
-    "  const localDevelopment = typeof process === 'object' && process.env.NODE_ENV === 'development'",
-    "  if (!secret && !localDevelopment) {",
-    "    throw createError({ statusCode: 500, statusMessage: 'Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.' })",
-    "  }",
-    "  const request = toEventRequest(event)",
-    "  if (secret && !isViteHubBearerSecretEqual(request.headers.get('authorization'), secret)) {",
-    "    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })",
-    "  }",
-    "  const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
-    "  const handler = agent ? handlers[agent] : undefined",
-    "  if (!handler) {",
-    "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
-    "  }",
-    "  const requestUrl = new URL(request.url)",
-    "  const durationMs = Number(runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_DURATION_MS') || '') || defaultDurationMs",
-    "  const webhookUrl = runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL') || (webhookRoute ? (webhook) => `${requestUrl.origin}${routePath(webhookRoute, { agent, webhook })}` : undefined)",
-    "  if (!webhookUrl) {",
-    "    throw createError({ statusCode: 500, statusMessage: 'Discord Gateway route requires an Agent webhook route.' })",
-    "  }",
-    `  return await handler(new Request(requestUrl, { method: request.method, headers: request.headers }), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare, durationMs${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event), webhookUrl })`,
-    "})",
+    "export default {",
+    "  async fetch(request: Request): Promise<Response> {",
+    "    const cloudflare = cloudflareFromContext(request)",
+    "    const secret = runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_SECRET')",
+    "    const localDevelopment = typeof process === 'object' && process.env.NODE_ENV === 'development'",
+    "    if (!secret && !localDevelopment) return errorResponse(500, 'Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.')",
+    "    if (secret && !isViteHubBearerSecretEqual(request.headers.get('authorization'), secret)) return errorResponse(401, 'Unauthorized')",
+    "    const requestUrl = new URL(request.url)",
+    "    const agent = discordGatewayRoutePattern.exec(routePathname(request))?.groups?.agent || (agentNames.length === 1 ? agentNames[0] : undefined)",
+    "    const handler = agent ? handlers[agent] : undefined",
+    "    if (!agent || !handler) return errorResponse(404, 'Unknown ViteHub agent.')",
+    "    const durationMs = Number(runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_DURATION_MS') || '') || defaultDurationMs",
+    "    const webhookUrl = runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL') || (webhookRoute ? (webhook) => `${requestUrl.origin}${routePath(webhookRoute, { agent, webhook })}` : undefined)",
+    "    if (!webhookUrl) return errorResponse(500, 'Discord Gateway route requires an Agent webhook route.')",
+    `    return await handler(new Request(requestUrl, { method: request.method, headers: request.headers }), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare, durationMs${runtimeRouteOption}, waitUntil: waitUntilFromContext(request), webhookUrl })`,
+    "  },",
+    "}",
     "",
   ].join("\n")
 }
@@ -2954,7 +2959,31 @@ async function cleanupNetlifyAgentProviderOutput(
   })
 }
 
+// Multiple dev servers share process.env. Restore its input only after every participating plugin releases it.
+const channelSimulationOwners = new Set<object>()
+let channelSimulationPreviousValue: string | undefined
+
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
+  const channelSimulationOwner = {}
+  function setChannelSimulation(enabled: boolean, config?: ResolvedConfig): void {
+    const env = globalThis.process.env
+    if (enabled) {
+      if (channelSimulationOwners.has(channelSimulationOwner)) return
+      if (channelSimulationOwners.size === 0) {
+        channelSimulationPreviousValue = env[channelSimulationEnv]
+        if (env[channelSimulationEnv] !== "simulate") {
+          env[channelSimulationEnv] = "simulate"
+          config?.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. Open /api/_vitehub/agents/<agent>/webhooks/<channel> in a browser to chat, or POST an AI SDK chat request to it.")
+        }
+      }
+      channelSimulationOwners.add(channelSimulationOwner)
+    }
+    else if (channelSimulationOwners.delete(channelSimulationOwner) && channelSimulationOwners.size === 0) {
+      if (env[channelSimulationEnv] !== "simulate") return
+      if (channelSimulationPreviousValue === undefined) delete env[channelSimulationEnv]
+      else env[channelSimulationEnv] = channelSimulationPreviousValue
+    }
+  }
   const frameworkOptions = getInternalAgentOptions(options)
   let agent: AgentModuleOptions | false | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
@@ -2997,11 +3026,16 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
+    // CLI stage servers resolve a serve config for discovery without starting an interactive dev server.
+    // SAFETY: Vite preserves this optional discovery flag from the inline config.
+    const cliStageServer = (config as ResolvedConfig & { vitehubCliDiscovery?: unknown }).vitehubCliDiscovery === true
+    setChannelSimulation(Boolean(normalized && agent && agent.channels?.simulate && config.command === "serve" && !cliStageServer), config)
     if (normalized) validateInspectionRoute(normalized.routes)
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
-    const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     const generatedRoot = resolveViteHubGeneratedRoot(config)
     const definitionServerDirs = serverDirs ?? [join(config.root, "server")]
+    const standaloneChannels = normalized ? discoverStandaloneChannels(viteHubProjectRoot(config), definitionServerDirs) : []
+    const hasHostedAgents = hasHostedAgentDefinitions(config.root, definitionServerDirs, standaloneChannels)
     const registryDefinitions = normalized
       ? [
           ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: config.root }),
@@ -3010,7 +3044,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       : []
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentImportBase: getAgentImportBase(agent, frameworkOptions),
-      channelsHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
+      agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
     if (normalized && config.command === "serve") {
@@ -3073,6 +3107,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       else {
         await writeAgentWebhookRouteHandler(generatedRoot, {
+          standaloneChannels,
           preparation: normalized.preparation,
           webhookAliases: normalized.routes.aliases,
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
@@ -3377,10 +3412,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       const nitroContext = hasNitroConfigContext(config)
-      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
+      const standaloneChannels = resolved ? discoverStandaloneChannels(viteHubProjectRoot(config), serverDirs ?? [join(root, "server")]) : []
+      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs, standaloneChannels))
       const hasAgentDefinitions = Boolean(resolved && discoverProjectAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
-      const standaloneChannels = resolved ? discoverStandaloneChannels(serverDirs ?? [join(root, "server")]) : []
       if (standaloneChannels.length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
         throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${standaloneChannels[0]!.handler} declares its own webhook route. Channels in server/channels with webhooks.path currently require a Nitro host.` })
       }
@@ -3715,13 +3750,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }))
         if (retainedSources && normalized) {
           const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
-          const channelsHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
+          const agentHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
           await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
             agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
-            channelsHost,
+            agentHost,
             workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
           })
-          if (channelsHost) {
+          if (agentHost) {
             const handlerPath = join(retainedGeneratedRoot, generatedAgentWebhookRouteHandler)
             await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(retainedDefinitions.filter(definition => hostedDefinitions.some(hosted => hosted.name === definition.name)), handlerPath, {
               agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
@@ -3793,6 +3828,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       async handler() {
         if (rejectedBuilds.has(buildEnvironment(this))) return
         await closeDiscoveryWatcher?.()
+        setChannelSimulation(false)
         if (providerOutputEnvironment.defers(this)) return
         const build = buildConfigs.get(buildEnvironment(this))
         const config = build?.config ?? this?.environment?.config ?? resolved

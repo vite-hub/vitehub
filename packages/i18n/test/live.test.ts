@@ -203,6 +203,65 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
+  it.each(["verified", "rejected"] as const)("keeps machine provenance when marking unchanged text %s", async (review) => {
+    setup()
+    const translations = useTranslations()
+    const input = { locale: "es", source: deploy.message, translation: "Publica tu agente" }
+    await translations.save({ ...input, review: "machine", by: "translator" })
+    await translations.publish()
+    if (review === "verified") {
+      await translations.save({ ...input, review, by: "ana" })
+      const verified = (await translations.list("es", { ref: "draft" }))[1]![deploy.id]!
+      expect(verified).toMatchObject({ origin: "mt", review, by: "translator", verifiedBy: { by: "ana" } })
+    }
+
+    await translations.save({ ...input, translation: "", by: "ben" })
+    const rejected = (await translations.list("es", { ref: "draft" }))[1]![deploy.id]!
+    expect(rejected).toMatchObject({ origin: "mt", text: input.translation, review: "rejected", by: "translator", rejectedBy: { by: "ben" } })
+    expect(rejected.verifiedBy).toBeUndefined()
+  })
+
+  it("keeps rejected text rejected when the same machine text is saved again", async () => {
+    setup()
+    const translations = useTranslations()
+    const input = { locale: "es", source: deploy.message, translation: "Publica tu agente", review: "machine" } as const
+    await translations.save({ ...input, by: "translator" })
+    await translations.save({ ...input, translation: "", by: "ana" })
+    const rejected = (await translations.list("es", { ref: "draft" }))[1]![deploy.id]!
+    await translations.save({ ...input, by: "ben" })
+    expect((await translations.list("es", { ref: "draft" }))[1]![deploy.id]).toEqual(rejected)
+  })
+
+  it("refuses verification of rejected text without committing a revision", async () => {
+    const { store } = setup()
+    const translations = useTranslations()
+    const input = { locale: "es", source: deploy.message, translation: "Publica tu agente" }
+    await translations.save({ ...input, review: "machine", by: "translator" })
+    await translations.save({ ...input, translation: "", by: "ana" })
+    const head = store.heads.get("draft")
+    const rejected = (await translations.list("es", { ref: "draft" }))[1]![deploy.id]!
+
+    await expect(translations.save({ ...input, review: "verified", by: "ben" })).rejects.toThrow(/rejected.*edit/)
+    expect(store.heads.get("draft")).toBe(head)
+    expect((await translations.list("es", { ref: "draft" }))[1]![deploy.id]).toEqual(rejected)
+  })
+
+  it.each(["Publica tu agente", "Despliega tu agente"])("edits rejected text to %s before verification", async (translation) => {
+    setup()
+    const translations = useTranslations()
+    const input = { locale: "es", source: deploy.message, translation: "Publica tu agente" }
+    await translations.save({ ...input, review: "machine", by: "translator" })
+    await translations.save({ ...input, translation: "", by: "ana" })
+    await translations.save({ ...input, translation, review: "edited", by: "ben" })
+    const edited = (await translations.list("es", { ref: "draft" }))[1]![deploy.id]!
+    expect(edited).toMatchObject({ origin: "human", text: translation, review: "edited", by: "ben" })
+    expect(edited.rejectedBy).toBeUndefined()
+    expect(edited.verifiedBy).toBeUndefined()
+
+    await translations.save({ ...input, translation, review: "verified", by: "ana" })
+    expect((await translations.list("es", { ref: "draft" }))[1]![deploy.id]).toMatchObject({ origin: "human", review: "verified", by: "ben", verifiedBy: { by: "ana" } })
+  })
+
   it.each(["machine", "edited", "verified"] as const)("exchanges Diglot records with the file store and saves %s translations", async (review) => {
     const root = await mkdtemp(join(tmpdir(), "i18n-workspace-"))
     try {

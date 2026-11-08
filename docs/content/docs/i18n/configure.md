@@ -215,6 +215,8 @@ pnpm vitehub i18n export es --output es.po
 pnpm vitehub i18n import es es.po --by ana
 ```
 
+Keep the `vitehub-i18n-expected` comments in the PO file. They hold each record's text at export time, so an import refuses an edit if another translator changed that record. Export the locale again before editing a refused entry. A PO file without these comments can add new translations, but cannot change existing ones. Importing a translation that is already saved changes nothing.
+
 When you change the source text of a message, it gets a new ID and a new hash, and its old record becomes unused. If the new text is close to the old one, with the same context and placeholders, `status` counts the message as `changed`, and `export` gives it the old translation. The entry is marked `fuzzy`, as in gettext, with the old source text in a note:
 
 ```po [es.po]
@@ -241,6 +243,8 @@ To add a locale, add it to `i18n.locales`. It starts with every message untransl
 By default, translations are files in your repository, and a new translation needs a deploy. To change translations without a deploy, store them in a [Workspace](/docs/workspace) with retained history, such as the Blob and Database store or the GitHub store:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({ i18n: { locales: ['en', 'es'], workspace: 'translations' } })
 ```
 

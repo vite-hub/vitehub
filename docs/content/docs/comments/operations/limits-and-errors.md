@@ -1,6 +1,6 @@
 ---
-title: Comments limits and errors
-description: Size limits, numbering, and the errors that comments raise.
+title: Comments operations limits and errors
+description: "Message, mention, and attachment limits of comments operations, how threads get their numbers, and each COMMENTS error code."
 navigation.title: Operations limits and errors
 navigation.order: 24
 icon: i-lucide-circle-alert
@@ -51,5 +51,6 @@ A thread and its first message are written together: with `batch()` on libSQL an
 | `COMMENTS_R0021` | 501 | `storeAttachment` stores files, but there is no `readAttachment` to read them back. |
 | `COMMENTS_B0001` | build | The app has `server/comments.ts` and sets `database: false`. |
 | `COMMENTS_B0002` | build | `server/comments.ts` does not default-export `defineComments()`. |
+| `COMMENTS_B0003` | build | The app adds `comments()` next to `vitehub()`. Remove `comments()` and set `vitehub({ comments: true })`, or add `server/comments.ts`. |
 
 An input that does not match the schema fails with `INTERNAL_R0022` and names the fields.

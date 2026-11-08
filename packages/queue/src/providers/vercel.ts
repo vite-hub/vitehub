@@ -1,5 +1,5 @@
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult } from "../errors.ts"
+import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
@@ -118,6 +118,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
         module = await importVercelQueue(specifier)
       }
       catch (error) {
+        // provider-message-match: Node reports a missing dynamic import callback only in this TypeError message.
         if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
         module = await import(specifier) as Record<string, unknown>
       }
@@ -164,9 +165,8 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     topic,
     async send(payload, options) {
       const normalized = normalizeQueueEnqueueInput(payload, options)
-      if (normalized.options.contentType !== undefined) {
-        return [queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: "`contentType`", provider: "vercel" }), undefined]
-      }
+      const optionsError = queueUnsupportedOptionsError(normalized.options, "vercel")
+      if (optionsError) return [optionsError, undefined]
 
       const [error, response] = await queueProviderResult("vercel", "send", () => client.send(topic, normalized.payload, {
         delaySeconds: normalized.options.delaySeconds,

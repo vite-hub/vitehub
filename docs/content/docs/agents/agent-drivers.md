@@ -1,7 +1,7 @@
 ---
 title: Agent Drivers
 description: Run an Agent with an AI SDK model, Codex, Claude Code, typed questions, or your own function. Each Driver decides how one Invocation runs.
-seo.title: Agent Drivers for Codex, Claude Code, and AI SDK models
+seo.title: "Agent Drivers: Codex, Claude Code, AI SDK"
 navigation.order: 11
 navigation.group: Define and run
 icon: i-lucide-cpu
@@ -111,7 +111,7 @@ Provider runtime cursors resume a thread while the Agent Definition process rema
 
 Resolve `env` per invocation when a provider needs short-lived credentials. Use `launch` when the provider process must start through an application-owned wrapper such as a remote execution CLI:
 
-```ts [server/agents/review/agent.ts]
+```ts [server/agents/review/agent.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
@@ -136,7 +136,7 @@ Set `requirements` to the commands that the provider's own shell needs, for exam
 
 Resolvers that route by the provider executable must use `providerCommand` before enabling `requirements`. During requirement inspection, `command` is `sh` and `providerCommand` still identifies the provider. An application-owned runner selector can use both fields:
 
-```ts
+```ts fragment
 launch: ({ command, providerCommand }) => ({
   args: ['exec', '--', command],
   command: selectRunnerForProvider(providerCommand),
@@ -358,7 +358,7 @@ export default defineAgent({
 
 Build the questions with `ask`:
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/email-labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'
 
@@ -375,11 +375,15 @@ export default defineAgent({
 })
 ```
 
-The answers are the Invocation output, and their type comes from the questions. The standalone `runAgent` overload returns a tuple, so destructure it before reading the result:
+The answers are the Invocation output, and their type comes from the questions. `runAgent()` returns a tuple, so destructure it and read `result.output`:
 
-```ts
-const [error, answers] = await runAgent(labeller, { prompt: 'Invoice 42' })
+```ts [server/label-email.ts]
+import { runAgent } from 'vite-hub/agent'
+import labeller from './agents/email-labeller'
+
+const [error, result] = await runAgent(labeller, { prompt: 'Invoice 42' })
 if (error) throw error
+const answers = result.output!
 answers.label.choice // 'invoice' | 'none'
 answers.urgent // boolean
 ```

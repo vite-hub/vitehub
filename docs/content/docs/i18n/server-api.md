@@ -47,6 +47,9 @@ Concurrent requests in different locales do not share a locale. ViteHub turns on
 ## t
 
 ```ts
+import { t } from "vite-hub/i18n"
+
+const name = "Ada"
 t`Payment received`
 t`Hello ${name}`
 t({ message: "Open", context: "button", comment: "Opens the file" })
@@ -63,6 +66,11 @@ Returns the message in the active locale. A message without a translation return
 ## plural, selectOrdinal, and select
 
 ```ts
+import { plural, select, selectOrdinal } from "vite-hub/i18n"
+
+const count = 3
+const place = 2
+const role = "admin"
 plural(count, { 0: "No files", one: "# file", other: "# files" })
 selectOrdinal(place, { one: "#st", two: "#nd", few: "#rd", other: "#th" })
 select(role, { admin: "Admin", other: "Member" })
@@ -75,6 +83,8 @@ select(role, { admin: "Admin", other: "Member" })
 ## msg and translate
 
 ```ts
+import { msg, translate } from "vite-hub/i18n"
+
 const label = msg`Draft`
 translate(label)
 ```
@@ -96,6 +106,8 @@ A `t` call at the top level of a module runs once, before any request. It does n
 ## getLocale and getLocales
 
 ```ts
+import { getLocale, getLocales } from "vite-hub/i18n"
+
 getLocale() // "es"
 getLocales() // ["en", "es", "pt-BR"]
 ```
@@ -105,6 +117,8 @@ getLocales() // ["en", "es", "pt-BR"]
 ## setLocale
 
 ```ts
+import { setLocale } from "vite-hub/i18n"
+
 const [error, locale] = await setLocale("es")
 if (error) console.error(error.code, error.fix)
 ```
@@ -147,7 +161,9 @@ export default async () => {
 
 `save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Workspace errors, such as a conflict with another save at the same time, throw. The [`i18n()` Agent Capability](/docs/i18n/agent-capability) calls the same methods.
 
-`save()` keeps the `source`, `context`, and `translation` input names. It stores a Diglot record with `context` as `salt` and `translation` as `text`. A `machine` save has `origin: "mt"` and `review: "none"`; other saves have `origin: "human"`. A verified save also records `verifiedBy`. An empty translation marks the record as rejected and keeps its last text, or the source text if no translation exists. The site then uses its build or source fallback. Rejected records and records with invalid ICU arguments do not override the build catalog.
+`save()` keeps the `source`, `context`, and `translation` input names. It stores a Diglot record with `context` as `salt` and `translation` as `text`. New or changed machine text has `origin: "mt"` and `review: "none"`. A human edit has `origin: "human"`. Verification and rejection keep the text's origin and last editor, and record the reviewer in `verifiedBy` or `rejectedBy`. Saving the same text as `machine` does not reset its origin or review. An `edited` save can reopen a rejected record, even with the same text. A rejected record must be edited before it can be verified. A changed verified save edits the text first, then verifies it. A refused Diglot transition throws before any revision is committed.
+
+An empty translation marks the record as rejected and keeps its last text, or the source text if no translation exists. The site then uses its build or source fallback. Rejected records and records with invalid ICU arguments do not override the build catalog.
 
 `status()` and `missing()` count only visible translations. A rejected or invalid record leaves its message missing unless there is a visible published translation or draft.
 
@@ -158,9 +174,12 @@ Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vi
 | Export | Meaning |
 | --- | --- |
 | `createI18n()` | Picks the browser locale, loads its catalog, and returns the Vue plugin: `createApp(App).use(await createI18n())`. |
+| `i18nPlugin({ i18n })` | Installs a supplied instance. Messages and `useLocale().setLocale()` use the same instance. |
 | `useLocale()` | Returns `{ locale, locales, setLocale }`. `locale` is a read-only ref. Templates that read it re-render when it changes. |
 | `t` in templates | ``{{ t`Save` }}`` and `:placeholder="t`Search`"`, with no import. |
 | `<Trans>` | A message with markup: `<Trans>Read the <a href="/docs">docs</a>.</Trans>`. The component is global, with no import. |
+
+Message macros in component setup keep the app's instance, including in computed values and callbacks. Shared module functions called during Vue setup or render use the current app. Outside Vue and server request contexts, runtime functions use the default instance.
 
 ## Types
 
