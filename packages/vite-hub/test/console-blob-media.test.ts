@@ -23,10 +23,10 @@ describe("Console Blob media client", () => {
   it("lists a folder with a folded listing and keeps the raw metadata", async () => {
     mocks.request.mockResolvedValueOnce(page([object("covers/a.png", { contentType: "image/png", httpEtag: "\"1\"", size: 2048 }), object("covers/")], { folders: ["covers/large"], cursor: "next", hasMore: true }))
     const onPage = vi.fn()
-    const client = createConsoleBlobMediaClient("/api/_vitehub/console/blob", { onPage, store: "media" })
+    const client = createConsoleBlobMediaClient("/_vitehub/api/blob", { onPage, store: "media" })
     const listing = await client.list({ folder: "covers" })
 
-    expect(mocks.request).toHaveBeenCalledWith("/api/_vitehub/console/blob", { query: { cursor: undefined, folded: true, limit: undefined, prefix: "covers/", showVitehub: undefined, store: "media" } })
+    expect(mocks.request).toHaveBeenCalledWith("/_vitehub/api/blob", { query: { cursor: undefined, folded: true, limit: undefined, prefix: "covers/", showVitehub: undefined, store: "media" } })
     expect(listing).toMatchObject({ access: { manage: true, read: true, write: true }, cursor: "next", folder: "covers", folders: ["covers/large"], hasMore: true, served: null })
     // A folder marker that ends in `/` is not a file.
     expect(listing.items.map(item => item.pathname)).toEqual(["covers/a.png"])

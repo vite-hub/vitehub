@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { defineAgent, defineCapability, runAgent, workflow } from "../src/index.ts"
 import { setAgentHostCapabilities } from "../src/server/internal.ts"
+import { installAgentRegistry } from "#vitehub/agent/registry"
 
 const schedule = {
   id: "friday-2026-09-25",
@@ -78,6 +79,18 @@ it("gives standalone runs the registered host runtime capabilities", async () =>
 
   await expect(runAgent(capabilityProbeAgent(), { prompt: "Check host" }, { output: "drained", schedule }))
     .resolves.toEqual([null, JSON.stringify({ connections: { name: "host-connections" }, kv: { name: "host-kv" } })])
+})
+
+it("loads the host routes before a standalone run, so a Schedule gets their capabilities", async () => {
+  // The routes load on their first request. Here no request came first, as in a Worker that a cron trigger starts.
+  installAgentRegistry({ default: {}, metadata: {}, loadAgentHost: async () => setAgentHostCapabilities({ kv: { name: "host-kv" } }) })
+  try {
+    await expect(runAgent(capabilityProbeAgent(), { prompt: "Check host" }, { output: "drained", schedule }))
+      .resolves.toEqual([null, JSON.stringify({ kv: { name: "host-kv" } })])
+  }
+  finally {
+    installAgentRegistry({ default: {}, metadata: {} })
+  }
 })
 
 it("lets runtimeContext capabilities override one host capability", async () => {

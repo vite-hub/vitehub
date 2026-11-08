@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { chatgpt } from "@vite-hub/gateways"
 
 const codex = vi.hoisted(() => ({ executable: "/fake/codex" as string | undefined }))
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 vi.mock("../src/internal/provider-runtime-packages.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/internal/provider-runtime-packages.ts")>(),
   resolveInstalledProviderExecutable: () => codex.executable,
