@@ -15,7 +15,7 @@ By default it runs on your ChatGPT plan. You sign in once with your ChatGPT acco
 The assistant needs ViteHub Agents and [Connections](/docs/connections). On Node.js it also needs Codex in the app. A Worker build does not:
 
 ```bash [commands/install-assistant]
-pnpm add vite-hub @vite-hub/agent @vite-hub/database drizzle-orm @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm @openai/codex
 ```
 
 Add `vite-hub/nuxt` to `modules`, and set `assistant: true`:

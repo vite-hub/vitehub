@@ -1055,6 +1055,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         filters.push(`status IN (${statuses.map(() => "?").join(", ")})`)
         args.push(...statuses)
       }
+      // With a status list, this range uses the (status, updated_at) index.
+      const updatedSince = hasRuntimeType(listOptions.updatedSince, "string") ? listOptions.updatedSince : undefined
+      if (updatedSince !== undefined) {
+        filters.push("updated_at >= ?")
+        args.push(updatedSince)
+      }
       const agentName = listOptions.agentName?.trim()
       if (agentName) {
         filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))")
@@ -1084,11 +1090,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         args.push(`%${escapeLike(search.toLowerCase())}%`)
       }
       args.push(limit + 1)
+      const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : ""
       const result = await client.execute({
         args,
+        // An updated_at range is sorted by sequence after the index search. Sorting only sequences keeps
+        // that sort from reading the summary of every match, which sits behind the large search column.
         sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
           THEN json_remove(record, '$.observations') END) AS summary
-          FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`,
+          FROM ${table}${updatedSince === undefined
+            ? `${where} ORDER BY sequence DESC LIMIT ?`
+            : ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?) ORDER BY sequence DESC`}`,
       })
       const records = result.rows
         .map(row => deserializeSummary(row.summary, row.sequence))

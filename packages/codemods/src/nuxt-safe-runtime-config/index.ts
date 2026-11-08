@@ -204,7 +204,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (runtimeProperty && !runtime.object) {
       planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
     }
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: runtime.values })
+    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema, cwd), issues: schemaIssues(schema), runtimeConfig: runtime.values })
     fields = plan.fields
     unmigrated = plan.unmigrated
     planned.push(...plan.followUps)

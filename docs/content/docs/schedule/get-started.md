@@ -17,10 +17,10 @@ In this tutorial, you write a daily report that runs every day at 08:00 UTC. The
 ::tutorial-step{title="Turn on Schedule"}
 ## Turn on Schedule
 
-Schedule is a separate package. Add it to your app:
+Schedule and KV are separate packages. Add them to your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/schedule
+pnpm add @vite-hub/schedule @vite-hub/kv
 ```
 
 Then add `kv` and `schedule` to the ViteHub options. Keep the other options of your app.
@@ -153,7 +153,7 @@ To see the same runs in a page, with a button to run the schedule, turn on the [
 You keep the schedule file. You change the `schedule` option for the host:
 
 - **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. Keep exactly one process running. Two processes would both run it, and a stopped process runs nothing.
-- **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. With `runtime`, the server process starts the schedules, and the build writes no cron settings.
+- **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
 
 For example, on Vercel:
 

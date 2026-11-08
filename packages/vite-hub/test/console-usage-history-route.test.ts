@@ -44,7 +44,7 @@ it("validates session history filters and keeps filtered responses separate in t
     { projectRoot: process.cwd(), invoke: false },
   );
   const request = (query: string) =>
-    usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage?${query}` }));
+    usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?${query}` }));
   expect(await request("status=failed")).toMatchObject({
     sessionCount: 1,
     sessions: [{ id: "failed" }],
@@ -94,7 +94,7 @@ it.each(["100%_", "%41", "雪% &+?#"])(
       fallbackName: filter,
     }], { projectRoot: process.cwd(), invoke: false });
     const query = { agent: filter, search: filter };
-    const request = (queryString: string) => usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage?${queryString}` }));
+    const request = (queryString: string) => usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?${queryString}` }));
     const first = await request(new URLSearchParams(query).toString());
     expect(first.sessions).toHaveLength(50);
     expect(first.cursor).toEqual(expect.any(String));
