@@ -27,7 +27,8 @@
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/styles.css"
+    "./dist/styles.css",
+    "./dist/theme.css"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -181,6 +182,11 @@
       "import": "./dist/sync-status.js",
       "default": "./dist/sync-status.js"
     },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js",
+      "default": "./dist/theme.js"
+    },
     "./tool-list": {
       "types": "./dist/tool-list.d.ts",
       "import": "./dist/tool-list.js",
@@ -242,7 +248,8 @@
       "default": "./dist/workspace-terminal.js"
     },
     "./package.json": "./package.json",
-    "./styles.css": "./dist/styles.css"
+    "./styles.css": "./dist/styles.css",
+    "./theme.css": "./dist/theme.css"
   },
   "scripts": {
     "build": "vp pack",

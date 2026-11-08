@@ -1,0 +1,214 @@
+/*
+ * The ViteHub design system: the tokens and the global rules that the Console, vitehub.dev, @vite-hub/docs, and the
+ * playgrounds share. Import it after Tailwind and Nuxt UI, and pass `vitehubTheme` from `@vite-hub/ui/theme` as the
+ * `ui` app config:
+ *
+ *   @import "tailwindcss";
+ *   @import "@nuxt/ui";
+ *   @import "@vite-hub/ui/theme.css";
+ *
+ * The rules here are unlayered, so they win over the utility classes of Nuxt UI. DESIGN.md in docs/ says when to use
+ * which token and component.
+ */
+
+/* Tailwind generates the classes that the Nuxt UI app config in theme.js uses. */
+@source "./theme.js";
+
+@theme {
+  /* The app loads the fonts: the Console bundles Geist Variable, and @nuxt/fonts serves Geist on the docs. */
+  --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/*
+ * The shadcn/ui neutral palette. Hierarchy comes from four text tones, not from size: highlighted for names, default
+ * for body text, muted for descriptions, and dimmed for meta. Every tone keeps at least 4.5:1 (WCAG AA) on the page and
+ * on the neutral surfaces.
+ */
+:root {
+  color-scheme: light;
+  --ui-bg: oklch(1 0 0);
+  --ui-bg-muted: oklch(0.985 0 0);
+  --ui-bg-elevated: oklch(0.97 0 0);
+  --ui-bg-accented: oklch(0.94 0 0);
+  --ui-bg-inverted: oklch(0.205 0 0);
+  --ui-border: oklch(0.922 0 0);
+  --ui-border-muted: oklch(0.96 0 0);
+  --ui-border-accented: oklch(0.87 0 0);
+  --ui-border-inverted: oklch(0.205 0 0);
+  --ui-text: oklch(0.371 0 0);
+  --ui-text-toned: oklch(0.439 0 0);
+  --ui-text-muted: oklch(0.5 0 0);
+  --ui-text-dimmed: oklch(0.52 0 0);
+  --ui-text-highlighted: oklch(0.205 0 0);
+  --ui-text-inverted: oklch(1 0 0);
+  /*
+   * Nuxt UI multiplies this base: rounded-sm is 1x, rounded-md 1.5x, rounded-lg 2x, rounded-xl 3x. At 0.25rem, buttons,
+   * inputs, and tabs get 6px, cards and code panels 8px, and menus and dialogs 12px (Geist).
+   */
+  --ui-radius: 0.25rem;
+  /* Primary actions are black on light and white on dark, as in the Vercel dashboard. */
+  --ui-primary: oklch(0.205 0 0);
+  /* Blue marks focus, and only focus, so it stands apart from the black and white buttons. Sky 600 keeps 3:1 on white. */
+  --vh-focus: oklch(0.588 0.158 241.966);
+  /*
+   * Status colors as text. Nuxt UI draws text and dots with the same 500 shade, which reaches only 2.1:1 (amber) to
+   * 3.8:1 (red) on white. These shades keep 4.5:1 on the page and on a 10% tint of the same color.
+   */
+  --vh-text-error: var(--ui-color-error-700);
+  --vh-text-info: var(--ui-color-info-700);
+  --vh-text-success: var(--ui-color-success-700);
+  --vh-text-warning: var(--ui-color-warning-800);
+  /* Menus, popovers, and tooltips: a translucent surface over the page, with the Geist layered shadow. */
+  --vh-floating: rgb(255 255 255 / 92%);
+  --vh-shadow-floating: 0 0 0 1px var(--ui-border), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 6%);
+  --vh-shadow-dialog: 0 0 0 1px var(--ui-border), 0 8px 16px -4px rgb(0 0 0 / 4%), 0 24px 32px -8px rgb(0 0 0 / 6%);
+  --vh-scrollbar: oklch(0.87 0 0);
+  --vh-scrollbar-hover: oklch(0.708 0 0);
+}
+
+/* Dark is its own palette, not an inversion: the page is near black, and surfaces are white at low alpha. */
+:root.dark {
+  color-scheme: dark;
+  --ui-bg: oklch(0.145 0 0);
+  --ui-bg-muted: oklch(0.178 0 0);
+  --ui-bg-elevated: rgb(255 255 255 / 5%);
+  --ui-bg-accented: rgb(255 255 255 / 8%);
+  --ui-bg-inverted: oklch(0.985 0 0);
+  --ui-border: rgb(255 255 255 / 10%);
+  --ui-border-muted: rgb(255 255 255 / 5%);
+  --ui-border-accented: rgb(255 255 255 / 16%);
+  --ui-border-inverted: oklch(0.985 0 0);
+  --ui-text: oklch(0.87 0 0);
+  --ui-text-toned: oklch(0.8 0 0);
+  --ui-text-muted: oklch(0.708 0 0);
+  --ui-text-dimmed: oklch(0.62 0 0);
+  --ui-text-highlighted: oklch(0.985 0 0);
+  --ui-text-inverted: oklch(0.145 0 0);
+  --ui-primary: oklch(0.985 0 0);
+  /* Sky 400 keeps 3:1 on the dark page. */
+  --vh-focus: oklch(0.746 0.16 232.661);
+  --vh-text-error: var(--ui-color-error-400);
+  --vh-text-info: var(--ui-color-info-400);
+  --vh-text-success: var(--ui-color-success-400);
+  --vh-text-warning: var(--ui-color-warning-400);
+  /* Dark floating surfaces sit one step above the page instead of matching it. */
+  --vh-floating: rgb(23 23 23 / 92%);
+  --vh-shadow-floating: 0 0 0 1px var(--ui-border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
+  --vh-shadow-dialog: 0 0 0 1px var(--ui-border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);
+  --vh-scrollbar: rgb(255 255 255 / 12%);
+  --vh-scrollbar-hover: rgb(255 255 255 / 22%);
+}
+
+/* Before the app sets a color mode class, the page follows the system. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light):not(.dark) {
+    color-scheme: dark;
+    --ui-bg: oklch(0.145 0 0);
+    --ui-bg-muted: oklch(0.178 0 0);
+    --ui-bg-elevated: rgb(255 255 255 / 5%);
+    --ui-bg-accented: rgb(255 255 255 / 8%);
+    --ui-bg-inverted: oklch(0.985 0 0);
+    --ui-border: rgb(255 255 255 / 10%);
+    --ui-border-muted: rgb(255 255 255 / 5%);
+    --ui-border-accented: rgb(255 255 255 / 16%);
+    --ui-border-inverted: oklch(0.985 0 0);
+    --ui-text: oklch(0.87 0 0);
+    --ui-text-toned: oklch(0.8 0 0);
+    --ui-text-muted: oklch(0.708 0 0);
+    --ui-text-dimmed: oklch(0.62 0 0);
+    --ui-text-highlighted: oklch(0.985 0 0);
+    --ui-text-inverted: oklch(0.145 0 0);
+    --ui-primary: oklch(0.985 0 0);
+    /* Sky 400 keeps 3:1 on the dark page. */
+    --vh-focus: oklch(0.746 0.16 232.661);
+    --vh-text-error: var(--ui-color-error-400);
+    --vh-text-info: var(--ui-color-info-400);
+    --vh-text-success: var(--ui-color-success-400);
+    --vh-text-warning: var(--ui-color-warning-400);
+    /* Dark floating surfaces sit one step above the page instead of matching it. */
+    --vh-floating: rgb(23 23 23 / 92%);
+    --vh-shadow-floating: 0 0 0 1px var(--ui-border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
+    --vh-shadow-dialog: 0 0 0 1px var(--ui-border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);
+    --vh-scrollbar: rgb(255 255 255 / 12%);
+    --vh-scrollbar-hover: rgb(255 255 255 / 22%);
+  }
+}
+
+html {
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Status text uses the darker shades above. Dots, bars, and fills keep the brighter Nuxt UI shade. */
+.text-error {
+  color: var(--vh-text-error);
+}
+
+.text-info {
+  color: var(--vh-text-info);
+}
+
+.text-success {
+  color: var(--vh-text-success);
+}
+
+.text-warning {
+  color: var(--vh-text-warning);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--vh-focus) 24%, transparent);
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Focus. One rule draws the ring of every control, so no component sets its own. Nuxt UI 4 draws a 3px outline at 25%
+ * alpha and also darkens the border of a framed control, which reads as two rings. Here, the element that has focus gets
+ * one 2px blue ring, at once, without a transition.
+ */
+:focus-visible {
+  outline: 2px solid var(--vh-focus);
+  outline-offset: 2px;
+}
+
+/* Items in a list that clips its overflow, such as menu items, options, tabs, and rows, keep the ring inside. */
+:where([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="tab"], [role="treeitem"], [role="row"], [role="gridcell"]):focus-visible {
+  outline-offset: -2px;
+}
+
+/*
+ * A text field shows focus on its own frame: Nuxt UI draws the frame as a ring, so the ring turns blue and 2px wide
+ * (`focus-visible:ring-2` in the theme) instead of getting a second ring outside it.
+ */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), textarea, select, [role="combobox"]):focus-visible {
+  outline: none;
+  --tw-ring-color: var(--vh-focus);
+}
+
+/* A framed button darkens its frame on focus. The blue ring is enough, so the frame keeps its color. */
+:where(button, a)[class*="focus-visible:ring-inverted"]:focus-visible {
+  --tw-ring-color: var(--ui-border-accented);
+}
+
+/*
+ * Nuxt UI also rings the `::before` of a focused navigation link, the code inside a link, and the card around a focused
+ * checkbox or radio. The ring of the focused element is enough, so those second rings go.
+ */
+:where([class*="focus-visible:before:outline"]):focus-visible::before,
+:where(a:focus-visible > code),
+:where([class*="has-focus-visible:outline"]):has(:focus-visible) {
+  outline: none;
+}
+
+:where([class*="has-focus-visible:ring"]):has(:focus-visible) {
+  --tw-ring-color: var(--ui-border-accented);
+}
+
