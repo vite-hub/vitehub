@@ -70,7 +70,7 @@ describe("defineComments", () => {
   it("returns COMMENTS_INVALID_INPUT for an empty body, a bad page, or no subject", async () => {
     const comments = await createComments()
     const [empty] = await comments.create({ page: "/", anchor, body: "   ", author: ada })
-    expect(empty).toMatchObject({ code: "COMMENTS_INVALID_INPUT", docs: "https://vitehub.dev/docs/comments/limits-and-errors#comments_invalid_input" })
+    expect(empty).toMatchObject({ code: "COMMENTS_INVALID_INPUT", docs: "https://vitehub.dev/docs/comments/diagnostics/comments_invalid_input" })
     const [page] = await comments.create({ subject: { kind: "page", id: "pricing" }, anchor, body: "Hi", author: ada })
     expect(page?.why).toContain("page")
     const [none] = await comments.create({ anchor, body: "Hi", author: ada })

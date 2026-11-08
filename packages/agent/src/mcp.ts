@@ -44,7 +44,7 @@ const invalidServerMessage = "[vitehub] callMcpTool() requires an MCP client, an
 
 // Errors that `callMcpTool()` returns as `[error, undefined]`. Each code has a heading on the docs page.
 const mcpToolErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/agents/capabilities/mcp",
+  docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
     MCP_SERVER_FAILED: {
       why: ({ tool }: { tool: string }) => `The MCP server could not run tool "${tool}".`,
