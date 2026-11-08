@@ -1,13 +1,14 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
-import { existsSync, statSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/esbuild"
+import { scanModule } from "@vite-hub/internal/build/scan-module"
 import { providerOutputAliasSources, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
@@ -211,6 +212,8 @@ interface AgentGeneratedImportOptions {
   denoCronImport?: string
   providerImportAliases?: Record<string, string>
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
+  sourceRootDir?: string
+  standaloneChannels?: readonly StandaloneChannel[]
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -1130,6 +1133,25 @@ function listedChannelNames(program: unknown, code: string, file: string): strin
   }
   visit(program)
   return [...names]
+}
+
+function listedAgentChannelNames(definitions: DiscoveredAgentDefinition[]): Set<string> {
+  return new Set(definitions.flatMap((definition) => {
+    const code = readFileSync(definition.handler, "utf8")
+    return listedChannelNames(scanModule(code, definition.handler).program, code, definition.handler)
+  }))
+}
+
+/** Non-Nitro outputs route only Channels that a discovered Agent lists. */
+function generatedNamedChannelRoutes(channels: readonly StandaloneChannel[] = [], typescript = false): string[] {
+  return [
+    `const channelWebhookAliases${typescript ? ": Record<string, { agent: string, webhook: string }>" : ""} = ${JSON.stringify(Object.fromEntries(Object.entries(standaloneChannelWebhookAliases(channels)).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, "") || "/", target])))}`,
+    "for (const [path, target] of Object.entries(channelWebhookAliases)) {",
+    "  const host = channelHosts[target.webhook]",
+    "  if (host) target.agent = host",
+    "  else delete channelWebhookAliases[path]",
+    "}",
+  ]
 }
 
 /** Resolves only the Channels listed by real Agent factory calls. */
@@ -2401,6 +2423,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     ...deploymentCatalog.setup,
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState) : []),
     ...generatedNetlifyRuntimeHelpers(),
+    ...generatedNamedChannelRoutes(options.standaloneChannels),
     "",
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption) : []),
@@ -2422,9 +2445,10 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "  const isChatRoute = chatRoutePattern.test(pathname)",
     "  const isDiscordGatewayRoute = discordGatewayRoutePattern.test(pathname)",
     ...(options.inspectionRoute ? ["  const isInspectionRoute = inspectionRoutePattern.test(pathname)"] : []),
-    "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
-    "  const agent = netlifyParam(context, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
-    `  const webhook = ${webhookSelector}`,
+    "  const alias = channelWebhookAliases[pathname.replace(/\\/+$/, '') || '/']",
+    "  const isWebhookRoute = Boolean(alias) || webhookRoutePattern.test(pathname)",
+    "  const agent = alias?.agent || netlifyParam(context, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
+    `  const webhook = alias?.webhook || (${webhookSelector})`,
     ...(options.inspectionRoute
       ? [
           "  const waitUntil = waitUntilFromContext(context)",
@@ -2783,6 +2807,7 @@ async function generateAgentDenoServer(
     ...workspaceDependencyRuntime.setup,
     ...deploymentCatalog.setup,
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
+    ...generatedNamedChannelRoutes(options.standaloneChannels, true),
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, ", runtime: 'deno'") : []),
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true) : []),
@@ -2838,17 +2863,18 @@ async function generateAgentDenoServer(
     ...(options.inspectionRoute ? ["  const inspectionMatch = inspectionRoutePattern.exec(pathname)"] : []),
     "  const webhookMatch = webhookRoutePattern.exec(pathname)",
     ...(options.inspectionRoute ? ["  const isInspectionRoute = Boolean(inspectionMatch)"] : []),
-    "  const isWebhookRoute = Boolean(webhookMatch)",
+    "  const alias = channelWebhookAliases[pathname.replace(/\\/+$/, '') || '/']",
+    "  const isWebhookRoute = Boolean(alias) || Boolean(webhookMatch)",
     `  const groups = (${options.inspectionRoute ? "inspectionMatch || " : ""}webhookMatch || chatMatch)?.groups || {}`,
-    "  const agent = groups.agent ? decodeRouteParam(groups.agent) : (agentNames.length === 1 ? agentNames[0] : undefined)",
-    "  const webhook = decodeRouteParam(groups.webhook)",
+    "  const agent = alias?.agent || (groups.agent ? decodeRouteParam(groups.agent) : (agentNames.length === 1 ? agentNames[0] : undefined))",
+    "  const webhook = alias?.webhook || decodeRouteParam(groups.webhook)",
     ...(options.inspectionRoute
       ? [
           `  if (isInspectionRoute) return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}runtime: 'deno' })`,
         ]
       : []),
     "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
-    "  if (!handler || (!chatMatch && !webhookMatch)) return jsonError(404, 'Unknown ViteHub agent route.')",
+    "  if (!handler || (!chatMatch && !isWebhookRoute)) return jsonError(404, 'Unknown ViteHub agent route.')",
     `  return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver" : ""} }) : await handler(request, { agentIdentity: agentIdentities[agent]${routeCapabilities.requestProperty}${options.libsqlState ? ", state: viteHubChatStateResolver" : ""} })`,
     "}",
     "",
@@ -2869,12 +2895,29 @@ async function writeAgentDenoServer(
   root: string,
   options: { inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
+  registryDefinitions?: DiscoveredAgentDefinition[],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDenoServer)
-  const definitions = discoverAgentDefinitions({
+  let definitions = discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: serverDirs,
   })
+  const channels = discoverAgentChannelModules(serverDirs)
+  const sourceDefinitions = registryDefinitions ?? definitions
+  const names = listedAgentChannelNames(sourceDefinitions)
+  if (names.size) {
+    const retainedSources = await retainProviderOutputSources({
+      artifactDir: join(root, "agent/deno-sources"),
+      paths: [...sourceDefinitions.map(definition => definition.handler), ...channels.filter(channel => names.has(channel.name)).map(channel => channel.handler)],
+      roots: [options.sourceRootDir ?? resolve(root, "..")],
+    })
+    await prepareRetainedAgentSources(retainedSources, sourceDefinitions, channels, options.agentImportBase ?? agentPackageName)
+    definitions = definitions.map(definition => ({ ...definition, handler: retainedSources.resolve(definition.handler) }))
+    await writeAgentRuntimeRegistry(root, sourceDefinitions.map(definition => ({ ...definition, handler: retainedSources.resolve(definition.handler) })), {
+      agentImportBase: options.agentImportBase ?? agentPackageName,
+      workspaceImportBase: options.workspaceImportBase ?? workspacePackageName,
+    })
+  }
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFileIfChanged(handlerPath, await generateAgentDenoServer(definitions, handlerPath, options))
 }
@@ -2895,12 +2938,13 @@ async function writeAgentNetlifyFunctionRouteHandler(
   return handlerPath
 }
 
-function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false | string, includedFiles?: string[], inspectionRoute?: false | string, webhookRoute?: false | string }): object {
+function createNetlifyAgentFunctionConfig(options: { channelPaths?: string[], discordGatewayRoute?: false | string, includedFiles?: string[], inspectionRoute?: false | string, webhookRoute?: false | string }): object {
   const paths = [
     normalizeNitroRoute(defaultAgentChatRoute),
     options.webhookRoute ? normalizeNitroRoute(options.webhookRoute) : undefined,
     options.discordGatewayRoute ? normalizeNitroRoute(options.discordGatewayRoute) : undefined,
     options.inspectionRoute ? normalizeNitroRoute(options.inspectionRoute) : undefined,
+    ...(options.channelPaths ?? []),
   ].filter((path): path is string => Boolean(path))
 
   const config: { includedFiles?: string[], name: string, nodeBundler: string, path: string | string[] | undefined } = {
@@ -2951,6 +2995,7 @@ async function writeNetlifyAgentProviderOutput(
           workingDir: generatedOptions.sourceRootDir,
         },
         config: createNetlifyAgentFunctionConfig({
+          channelPaths: generatedOptions.standaloneChannels?.flatMap(channel => channel.paths.map(normalizeNitroRoute)),
           discordGatewayRoute: options.routes.discordGateway,
           includedFiles: retainedSourcesDir ? [`${includedSourcesDir}/**`] : undefined,
           inspectionRoute: options.routes.inspection,
@@ -3162,6 +3207,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     if (normalized && hasHostedAgents) {
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(generatedRoot, {
+          sourceRootDir: viteHubProjectRoot(config),
+          standaloneChannels,
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           denoCronImport: moduleImportSpecifier(
             join(generatedRoot, generatedAgentDenoServer),
@@ -3174,7 +3221,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        }, definitionServerDirs)
+        }, definitionServerDirs, registryDefinitions)
       }
       else {
         await writeAgentWebhookRouteHandler(generatedRoot, {
@@ -3208,6 +3255,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
+            standaloneChannels,
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
             libsqlState: resolveLibsqlAgentState(normalized, config),
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
@@ -3483,7 +3531,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const hasAgentDefinitions = Boolean(resolved && discoverProjectAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
       if (standaloneChannels.some(channel => channel.inbound) && (denoOutput || resolveAgentHosting(config) === "netlify")) {
-        throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${standaloneChannels[0]!.handler} declares its own webhook route. Channels in server/channels with webhooks.path currently require a Nitro host.` })
+        const names = listedAgentChannelNames(discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(root, "server")] }))
+        const unclaimed = standaloneChannels.find(channel => channel.inbound && !names.has(channel.name))
+        if (unclaimed) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${unclaimed.handler} declares its own webhook route. Inbound Channels that no Agent lists currently require a Nitro host.` })
       }
       const webhookAliases = resolved ? standaloneChannelWebhookAliases(standaloneChannels, resolved.routes.aliases) : {}
       if (resolved && Object.keys(resolved.routes.aliases || {}).length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
@@ -3778,6 +3828,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const contributionArtifactDir = artifactDir
         const providerImportAliases = getProviderImportAliases(buildAgent, frameworkOptions) ?? {}
         const channelModules = definitions.length ? discoverAgentChannelModules(buildServerDirs ?? [join(config.root, "server")]) : []
+        const channelNames = listedAgentChannelNames(hostedDefinitions)
+        const standaloneChannels = normalized && isNetlifyHosting(config)
+          ? discoverStandaloneChannels(viteHubProjectRoot(config), buildServerDirs ?? [join(config.root, "server")]).filter(channel => channelNames.has(channel.name))
+          : []
         const parse = await parseTypeScript()
         const definitionSources = await Promise.all(definitions.map(async (definition) => {
           const instructionDependencies = new Set<string>()
@@ -3830,6 +3884,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (channelsHost) {
             const handlerPath = join(retainedGeneratedRoot, generatedAgentWebhookRouteHandler)
             await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(retainedDefinitions.filter(definition => hostedDefinitions.some(hosted => hosted.name === definition.name)), handlerPath, {
+              standaloneChannels,
               agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
               inspectionRoute: normalized.routes.inspection,
               libsqlState: resolveLibsqlAgentState(normalized, config),
@@ -3856,6 +3911,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (normalized && normalized.runtime === "deno") return
           if (normalized && hostedDefinitions.length && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
+              standaloneChannels,
               agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
               libsqlState: resolveLibsqlAgentState(normalized, config),
               providerImportAliases: retainedProviderImportAliases,

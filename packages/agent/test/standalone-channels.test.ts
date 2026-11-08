@@ -4,12 +4,15 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { H3 } from 'h3'
 import { createServer } from 'vite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hubAgent } from '../src/vite.ts'
 import { discoverStandaloneChannels, standaloneChannelWebhookAliases } from '../src/vite/standalone-channels.ts'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
 
 async function app(files: Record<string, string>) {
   const root = await mkdtemp(join(tmpdir(), 'vitehub-standalone-channel-'))
@@ -205,5 +208,37 @@ describe('standalone Channel aliases', () => {
     expect(standaloneChannelWebhookAliases(channels, { '/shared': { agent: 'support', webhook: 'github' } })).toEqual({
       '/shared': { agent: 'support', webhook: 'github' },
     })
+  })
+})
+
+describe.each(['deno', 'netlify'] as const)('%s named Channel hosting', (hosting) => {
+  it.each(['webhook', 'stripe'])('allows an Agent to host a listed %s Channel', async (adapter) => {
+    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOSTING', 'netlify')
+    const root = await app({
+      'server/channels/hooks.ts': `import { defineChannel, ${adapter} } from '@vite-hub/channels'
+export default defineChannel({ adapter: ${adapter}({ path: '/hooks' }) })`,
+      'server/agents/support.ts': `import { defineAgent as makeAgent } from '@vite-hub/agent'
+export default makeAgent({ channels: ['hooks'] as const, runtime: false, driver: { run: () => 'ok' } })`,
+    })
+    const plugin = hubAgent({ runtime: hosting === 'deno' ? 'deno' : undefined })
+    const configure = plugin.config
+    if (typeof configure !== 'function') throw new Error('Expected config hook')
+    expect(() => configure.call({} as never, { root }, { command: 'build', mode: 'production' })).not.toThrow()
+  })
+
+  it('still rejects the inbound Channel that no Agent lists', async () => {
+    if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOSTING', 'netlify')
+    const root = await app({
+      'server/channels/claimed.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+export default defineChannel({ adapter: webhook() })`,
+      'server/channels/unclaimed.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+export default defineChannel({ adapter: webhook() })`,
+      'server/agents/support.ts': `import { defineAgent } from '@vite-hub/agent'
+export default defineAgent({ channels: ['claimed'], runtime: false, driver: { run: () => 'ok' } })`,
+    })
+    const plugin = hubAgent({ runtime: hosting === 'deno' ? 'deno' : undefined })
+    const configure = plugin.config
+    if (typeof configure !== 'function') throw new Error('Expected config hook')
+    expect(() => configure.call({} as never, { root }, { command: 'build', mode: 'production' })).toThrow(/unclaimed\.ts.*require a Nitro host/)
   })
 })
