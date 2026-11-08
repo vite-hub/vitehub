@@ -103,6 +103,10 @@ const runtimeEntries = [
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
   "src/console/runtime/skills.ts",
+  // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
+  "src/console/runtime/server/access-policy.ts",
+  "src/console/runtime/server/development.ts",
+  "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
   "src/console/runtime/server/client.get.ts",
@@ -134,7 +138,8 @@ const runtimeEntries = [
 ];
 
 const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
-const configurationOwners = /^@vite-hub\/(?:agent|auth|comments|connections|database|i18n|realtime|schedule|workspace)(?:\/|$)/;
+// Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
   const matches = readdirSync(consoleAssetRoot)
@@ -535,6 +540,10 @@ export default defineConfig({
           delete exports["./console/runtime/server/mcp-discovery"];
           delete exports["./console/runtime/server/mcp-authorization-server"];
           delete exports["./console/runtime/server/mcp-metadata"];
+          delete exports["./console/runtime/server/access-policy"];
+          delete exports["./console/runtime/server/development"];
+          delete exports["./console/runtime/server/operation-contributions"];
+          delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/page.get"];
           delete exports["./console/runtime/server/page-session"];
           delete exports["./console/runtime/server/page-tool"];
@@ -560,6 +569,7 @@ export default defineConfig({
             "./console/documents": "./dist/console/runtime/server/documents.js",
             "./console/env": "./dist/console/runtime/server/env.js",
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
+            "./console/operations": "./dist/console/runtime/server/operation-contributions.js",
             "./console/sections": "./dist/console/runtime/server/sections.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },

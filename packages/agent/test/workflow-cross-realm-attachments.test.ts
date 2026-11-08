@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import { portableAgentWorkflowInput } from "../src/index.ts"
 import type { AgentRunInput } from "../src/types.ts"
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 describe("Workflow attachment portability", () => {
   it.each(["ArrayBuffer", "Uint8Array"] as const)("serializes %s values from another realm", async kind => {

@@ -22,7 +22,7 @@ export class CollectionCursorError extends Diagnostic {
     super({
       cause: options?.cause,
       code: reason === "stale" ? "SOURCE_R0027" : "SOURCE_R0023",
-      docs: "https://vitehub.dev/docs/reference/diagnostics",
+      docs: `https://vitehub.dev/docs/source/diagnostics/${reason === "stale" ? "source_r0027" : "source_r0023"}`,
       why: message ?? (reason === "stale"
         ? "[vitehub] Collection cursor is stale. Its data or query changed; reload from the first page."
         : "[vitehub] Collection cursor is malformed."),

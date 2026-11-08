@@ -8,29 +8,37 @@ navigation.group: Start
 icon: i-lucide-rocket
 ---
 
-Render a short chat with one question and one reply. You will install the Nuxt module and pass an AI SDK message array to `Chat`. This first page uses local messages so you can check the UI before connecting an Agent.
+Render a short chat with one question and one reply. You will add the UI package to a Nuxt app with `vite-hub/nuxt` and pass an AI SDK message array to `Chat`. This first page uses local messages so you can check the UI before connecting an Agent.
 
 You need Node.js 22.22 or newer, pnpm, and a Nuxt application. Run the commands from its root. For Vue with Vite, follow [Installation](/docs/ui/installation) first. The UI package renders your app's state; your app still owns fetching, routes, and message storage.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install the UI package and its Nuxt peers. Add the module to your existing Nuxt config, keeping the modules your app already uses.
+Install the UI package, ViteHub, and their Nuxt peers. Add the modules to your existing Nuxt config, keeping the modules your app already uses.
 
 ```bash [commands/install]
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
 ```
 
-Register the module in `nuxt.config.ts`:
+Register Nuxt UI and ViteHub in `nuxt.config.ts`:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ["@vite-hub/ui/nuxt"],
+  modules: ["@nuxt/ui", "vite-hub/nuxt"],
+  css: ["~/assets/css/main.css"],
 });
 ```
 
-The module loads the package stylesheet and auto-imports the public UI
-components. You do not need a Vue plugin registration in Nuxt.
+Load Tailwind CSS, Nuxt UI, and the package styles in this order:
+
+```css [assets/css/main.css]
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/ui/styles.css";
+```
+
+`vite-hub/nuxt` auto-imports the public UI components and gives them their Nuxt runtime. You do not need a Vue plugin registration in Nuxt.
 ::
 
 ::tutorial-step{title="Render one message"}

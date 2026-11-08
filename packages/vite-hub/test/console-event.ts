@@ -34,9 +34,10 @@ export function consoleEvent(input: ConsoleTestEvent): ConsoleRequestEvent {
   }
 }
 
-/** A Console request event for an existing Web Request. */
-export function requestEvent(request: Request, extra: { context?: { params?: Record<string, string | undefined> } } = {}): ConsoleRequestEvent {
-  return { ...extra, "~standard": { vendor: "test", req: request, res: { headers: new Headers() } } }
+/** A Console request event for an existing Web Request. `remoteAddress` is the peer address that the host reports. */
+export function requestEvent(request: Request, extra: { context?: { params?: Record<string, string | undefined> }, remoteAddress?: string } = {}): ConsoleRequestEvent {
+  const { remoteAddress, ...rest } = extra
+  return { ...rest, "~standard": { vendor: "test", req: request, res: { headers: new Headers() }, ...(remoteAddress ? { runtime: { clientAddress: remoteAddress } } : {}) } }
 }
 
 /** The Node response of an H3 1 event, enough for Console code to write headers through Standard Context. */
