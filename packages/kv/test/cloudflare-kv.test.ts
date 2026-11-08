@@ -1,4 +1,4 @@
-import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { clearActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { describe, expect, it } from "vitest"
 
 import { createCloudflareKVStorage } from "../src/runtime/cloudflare-kv.ts"
@@ -51,6 +51,27 @@ describe("Cloudflare KV binding", () => {
     const page = await runWithActiveCloudflareEnv({ KV: first }, () => storage.listKeys({ limit: 1 }))
     await expect(runWithActiveCloudflareEnv({ KV: second }, () => storage.listKeys({ cursor: page.cursor, limit: 1 }))).resolves.toEqual({ keys: [] })
     expect(cursors).toEqual([undefined, "next"])
+  })
+
+  it("finds the binding after the Nitro middleware installs the request's env", async () => {
+    // `vite dev` with the workerd runner gives only the request its env. Nitro does not set a global env there.
+    const { default: middleware } = await import("../src/runtime/cloudflare-request-env.ts")
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const namespace = createNamespace()
+
+    try {
+      await runWithActiveCloudflareEnv(undefined, async () => {
+        middleware({ req: { runtime: { cloudflare: { env: { KV: namespace } } } } })
+        await storage.setItem("theme", "dark")
+        // A Node dev runner gives no env. The middleware keeps the env that is active.
+        middleware({ req: { runtime: { name: "node" } } })
+        await expect(storage.getItem("theme")).resolves.toBe("dark")
+      })
+      expect(namespace.values.get("theme")).toBe("dark")
+    }
+    finally {
+      clearActiveCloudflareEnv()
+    }
   })
 
   it("reports a missing binding outside a Cloudflare request", async () => {

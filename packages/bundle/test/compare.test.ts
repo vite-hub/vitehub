@@ -131,4 +131,36 @@ describe("vitehub bundle --against", () => {
     expect(run(dir, ["--against", "--json"])).toMatchObject({ code: 1, stderr: expect.stringContaining("needs a value") })
     expect(run(dir, ["why", "zod", "--against", "x.json"])).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown argument --against") })
   })
+
+  it.each(["client", "server"])("rejects incomplete or malformed saved %s sides without throwing", (side) => {
+    const dir = project()
+    const valid = createBundleReport([before])!.server!
+    const group = valid.groups[0]!
+    const malformed = [
+      {},
+      null,
+      [],
+      { ...valid, bytes: "700" },
+      { ...valid, gzip: -1 },
+      { ...valid, chunks: null },
+      { ...valid, environments: [1] },
+      { ...valid, startup: null },
+      { ...valid, startup: { bytes: 700 } },
+      { ...valid, startup: { ...valid.startup, gzip: "100" } },
+      { ...valid, startup: { ...valid.startup, chunks: null } },
+      { ...valid, groups: {} },
+      { ...valid, groups: [null] },
+      { ...valid, groups: [{ ...group, name: null }] },
+      { ...valid, groups: [{ ...group, kind: "unknown" }] },
+      { ...valid, groups: [{ ...group, bytes: "100" }] },
+      { ...valid, groups: [{ ...group, startupBytes: null }] },
+      { ...valid, groups: [{ ...group, modules: "1" }] },
+    ]
+    for (const value of malformed) {
+      const path = join(dir, "invalid.json")
+      writeFileSync(path, JSON.stringify({ schemaVersion: 1, build: "old", [side]: value }))
+      expect(readSavedBundleReport(path)).toBeUndefined()
+      expect(run(dir, ["--against", "invalid.json"])).toMatchObject({ code: 1, stderr: expect.stringContaining("No bundle report in invalid.json.") })
+    }
+  })
 })

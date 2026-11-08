@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one Choices failure site. Keep published codes stable.
 export const decisionsDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/decisions/limits-and-errors",
+  docsBase: "https://vitehub.dev/docs/decisions/diagnostics",
   codes: {
     /** A `defineChoices()` definition is invalid. It throws when you define it. */
     DECISIONS_R0001: dynamicError,

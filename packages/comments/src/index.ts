@@ -1,3 +1,5 @@
+import { installStandardContext } from "@vite-hub/runtime/h3"
+
 import { markCommentsDefinition } from "./operations-core/define.ts"
 import { commentsRuntime, hasCommentsRuntime, installCommentsRuntime } from "./operations-core/server.ts"
 import { can, createThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
@@ -9,7 +11,6 @@ import { createForgeSync } from "./forge/sync.ts"
 import { normalizeCommentPage } from "./page.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { H3Event } from "h3"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
 import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
@@ -21,6 +22,7 @@ import type {
   CommentUser,
   CreateCommentThreadInput,
   CommentsErrorCode,
+  CommentsRequestEvent,
   DefineCommentsOptions,
   EditCommentInput,
   ListCommentThreadsOptions,
@@ -320,7 +322,17 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
   const runtime: CommentsRuntime = {
     background: track,
     definition: comments.options,
-    ...(identify ? { identify: async (event: unknown) => await identify({ event: event as H3Event }) ?? null } : {}),
+    ...(identify
+      ? {
+          identify: async (event: unknown) => {
+            // SAFETY: The operation surfaces pass the request event of the call: an H3 event or an event with Standard Context.
+            const requestEvent = event as CommentsRequestEvent
+            // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for an H3 app without the ViteHub plugin.
+            installStandardContext(requestEvent)
+            return await identify({ event: requestEvent }) ?? null
+          },
+        }
+      : {}),
     ...(install.development === undefined ? {} : { development: install.development }),
     store,
     ...(install.users ? { users: install.users } : {}),

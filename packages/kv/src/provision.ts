@@ -1,5 +1,6 @@
 import {
   createCloudflareProvisionClient,
+  isShellSafeProvisionValue,
   listCloudflarePages,
   ProvisionRequestError,
   resolveCloudflareProvisionConfig,
@@ -18,8 +19,6 @@ interface CloudflareKVNamespace {
 }
 
 const CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE = 100
-// Cloudflare rejects a duplicate namespace title with this error code.
-const CLOUDFLARE_KV_DUPLICATE_TITLE_CODE = 10014
 
 function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
   if (!Array.isArray(value)) throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace list." })
@@ -65,9 +64,7 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
   }
   catch (error) {
     // Another run created the namespace after this plan listed it.
-    const duplicate = error instanceof ProvisionRequestError
-      && (error.status === 400 || error.status === 409 || error.codes.includes(CLOUDFLARE_KV_DUPLICATE_TITLE_CODE))
-    if (!duplicate) throw error
+    if (!(error instanceof ProvisionRequestError) || error.kind !== "conflict") throw error
     const id = (await listNamespaceIds(request)).get(title)
     if (!id) throw error
     return id
@@ -88,10 +85,26 @@ function planStoresByNamespace(options: KVModuleOptions | undefined, env: Record
   return storesByNamespace
 }
 
+function cloudflareStoreNames(options: KVModuleOptions | undefined, env: Record<string, string | undefined>): string[] {
+  const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
+  if (!kv) return []
+  return Object.entries(kv.stores || { default: kv.store }).filter(([, store]) => store.driver === "cloudflare-kv-binding").map(([name]) => name)
+}
+
 export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOptions | undefined): ProvisionStep {
   return {
     id: "kv:cloudflare-kv",
     provider: "cloudflare",
+    recordedState(context) {
+      return [{
+        category: KV_CLOUDFLARE_PROVISION_CATEGORY,
+        // A store with a configured namespace id still declares its key, so its recorded id is never offered for deletion.
+        declared: cloudflareStoreNames(resolveOptions(), context.env),
+        deleteHint: ({ id }) => isShellSafeProvisionValue(id)
+          ? `run \`wrangler kv namespace delete --namespace-id ${id}\``
+          : "delete the KV namespace in the Cloudflare dashboard",
+      }]
+    },
     async plan(context) {
       const storesByNamespace = planStoresByNamespace(resolveOptions(), context.env)
       if (!storesByNamespace.size) return []

@@ -167,6 +167,59 @@ describe("hubKv", () => {
     })
   })
 
+  it("registers the Cloudflare request env middleware once, before other middleware", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const middleware = resolve(import.meta.dirname, "../src/runtime/cloudflare-request-env.ts")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const config = { nitro: { handlers: [{ handler: "server/middleware/auth.ts", middleware: true }] } }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+    await configure(config)
+    await configure(config)
+
+    expect(config.nitro.handlers).toEqual([
+      { handler: middleware, middleware: true },
+      { handler: "server/middleware/auth.ts", middleware: true },
+    ])
+    expect(existsSync(middleware)).toBe(true)
+  })
+
+  it("does not register the Cloudflare request env middleware for a local store", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ driver: "fs-lite" })
+    const config: { nitro: { handlers?: unknown[] } } = { nitro: {} }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+    await configure(config)
+
+    expect(config.nitro.handlers).toBeUndefined()
+  })
+
+  it.each(["before", "after"])("reconciles the request env middleware when Nitro setup runs %s config resolution", async (setupOrder) => {
+    const { hubKv } = await import("../src/vite.ts")
+    const middleware = resolve(import.meta.dirname, "../src/runtime/cloudflare-request-env.ts")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const auth = { handler: "server/middleware/auth.ts", middleware: true }
+    const options = { handlers: [auth] }
+    const config = { plugins: [{ name: "nitro:main" }], root: "/app" }
+    const configureResolved = testHook(plugin.configResolved, (_value: typeof config & {
+      kv?: { driver: "fs-lite" }
+    }): void | Promise<void> => undefined)
+
+    if (setupOrder === "before") plugin.nitro.setup({ options })
+    await configureResolved(config)
+    if (setupOrder === "after") plugin.nitro.setup({ options })
+
+    expect(options).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV" }])
+    expect(options.handlers).toEqual([{ handler: middleware, middleware: true }, auth])
+
+    await configureResolved(config)
+    expect(options.handlers).toEqual([{ handler: middleware, middleware: true }, auth])
+
+    await configureResolved({ ...config, kv: { driver: "fs-lite" } })
+    expect(options.handlers).toEqual([auth])
+  })
+
   it("reads provisioned Cloudflare KV namespace ids into Nitro-owned output", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-provision-"))

@@ -51,9 +51,32 @@ export function compareBundleReports(before: BundleReport, after: BundleReport):
   return { schemaVersion: 1, builds: { before: before.build, after: after.build }, ...(client ? { client } : {}), ...(server ? { server } : {}) }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isSize(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+}
+
+function isBundleGroup(value: unknown): value is BundleGroup {
+  return isRecord(value) && typeof value.name === "string"
+    && typeof value.kind === "string" && ["app", "dependency", "framework", "generated", "vitehub"].includes(value.kind)
+    && isSize(value.bytes) && isSize(value.startupBytes) && isSize(value.modules)
+}
+
+function isBundleSide(value: unknown): value is BundleSide {
+  return isRecord(value)
+    && Array.isArray(value.environments) && value.environments.every(environment => typeof environment === "string")
+    && isSize(value.bytes) && isSize(value.gzip) && isSize(value.chunks)
+    && isRecord(value.startup) && isSize(value.startup.bytes) && isSize(value.startup.gzip) && isSize(value.startup.chunks)
+    && Array.isArray(value.groups) && value.groups.every(isBundleGroup)
+}
+
 function isBundleReport(value: unknown): value is BundleReport {
-  return typeof value === "object" && value !== null && Reflect.get(value, "schemaVersion") === 1
-    && typeof Reflect.get(value, "build") === "string" && !("chunks" in value)
+  return isRecord(value) && value.schemaVersion === 1 && typeof value.build === "string" && !("chunks" in value)
+    && (value.client === undefined || isBundleSide(value.client))
+    && (value.server === undefined || isBundleSide(value.server))
 }
 
 /**

@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 `useDatabase()` returns a Drizzle client. Queries use the Drizzle API, so a failed query rejects, as it does in Drizzle. ViteHub does not change that API to `[error, data]`.
 
-ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` links to the code on this page. Each one means that the code or the deployment must change, so ViteHub throws it:
+ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` links to the page of the code in [Database diagnostics](/docs/database/diagnostics). Each one means that the code or the deployment must change, so ViteHub throws it:
 
 - A Definition error throws from `defineDatabase()`.
 - A build error throws when ViteHub discovers Database Definitions or builds the app.
@@ -156,6 +156,14 @@ With `migrateOnStart`, the server throws this error when it starts and does not 
 ### DATABASE_INVALID_OPTIONS
 
 The options of `defineDatabase()`, or one of its objects such as `schema`, `cloudflare`, or `connection`, is not a plain object.
+
+### DATABASE_INVALID_REMOTE
+
+`remote` is not `true` or `false`. Set `remote: true` to query the real D1 database in `vite dev`, or remove it to keep local SQLite.
+
+### DATABASE_REMOTE_CONFLICT
+
+A Definition sets `remote: false`, but its `cloudflare.http`, or the `cloudflare.http` of the integration, sends `vite dev` queries to the remote D1 database. `defineDatabase()` throws it for the Definition's own `http`. The development server throws it for an inherited `http`. Remove `remote: false` to keep D1 over HTTP, or remove `cloudflare.http` to use local SQLite.
 
 ### DATABASE_UNKNOWN_OPTION
 

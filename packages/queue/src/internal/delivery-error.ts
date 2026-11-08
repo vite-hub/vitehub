@@ -9,12 +9,14 @@ const retryableQueueCodes = new Set<string>(["QUEUE_PROVIDER_FAILED", "QUEUE_PRO
 
 interface QueueDeliveryErrorContext {
   attempts: number
+  /** `vite dev` keeps the message and stack of a plain `Error`. Elsewhere a message can hold private data. */
+  development?: boolean
   id: string
   provider: QueueProvider
   queue: string
 }
 
-interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" | "queue"> {
+interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "development" | "id" | "queue"> {
   id?: string
   queue?: string
   error: {
@@ -24,6 +26,7 @@ interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" 
     fix?: string
     message: string
     name: string
+    stack?: string
   }
   retryable: boolean
 }
@@ -32,13 +35,14 @@ export function isNonRetryableQueueError(error: unknown): boolean {
   return isQueueError(error) && !retryableQueueCodes.has(error.code)
 }
 
-function toReportError(error: unknown): QueueDeliveryErrorReport["error"] {
+function toReportError(error: unknown, development: boolean): QueueDeliveryErrorReport["error"] {
   if (isQueueError(error)) {
     return { code: error.code, docs: error.docs, fix: error.fix, message: error.why, name: error.name }
   }
   // Application code can throw a `ViteHubError` with its own code.
   const shape = getViteHubErrorShape(error)
   if (shape) return { code: shape.code, details: shape.details, message: shape.message, name: "ViteHubError" }
+  if (development && error instanceof Error) return { message: error.message, name: error.name, ...(error.stack ? { stack: error.stack } : {}) }
   return { message: "[vitehub] Queue Delivery failed.", name: "Error" }
 }
 
@@ -50,7 +54,7 @@ export function createQueueDeliveryErrorReport(error: unknown, context: QueueDel
     provider: context.provider,
     ...(id ? { id } : {}),
     ...(queue ? { queue } : {}),
-    error: toReportError(error),
+    error: toReportError(error, context.development === true),
     retryable: !isNonRetryableQueueError(error),
   }
 }
