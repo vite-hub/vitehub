@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { vitehub } from "../src/index.ts"
+import { vitehub, type ViteHubOptions } from "../src/index.ts"
 
 let root: string
 
@@ -15,7 +15,7 @@ afterEach(async () => {
 })
 
 async function wranglerFor(
-  publicUrl: Parameters<typeof vitehub>[0]["publicUrl"],
+  publicUrl: ViteHubOptions["publicUrl"],
   wrangler: Record<string, unknown> = {},
   { command = "build", host = "cloudflare", appRoot = root }: { appRoot?: string, command?: "build" | "serve", host?: "cloudflare" | "node" } = {},
 ) {

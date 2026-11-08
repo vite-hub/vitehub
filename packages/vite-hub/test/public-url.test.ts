@@ -3,9 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { mergeConfig, type Plugin } from "vite"
 import { describe, expect, it } from "vitest"
-import { vitehub } from "../src/index.ts"
+import { vitehub, type ViteHubOptions } from "../src/index.ts"
 
-function publicUrlPlugin(publicUrl: Parameters<typeof vitehub>[0]["publicUrl"]): Plugin {
+function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
   const plugin = vitehub({ host: "node", publicUrl })
     .find((candidate): candidate is Plugin => !!candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/public-url")
   if (!plugin) throw new Error("Missing public URL plugin.")

@@ -72,6 +72,7 @@ declare const fixedTupleMealQuerySchema: StandardSchemaV1<FixedTupleMealFilters,
 describe("vite-hub public types", () => {
   it("type checks", () => {
     expectTypeOf(vitehub).toBeFunction()
+    vitehub()
     vitehub({ host: "node", rateLimit: true })
     vitehub({ email: { driver: "resend" }, host: "node" })
     vitehub({ email: true, host: "cloudflare" })
