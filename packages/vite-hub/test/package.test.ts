@@ -154,6 +154,8 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/registry",
   "@vite-hub/agent/runtime/invocations-dev",
+  // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
+  "@vite-hub/agent/invocations/default",
   "@vite-hub/agent/operations",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
@@ -358,6 +360,7 @@ describe("framework package contract", () => {
       "./console/documents",
       "./console/env",
       "./console/mcp-client",
+      "./console/operations",
       "./console/sections",
       "./console/server",
       "./console/ui",
@@ -372,7 +375,6 @@ describe("framework package contract", () => {
       "./skills",
       "./source/vite",
       "./task",
-      "./ui/nuxt",
       "./ui/vite",
     ]);
 
@@ -904,11 +906,11 @@ describe("framework package contract", () => {
       }
       expect(handlers).toHaveLength(11);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/api/_vitehub/console/status",
-        "/api/_vitehub/console/usage",
+        "/_vitehub/api/status",
+        "/_vitehub/api/usage",
         "/_vitehub",
         "/_vitehub/**",
-        "/api/_vitehub/console/client.js",
+        "/_vitehub/api/client.js",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",

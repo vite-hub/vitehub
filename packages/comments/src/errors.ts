@@ -2,7 +2,7 @@ import { defineErrors } from "@vite-hub/runtime"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const commentsErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/comments/limits-and-errors",
+  docs: "https://vitehub.dev/docs/comments/diagnostics",
   codes: {
     COMMENTS_NOT_INSTALLED: {
       why: "The Comments runtime has no Database yet. ViteHub installs it from `server/comments.ts` when the server starts.",
