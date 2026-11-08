@@ -56,7 +56,7 @@ import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
 import { logsVitePlugin, type LogsOptions } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
-import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
+import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
@@ -1120,6 +1120,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["auth", options.auth],
     ["comments", options.comments],
     ["console agents", configuredConsole && options.agent],
+    ["console mcp-client", isConsoleMcpClientEnabled(configuredConsole)],
     ["console sign-in", consoleSignIn],
     ["connections", options.connections],
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
