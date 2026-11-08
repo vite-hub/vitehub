@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 import { writeFileIfChanged } from "./definition-catalog.ts"
+import { addViteHubDevPeerDevHandler } from "./dev-peer.ts"
 import { createNitroServerKit } from "./nitro-kit.ts"
 import { collectOperationContributions, operationRpcPath } from "./operations.ts"
 import { flattenPluginOptions } from "./contributions.ts"
@@ -9,7 +10,7 @@ const owners = new Set(["@vite-hub/kv/operations", "@vite-hub/blob/operations", 
 const discoveryInstalled = Symbol.for("vitehub.operations.dev.discovery")
 
 interface OperationDevServer {
-  config: { root: string, base: string, server: { https?: unknown } }
+  config: { root: string, base: string, server: { https?: unknown, middlewareMode?: unknown } }
   httpServer: {
     address(): string | { address: string, family: string, port: number } | null
     listening: boolean
@@ -21,7 +22,8 @@ interface OperationDevServer {
 /** Publish only the elected standalone transport; other Console policies retain their own discovery hook. */
 export function publishStandaloneOperationServer(server: OperationDevServer): void {
   const http = server.httpServer
-  if (!http || Reflect.get(server, discoveryInstalled)) return
+  // In middleware mode another server owns the listener and publishes it.
+  if (!http || server.config.server.middlewareMode || Reflect.get(server, discoveryInstalled)) return
   const root = resolve(server.config.root)
   const handlers: unknown = Reflect.get(Object(Reflect.get(server.config, "nitro")), "handlers")
   if (!Array.isArray(handlers) || !handlers.some(handler => handler?.handler === resolve(root, ".vitehub/nitro/operations/rpc.mjs"))) return
@@ -66,5 +68,10 @@ export async function installStandaloneOperationRpc(config: { root?: string, plu
   await writeFileIfChanged(handler, source)
   const kit = createNitroServerKit(Reflect.get(config, "nitro"))
   kit.addHandler({ handler, route: operationRpcPath })
+  // Nitro's dev worker never sees the client's address. The Vite process signs loopback requests for the route.
+  const devHandlers: unknown = kit.config.devHandlers
+  const signed: Array<{ handler?: unknown, route?: string }> = Array.isArray(devHandlers) ? [...devHandlers] : []
+  addViteHubDevPeerDevHandler(signed)
+  kit.config.devHandlers = signed
   Reflect.set(config, "nitro", kit.config)
 }

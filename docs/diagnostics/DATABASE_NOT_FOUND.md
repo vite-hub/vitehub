@@ -1,6 +1,6 @@
 ---
 description: "Fix DATABASE_NOT_FOUND in ViteHub. A database name has no Database Definition. Add the Definition or use a discovered name."
-seo.title: "DATABASE_NOT_FOUND: no Database Definition has this name"
+seo.title: "DATABASE_NOT_FOUND: unknown Database name"
 ---
 
 ViteHub throws `DATABASE_NOT_FOUND` when you select a database by a name that has no Database Definition. `error.why` names the database.

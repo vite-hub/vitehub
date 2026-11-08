@@ -1,6 +1,6 @@
 ---
 description: "Fix KV_STORE_NOT_FOUND in ViteHub. kv.store(name) uses a store name that is not in kv.stores. Add the store or use a configured name."
-seo.title: "KV_STORE_NOT_FOUND: the KV store name is not configured"
+seo.title: "KV_STORE_NOT_FOUND: unknown KV store"
 ---
 
 An operation on `kv.store(name)` throws `KV_STORE_NOT_FOUND`. The KV config has no store with that name. `error.why` names the store.

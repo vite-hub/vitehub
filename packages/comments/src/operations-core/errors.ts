@@ -83,7 +83,7 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
           ? `The vitehub_comment_threads table misses columns of this version: ${missing.join(", ")}.`
           : "The Database has no comment tables.",
       fix: ({ state }: { state: "empty" | "live" | "outdated" }) => state === "live"
-        ? "Move the tables once in a custom migration: run vitehub db generate --custom --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
+        ? "Move the tables once in a custom migration: run vitehub db generate --custom --schema-snapshot --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
         : "Run vitehub db generate and vitehub db migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
     },
     COMMENTS_R0020: {
@@ -101,6 +101,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     COMMENTS_B0002: {
       why: ({ file }: { file: string }) => `${file} must export defineComments(), as \`comments\` or as the default export.`,
       fix: "Write `export default defineComments({ authorize })` in server/comments.ts.",
+    },
+    COMMENTS_B0003: {
+      why: "comments() from @vite-hub/comments/vite is for apps without vitehub(). In this app vitehub() owns the Comments configuration.",
+      fix: "Remove comments() from the plugins and set vitehub({ comments: true }), or add server/comments.ts. See https://vitehub.dev/docs/comments/configure#turn-comments-on-in-a-vitehub-app",
     },
   },
 })

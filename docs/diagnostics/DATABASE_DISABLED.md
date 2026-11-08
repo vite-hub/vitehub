@@ -1,6 +1,6 @@
 ---
 description: "Fix DATABASE_DISABLED in ViteHub. Code reads the Default Database, but the runtime has none. Use a Named Database or enable Database."
-seo.title: "DATABASE_DISABLED: the runtime has no Default Database"
+seo.title: "DATABASE_DISABLED: no Default Database"
 ---
 
 A query on `db`, or on `useDatabase('default').db`, throws `DATABASE_DISABLED`. Code reads the Default Database, but the runtime has no Default Database.

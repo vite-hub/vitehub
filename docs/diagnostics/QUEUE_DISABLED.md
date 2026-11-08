@@ -1,6 +1,6 @@
 ---
 description: "Fix QUEUE_DISABLED in ViteHub. Queue is off in the generated server, because the Vite config sets queue false or the provider does not match the host."
-seo.title: "QUEUE_DISABLED: Queue is turned off in this runtime"
+seo.title: "QUEUE_DISABLED: Queue is off in this runtime"
 ---
 
 `runQueue()`, `getQueue()`, `dynamicQueue`, or `vitehub queue list` throws `QUEUE_DISABLED`. The generated server has Queue turned off, so it sends no job.

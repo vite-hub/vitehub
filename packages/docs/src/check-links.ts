@@ -30,7 +30,8 @@ export class DocsLinkError extends Error {
 
 /**
  * Tests a value against paths, globs, and regular expressions. A site passes one path per page, and a large site checks
- * thousands of links against them, so a plain path is a set lookup and only a pattern with glob characters is a glob.
+ * thousands of links against them, so a plain path is a set lookup and only a pattern with glob characters, extglobs
+ * such as `@(a|b)` included, is a glob.
  */
 function matcher(patterns: Array<string | RegExp> | undefined): (value: string) => boolean {
   const paths = new Set<string>();
@@ -43,7 +44,7 @@ function matcher(patterns: Array<string | RegExp> | undefined): (value: string) 
       });
     else {
       paths.add(pattern);
-      if (/[*?[\]{}]/.test(pattern)) tests.push((value) => posix.matchesGlob(value, pattern));
+      if (/[*?[\]{}(]/.test(pattern)) tests.push((value) => posix.matchesGlob(value, pattern));
     }
   }
   return (value) => paths.has(value) || tests.some((test) => test(value));
