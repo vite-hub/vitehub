@@ -54,9 +54,9 @@ An error makes the command exit with 1, so CI can run it after the build. A warn
 
 A startup rule applies only when its packages are imported by its `owner` or each other. Imports from app code or another package suppress the finding, because the feature cannot prove what those consumers need.
 
-A feature adds a rule like this:
+A feature adds a rule inside its Nitro module:
 
-```ts
+```ts fragment
 nitro.hooks.hook("vitehub:bundle:rules", (rules) => {
   rules.push({ owner: "@vite-hub/database", packages: ["@libsql/client"], why: "...", fix: "..." })
 })

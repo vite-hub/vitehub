@@ -422,11 +422,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         installNitroPostgresRequestScope()
         installNitroRequestStats()
         installNitroMigrateOnStart()
-        nitro.hooks.hook("vitehub:bundle:rules", (rules) => {
+        // Keep the feature hook surface when Nitro augments Vite's Plugin type.
+        const hooks: DatabaseNitroHooks = nitro.hooks
+        hooks.hook("vitehub:bundle:rules", (rules) => {
           const rule = libsqlStartupRule(runtimeConfig, nitro.options.preset)
           if (rule) rules.push(rule)
         })
-        nitro.hooks.hook("compiled", async () => {
+        hooks.hook("compiled", async () => {
           await copyNitroMigrations(nitro.options.output.serverDir)
           if (nitroOptions && getHostingProvider(nitroOptions.preset) === "cloudflare") await collapseGeneratedWranglerD1Bindings(nitro.options.output.serverDir)
         })
