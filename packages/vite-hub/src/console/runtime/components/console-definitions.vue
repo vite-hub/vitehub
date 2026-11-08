@@ -256,6 +256,11 @@ function selectDefinition(name: string): void {
     const query = { ...route.query, [selectionQuery.value]: name };
     // A new Rate Limit starts without a counter; history entries keep their own keys.
     if (section.value === "rate-limits") delete query.key;
+    if (section.value === "workspaces") {
+      delete query.ref;
+      delete query.revision;
+      delete query.file;
+    }
     void router.push({ query });
   } else {
     // Commit the selection with its URL so the counter reads the destination's key.

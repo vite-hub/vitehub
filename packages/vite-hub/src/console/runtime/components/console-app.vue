@@ -1383,6 +1383,8 @@ onBeforeUnmount(() => {
                right panel of Workspace, Changes, Trace and Details. Its toggles keep their place when the panel opens. -->
           <ConsoleAgentSession
             v-if="isDesktop && selectedInvocationId"
+            v-model:tab="inspectorTab"
+            v-model:details="detailsView"
             v-model:selected-path="inspectorSelectedPath"
             class="min-h-0 flex-1"
             :invocation="invocationView"

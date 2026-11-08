@@ -115,23 +115,30 @@ export const AgentSession = defineComponent({
     defaultDetailsOpen: { default: true, type: Boolean },
     defaultSurface: { type: String },
     defaultWidth: { default: 560, type: Number },
+    surface: { type: String as PropType<string | null> },
+    panelOpen: { default: undefined, type: Boolean },
+    maximized: { default: undefined, type: Boolean },
   },
-  emits: { "update:surface": (_id: string | null) => true },
+  emits: {
+    "update:surface": (_id: string | null) => true,
+    "update:panelOpen": (_open: boolean) => true,
+    "update:maximized": (_maximized: boolean) => true,
+  },
   setup(props, { attrs, emit, expose, slots }) {
     const stored = readLayout(props.storageKey);
     const known = (id: string | null | undefined) => props.surfaces.some((surface) => surface.id === id);
-    const panelOpen = ref(stored.panelOpen ?? props.defaultPanelOpen);
+    const panelOpen = ref(props.panelOpen ?? stored.panelOpen ?? props.defaultPanelOpen);
     // Like T3 Code, the inline card keeps the user's choice, and the popover that replaces it on a narrow column starts
     // closed, so a remembered card never covers the timeline.
     const detailsOpen = ref(stored.detailsOpen ?? props.defaultDetailsOpen);
     const popoverOpen = ref(false);
-    const maximized = ref(stored.maximized ?? false);
+    const maximized = ref(props.maximized ?? stored.maximized ?? false);
     const width = ref(stored.width ?? props.defaultWidth);
     const initialTabs = (stored.tabs ?? (props.defaultSurface ? [props.defaultSurface] : [])).filter(known);
     const tabs = ref<string[]>(initialTabs);
-    const active = ref<string | null>(
-      known(stored.active) ? stored.active ?? null : initialTabs[0] ?? null,
-    );
+    const initialSurface = props.surface !== undefined ? props.surface : stored.active;
+    const active = ref<string | null>(known(initialSurface) ? initialSurface ?? null : initialTabs[0] ?? null);
+    if (active.value && !tabs.value.includes(active.value)) tabs.value.push(active.value);
     const root = ref<HTMLElement>();
     const body = ref<HTMLElement>();
     const bodyWidth = ref(0);
@@ -151,6 +158,15 @@ export const AgentSession = defineComponent({
       localStorage.setItem(props.storageKey, JSON.stringify(value));
     }, { deep: true });
     watch(active, (id) => emit("update:surface", id));
+    watch(panelOpen, (open) => emit("update:panelOpen", open));
+    watch(maximized, (value) => emit("update:maximized", value));
+    watch([() => props.surface, () => props.surfaces], ([id]) => {
+      if (id === undefined || (id !== null && !known(id))) return;
+      if (id && !tabs.value.includes(id)) tabs.value = [...tabs.value, id];
+      active.value = id;
+    }, { immediate: true });
+    watch(() => props.panelOpen, (open) => { if (open !== undefined) panelOpen.value = open; });
+    watch(() => props.maximized, (value) => { if (value !== undefined) maximized.value = value; });
 
     let observer: ResizeObserver | undefined;
     onMounted(() => {

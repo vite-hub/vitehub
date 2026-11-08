@@ -35,12 +35,13 @@ async function consoleWorkspaceFilesHandler(event: ConsoleRequestEvent): Promise
   catch {
     throw failure(404, `This app defines no Workspace named "${name}".`)
   }
+  if (revision === "current") return await readMountedWorkspace(workspace, name, path)
   const history = historyReader(workspace)
   if (!history) return await readMountedWorkspace(workspace, name, path)
-  // A file read names its revision, so it does not need the ref list.
-  if (path !== null && revision) return await readWorkspaceRevision(history, { path, repository: name, revision })
-  const page = await historyMetadata(history, ref, url.searchParams.get("cursor") ?? undefined, true)
-  const head = revision ?? page?.refs.find(item => item.name === page.ref)?.head.id
+  const cursor = url.searchParams.get("cursor") ?? undefined
+  if (revision) return await readWorkspaceRevision(history, { base: baseRef, cursor, path, ref, repository: name, revision })
+  const page = await historyMetadata(history, ref, cursor, Boolean(ref || cursor))
+  const head = page?.refs.find(item => item.name === page.ref)?.head.id
   if (!head) return await readMountedWorkspace(workspace, name, path, page)
   return await readWorkspaceRevision(history, {
     base: baseRef,

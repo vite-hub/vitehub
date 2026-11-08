@@ -59,16 +59,14 @@ async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Pr
   }
   const workspace = useWorkspaceFiles(name, { mode: "read", refresh: false })
   const history = historyReader(workspace)
-  const ref = requestedRef ?? (requestedRevision ? undefined : recorded.ref)
-  const historyPageValue = history && (path === null || historyRequested || Boolean(revisionId))
-    ? await historyMetadata(history, ref, url.searchParams.get("cursor") ?? undefined, historyRequested || Boolean(revisionId))
-    : undefined
+  const ref = requestedRef ?? recorded.ref
+  const cursor = url.searchParams.get("cursor") ?? undefined
 
   if (revisionId) {
     if (!history) throw failure(404, "This Workspace has no retained history.")
     return await readWorkspaceRevision(history, {
       base: baseRef,
-      ...(historyPageValue ? { history: historyPageValue } : {}),
+      cursor,
       path,
       ...(ref ? { ref } : {}),
       repository: name,
@@ -76,6 +74,9 @@ async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Pr
     })
   }
 
+  const historyPageValue = history && (path === null || historyRequested)
+    ? await historyMetadata(history, ref, cursor, historyRequested)
+    : undefined
   return await readMountedWorkspace(workspace, name, path, historyPageValue)
 }
 

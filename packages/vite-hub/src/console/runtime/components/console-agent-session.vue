@@ -5,7 +5,7 @@ import {
   AgentSessionDetailsSection,
   type AgentSessionSurface,
 } from "@vite-hub/ui/agent-session";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { AgentInvocation, invocationActivities, type AgentInvocationView } from "./invocation";
 import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
@@ -25,8 +25,21 @@ const props = defineProps<{
   selectedActivityId?: string;
 }>();
 const emit = defineEmits<{ focusActivity: [activityId: string]; refresh: [] }>();
-/** The Workspace file that the URL names. Opening one shows the Workspace surface. */
+/** The Workspace file that the URL names. */
 const selectedPath = defineModel<string | undefined>("selectedPath");
+const tab = defineModel<SurfaceId>("tab", { default: "details" });
+const details = defineModel<"closed" | "open" | "max">("details", { default: "closed" });
+const panelOpen = computed({
+  get: () => details.value !== "closed",
+  set: (open: boolean) => { details.value = open ? details.value === "max" ? "max" : "open" : "closed"; },
+});
+const maximized = computed({
+  get: () => details.value === "max",
+  set: (value: boolean) => { details.value = value ? "max" : details.value === "closed" ? "closed" : "open"; },
+});
+function selectSurface(id: string | null) {
+  if (surfaces.value.some(surface => surface.id === id)) tab.value = id as SurfaceId;
+}
 
 const session = ref<InstanceType<typeof AgentSession> & { openSurface: (id: string) => void }>();
 
@@ -48,13 +61,6 @@ function openWorkspace(path?: string) {
   session.value?.openSurface("workspace");
 }
 defineExpose({ openWorkspace, openSurface: (id: SurfaceId) => session.value?.openSurface(id) });
-
-onMounted(() => {
-  if (selectedPath.value) openWorkspace();
-});
-watch(selectedPath, (path, previous) => {
-  if (path && path !== previous) session.value?.openSurface("workspace");
-});
 
 function inspect(target: "agent" | "workspace", path?: string) {
   if (target === "workspace") openWorkspace(path);
@@ -122,11 +128,15 @@ const changedFiles = computed(() => {
 <template>
   <AgentSession
     ref="session"
+    v-model:panel-open="panelOpen"
+    v-model:maximized="maximized"
     class="console-agent-session"
     :title="title"
     :surfaces="surfaces"
+    :surface="tab"
     storage-key="vitehub-console:session-layout"
     :default-panel-open="false"
+    @update:surface="selectSurface"
   >
     <template #heading>
       <span v-if="project" class="hidden max-w-40 shrink-0 truncate text-sm text-muted sm:inline">{{ project }}</span>
