@@ -16,8 +16,10 @@ export interface DiagnosticCode {
   fix: string | null
   /** The comment above the code in the catalog, such as `Runtime errors`. */
   group: string | null
-  /** The catalog's `docsBase` or `docs` URL when it is a string. The `docs` URL of the code is `<base>/<code in lowercase>`. */
+  /** The catalog's `docsBase` or `docs` URL when it is a string. */
   docsBase: string | null
+  /** A per-code `docs` URL that overrides the catalog base. */
+  docs: string | null
   /** Where the code is raised, and the message that each call site passes. */
   sites: DiagnosticSite[]
 }
@@ -129,7 +131,7 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
       const code = propertyName(property)
       if (!code || !codePattern.test(code) || !ts.isPropertyAssignment(property)) continue
       group = commentGroup(source, property) ?? group
-      const definition = ts.isObjectLiteralExpression(property.initializer) ? property.initializer : null
+      const definition = objectValue(property.initializer)
       found.push({
         code,
         pkg: ownerPackage(code, packages) ?? declaring,
@@ -140,6 +142,7 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
         fix: definition ? textOf(definition, "fix") : helperFix(property.initializer),
         group,
         docsBase,
+        docs: definition ? stringValue(source, definition.properties.find(property => propertyName(property) === "docs")) : null,
         sites: [],
       })
     }

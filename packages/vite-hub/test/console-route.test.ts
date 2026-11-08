@@ -37,7 +37,7 @@ describe("Console routes", () => {
   ])("derives the application mount prefix from %j", (pathname, expected) => {
     expect(consoleMountBase(pathname)).toBe(expected)
     expect(consoleMountPath(consoleMountBase(pathname), "/")).toBe(`${expected}/`)
-    expect(consoleMountPath(expected, "/api/_vitehub/console/status")).toBe(`${expected}/api/_vitehub/console/status`)
+    expect(consoleMountPath(expected, "/_vitehub/api/status")).toBe(`${expected}/_vitehub/api/status`)
   })
 
   it("keeps the schema view outside the table route namespace", () => {

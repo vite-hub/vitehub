@@ -12,7 +12,7 @@ interface BlobErrorParams {
 
 // Runtime errors. Blob operations return them as `[error, undefined]`. Each code has a heading on the docs page.
 export const blobErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/blob/limits-and-errors",
+  docs: "https://vitehub.dev/docs/blob/diagnostics",
   codes: {
     BLOB_CONFLICT: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
@@ -40,7 +40,7 @@ const dynamicError = {
 
 // Thrown errors. Each code identifies one ViteHub failure site. Keep published codes stable.
 export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/blob/diagnostics",
   codes: {
     BLOB_R0027: dynamicError,
     BLOB_C0001: dynamicError,

@@ -866,6 +866,9 @@ importers:
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email
+      '@vite-hub/channels':
+        specifier: workspace:*
+        version: link:../channels
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -3274,60 +3277,21 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
-      '@vite-hub/blob':
-        specifier: workspace:*
-        version: link:../blob
-      '@vite-hub/browser':
-        specifier: workspace:*
-        version: link:../browser
       '@vite-hub/bundle':
         specifier: workspace:*
         version: link:../bundle
-      '@vite-hub/channels':
-        specifier: workspace:*
-        version: link:../channels
       '@vite-hub/cli':
         specifier: workspace:*
         version: link:../cli
-      '@vite-hub/connections':
-        specifier: workspace:*
-        version: link:../connections
-      '@vite-hub/decisions':
-        specifier: workspace:*
-        version: link:../decisions
-      '@vite-hub/email':
-        specifier: workspace:*
-        version: link:../email
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
-      '@vite-hub/gateways':
-        specifier: workspace:*
-        version: link:../gateways
-      '@vite-hub/kv':
-        specifier: workspace:*
-        version: link:../kv
-      '@vite-hub/markdown-template':
-        specifier: workspace:*
-        version: link:../markdown-template
-      '@vite-hub/queue':
-        specifier: workspace:*
-        version: link:../queue
-      '@vite-hub/rate-limit':
-        specifier: workspace:*
-        version: link:../rate-limit
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@vite-hub/sandbox':
-        specifier: workspace:*
-        version: link:../sandbox
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
-      '@vite-hub/workflow':
-        specifier: workspace:*
-        version: link:../workflow
       confbox:
         specifier: ^0.2.4
         version: 0.2.4
@@ -3491,33 +3455,69 @@ importers:
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
+      '@vite-hub/blob':
+        specifier: workspace:*
+        version: link:../blob
+      '@vite-hub/browser':
+        specifier: workspace:*
+        version: link:../browser
+      '@vite-hub/channels':
+        specifier: workspace:*
+        version: link:../channels
       '@vite-hub/cms':
         specifier: workspace:*
         version: link:../cms
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
+      '@vite-hub/connections':
+        specifier: workspace:*
+        version: link:../connections
       '@vite-hub/content':
         specifier: workspace:*
         version: link:../content
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
+      '@vite-hub/decisions':
+        specifier: workspace:*
+        version: link:../decisions
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../docs
+      '@vite-hub/email':
+        specifier: workspace:*
+        version: link:../email
+      '@vite-hub/gateways':
+        specifier: workspace:*
+        version: link:../gateways
       '@vite-hub/icons':
         specifier: workspace:*
         version: link:../icons
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/kv':
+        specifier: workspace:*
+        version: link:../kv
+      '@vite-hub/markdown-template':
+        specifier: workspace:*
+        version: link:../markdown-template
       '@vite-hub/presets':
         specifier: workspace:*
         version: link:../presets
+      '@vite-hub/queue':
+        specifier: workspace:*
+        version: link:../queue
+      '@vite-hub/rate-limit':
+        specifier: workspace:*
+        version: link:../rate-limit
       '@vite-hub/realtime':
         specifier: workspace:*
         version: link:../realtime
+      '@vite-hub/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../schedule
@@ -3530,6 +3530,9 @@ importers:
       '@vite-hub/web-container':
         specifier: workspace:*
         version: link:../web-container
+      '@vite-hub/workflow':
+        specifier: workspace:*
+        version: link:../workflow
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace

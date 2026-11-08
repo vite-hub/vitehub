@@ -31,17 +31,21 @@ function createWorkflowDevRegistryModule(registryFile: string, definitions: Disc
   return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
 }
 
-export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName): string {
+/** `dev` turns on the run history of `vite dev`. A build that installs the registry at startup passes `false`. */
+export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName, dev = false): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   return [
     "import { definePlugin } from \"nitro\"",
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
+    // Only this import brings the run history into the app, so a build never includes it.
+    ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(`${importBase}/runtime/dev-runs`)}`] : []),
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
     "export default definePlugin(() => {",
     `  setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`,
     "  setWorkflowRuntimeRegistry(registry)",
+    ...(dev ? ["  enableWorkflowDevRuns()"] : []),
     "})",
     "",
   ].join("\n")
@@ -56,6 +60,8 @@ async function writeIfChanged(file: string, contents: string): Promise<boolean> 
 
 export interface WorkflowDevRegistryFilesOptions {
   definitions: DiscoveredWorkflowDefinition[]
+  /** True in `vite dev`: the plugin turns on the run history. */
+  dev?: boolean
   importBase?: string
   projectRoot: string
   /** Retain the startup path Nitro read before final Vite configuration. */
@@ -83,7 +89,7 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   const plugin = resolve(directory, devPluginFile)
   const files: Array<[string, string]> = [
     [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
-    [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase)],
+    [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase, options.dev)],
   ]
   if (process.env.VITEST) {
     files.push([resolve(directory, workflowTestSetupFile), [
