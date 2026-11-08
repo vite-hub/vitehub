@@ -17,7 +17,6 @@ export type {
 export type {
   BlobDriver,
   BlobErrorCode,
-  BlobErrorDetails,
   BlobEnsureOptions,
   BlobListOptions,
   BlobListResult,
@@ -35,7 +34,6 @@ export type {
   BlobMultipartUpload,
   BlobObject,
   BlobPutOptions,
-  BlobResult,
   BlobSignedRequest,
   BlobSignOptions,
   BlobServeAnonymousAuthorize,

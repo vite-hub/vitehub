@@ -83,9 +83,9 @@ A path below the two folders that names no skill or file gets `404`. A method ot
 
 ## Change the list at runtime
 
-Pass a function instead of a list. Each request calls it, so the function can read a setting, such as the skills an admin turned off:
+Pass a function instead of a list. Each request calls it, so the function can read a setting, such as the skills an admin turned off. These excerpts replace the earlier list and middleware, using your app's `disabledSkillNames()` helper and the middleware imports above:
 
-```ts [server/skills.ts]
+```ts [server/skills.ts] fragment
 import { defineSkills } from 'vite-hub/skills'
 import { disabledSkillNames } from './utils/settings'
 
@@ -97,7 +97,7 @@ export async function enabledSkills() {
 }
 ```
 
-```ts [server/middleware/skills.ts]
+```ts [server/middleware/skills.ts] fragment
 export default defineHandler(event => serveSkills(event.req, enabledSkills))
 ```
 
@@ -115,9 +115,9 @@ A skill that the function leaves out is missing from every index and from MCP. F
 | `resources()` | Every skill file for `resources/list`. The `SKILL.md` of a skill has its `description`. |
 | `read(uri)` | `[error, data]` with the `resources/read` result for `skill://<name>/<path>`: `text` for a text file, base64 `blob` for bytes. |
 
-`get()` and `read()` return [`SKILL_NOT_FOUND`](#skill_not_found) for a skill or a file that the list does not have. Answer it with the JSON-RPC error `-32602`. For example, with [`h3-mcp`](https://github.com/h3js/mcp):
+`get()` and `read()` return [`SKILL_NOT_FOUND`](#skill_not_found) for a skill or a file that the list does not have. Answer it with the JSON-RPC error `-32602`. This excerpt connects the dynamic list above to an existing [`h3-mcp`](https://github.com/h3js/mcp) server:
 
-```ts [server/mcp/skills.ts]
+```ts [server/mcp/skills.ts] fragment
 import { invalidParamsError, mcpMethod, parseParams, requireParamString, type ExtensionPlugin } from 'h3-mcp'
 import { skillsMcp } from 'vite-hub/skills'
 import { enabledSkills } from '../skills'

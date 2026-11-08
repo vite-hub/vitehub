@@ -1063,11 +1063,6 @@
       "import": "./dist/ui/multi-file-diff.js",
       "default": "./dist/ui/multi-file-diff.js"
     },
-    "./ui/nuxt": {
-      "types": "./dist/ui/nuxt.d.ts",
-      "import": "./dist/ui/nuxt.js",
-      "default": "./dist/ui/nuxt.js"
-    },
     "./ui/patch-diff": {
       "types": "./dist/ui/patch-diff.d.ts",
       "import": "./dist/ui/patch-diff.js",
@@ -1147,6 +1142,11 @@
       "types": "./dist/workspace/files.d.ts",
       "import": "./dist/workspace/files.js",
       "default": "./dist/workspace/files.js"
+    },
+    "./workspace/lineage": {
+      "types": "./dist/workspace/lineage.d.ts",
+      "import": "./dist/workspace/lineage.js",
+      "default": "./dist/workspace/lineage.js"
     },
     "./workspace/loader": {
       "types": "./dist/workspace/loader.d.ts",
@@ -1310,9 +1310,6 @@
   "dependencies": {
     "@cfworker/json-schema": "4.1.1",
     "@cloudflare/workers-types": "^5.20261016.1",
-    "@json-render/core": "0.21.0",
-    "@json-render/vue": "0.21.0",
-    "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
@@ -1335,7 +1332,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "@vueuse/core": "catalog:ui",
     "confbox": "^0.2.4",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
@@ -1367,8 +1363,11 @@
     "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
     "@internationalized/date": "^3.12.4",
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
     "@libsql/client": "catalog:database",
     "@microsoft/microsoft-graph-client": "catalog:storage",
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "catalog:nuxt",
     "@supabase/storage-js": "catalog:storage",
     "@tiptap/core": "catalog:realtime",
@@ -1401,6 +1400,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "2.5.1",
+    "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai",
     "better-auth": "catalog:auth",
@@ -1443,8 +1443,11 @@
     "@better-auth/oauth-provider": "catalog:auth",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
     "@libsql/client": "catalog:database",
     "@microsoft/microsoft-graph-client": "catalog:storage",
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
     "@supabase/storage-js": "catalog:storage",
     "@vite-hub/agent": "workspace:*",
@@ -1461,6 +1464,7 @@
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@vueuse/core": "catalog:ui",
     "ai": "catalog:ai-compat",
     "better-auth": "catalog:auth",
     "box-typescript-sdk-gen": "catalog:storage",
@@ -1474,7 +1478,7 @@
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat",
     "vite-doctor": "*",
-    "vue": "catalog:ui"
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/provider": {
@@ -1507,10 +1511,19 @@
     "@googleapis/drive": {
       "optional": true
     },
+    "@json-render/core": {
+      "optional": true
+    },
+    "@json-render/vue": {
+      "optional": true
+    },
     "@libsql/client": {
       "optional": true
     },
     "@microsoft/microsoft-graph-client": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
       "optional": true
     },
     "@nuxt/ui": {
@@ -1559,6 +1572,12 @@
       "optional": true
     },
     "@vite-hub/workspace": {
+      "optional": true
+    },
+    "@vueuse/core": {
+      "optional": true
+    },
+    "ai": {
       "optional": true
     },
     "better-auth": {

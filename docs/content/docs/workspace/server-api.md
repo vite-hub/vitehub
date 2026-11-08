@@ -32,6 +32,8 @@ Workspace definition, Source Binding, rule, hook, store, sync, facade, and sessi
 For read-only inspection of an existing Workspace, pass `refresh: false`:
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('docs', { refresh: false })
 ```
 
@@ -88,6 +90,8 @@ Each materialized Source reports its provider, cache disposition, revision, dura
 Use retained history to publish a complete folder and read earlier versions. It is available when the Store implements `history`, including the [Blob + Database Store](/docs/workspace/configure#blob-database-store).
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('drop', { mode: 'write' })
 const base = await workspace.history.head()
 const revision = await workspace.history.commit({
@@ -120,7 +124,7 @@ A Workspace history has named refs. Each ref has its own head and timeline. Revi
 
 Drafts are the usual reason to add a ref. Save each edit to `draft`, then commit the chosen files to `published`:
 
-```ts
+```ts fragment
 const draft = await workspace.history.head({ ref: 'draft' })
 const saved = await workspace.history.commit({
   ref: 'draft',
@@ -212,11 +216,50 @@ Commands reject existing symbolic links in the checkout folder and its ancestors
 
 A push sends whole files, is limited to 4 MiB, and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
 
+### Derived files
+
+A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown (`.md`, `.markdown`, `.mdx`), at the top of a YAML file (`.yaml`, `.yml`), or as a top-level key of a JSON file (`.json`). Other files have no lineage:
+
+```md [docs/es/guide.md]
+---
+title: Guía
+derivedFrom:
+  path: docs/en/guide.md
+  digest: sha256-1a9e…
+---
+```
+
+When the source changes, the derived file is stale. `vitehub status` lists the stale files of each checkout folder, and the `workspace.stale` operation lists them on a ref:
+
+```bash [Terminal]
+pnpm vitehub workspace stale site --ref draft
+```
+
+Each changed entry has `sourceDigest`, the digest of the source now. The command prints it in the `SOURCE DIGEST` column. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
+
+To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`. This excerpt uses the app's `translate` Queue Definition:
+
+```ts [server/plugins/translate.ts] fragment
+import { registerWorkspacePlugin } from 'vite-hub/workspace'
+import { runQueue } from 'vite-hub/queue'
+
+registerWorkspacePlugin('site', {
+  id: 'translate',
+  hooks: {
+    'write:after': async ({ path, ref }) => {
+      if (ref === 'draft' && path.startsWith('docs/en/')) await runQueue('translate', { path })
+    },
+  },
+})
+```
+
+The `translate` Queue job reads `workspace.stale`, translates each stale file with your Agent, and saves it to `draft` with the new `derivedFrom.digest`. ViteHub keeps the record and the check. The translation is your Agent's work.
+
 ## Add plugins to a Workspace
 
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
 
-```ts
+```ts fragment
 import { registerWorkspacePlugin } from '@vite-hub/workspace'
 
 registerWorkspacePlugin('content', {

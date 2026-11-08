@@ -64,7 +64,7 @@ Available namespaces:
   types       Generate ViteHub TypeScript declarations.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
-  inspect     Inspect discovered Definitions and generated Provider Output.
+  inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
 ```
 
@@ -157,6 +157,7 @@ Available namespaces:
 | `vitehub workspace refs` | Available | Workspace Package | List the history refs of a Workspace and their head revisions. |
 | `vitehub workspace show` | Available | Workspace Package | Show one revision and its files, or print one file as it was in that revision. |
 | `vitehub workspace changes` | Available | Workspace Package | List the files of a ref that changed since a revision, with their content. `vitehub pull` reads it. |
+| `vitehub workspace stale` | Available | Workspace Package | List derived files on a ref, such as translations, whose `derivedFrom` source changed or is gone. |
 | `vitehub workspace commit` | Available | Workspace Package | Commit files to a ref when its head is still `ifHead`. `vitehub push` calls it. |
 | `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
 | `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
@@ -164,8 +165,9 @@ Available namespaces:
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
+| `vitehub inspect resources` | Available | ViteHub CLI plus package inspection contributors | List the host resources that Definitions map to, with each id and where it came from. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
-| `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Inspect the latest provider provisioning result. |
+| `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Show recorded provider ids, ids that no Definition declares, and pending plan actions. |
 
 ## Create a project
 
@@ -557,7 +559,37 @@ pnpm vitehub inspect provider-output --json
 
 `--json` includes the parsed content of each JSON file. The CLI redacts values under keys that name secrets, such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with embedded credentials. Read [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
 
-Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it.
+`inspect resources` lists the host resource behind each Definition or store: D1 databases, Workers KV namespaces, R2 buckets, Cloudflare Queues, and the Vercel Blob store. Each entry shows the host, the resource kind, the Definition or store, the resource name, the binding, the id if one is known, and where the id came from. Like `inspect provider-output`, it loads the configuration that a production build uses. It reads local files only and never calls a provider API.
+
+```bash [Terminal]
+pnpm vitehub inspect resources
+pnpm vitehub inspect resources --json
+```
+
+```txt [Output]
+cloudflare	cloudflare-d1	default
+  Name: app-db
+  Binding: DB
+  Id: database-id
+  Source: .vitehub/provision.json
+cloudflare	cloudflare-r2-bucket	default
+  Name: uploads
+  Binding: BLOB
+  Source: bound by name
+```
+
+| Source | Meaning |
+| --- | --- |
+| `config` | The Definition or the integration options set the id or the Vercel Blob token. |
+| `env` | An env variable set the id. `env` names the variable. |
+| `provision-state` | `vitehub provision run` recorded the id in `.vitehub/provision.json`. |
+| `provider-output` | Only the generated Wrangler config of the last build names the id. |
+| `name` | The host binds the resource by its name and needs no id, as for R2 buckets and Cloudflare Queues. |
+| none | No id is known yet. Run `vitehub provision run` or set the id. |
+
+For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the store is reached through `BLOB_READ_WRITE_TOKEN`, and the CLI reports only whether the token is set, never its value. A configured `token` that overrides the environment is reported as `config`, without a store id or token value. `--json` prints `{ "resources": [...] }` with the same fields and the CLI redaction. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
+
+Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.
 
 ## Run the Console with saved data
 
