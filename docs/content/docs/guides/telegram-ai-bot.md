@@ -1,6 +1,6 @@
 ---
 title: Build an AI Telegram bot with ViteHub
-description: Build an AI Telegram bot with a ViteHub Agent. Create the bot with BotFather, add telegram() to defineAgent, register the webhook with the ViteHub CLI, and deploy it.
+description: "Build an AI Telegram bot with a ViteHub Agent. Create the bot with BotFather, add telegram() to defineAgent, register the webhook with the CLI, and deploy it."
 navigation.title: Telegram AI bot
 navigation.order: 6
 navigation.group: Chat bots
@@ -118,6 +118,8 @@ cloudflared tunnel --url http://localhost:3000
 Vite blocks requests for host names that it does not know. Add the tunnel domain to `server.allowedHosts` in `vite.config.ts`:
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [/* ... */],

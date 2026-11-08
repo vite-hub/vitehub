@@ -1,10 +1,11 @@
 import { hasViteHubDispatch, verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
+import { withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
 import { getConsoleSchedules } from "./definitions.ts"
-import { consoleRequestText } from "./request.ts"
+import { consoleRequestText, consoleRequestURL } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
 
@@ -83,23 +84,28 @@ function processEnv(): Record<string, unknown> {
   return globalThis.process?.env ?? {}
 }
 
+async function readScheduleRunBody(request: Request): Promise<{ ok: true, text: string } | { ok: false, response: Response }> {
+  if (request.method !== "POST") return { ok: false, response: failure("Method not allowed.", 405) }
+  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) return { ok: false, response: failure("Schedule run requires application/json.", 415) }
+  const contentLength = request.headers.get("content-length")
+  if (contentLength && Number.parseInt(contentLength, 10) > maximumBodyBytes) return { ok: false, response: failure("Schedule run request body is too large.", 413) }
+  try {
+    return { ok: true, text: request.body ? await consoleRequestText(request.body, maximumBodyBytes) : "" }
+  }
+  catch (error) {
+    if (Reflect.get(Object(error), "statusCode") === 413) return { ok: false, response: failure("Schedule run request body is too large.", 413) }
+    return { ok: false, response: failure("Malformed Schedule run payload.", 400) }
+  }
+}
+
 /**
  * A signed `vitehub schedule run --url` request. The signature replaces Console access for this route only, and the
  * request never falls back to a Console session: a bad signature is always `401`. The actor claim is self-asserted.
  */
 export async function handleDispatchScheduleRunRequest(request: Request, env: Record<string, unknown> = processEnv()): Promise<Response> {
-  if (request.method !== "POST") return failure("Method not allowed.", 405)
-  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) return failure("Schedule run requires application/json.", 415)
-  const contentLength = request.headers.get("content-length")
-  if (contentLength && Number.parseInt(contentLength, 10) > maximumBodyBytes) return failure("Schedule run request body is too large.", 413)
-  let text = ""
-  try {
-    if (request.body) text = await consoleRequestText(request.body, maximumBodyBytes)
-  }
-  catch (error) {
-    if (Reflect.get(Object(error), "statusCode") === 413) return failure("Schedule run request body is too large.", 413)
-    return failure("Malformed Schedule run payload.", 400)
-  }
+  const read = await readScheduleRunBody(request)
+  if (!read.ok) return read.response
+  const text = read.text
   const verified = await verifyViteHubDispatch({ body: text, env, headers: request.headers, operation: "schedule.run" })
   if (!verified.ok) return failure(verified.message, verified.status)
   let body: unknown
@@ -119,11 +125,48 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
     : failure(outcome.message, outcome.status)
 }
 
-/** Only a signed dispatch runs here. A person or a CLI runs a Schedule through the `schedule.run` operation. */
-const dispatchHandler = async (event: H3Event): Promise<Response> => {
-  const request = toEventRequest(event)
-  return hasViteHubDispatch(request.headers)
-    ? await handleDispatchScheduleRunRequest(request, getCloudflareEnv(event, { fallback: false }))
-    : failure("This route takes signed dispatches only. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either.", 401)
+const unsignedRunMessage = "This route takes signed dispatches only, or the Console token as Authorization: Bearer with console: { auth: \"token\" }. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either."
+
+/**
+ * A Schedule run with the Console token: `Authorization: Bearer` with `auth: "token"`. The Console access check decides,
+ * with a full `schedules` grant. A cookie or a session never runs a Schedule here; it uses the `schedule.run` operation.
+ * A JSON content type and the origin check keep other sites out, as in Channel replay. A listed origin of
+ * `console.origins` may call it with the verified token.
+ */
+async function runScheduleWithConsoleAccess(event: H3Event, access: ConsoleAccess): Promise<Response> {
+  // Only the token mode verifies a bearer token on this route. Another mode would accept the session next to it.
+  if (access.mode !== "token") return failure(unsignedRunMessage, 401)
+  const request = getStandardContext(event).req
+  const origin = request.headers.get("origin")
+  if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginBearerCall(request, access)) {
+    return failure("Schedule run origin is not allowed.", 403)
+  }
+  const read = await readScheduleRunBody(request)
+  if (!read.ok) return read.response
+  let body: unknown
+  try {
+    body = JSON.parse(read.text)
+  }
+  catch {
+    return failure("Malformed Schedule run payload.", 400)
+  }
+  const outcome = await runConsoleSchedule(body)
+  return outcome.ok
+    ? Response.json({ run: outcome.run }, { headers: responseHeaders })
+    : failure(outcome.message, outcome.status)
 }
-export default dispatchHandler
+
+const consoleScheduleRunHandler: (event: H3Event) => Promise<Response> = withConsoleCors(withConsoleAccess(runScheduleWithConsoleAccess, { section: "schedules", write: true }))
+
+const unsignedScheduleRunHandler: (event: H3Event) => Promise<Response> = withConsoleCors(async () => failure(unsignedRunMessage, 401))
+
+/**
+ * A signed dispatch is its own authority and never falls back to Console access. A request with `Authorization: Bearer`
+ * goes through the Console access check, as every Console data route does. Any other request gets `401`.
+ */
+const scheduleRunHandler = async (event: H3Event): Promise<Response> => {
+  const { req: request, runtime } = getStandardContext(event)
+  if (hasViteHubDispatch(request.headers)) return await handleDispatchScheduleRunRequest(request, runtime?.cloudflare?.env)
+  return /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "") ? await consoleScheduleRunHandler(event) : await unsignedScheduleRunHandler(event)
+}
+export default scheduleRunHandler

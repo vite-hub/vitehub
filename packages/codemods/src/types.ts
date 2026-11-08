@@ -31,12 +31,19 @@ export interface CodemodContext {
   cwd: string
 }
 
+/** Why a codemod applies to a project, such as "nuxt.config.ts lists nuxt-safe-runtime-config". */
+export interface Detection {
+  reason: string
+}
+
 export interface Codemod {
   name: string
   /** One line for the codemod list. */
   description: string
   /** Positional arguments after the codemod name, for help output. */
   usage: string
+  /** Tells whether the project uses what this codemod migrates. It must be cheap and must not throw for a project that does not use it. */
+  detect: (context: CodemodContext) => Promise<Detection | undefined>
   /** Plans the edits. It must not write files; the runner writes them. */
   run: (context: CodemodContext) => Promise<CodemodResult>
 }
