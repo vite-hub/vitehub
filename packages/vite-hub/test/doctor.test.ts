@@ -365,7 +365,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
     })).toEqual(Array(4).fill("VHUB0003"))
   })
 
-  it("accepts runAgent with a Runtime Context, error-only patterns, and tuples passed on from helpers", async () => {
+  it("accepts error-only patterns and tuples passed on from helpers", async () => {
     expect(await codes(destructureResultTuples, {
       "server/utils/settings.ts": [
         'import { kv } from "vite-hub/kv"',
@@ -385,8 +385,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         '  return await kv.get("settings")',
         "}",
         "export async function ask(agent, ctx) {",
-        '  const answer = await runAgent(agent, ctx, { prompt: "hi" })',
-        "  return answer",
+        '  return await runAgent(agent, { prompt: "hi" }, { runtimeContext: ctx })',
         "}",
       ].join("\n"),
     })).toEqual([])

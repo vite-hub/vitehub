@@ -1,7 +1,7 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule } from "vite-doctor/extension"
 
-import { callArguments, isFunctionNode, isIdentifier, isNodeType, isRouteHandler, numberValue, objectValue, parentOf, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
+import { isFunctionNode, isIdentifier, isNodeType, isRouteHandler, numberValue, parentOf, resolver, semanticParent, unwrap, walkScript } from "../ast.ts"
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 
@@ -64,11 +64,7 @@ function tupleCall(r: Resolver, call: AstNode): string | undefined {
   if (reference.module === "queue" && reference.name === "dynamicQueue" && reference.path.join(".") === "run") return "dynamicQueue.run()"
   if (reference.module === "agent/mcp" && reference.name === "callMcpTool" && reference.path.length === 0) return "callMcpTool()"
   if (reference.module === "agent/server" && ["enqueueChannelTask", "cancelChannelTask"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
-  if (reference.module === "agent" && reference.name === "runAgent" && reference.path.length === 0) {
-    const args = callArguments(call)
-    // With a Runtime Context as the second argument, `runAgent()` returns the value and throws.
-    if (args.length === 2 || args.length === 3 && stringValue(objectValue(args[2], "output")) === "drained") return "runAgent()"
-  }
+  if (reference.module === "agent" && ["runAgent", "streamAgent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
 }
 
 

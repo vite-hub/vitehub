@@ -53,22 +53,22 @@ Use each primitive alone, or use them together in one app.
   <tr>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/content"><img src=".github/assets/primitives/content.svg" alt="" height="40"><br><b>Content</b></a><br>Parse and search</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/source"><img src=".github/assets/primitives/source.svg" alt="" height="40"><br><b>Source</b></a><br>Read-only content</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/connections"><img src=".github/assets/primitives/connections.svg" alt="" height="40"><br><b>Connections</b></a><br>Connected account APIs</td>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/connections"><img src=".github/assets/primitives/connections.svg" alt="" height="40"><br><b>Connections</b></a><br>Connected accounts</td>
   </tr>
   <tr>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/agents/ai-gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="40"><br><b>AI Gateways</b></a><br>Model request routing</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="40"><br><b>Realtime</b></a><br>Collaborative documents</td>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="40"><br><b>Realtime</b></a><br>Live collaboration</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/browser"><img src=".github/assets/primitives/browser.svg" alt="" height="40"><br><b>Browser</b></a><br>Browser operations</td>
   </tr>
   <tr>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="40"><br><b>Shell</b></a><br>Command execution</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/channels"><img src=".github/assets/primitives/channels.svg" alt="" height="40"><br><b>Channels</b></a><br>Named message delivery</td>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/channels"><img src=".github/assets/primitives/channels.svg" alt="" height="40"><br><b>Channels</b></a><br>Message delivery</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/email"><img src=".github/assets/primitives/email.svg" alt="" height="40"><br><b>Email</b></a><br>Transactional email</td>
   </tr>
   <tr>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/rate-limit"><img src=".github/assets/primitives/rate-limit.svg" alt="" height="40"><br><b>Rate Limit</b></a><br>Request budgets</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/cms"><img src=".github/assets/primitives/cms.svg" alt="" height="40"><br><b>CMS</b></a><br>Editable documents</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/comments"><img src=".github/assets/primitives/comments.svg" alt="" height="40"><br><b>Comments</b></a><br>Feedback on live pages</td>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/comments"><img src=".github/assets/primitives/comments.svg" alt="" height="40"><br><b>Comments</b></a><br>Live page feedback</td>
   </tr>
   <tr>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/ui"><img src=".github/assets/primitives/ui.svg" alt="" height="40"><br><b>UI</b></a><br>Agent interfaces</td>

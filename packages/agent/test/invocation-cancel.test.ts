@@ -17,7 +17,8 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   }),
 }))
 
-import { agentInvocationId, defineAgent, defineCapability, runAgent, streamAgent, startAgentInvocation } from "../src/index.ts"
+import { agentInvocationId, defineAgent, defineCapability, startAgentInvocation } from "../src/index.ts"
+import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { bindAgentInvocations } from "../src/invocations.ts"
 import { abortLocalAgentInvocation, isAgentInvocationAbortError, registerAgentInvocationCancellation } from "../src/internal/invocation-cancellation.ts"
@@ -106,7 +107,7 @@ describe("Agent Invocation cancel", () => {
   it("aborts a running model Driver in this process", async () => {
     modelGenerate.mockImplementation(async (input: { abortSignal?: AbortSignal }) => await untilAborted(input.abortSignal))
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const run = runAgent(defineAgent({ driver: modelDriver, invocations }), runtime("model-cancel"), { prompt: "Summarize the release." })
+    const run = runAgentWithContext(defineAgent({ driver: modelDriver, invocations }), runtime("model-cancel"), { prompt: "Summarize the release." })
     const { id } = await recordWithStatus(invocations, "model-cancel", "running")
 
     expect(await invocations.cancel(id)).toEqual({ delivery: "local", id, outcome: "requested", status: "running" })
@@ -127,7 +128,7 @@ describe("Agent Invocation cancel", () => {
     let cleanupError: Error | undefined
     const runId = `model-cleanup-cancel-${failure}`
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const run = runAgent(defineAgent({
+    const run = runAgentWithContext(defineAgent({
       driver: modelDriver,
       invocations,
       capabilities: [defineCapability({
@@ -164,7 +165,7 @@ describe("Agent Invocation cancel", () => {
     const started = deferred()
     let signal: AbortSignal | undefined
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const run = runAgent(defineAgent({
+    const run = runAgentWithContext(defineAgent({
       driver: { run: (context) => {
         signal = context.input.abortSignal
         started.resolve()
@@ -194,7 +195,7 @@ describe("Agent Invocation cancel", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const runId = `custom-cancel-failure-${failureKind}`
     let signal: AbortSignal | undefined
-    const run = runAgent(defineAgent({
+    const run = runAgentWithContext(defineAgent({
       driver: { run: async (context) => {
         signal = context.input.abortSignal
         started.resolve()
@@ -276,9 +277,9 @@ describe("Agent Invocation cancel", () => {
       },
       invocations,
     })
-    const running = runAgent(agent, runtime("capacity-first"), { prompt: "First" })
+    const running = runAgentWithContext(agent, runtime("capacity-first"), { prompt: "First" })
     await firstStarted.promise
-    const queued = runAgent(agent, runtime("capacity-second"), { prompt: "Second" })
+    const queued = runAgentWithContext(agent, runtime("capacity-second"), { prompt: "Second" })
     const queuedRejection = expect(queued).rejects.toThrow("Cancellation was requested")
     const { id } = await recordWithStatus(invocations, "capacity-second", "pending")
 
@@ -299,7 +300,7 @@ describe("Agent Invocation cancel", () => {
     modelGenerate.mockImplementation(async (input: { abortSignal?: AbortSignal }) => await untilAborted(input.abortSignal))
     const store = createMemoryAgentInvocationStore()
     const owner = defineAgentInvocations({ store })
-    const run = runAgent(defineAgent({ driver: modelDriver, invocations: owner }), runtime("remote-cancel"), { prompt: "Wait." })
+    const run = runAgentWithContext(defineAgent({ driver: modelDriver, invocations: owner }), runtime("remote-cancel"), { prompt: "Wait." })
     const rejection = expect(run).rejects.toThrow("Cancellation was requested")
     const { id } = await recordWithStatus(owner, "remote-cancel", "running")
 
@@ -322,7 +323,7 @@ describe("Agent Invocation cancel", () => {
     const store = { ...backing, claim: (...args: Parameters<typeof backing.claim>) => backing.claim(args[0], args[1], 1, args[3]) }
     const owner = defineAgentInvocations({ store })
     const remote = defineAgentInvocations({ store: { ...backing } })
-    const run = runAgent(defineAgent({ driver: modelDriver, invocations: owner }), runtime(`stale-remote-cancel-${status}`), { prompt: "Wait." })
+    const run = runAgentWithContext(defineAgent({ driver: modelDriver, invocations: owner }), runtime(`stale-remote-cancel-${status}`), { prompt: "Wait." })
     const rejection = expect(run).rejects.toThrow("Cancellation was requested")
     const { id } = await recordWithStatus(owner, `stale-remote-cancel-${status}`, "running")
     await vi.waitFor(() => expect(signal).toBeDefined())
@@ -365,14 +366,14 @@ describe("Agent Invocation cancel", () => {
     } }
     const replacement = defineAgentInvocations({ store: replacementStore })
     const runId = `stale-model-replacement-warning-${warning}`
-    const first = runAgent(defineAgent({ driver: modelDriver, invocations: owner }), runtime(runId), { prompt: "Wait." })
+    const first = runAgentWithContext(defineAgent({ driver: modelDriver, invocations: owner }), runtime(runId), { prompt: "Wait." })
     const firstSettled = first.then(result => result, error => error)
     const { id } = await recordWithStatus(owner, runId, "running")
     await vi.waitFor(() => expect(modelSignal).toBeDefined())
     await new Promise(resolve => setTimeout(resolve, 5))
     const release = deferred<string>()
     const started = deferred()
-    const second = runAgent(defineAgent({ invocations: replacement, driver: { run: ({ input }) => {
+    const second = runAgentWithContext(defineAgent({ invocations: replacement, driver: { run: ({ input }) => {
       customSignal = input.abortSignal
       started.resolve()
       return release.promise
@@ -417,7 +418,7 @@ describe("Agent Invocation cancel", () => {
     let firstSignal: AbortSignal | undefined
     let secondSignal: AbortSignal | undefined
     const runId = "stale-custom-setup-replacement"
-    const first = runAgent(defineAgent({ invocations: owner, driver: { run: originalDriver }, hooks: { "agent:input": async context => {
+    const first = runAgentWithContext(defineAgent({ invocations: owner, driver: { run: originalDriver }, hooks: { "agent:input": async context => {
       firstSignal = context.input.abortSignal
       entered.resolve()
       await releaseSetup.promise
@@ -432,7 +433,7 @@ describe("Agent Invocation cancel", () => {
       if (args[1].status === "running" && args[1].cancelNotEnforcedBy === "run") throw new Error("Replacement warning unavailable")
       return backing.update(...args)
     } } })
-    const second = runAgent(defineAgent({ invocations: replacement, driver: { run: ({ input }) => {
+    const second = runAgentWithContext(defineAgent({ invocations: replacement, driver: { run: ({ input }) => {
       secondSignal = input.abortSignal
       started.resolve()
       return releaseDriver.promise
@@ -474,7 +475,7 @@ describe("Agent Invocation cancel", () => {
       return await release.promise
     } }
     const runId = `failed-cancel-read-${enforced}`
-    const run = runAgent(defineAgent({ driver: enforced ? modelDriver : custom, invocations }), runtime(runId), { prompt: "Wait." })
+    const run = runAgentWithContext(defineAgent({ driver: enforced ? modelDriver : custom, invocations }), runtime(runId), { prompt: "Wait." })
     const settled = enforced ? expect(run).rejects.toThrow("Cancellation was requested") : expect(run).resolves.toBe("Custom result")
     const { id } = await recordWithStatus(invocations, runId, "running")
     await vi.waitFor(() => expect(signal).toBeDefined())
@@ -514,7 +515,7 @@ describe("Agent Invocation cancel", () => {
       return await release.promise
     } }
     const runId = `failed-cancel-persistence-${enforced}`
-    const run = runAgent(defineAgent({ driver: enforced ? modelDriver : custom, invocations }), runtime(runId), { prompt: "Wait." })
+    const run = runAgentWithContext(defineAgent({ driver: enforced ? modelDriver : custom, invocations }), runtime(runId), { prompt: "Wait." })
     const settled = enforced ? expect(run).rejects.toThrow("Cancellation was requested") : expect(run).resolves.toBe("Custom result")
     const { id } = await recordWithStatus(invocations, runId, "running")
     await vi.waitFor(() => expect(signal).toBeDefined())
@@ -559,7 +560,7 @@ describe("Agent Invocation cancel", () => {
     expect(record?.cancelRequestedAt).toEqual(expect.any(String))
 
     const driver = vi.fn(() => "Done.")
-    await expect(runAgent(defineAgent({ driver: { run: driver }, invocations }), runtime("queued-cancel"), { prompt: "Late worker" })).rejects.toThrow()
+    await expect(runAgentWithContext(defineAgent({ driver: { run: driver }, invocations }), runtime("queued-cancel"), { prompt: "Late worker" })).rejects.toThrow()
     expect(driver).not.toHaveBeenCalled()
     expect((await invocations.get(id))?.status).toBe("cancelled")
   })
@@ -588,7 +589,7 @@ describe("Agent Invocation cancel", () => {
       capabilities: [defineCapability({ id: "setup", close, prepare: stage === "prepare" ? context => suspend(context.input.get().abortSignal) : undefined })],
       hooks: { "agent:input": stage === "hook" ? context => suspend(context.input.abortSignal) : undefined },
     })
-    const running = kind === "run" ? runAgent(agent, runtime(runId), {}) : streamAgent(agent, runtime(runId), {})
+    const running = kind === "run" ? runAgentWithContext(agent, runtime(runId), {}) : streamAgentInline(agent, runtime(runId), {})
     const settled = running.then(() => undefined, error => error)
     await entered.promise
     const id = await agentInvocationId(runId)
@@ -617,7 +618,7 @@ describe("Agent Invocation cancel", () => {
         "agent:input": async () => { entered.resolve(); await release.promise },
       },
     })
-    const running = kind === "run" ? runAgent(agent, runtime(runId), {}) : streamAgent(agent, runtime(runId), {})
+    const running = kind === "run" ? runAgentWithContext(agent, runtime(runId), {}) : streamAgentInline(agent, runtime(runId), {})
     const settled = running.then(() => undefined, error => error)
     await entered.promise
     const id = await agentInvocationId(runId)
@@ -651,7 +652,7 @@ describe("Agent Invocation cancel", () => {
     const runId = "remote-started-warning-persistence"
     const id = await agentInvocationId(runId)
     const driver = vi.fn(() => releaseDriver.promise)
-    const running = runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
+    const running = runAgentWithContext(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
     const settled = running.then(result => result, error => error)
     await markerEntered.promise
     let reported = false
@@ -691,7 +692,7 @@ describe("Agent Invocation cancel", () => {
     const runId = `remote-warning-retry-${failure}`
     const id = await agentInvocationId(runId)
     const driver = vi.fn(() => releaseDriver.promise)
-    const running = runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
+    const running = runAgentWithContext(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
     const settled = running.then(result => result, error => error)
     try {
       await markerEntered.promise
@@ -742,7 +743,7 @@ describe("Agent Invocation cancel", () => {
     const id = await agentInvocationId(runId)
     let ended = false
     const driver = vi.fn(async () => { const result = await releaseDriver.promise; ended = true; return result })
-    const running = runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
+    const running = runAgentWithContext(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
     const settled = running.then(result => result, error => error)
     try {
       await markerEntered.promise
@@ -780,7 +781,7 @@ describe("Agent Invocation cancel", () => {
     const driver = vi.fn(() => "Must not start")
     const runId = `running-persistence-cancel-${kind}-${capacity}`
     const agent = defineAgent({ invocations, driver: { ...(capacity ? { capacity: { concurrency: 1 } } : {}), run: driver } })
-    const running = kind === "run" ? runAgent(agent, runtime(runId), {}) : streamAgent(agent, runtime(runId), {})
+    const running = kind === "run" ? runAgentWithContext(agent, runtime(runId), {}) : streamAgentInline(agent, runtime(runId), {})
     const settled = running.then(result => result, error => error)
     const id = await agentInvocationId(runId)
     try {
@@ -824,7 +825,7 @@ describe("Agent Invocation cancel", () => {
     const driver = vi.fn(() => "Must not start")
     const runId = `pre-dispatch-cancellation-${kind}`
     const agent = defineAgent({ invocations, driver: { run: driver } })
-    const started = kind === "run" ? runAgent(agent, runtime(runId), {}) : streamAgent(agent, runtime(runId), {})
+    const started = kind === "run" ? runAgentWithContext(agent, runtime(runId), {}) : streamAgentInline(agent, runtime(runId), {})
     const settled = started.then(result => result, error => error)
 
     expect(await settled).toBeInstanceOf(Error)
@@ -852,7 +853,7 @@ describe("Agent Invocation cancel", () => {
     const prepare = vi.fn()
     const runId = `initial-cancellation-rejection-${kind}`
     const agent = defineAgent({ invocations, driver: { capacity: { concurrency: 1 }, run: driver }, capabilities: [defineCapability({ id: "setup", prepare })] })
-    const started = kind === "run" ? runAgent(agent, runtime(runId), {}) : streamAgent(agent, runtime(runId), {})
+    const started = kind === "run" ? runAgentWithContext(agent, runtime(runId), {}) : streamAgentInline(agent, runtime(runId), {})
     const settled = started.then(result => result, error => error)
     try {
       await entered.promise
@@ -885,7 +886,7 @@ describe("Agent Invocation cancel", () => {
     const remote = defineAgentInvocations({ store: { ...backing } })
     const runId = `remote-pending-warning-${failure}`
     const driver = vi.fn(() => "Must not start")
-    const started = runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
+    const started = runAgentWithContext(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
     const settled = started.then(result => result, error => error)
     try {
       await writesEntered.promise
@@ -913,7 +914,7 @@ describe("Agent Invocation cancel", () => {
     const runId = `terminal-custom-warning-${status}`
     const failure = new Error("Driver failed")
     const driver = vi.fn(() => { if (status === "failed") throw failure; return "Done" })
-    const started = runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
+    const started = runAgentWithContext(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})
     if (status === "failed") await expect(started).rejects.toBe(failure)
     else await expect(started).resolves.toBe("Done")
     expect(driver).toHaveBeenCalledOnce()
@@ -956,7 +957,7 @@ describe("Agent Invocation cancel", () => {
     const store = { ...backing, update: (...args: Parameters<typeof backing.update>) => args[1].status === "running" ? undefined : backing.update(...args) }
     const driver = vi.fn(() => "Must not start")
     const invocations = defineAgentInvocations({ enforcement: "strict", store })
-    await expect(runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})).rejects.toMatchObject({ code: "AGENT_R0973" })
+    await expect(runAgentWithContext(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})).rejects.toMatchObject({ code: "AGENT_R0973" })
     expect(driver).not.toHaveBeenCalled()
     expect(await backing.getSummary(id)).toMatchObject({ status: "failed" })
     expect((await backing.getSummary(id))?.cancelNotEnforcedBy).toBeUndefined()
@@ -992,7 +993,7 @@ describe("Agent Invocation cancel", () => {
     const prepare = vi.fn()
     const runId = `initial-cancellation-timeout-${kind}`
     const agent = defineAgent({ invocations, driver: { capacity: { concurrency: 1 }, run: driver }, capabilities: [defineCapability({ id: "setup", prepare })] })
-    const running = kind === "run" ? runAgent(agent, runtime(runId), {}) : streamAgent(agent, runtime(runId), {})
+    const running = kind === "run" ? runAgentWithContext(agent, runtime(runId), {}) : streamAgentInline(agent, runtime(runId), {})
     const settled = running.then(result => result, error => error)
     try {
       await entered.promise
@@ -1042,7 +1043,7 @@ describe("Agent Invocation cancel", () => {
       capabilities: [defineCapability({ id: "setup", prepare })],
       hooks: { "agent:input": hook },
     })
-    const running = kind === "run" ? runAgent(agent, runtime(runId), {}) : streamAgent(agent, runtime(runId), {})
+    const running = kind === "run" ? runAgentWithContext(agent, runtime(runId), {}) : streamAgentInline(agent, runtime(runId), {})
     const settled = running.then(() => undefined, error => error)
     await entered.promise
     const id = await agentInvocationId(runId)
@@ -1075,7 +1076,7 @@ describe("Agent Invocation cancel", () => {
     }
     const invocations = defineAgentInvocations({ store })
     const driver = vi.fn(() => "Must not run")
-    const running = runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime("startup-cancel"), {})
+    const running = runAgentWithContext(defineAgent({ invocations, driver: { run: driver } }), runtime("startup-cancel"), {})
     const rejection = expect(running).rejects.toThrow()
     await entered.promise
     const id = await agentInvocationId("startup-cancel")
@@ -1094,8 +1095,8 @@ describe("Agent Invocation cancel", () => {
     let secondSignal: AbortSignal | undefined
     const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const firstRun = runAgent(defineAgent({ invocations: first, driver: { run: ({ input }) => { firstSignal = input.abortSignal; return firstRelease.promise } } }), runtime("same-id"), {})
-    const secondRun = runAgent(defineAgent({ invocations: second, driver: { run: ({ input }) => { secondSignal = input.abortSignal; return secondRelease.promise } } }), runtime("same-id"), {})
+    const firstRun = runAgentWithContext(defineAgent({ invocations: first, driver: { run: ({ input }) => { firstSignal = input.abortSignal; return firstRelease.promise } } }), runtime("same-id"), {})
+    const secondRun = runAgentWithContext(defineAgent({ invocations: second, driver: { run: ({ input }) => { secondSignal = input.abortSignal; return secondRelease.promise } } }), runtime("same-id"), {})
     const { id } = await recordWithStatus(first, "same-id", "running")
     await recordWithStatus(second, "same-id", "running")
     await vi.waitFor(() => expect(secondSignal).toBeDefined())
@@ -1116,7 +1117,7 @@ describe("Agent Invocation cancel", () => {
     const invocations = defineAgentInvocations({ store })
     const release = deferred<string>()
     const started = deferred()
-    const run = runAgent(defineAgent({ invocations, driver: { run: () => {
+    const run = runAgentWithContext(defineAgent({ invocations, driver: { run: () => {
       started.resolve()
       return release.promise
     } } }), runtime("expired-owner"), {})
@@ -1166,7 +1167,7 @@ describe("Agent Invocation cancel", () => {
     let ended = false
     let activeTraceLog: import("../src/types.ts").AgentRuntimeContext["traceLog"]
     const runId = `stale-custom-warning-${status}-${renewed}`
-    const run = runAgent(defineAgent({ invocations, driver: { run: async ({ input, traceLog }) => {
+    const run = runAgentWithContext(defineAgent({ invocations, driver: { run: async ({ input, traceLog }) => {
       activeTraceLog = traceLog
       signal = input.abortSignal
       const result = await release.promise
@@ -1248,7 +1249,7 @@ describe("Agent Invocation cancel", () => {
     }
     const invocations = defineAgentInvocations({ store })
     let signal: AbortSignal | undefined
-    const run = runAgent(defineAgent({ invocations, driver: { run: ({ input }) => {
+    const run = runAgentWithContext(defineAgent({ invocations, driver: { run: ({ input }) => {
       signal = input.abortSignal
       return "Done."
     } } }), runtime("finishing-cancel"), {})
@@ -1283,7 +1284,7 @@ describe("Agent Invocation cancel", () => {
       },
     }
     const invocations = defineAgentInvocations({ store })
-    const run = runAgent(defineAgent({ invocations, driver: { run: () => { driverEntered.resolve(); return driverRelease.promise } } }), runtime("terminal-race"), {})
+    const run = runAgentWithContext(defineAgent({ invocations, driver: { run: () => { driverEntered.resolve(); return driverRelease.promise } } }), runtime("terminal-race"), {})
     await driverEntered.promise
     const { id } = await recordWithStatus(invocations, "terminal-race", "running")
     const cancel = invocations.cancel(id)
