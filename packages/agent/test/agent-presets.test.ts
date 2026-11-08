@@ -365,6 +365,8 @@ describe("module-style Agent presets", () => {
     expect(() => defineAgent({ extends: preset, repair: { typo: true } } as never)).toThrow('Unknown Agent repair option "typo"')
     expect(() => defineAgent({ extends: [preset, { typo: true }] } as never)).toThrow('Unknown Agent repair option "typo"')
     expect(() => defineAgent({ extends: preset, options: {}, repair: {} } as never)).toThrow("Select preset options")
-    expect(() => defineAgent({ configKey: "driver", options: {}, configure: () => defineAgent({ driver: codexDriver() }) } as never)).toThrow("non-reserved")
+    for (const configKey of ["driver", "preset", "presets"]) {
+      expect(() => defineAgent({ configKey, options: {}, configure: () => defineAgent({ driver: codexDriver() }) } as never)).toThrow("non-reserved")
+    }
   })
 })

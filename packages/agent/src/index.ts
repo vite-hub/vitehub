@@ -2799,7 +2799,7 @@ export interface DefineAgent {
   ): ConfiguredAgentWorkspace<LayerDefinition<TParent, LayerDataInput<TParent, TSchema>, LayerData<TParent, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>, undefined, undefined, TChannels>
 
   <TOptions extends object, TDefinition extends AgentDefinitionConstraint, const TConfigKey extends string = never>(options: {
-    configKey?: TConfigKey & (TConfigKey extends keyof AgentSettings | "extends" | "options" | "configure" | "configKey" | "resolve" | "run" | "constructor" | "prototype" ? never : unknown)
+    configKey?: TConfigKey & (TConfigKey extends keyof AgentSettings | "extends" | "preset" | "presets" | "options" | "configure" | "configKey" | "resolve" | "run" | "constructor" | "prototype" ? never : unknown)
     options: TOptions & ConfiguredOptionsRecord<TOptions>
     configure: (options: TOptions) => TDefinition
   }): ConfiguredAgentDefinition<TOptions, TDefinition, TConfigKey>

@@ -14,6 +14,10 @@ it("selects a parent with extends and rejects preset selection", () => {
   defineAgent({ preset: "notes", presets: { notes } })
   // @ts-expect-error A parent must be an Agent Definition.
   defineAgent({ extends: { driver: codexDriver() } })
+  // @ts-expect-error Legacy selection keys remain reserved as named option blocks.
+  defineAgent({ configKey: "preset", options: {}, configure: () => notes })
+  // @ts-expect-error Legacy selection keys remain reserved as named option blocks.
+  defineAgent({ configKey: "presets", options: {}, configure: () => notes })
 })
 
 it("types preset options, nested overrides and chained definitions", () => {

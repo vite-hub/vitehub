@@ -554,7 +554,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
     throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
   }
   if (input.configKey !== undefined && (!hasRuntimeType(input.configKey, "string") || !/^[a-z][a-zA-Z0-9]*$/.test(input.configKey)
-    || ["extends", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "sandbox", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
+    || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "sandbox", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
     throw new TypeError("[vitehub] Agent configKey must be a non-reserved configuration key.")
   }
   const configKey = hasRuntimeType(input.configKey, "string") ? input.configKey : undefined

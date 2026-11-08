@@ -88,9 +88,9 @@ Read [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent)
 
 ### Named presets
 
-Use `preset` and `presets` to select a locally imported definition by name. Select one parent with either `preset` or `extends`.
+Pass the imported Agent Definition as `extends`. Set its typed options with `options` or its named configuration block.
 
-Choose a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#named-presets) with typed options and a `configure` callback.
+Choose a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#presets-from-a-package) with typed options and a `configure` callback.
 
 ## Return structured output
 
@@ -198,7 +198,7 @@ Discovered Agents use the active host's Workflow integration by default. Set `ru
 
 | Option | Purpose |
 | --- | --- |
-| `extends`, `preset`, `presets` | Reuse one parent Definition. See [Agent presets and inheritance](/docs/agents/agent-presets). |
+| `extends` | Reuse one parent Definition. See [Agent presets and inheritance](/docs/agents/agent-presets). |
 | `options`, `configure`, `configKey` | Expose typed settings on a reusable Agent preset. |
 | `driver` | Required unless inherited. Selects one built-in provider, model-backed, or custom-run execution path. |
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |

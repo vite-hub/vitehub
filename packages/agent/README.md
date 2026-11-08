@@ -639,7 +639,7 @@ Discovery rejects Channel option bindings that are mutated or passed to opaque c
 
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook. Option callbacks are values and are also replaced, never invoked by merging.
 
-Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+Publish the exported definition on npm, import it, and pass it as `extends`. There is no second preset factory or global package loader.
 
 
 

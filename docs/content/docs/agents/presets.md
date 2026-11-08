@@ -59,7 +59,7 @@ An extension gets a fresh runtime. Matching Capabilities and Channels replace in
 
 Export a definition created with `defineAgent()`. Add typed `options` and a synchronous `configure` callback when consumers need workflow settings. Keep credentials and network calls out of that callback.
 
-Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Named presets](/docs/agents/agent-presets#named-presets) for the authoring API.
+Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Presets from a package](/docs/agents/agent-presets#presets-from-a-package) for the authoring API.
 
 A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process`. List the preset subpath in the `vitehub.agent.processHost` field of your package.json, so that ViteHub starts the host and rejects hosts that cannot run it. List subpaths that select the Codex or Claude Code Driver in `vitehub.agent.providerDriver`, so that Worker builds fail early:
 
