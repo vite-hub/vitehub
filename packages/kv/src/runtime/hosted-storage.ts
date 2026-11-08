@@ -53,11 +53,16 @@ function serializeValue(value: unknown): string {
   throw new TypeError("KV cannot serialize this value.")
 }
 
-export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
+export function resolveHostedKVStore(config: false | ResolvedKVModuleOptions | undefined, name = "default") {
   const resolved = assertHostedConfig(config)
   const stores = resolved.stores || { default: resolved.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
   if (!store) throw kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store: name })
+  return store
+}
+
+export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
+  const store = resolveHostedKVStore(config, name)
   const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } })
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createKVStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
   // SAFETY: createKVStorage supplies the base methods, and this boundary installs the required listKeys method before returning.

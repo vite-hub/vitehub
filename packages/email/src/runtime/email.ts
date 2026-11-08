@@ -12,13 +12,13 @@ let client = definition ? createEmail(definition) : undefined
 
 export const email: EmailClient = {
   async send(message) {
-    // In app tests, the outbox of `vite-hub/test` receives every message, and no provider runs.
-    const test = getViteHubTestMode()
-    if (test) return await test.backend("email", createTestEmail).send(message)
     const generated = (globalThis as typeof globalThis & { [runtimeDefinition]?: typeof definition })[runtimeDefinition]
     client ??= generated ? createEmail(generated) : undefined
     // A missing provider is a config error, so it throws.
     if (!client) throw emailErrorDiagnostics.EMAIL_NOT_CONFIGURED({})
+    // In app tests, the outbox of `vite-hub/test` receives every message, and no provider runs.
+    const test = getViteHubTestMode()
+    if (test) return await test.backend("email", createTestEmail).send(message)
     return await client.send(message)
   },
 }

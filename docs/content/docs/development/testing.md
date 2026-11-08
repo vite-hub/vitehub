@@ -1,6 +1,6 @@
 ---
 title: Testing
-description: Test server routes that use KV, Blob, Database, Queue, Workflow, Schedule, Email, Rate Limit, Server Env, and Agent Channels, with no mocks and no provider account.
+description: Test server routes with local storage, captured emails, Queue jobs and Workflow runs, plus Schedule and Agent Channel helpers, without a provider account.
 navigation.order: 34
 navigation.group: Proof and recovery
 icon: i-lucide-flask-conical
@@ -14,7 +14,9 @@ Call `setupViteHubTest()` once in the test file, and `reset()` before each test.
 
 Test mode is shared by the process. Run tests in the same file in sequence; `test.concurrent()` and `describe.concurrent()` are not supported. Keep separate app roots in separate test processes.
 
-```ts [test/signup.test.ts]
+The test examples import routes and Definitions from your app. Adapt those imports and the Database schema to your project.
+
+```ts [test/signup.test.ts] fragment
 import { H3 } from 'h3'
 import { beforeEach, expect, test } from 'vitest'
 import { useDatabase } from 'vite-hub/database/drizzle'
@@ -88,7 +90,7 @@ To run a Queue handler, import its Definition and call the handler with a job fr
 
 Import the Schedule Definition and pass it to `hub.runSchedule()`. The handler runs as if its cron fired at `scheduledAt`, with the test backends of the other Primitives. The promise resolves after the work that the handler starts with `waitUntil()`, and rejects with the handler's error.
 
-```ts [test/reset-signups.test.ts]
+```ts [test/reset-signups.test.ts] fragment
 import { expect, test } from 'vitest'
 import { kv } from 'vite-hub/kv'
 import { setupViteHubTest } from 'vite-hub/test'
@@ -111,7 +113,7 @@ test('the nightly Schedule resets the counter', async () => {
 
 `hub.deliverChannel()` sends one webhook delivery to an Agent Channel, as the provider would. It returns the webhook response after the Agent run and its replies finish. Pass the header that the Channel checks.
 
-```ts [test/telegram.test.ts]
+```ts [test/telegram.test.ts] fragment
 import { expect, test } from 'vitest'
 import { setupViteHubTest } from 'vite-hub/test'
 

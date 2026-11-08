@@ -140,21 +140,26 @@ async function withServedBlobUrl(name: string, object: BlobObject): Promise<Blob
   return url ? { ...object, url } : object
 }
 
-function resolveStorage(name = "default"): Promise<BlobStorage> {
+function resolveBlobStorageConfig(config: false | ResolvedBlobModuleOptions, name: string) {
+  if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
+  const stores = config.stores || { default: config.store }
+  const store = Object.hasOwn(stores, name) ? stores[name] : undefined
+  if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
+  return { ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }
+}
+
+async function resolveStorage(name = "default"): Promise<BlobStorage> {
   // In app tests, each store is a fresh fs folder that the next reset deletes.
   const test = getViteHubTestMode()
   if (test) {
+    resolveBlobStorageConfig(await getBlobRuntimeConfig(), name)
     return test.backend(`blob:${name}`, async () => {
       const store = { base: await test.directory(`blob-${name}`), driver: "fs" } as const
       return await createConfiguredBlobStorage({ store }, name)
     })
   }
   return resolveNamedBlobRuntimeStorage(name, async (config) => {
-    if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
-    const stores = config.stores || { default: config.store }
-    const store = Object.hasOwn(stores, name) ? stores[name] : undefined
-    if (!store) throw new UnknownBlobStoreError(`Unknown Blob store "${name}".`)
-    return await createConfiguredBlobStorage({ ...(config.images === undefined ? {} : { images: config.images }), store, stores: { default: store, [name]: store } }, name)
+    return await createConfiguredBlobStorage(resolveBlobStorageConfig(config, name), name)
   })
 }
 

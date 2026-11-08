@@ -85,7 +85,9 @@ const resolvedDatabases = Object.fromEntries(
     name,
     {
       // Postgres entries bring their own client and keep it in tests.
-      db: entry.db ?? withTestDatabase(name, entry.schema, entry.config?.migrationsDir, createRuntimeDatabase(entry.config, entry.schema, name)),
+      db: entry.db ?? (entry.config
+        ? withTestDatabase(name, entry.schema, entry.config.migrationsDir, createRuntimeDatabase(entry.config, entry.schema, name))
+        : createMissingDatabaseProxy(name)),
       schema: entry.schema,
     } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
   ]),
@@ -94,7 +96,7 @@ const resolvedDatabases = Object.fromEntries(
 }
 
 const defaultDatabaseEntry = resolvedDatabases.default || {
-  db: withTestDatabase("default", {}, undefined, createMissingDatabaseProxy("default")),
+  db: createMissingDatabaseProxy("default"),
   schema: {},
 }
 

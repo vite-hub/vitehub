@@ -8,7 +8,7 @@ import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
-import { createHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
+import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvStoreWithMode } from "../store-mode.ts"
 
@@ -78,6 +78,7 @@ async function resolveStorage(name = "default") {
   // In app tests, each store is a fresh fs-lite folder that the next reset deletes.
   const test = getViteHubTestMode()
   if (test) {
+    resolveHostedKVStore(await resolveHostedConfig(), name)
     return await test.backend(`kv:${name}`, async () => createHostedKVStorage({
       store: { base: await test.directory(`kv-${name}`), driver: "fs-lite" },
     }, "default"), storage => storage.dispose())
