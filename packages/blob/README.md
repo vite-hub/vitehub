@@ -79,6 +79,10 @@ On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_I
 `vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as Vercel Blob, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
 
 ```ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: { remote: true },
   plugins: [hubBlob(), nitro()],
@@ -108,6 +112,9 @@ if (detected !== file.type) throw new Error("File content does not match its dec
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "fs",
@@ -138,6 +145,8 @@ Filesystem listings skip child directories removed or replaced by files during t
 `blob.store(name, { mode: "read" })` returns a `ReadonlyBlobStorage` handle with `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`. Another value throws `BLOB_R0038`, and a `PUT` sign request throws `BLOB_R0037`.
 
 ```ts
+import { blob } from "@vite-hub/blob"
+
 const reports = blob.store("reports", { mode: "read" })
 const [error, file] = await reports.get("2026/q1.pdf")
 ```
@@ -161,7 +170,7 @@ Browser clients:
 
 `image()` and `file()` return [Standard Schema](https://standardschema.dev) validators for a stored pointer to one object: `{ pathname, contentType?, size? }`. They accept a `BlobObject` from `put()` or `handleUpload()` and drop its other fields. They reject unsafe pathnames, such as absolute paths and `..` segments, and they check `accept` against `contentType` and `maxSize` against the recorded `size`. They don't read the store.
 
-```ts
+```ts fragment
 import { file, image } from "@vite-hub/blob"
 
 const cover = image({ store: "media", maxSize: "8MB" }) // accepts image/* by default
@@ -178,7 +187,9 @@ The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Z
 
 `blob.media` keeps a JSON record next to each object under `_vitehub/media/records/`: dimensions read from the file header, a SHA-256 hash, alt text, a caption, a focal point, a placeholder color, and named crops. Records work on every driver, including drivers without custom metadata.
 
-```ts
+This excerpt uses an uploaded `file` from your app.
+
+```ts fragment
 import { blob, responsiveImage } from "@vite-hub/blob"
 
 const [, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
@@ -241,6 +252,9 @@ pnpm add @aws-sdk/lib-storage
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "s3",
@@ -265,6 +279,9 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "minio",
@@ -286,7 +303,7 @@ The Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` env nam
 
 You can also keep the config self-contained:
 
-```ts
+```ts fragment
 blob: {
   driver: "minio",
   accessKeyId: process.env.MINIO_ROOT_USER,

@@ -85,7 +85,7 @@ export default defineOutboundChannel({
 
 Each connector also accepts `{ adapter }` with your own adapter or a function that returns it. A connector without `thread` support throws a `TypeError` for a send with `thread`.
 
-```ts
+```ts fragment
 const [error] = await useChannel('teams').send('**Build failed**', {
   recipient: teamsChannelThreadId,
   thread: { key: `build:${buildId}`, root: `Build ${buildId}` },
@@ -104,7 +104,7 @@ if (error) throw error
 
 Use `update` to keep one message current, such as a status card that changes as work progresses:
 
-```ts
+```ts fragment
 const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
   recipient: teamsChannelThreadId,
   idempotencyKey: `build:${buildId}:status`,
@@ -115,7 +115,7 @@ if (error) throw error
 
 Use `replace` to remove a temporary message when the final message must be new. Teams and Slack do not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
 
-```ts
+```ts fragment
 const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}`, root: `Ticket ${ticketId}` } }
 const [draftingError] = await useChannel('teams').send('Drafting a suggested reply...', { ...options, idempotencyKey: `ticket:${ticketId}:drafting` })
 if (draftingError) throw draftingError
