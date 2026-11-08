@@ -251,7 +251,8 @@ validation and updates the local file if it still contains the submitted bytes.
 Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
-`vitehub hooks install` adds a pre-commit hook that fails on conflicts and a pre-push hook
+`vitehub hooks install` adds a pre-commit hook that checks the staged files and working
+tree for conflicts, and a pre-push hook
 that runs `vitehub push` when Git pushes the default branch. When that push changes
 `vitehub.lock` or pulls files, the hook fails: commit the changes and push again.
 See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).

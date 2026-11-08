@@ -211,6 +211,49 @@ describe("vitehub hooks", () => {
     expect(blocked.stderr).toContain("a checkout folder has conflicts, so Git stops this commit")
   })
 
+  it.each(["", "docs site/it's"])("checks the staged checkout files when the working tree is resolved, in project %j", async (project) => {
+    const { rootDir } = await repository(project)
+    await writeFile(join(rootDir, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { site: { dir: "content", files: {}, head: "r1", ref: "draft" } } }))
+    await mkdir(join(rootDir, "content/posts"), { recursive: true })
+    const path = "content/posts/guide with space.md"
+    const conflict = "<<<<<<< local\na\n=======\nb\n>>>>>>> draft r2\n"
+    await writeFile(join(rootDir, path), conflict)
+    await exec("git", ["add", "--", path], { cwd: rootDir })
+    await writeFile(join(rootDir, path), "Resolved\n")
+
+    const blocked = await run("pre-commit", rootDir)
+
+    expect(blocked).toMatchObject({ code: 1, stderr: expect.stringContaining("  conflict  posts/guide with space.md\n") })
+    expect(blocked.stderr).toContain("a checkout folder has conflicts, so Git stops this commit")
+    expect((await exec("git", ["show", `:./${path}`], { cwd: rootDir })).stdout).toBe(conflict)
+
+    await exec("git", ["add", "--", path], { cwd: rootDir })
+    expect(await run("pre-commit", rootDir)).toMatchObject({ code: 0, stderr: "" })
+    // A staged deletion has no blob left to check.
+    await exec("git", ["rm", "--cached", "--", path], { cwd: rootDir })
+    expect(await run("pre-commit", rootDir)).toMatchObject({ code: 0, stderr: "" })
+  })
+
+  it("checks only checkout paths in the index, while retaining binary conflicts from the lock", async () => {
+    const { rootDir } = await repository()
+    const lock = { version: 1, workspaces: { site: { dir: "content", files: {}, head: "r1", ref: "draft", conflicts: [] as string[] } } }
+    await writeFile(join(rootDir, "vitehub.lock"), JSON.stringify(lock))
+    const conflict = "<<<<<<< local\na\n=======\nb\n>>>>>>> draft r2\n"
+    for (const dir of ["content/Node_Modules", "content-copy"]) {
+      await mkdir(join(rootDir, dir), { recursive: true })
+      await writeFile(join(rootDir, dir, "guide.md"), conflict)
+      await exec("git", ["add", "-f", "--", `${dir}/guide.md`], { cwd: rootDir })
+    }
+    // Marker-like text in documentation is not a complete conflict.
+    await writeFile(join(rootDir, "content/guide.md"), "<<<<<<< local\nExample\n")
+    await exec("git", ["add", "--", "content/guide.md"], { cwd: rootDir })
+    expect(await run("pre-commit", rootDir)).toMatchObject({ code: 0, stderr: "" })
+
+    lock.workspaces.site.conflicts.push("image.png")
+    await writeFile(join(rootDir, "vitehub.lock"), JSON.stringify(lock))
+    expect(await run("pre-commit", rootDir)).toMatchObject({ code: 1, stderr: expect.stringContaining("  conflict  image.png\n") })
+  })
+
   it("pushes the checkout folders only when Git pushes the default branch", async () => {
     const { rootDir } = await repository()
     await writeFile(join(rootDir, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { site: { dir: "content", files: {}, head: "r1", ref: "draft", remote: "https://docs.example.test" } } }))

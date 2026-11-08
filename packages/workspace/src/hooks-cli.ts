@@ -4,7 +4,7 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join, relative, resolve, sep } from "node:path"
 import { promisify } from "node:util"
 
-import { assertNoSymlinks, folderOf, formatWorkspaceStatus, ignoredName, localCheckoutStatus, WorkspaceCheckoutError, workspaceLockFile } from "./checkout.ts"
+import { assertNoSymlinks, conflictMarkerPatterns, folderOf, formatWorkspaceStatus, ignoredName, localCheckoutStatus, WorkspaceCheckoutError, workspaceLockFile } from "./checkout.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
 
 import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
@@ -276,6 +276,24 @@ async function prePushChecked(context: WorkspaceCheckoutCliContext, options: Wor
   return 1
 }
 
+/** Text conflicts in the index, including files resolved only in the working tree. Paths are relative to the checkout. */
+async function stagedCheckoutConflicts(top: string, folder: string): Promise<string[]> {
+  const dir = relative(top, folder).split(sep).join("/")
+  try {
+    const { stdout } = await exec("git", [
+      "grep", "--cached", "-I", "--name-only", "--null", "--full-name", "--all-match", "--extended-regexp",
+      ...conflictMarkerPatterns.flatMap(pattern => ["-e", pattern]),
+      "--", `:(literal)${dir}`,
+    ], { cwd: top, env: { ...process.env, LC_ALL: "C" } })
+    return stdout.split("\0").filter(Boolean).map(path => path.slice(dir.length + 1)).filter(path => !path.split("/").some(ignoredName))
+  }
+  catch (error) {
+    // Git grep exits with 1 when no file matches. Other failures must stop the commit.
+    if ((error as { code?: number }).code === 1) return []
+    throw error
+  }
+}
+
 async function preCommit(context: WorkspaceCheckoutCliContext): Promise<number> {
   try {
     if (!await hasCheckouts(context.rootDir)) return 0
@@ -283,7 +301,15 @@ async function preCommit(context: WorkspaceCheckoutCliContext): Promise<number> 
   catch (error) {
     return fail(context, error)
   }
-  const conflicted = (await localCheckoutStatus(context.rootDir) ?? []).filter(status => status.local.conflicted.length)
+  const statuses = await localCheckoutStatus(context.rootDir) ?? []
+  const repo = await repository(context.rootDir)
+  if (repo) {
+    for (const status of statuses) {
+      const staged = await stagedCheckoutConflicts(repo.top, folderOf(context.rootDir, status.dir))
+      status.local.conflicted = [...new Set([...status.local.conflicted, ...staged])].sort()
+    }
+  }
+  const conflicted = statuses.filter(status => status.local.conflicted.length)
   if (!conflicted.length) return 0
   context.stderr.write(`${conflicted.map(formatWorkspaceStatus).join("")}vitehub: a checkout folder has conflicts, so Git stops this commit. Resolve them, then commit again.\n`)
   return 1

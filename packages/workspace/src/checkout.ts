@@ -48,8 +48,9 @@ type Bytes = Uint8Array
 // ignores case and trailing dots and spaces, because Windows opens `NODE_MODULES` and `node_modules.` as
 // `node_modules`, and macOS ignores case. A remote path can come from any system, so the match is the same everywhere.
 const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
-const conflictStart = /^<{7}(?: |$)/m
-const conflictEnd = /^>{7}(?: |$)/m
+/** Line patterns shared by working-tree scans and Git index searches. */
+export const conflictMarkerPatterns = ["^<{7}( |\r?$)", "^>{7}( |\r?$)"]
+const conflictMarkers = conflictMarkerPatterns.map(pattern => new RegExp(pattern, "m"))
 
 /** The suffix of the temporary file of an atomic write. A command that stopped before the rename leaves one behind. */
 const temporarySuffix = ".vitehub-tmp"
@@ -138,7 +139,7 @@ function encode(bytes: Bytes): { content: string, encoding: "base64" | "utf8" } 
 
 /** True when a text file still has Git conflict markers. */
 function hasConflictMarkers(content: string): boolean {
-  return conflictStart.test(content) && conflictEnd.test(content)
+  return conflictMarkers.every(pattern => pattern.test(content))
 }
 
 function lines(value: string): string[] {
