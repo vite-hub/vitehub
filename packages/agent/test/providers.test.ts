@@ -73,7 +73,7 @@ vi.mock("../src/internal/provider-runtime-packages.ts", async (importOriginal) =
   return { ...original, resolveProviderRuntimePackages: vi.fn(original.resolveProviderRuntimePackages) }
 })
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const execFileAsync = promisify(execFile)
 
@@ -1536,17 +1536,19 @@ describe("agent Vite plugin", () => {
     const handlers = (result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers
     const webhook = {
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
     }
 
     expect(handlers).toEqual([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), route: "/api/_vitehub/ready" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/api/_vitehub/ready" },
       {
         handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+        lazy: true,
         route: "/api/_vitehub/agents/:agent/chat",
       },
       webhook,
-      { handler: join(hostedAgentRoot, ".vitehub/agent/declared-webhook-route.ts"), middleware: true, route: "/**" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/declared-webhook-route.ts"), lazy: true, middleware: true, route: "/**" },
     ])
   })
 
@@ -1558,6 +1560,7 @@ describe("agent Vite plugin", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/internal/agents/:agent/status",
     })
   })
@@ -1605,7 +1608,7 @@ describe("agent Vite plugin", () => {
         return JSON.stringify(config)
       }
       const handler = join(root, ".vitehub", "agent", "invocations-dev-handler.ts")
-      expect(await configFor("serve")).toContain(JSON.stringify({ handler, route: "/_vitehub/agent/invocations/dev" }))
+      expect(await configFor("serve")).toContain(JSON.stringify({ handler, route: "/_vitehub/agent/invocations/dev", lazy: true }))
       expect(await configFor("build")).not.toContain("invocations-dev-handler")
 
       const configResolvedHook: unknown = hubAgent().configResolved
@@ -1810,7 +1813,7 @@ describe("agent Vite plugin", () => {
     const plugin = hubAgent({ routes: { aliases: { "/api/github/webhook": { agent: "support", webhook: "github" } } } })
     const result = await resolveAgentViteConfig(plugin, { root: hostedAgentRoot })
     expect(result).toMatchObject({ nitro: { handlers: expect.arrayContaining([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"), route: "/api/github/webhook" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"), lazy: true, route: "/api/github/webhook" },
     ]) } })
   })
 
@@ -1966,10 +1969,12 @@ describe("agent Vite plugin", () => {
         handlers: expect.arrayContaining([
           {
             handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+            lazy: true,
             route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
           },
           {
             handler: join(hostedAgentRoot, ".vitehub/agent/discord-gateway-route.ts"),
+            lazy: true,
             route: "/api/_vitehub/agents/:agent/discord/gateway",
           },
         ]),
@@ -2515,10 +2520,12 @@ describe("agent Vite plugin", () => {
 
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
     })
     expect(output.nitro?.cloudflare).toBeUndefined()
@@ -2578,10 +2585,12 @@ describe("agent Vite plugin", () => {
 
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      lazy: true,
       route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
     })
     expect(output.nitro?.cloudflare).toBeUndefined()

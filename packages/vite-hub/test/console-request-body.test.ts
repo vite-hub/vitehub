@@ -32,7 +32,7 @@ const adapters = {
 
 describe("Console request bodies", () => {
   it.each([null, { collection: "posts" }])("reads an action body from Standard Context: %j", async (body) => {
-    const req = new Request("http://vitehub.local/api/_vitehub/console/documents", {
+    const req = new Request("http://vitehub.local/_vitehub/api/documents", {
       method: "POST",
       body: JSON.stringify(body),
     })
@@ -41,7 +41,7 @@ describe("Console request bodies", () => {
   })
 
   it("rejects a request with no JSON body", async () => {
-    const req = new Request("http://vitehub.local/api/_vitehub/console/documents", { method: "POST" })
+    const req = new Request("http://vitehub.local/_vitehub/api/documents", { method: "POST" })
     await expect(consoleRequestJSON(requestEvent(req))).rejects.toBeInstanceOf(SyntaxError)
   })
 

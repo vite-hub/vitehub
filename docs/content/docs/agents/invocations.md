@@ -42,7 +42,7 @@ Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub 
 
 For an Agent with `runtime: false`, the shortest call returns an error/result tuple:
 
-```ts
+```ts fragment
 import { runAgent } from 'vite-hub/agent'
 import support from './agents/support'
 
@@ -94,7 +94,7 @@ The second argument is [Runtime Context](/docs/reference/runtime-context); the t
 
 For a script or direct invocation, pass the invocation input as the second argument:
 
-```ts
+```ts fragment
 const [error, result] = await runAgent(support, { prompt: 'Summarize the support policy.' })
 if (error) throw error
 ```
@@ -214,7 +214,7 @@ Set `defineAgent({ data })` when callers pass structured values. ViteHub validat
 
 Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
@@ -336,7 +336,7 @@ For a scheduled invocation, pass the schedule context and request a drained resu
 
 Trusted code can install tools for one inline invocation with the options argument: `runAgent(agent, runtimeContext, input, { tools: { send_message: toolDefinition } })`. For a standalone scheduled call, `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition }, output: 'drained' })` returns `[error, text]` after the stream finishes. These tools join the agent's tool set for that invocation and are never serialized into `input`. A name collision with an existing tool fails setup. Callable tools select inline execution when the agent only has a host-discovered Workflow default; an explicit `workflow(...)` binding rejects them before starting. Workflow runs continue to return a Workflow Run for calls with a Runtime Context, so `output: 'drained'` only drains inline output.
 
-A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module at startup on Node, Cloudflare, and Vercel. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
+A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module on its first request, not at startup. A run that starts before any request, such as a Schedule on a new Worker, loads the module before it runs. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
 
 To give one invocation more Agent Capabilities, pass them in `capabilities`: `runAgent(agent, { prompt }, { schedule, output: 'drained', capabilities: [delivery] })`. They join the run after the agent's own Capabilities. The Agent Definition does not change, and a later run without the option does not get them. Use this when a background job runs one registered agent with job-specific tools, such as a delivery tool, so that you do not define one agent for each job. A Capability id that the agent already uses fails setup. These Capabilities cannot add triggers, Workspace Sources, or chat access, because those are fixed when the agent is defined. Like invocation tools, they select inline execution, and an explicit `workflow(...)` binding rejects them before starting.
 

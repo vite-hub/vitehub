@@ -109,7 +109,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "nuxt": "catalog:nuxt-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/agent": {

@@ -18,7 +18,7 @@ export interface TrustedHostResources {
 }
 
 const diagnostics = defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/sandbox/diagnostics",
   codes: {
     SANDBOX_R0157: { why: ({ message }: { message: string }) => message },
     SANDBOX_R0158: { why: ({ message }: { message: string }) => message },
