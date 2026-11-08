@@ -103,10 +103,12 @@ const optionRequires: Readonly<Record<string, { value: string, feature: FeatureI
 
 /** The options that `vitehub add` needs for a feature on a host, beyond the `explicit` option of the catalog. */
 function requiredInputs(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
+  if (id === "blob" && host === "deno") return [{ feature: id, path: "blob.bucket", placeholder: "app-assets", detail: "The bucket in your S3-compatible store." }]
   if (id === "console") return [{ feature: id, path: "console.auth", choices: ["token"], detail: "The hosted Console signs in with the key of the one-time link. App sign-in needs a session on the app's origin." }]
   if (id === "logs") return [{ feature: id, path: "logs.source", placeholder: "./server/logs.ts", detail: "The server module that exports your LogSource. Add this module before you build the app." }]
   if (id === "observability") return [{ feature: id, path: "observability.service", placeholder: packageNameOf(dir), detail: "The service name in the telemetry of the app." }]
   if (id === "schedule" && host === "node") return [{ feature: id, path: "schedule.runtime.driver", choices: ["process"], detail: "A Node server runs Schedules in its own process." }]
+  if (id === "workspace" && (host === "deno" || host === "netlify")) return [{ feature: id, path: "workspace.store.repository", placeholder: "owner/repo", detail: "The GitHub repository that stores your Workspaces." }]
   return []
 }
 
@@ -325,10 +327,12 @@ export function newProjectPrompt(stack: NewProjectStack, ticket: ConsolePendingL
   return [
     `Create a ViteHub app in the folder ${stack.dir}.`,
     "",
-    "1. Run this command. It creates the app and links it to my ViteHub Console:",
+    "1. Run this command. It creates the app and prepares its ViteHub Console link:",
     "",
     command,
     "",
-    "2. Deploy the app. Then give me the link that the command printed. I open it in my browser to link the app.",
+    stack.host === "node"
+      ? `2. Open the app folder and deploy the Node.js app with VITEHUB_CONSOLE_TOKEN_SHA256 set to ${ticket.verifier}. Give me https://console.vitehub.dev/link#p=${encodeURIComponent(ticket.pendingId)}&url=<app-origin>, replacing <app-origin> with the URL-encoded origin of the deployed app. I open that link in my browser to link the app.`
+      : "2. Open the app folder and run pnpm vitehub deploy. This sets up the Console key and prints a link. Give me that link. I open it in my browser to link the app.",
   ].join("\n")
 }

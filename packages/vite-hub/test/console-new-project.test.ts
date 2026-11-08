@@ -13,6 +13,7 @@ import {
   shellQuote,
   withNewProjectDefaults,
 } from "../src/console/runtime/client/new-project.ts"
+import { parseConsoleLinkFragment } from "../src/console/runtime/client/pending-links.ts"
 import { isConsoleNewProjectPath } from "../src/console/runtime/client/project-session.ts"
 
 import type { NewProjectStack } from "../src/console/runtime/client/new-project.ts"
@@ -118,6 +119,24 @@ describe("planNewProject", () => {
       expect(newProjectCommand(filled, ticket)).toContain(" --option logs.source=./server/logs.ts ")
       expect(readNewProjectQuery(newProjectQuery(filled))).toEqual(filled)
     }
+  })
+
+  it.each([
+    { host: "deno", feature: "blob", providerPath: "blob.driver", provider: "s3", path: "blob.bucket", input: "app-assets" },
+    { host: "deno", feature: "workspace", providerPath: "workspace.store.provider", provider: "github", path: "workspace.store.repository", input: "owner/repo" },
+    { host: "netlify", feature: "workspace", providerPath: "workspace.store.provider", provider: "github", path: "workspace.store.repository", input: "owner/repo" },
+  ] as const)("requires $path for $feature on $host before printing a command", ({ host, feature, providerPath, provider, path, input }) => {
+    const value = stack({ host, features: [feature] })
+    expect(value.options[providerPath]).toBe(provider)
+    expect(planNewProject(value).problems).toEqual([
+      { field: "option", path, message: `Enter a value for ${path}.` },
+    ])
+    expect(newProjectCommand(value, ticket)).toBeUndefined()
+
+    const filled = { ...value, options: { ...value.options, [path]: input } }
+    expect(planNewProject(filled).problems).toEqual([])
+    expect(newProjectCommand(filled, ticket)).toContain(` --option ${providerPath}=${provider} --option ${path}=${input} `)
+    expect(readNewProjectQuery(newProjectQuery(filled))).toEqual(filled)
   })
 
   it("rejects a value that is not one of the choices", () => {
@@ -241,12 +260,24 @@ describe("newProjectCommand", () => {
 })
 
 describe("newProjectPrompt", () => {
-  it("asks an agent to run the command, deploy, and hand back the link", () => {
-    const value = stack({ host: "cloudflare", features: ["kv"] })
+  it.each(["cloudflare", "vercel", "netlify", "deno"] as const)("asks an agent to run the command, deploy to %s, and hand back the link", (host) => {
+    const value = stack({ host })
     const prompt = newProjectPrompt(value, ticket)!
     expect(prompt.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app.")
     expect(prompt).toContain(`\n\n${newProjectCommand(value, ticket)}\n\n`)
-    expect(prompt.split("\n").at(-1)).toBe("2. Deploy the app. Then give me the link that the command printed. I open it in my browser to link the app.")
+    expect(prompt.split("\n").at(-1)).toBe("2. Open the app folder and run pnpm vitehub deploy. This sets up the Console key and prints a link. Give me that link. I open it in my browser to link the app.")
+  })
+
+  it("gives Node.js the hash and return link for a manual deploy", () => {
+    const value = stack({ host: "node" })
+    const prompt = newProjectPrompt(value, ticket)!
+    expect(prompt).toContain(`VITEHUB_CONSOLE_TOKEN_SHA256 set to ${ticket.verifier}`)
+    expect(prompt).toContain(`https://console.vitehub.dev/link#p=${ticket.pendingId}&url=<app-origin>`)
+    expect(prompt).toContain("URL-encoded origin of the deployed app")
+    expect(prompt).not.toContain("pnpm vitehub deploy")
+    const link = prompt.match(/https:\/\/console\.vitehub\.dev\/link#\S+<app-origin>/u)![0]
+    const url = new URL(link.replace("<app-origin>", encodeURIComponent("https://my-app.example.com")))
+    expect(parseConsoleLinkFragment(url.hash)).toMatchObject({ kind: "confirm", pendingId: ticket.pendingId, target: { origin: "https://my-app.example.com" } })
   })
 
   it("is undefined for a stack with problems", () => {

@@ -429,7 +429,10 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
           <p v-else class="p-3 text-sm text-muted">{{ plan.problems[0]?.message ?? "Making the link…" }}</p>
         </div>
         <span class="sr-only" aria-live="polite">{{ copied ? `${mode === "prompt" ? "Prompt" : "Command"} copied` : "" }}</span>
-        <p v-if="mode === 'command' && commandParts" class="vitehub-new-project__text">Run it, deploy the app, then open the link that it prints in this browser.</p>
+        <p v-if="mode === 'command' && commandParts && ticket" class="vitehub-new-project__text break-words">
+          <template v-if="stack.host === 'node'">Run it, then deploy the Node.js app with <code class="font-mono">VITEHUB_CONSOLE_TOKEN_SHA256</code> set to <code class="font-mono">{{ ticket.verifier }}</code>. Open <code class="font-mono">https://console.vitehub.dev/link#p={{ encodeURIComponent(ticket.pendingId) }}&amp;url=&lt;app-origin&gt;</code> in this browser, with <code class="font-mono">&lt;app-origin&gt;</code> replaced by the URL-encoded origin of the deployed app.</template>
+          <template v-else>Run it, then open the app folder and run <code class="font-mono">pnpm vitehub deploy</code>. This sets up the Console key and prints a link. Open that link in this browser.</template>
+        </p>
       </aside>
     </form>
   </div>

@@ -356,7 +356,7 @@ The hosted Console can start a new app for you. It needs a `vite-hub` release wi
 pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --console <id>:sha256:<verifier> --yes
 ```
 
-5. Deploy the app, then open the link that the CLI prints in the same browser. See [Link a new project](#link-a-new-project).
+5. On Cloudflare, Vercel, Netlify, or Deno, open the app folder and run `pnpm vitehub deploy`. This sets up the Console key on the host and prints a link. Open that link in the same browser. For Node.js, deploy the app with `VITEHUB_CONSOLE_TOKEN_SHA256` set to the verifier from `--console`. Open `https://console.vitehub.dev/link#p=<id>&url=<app-origin>` in the same browser, with `<id>` from `--console` and `<app-origin>` replaced by the URL-encoded origin of the deployed app. See [Link a new project](#link-a-new-project).
 
 The address of the page holds the stack: the folder, the host, the features, and non-private options, such as `/new?host=vercel&features=email&option=email.driver%3Dresend`. Database connection URLs can contain credentials, so they stay only in page memory and the generated command. Enter them again after a reload or when you open a shared link. The `--console` value is not in the address, because its link works only in the browser that made it. When you change the stack after the command appears, the command changes and keeps the same link.
 
