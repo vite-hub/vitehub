@@ -482,14 +482,48 @@ A project with `console: { auth: "app" }` signs the Console in with its own Auth
 - `consoleMcpOAuth()` in the app Auth, with `@better-auth/cimd` installed.
 - The Console origin in `console.origins`. The default, `["https://console.vitehub.dev"]`, allows the hosted Console. The app accepts the OAuth client of a Console only on an `https://` origin in this list.
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  auth: true,
-  console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.vitehub.dev'] },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.vitehub.dev'] },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.vitehub.dev'] },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.vitehub.dev'] },
+  })],
+})
+```
+:::
+::
 
 To link it:
 

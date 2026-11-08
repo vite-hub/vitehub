@@ -99,6 +99,31 @@ On the Cloudflare preset, a store uses the KV binding of the dev runtime when th
 
 Set `remote: true` to use the real store in development:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    kv: { remote: true },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ kv: { remote: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -107,6 +132,8 @@ export default defineConfig({
   plugins: [vitehub({ kv: { remote: true } })],
 })
 ```
+:::
+::
 
 ::warning
 Writes from `vite dev` then change real data. The development server prints `KV store "default" is remote` on the first operation, and `vitehub inspect definitions --kind kv` shows `Development: Remote`.
