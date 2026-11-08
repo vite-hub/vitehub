@@ -33,6 +33,7 @@ import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { takeConsoleOAuthCallback } from "./oauth";
+import { continueConsoleOpen, startConsoleOpen } from "./open-link";
 import { consoleProjectReady, finishConsoleOAuthSignIn, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { browserProjectStorage, openConsoleStorage } from "./projects";
@@ -54,6 +55,9 @@ const session = openConsoleStorage(() => window.sessionStorage);
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
 // The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
 const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
+// A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
+// a linked project opens at the path.
+const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
 
 startConsoleProjects({
   base: hostBase,
@@ -68,6 +72,7 @@ startConsoleProjects({
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
 else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
+else if (openRequest) continueConsoleOpen(openRequest);
 const sectionsBase = "/_vitehub/api/sections";
 const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
 
