@@ -19,8 +19,10 @@ import { defineAgent } from 'vite-hub/agent'
 import { i18n } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model },
-  instructions: 'Translate the missing messages of each locale. Keep the tone short and friendly.',
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Translate the missing messages of each locale. Keep the tone short and friendly.',
+  },
   capabilities: [i18n()],
 })
 ```
@@ -45,6 +47,8 @@ The build gives the server every message of the code, with its source text, cont
 ## Options
 
 ```ts
+import { i18n } from 'vite-hub/agent/capabilities'
+
 i18n({ operations: ['read', 'write'] })
 i18n({ policy: 'require-approval' })
 ```
