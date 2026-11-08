@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle KV errors
 
-Each KV operation returns `[error, value]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page. `error.cause` keeps the provider error.
+Each KV operation returns `[error, value]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the page of the code in [KV diagnostics](/docs/kv/diagnostics). `error.cause` keeps the provider error.
 
 ```ts [server/api/settings.get.ts]
 import { defineEventHandler } from 'h3'

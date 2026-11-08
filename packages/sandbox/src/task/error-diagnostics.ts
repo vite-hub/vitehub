@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/sandbox/diagnostics",
   codes: {
     SANDBOX_TASK_R0001: dynamicError,
     SANDBOX_TASK_R0002: dynamicError,
