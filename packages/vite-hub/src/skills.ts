@@ -15,7 +15,7 @@ import type { Result } from "@vite-hub/runtime"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 const skillErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/development/skills",
+  docs: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
     // Definition errors. `defineSkill()` and `defineSkills()` throw them.
     SKILL_FILE_MISSING: {

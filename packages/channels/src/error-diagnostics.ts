@@ -3,7 +3,7 @@ import { defineDiagnostics } from "nostics"
 
 // Runtime errors. `send()` returns them as `[error, undefined]`. Each code has a heading on the docs page.
 export const channelErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/channels/server-api",
+  docs: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
     CHANNEL_DEFINITION_FAILED: {
       why: ({ channel }: { channel: string }) => `The Channel Definition "${channel}" is missing or failed to load.`,
@@ -27,7 +27,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
     CHANNELS_B0001: dynamicError,
     CHANNELS_C0001: dynamicError,

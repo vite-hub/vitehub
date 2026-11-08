@@ -42,12 +42,26 @@ describe("playground", () => {
     for (const channel of ["slack()", "discord()", "teams()", "telegram()"]) expect(channels.files["server/agents/support.ts"]).toContain(channel);
   });
 
-  it("mounts the snapshot of the tutorial with the same dependencies", async () => {
+  it("reuses tutorial snapshots only for matching dependencies", async () => {
     const built = await templates();
     const snapshots = Object.fromEntries(built.map(template => [template.id, template.snapshotOf]));
-    expect(snapshots).toEqual({ ...Object.fromEntries(built.map(template => [template.id, "first-server-primitive"])), agent: "first-agent", channels: "first-agent" });
-    // Every template shares a tutorial snapshot, so the build makes no extra one.
-    expect(snapshotSources(runnableTutorials, built)).toEqual(runnableTutorials);
+    expect(snapshots).toEqual({
+      "kv": "first-server-primitive",
+      "blob": "playground-blob",
+      "queue": "playground-queue",
+      "cache": "playground-cache",
+      "rate-limit": "playground-rate-limit",
+      "agent": "first-agent",
+      "channels": "first-agent",
+    });
+    // Each distinct feature install needs its own snapshot.
+    expect(snapshotSources(runnableTutorials, built)).toEqual([
+      ...runnableTutorials,
+      { slug: "playground-blob", page: "/playground", fixture: "playground-blob" },
+      { slug: "playground-queue", page: "/playground", fixture: "playground-queue" },
+      { slug: "playground-cache", page: "/playground", fixture: "playground-cache" },
+      { slug: "playground-rate-limit", page: "/playground", fixture: "playground-rate-limit" },
+    ]);
     expect(snapshotSources(runnableTutorials, [{ id: "kv", snapshotOf: "playground-kv" }]).at(-1)).toEqual({ slug: "playground-kv", page: "/playground", fixture: "server-primitives" });
   });
 
