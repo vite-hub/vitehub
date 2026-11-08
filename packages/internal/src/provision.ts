@@ -41,10 +41,32 @@ export interface ProvisionAction {
   apply: () => Promise<ProvisionResult>
 }
 
+/** One Provision State category that a step records, with the keys that current Definitions use. */
+export interface ProvisionStateCategory {
+  category: string
+  declared: readonly string[]
+  /** Provider resource identity for shared-resource checks. Return undefined when the recorded id lacks enough information. Defaults to the recorded id. */
+  resourceIdentity?: (entry: { id: string, key: string }) => string | undefined
+  /** Identity expected by current config for a declared key. Omit when it cannot be established without provider access. */
+  declaredResourceIdentity?: (key: string) => string | undefined
+  /** Tells a developer how to delete the resource of a recorded entry that no Definition declares. ViteHub never runs it. */
+  deleteHint: (entry: { id: string, key: string }) => string
+}
+
+/**
+ * Whether a value from Provision State can appear in a copyable shell command as is.
+ * The file is editable, so a hint shows a command only for plain names and ids.
+ */
+export function isShellSafeProvisionValue(value: string): boolean {
+  return /^[A-Za-z0-9][\w.-]*$/.test(value)
+}
+
 export interface ProvisionStep {
   id: string
   provider: ProvisionProvider
   plan: (context: ProvisionContext) => Promise<ProvisionAction[]>
+  /** Describes the Provision State this step records. Runs without network access, also without credentials. */
+  recordedState?: (context: Pick<ProvisionContext, "env">) => ProvisionStateCategory[]
 }
 
 export interface PlannedProvisionAction {
