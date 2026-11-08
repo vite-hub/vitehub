@@ -1,9 +1,4 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, isViteHubConsoleRuntimeSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
-import { emailConsoleSection } from "@vite-hub/email/vite"
-import { queueConsoleSection } from "@vite-hub/queue/vite"
-import { rateLimitConsoleSection } from "@vite-hub/rate-limit/vite"
-import { sandboxTaskConsoleSection } from "@vite-hub/sandbox/task/vite"
-import { workflowConsoleSection } from "@vite-hub/workflow/vite"
 
 import { ownerModules } from "../internal/owner-modules.ts"
 
@@ -97,7 +92,7 @@ function registerConsoleSection<TOptions>(
   return registered
 }
 
-const { authConsole, cmsVite, commentsVite, contentVite, scheduleVite, workspaceVite } = ownerModules
+const { authConsole, cmsVite, commentsVite, contentVite, emailVite, queueVite, rateLimitVite, sandboxTaskVite, scheduleVite, workflowVite, workspaceVite } = ownerModules
 
 /**
  * Console sections that owner packages contribute. Each owner defines the label, icon, view, and reader. This list only
@@ -115,13 +110,13 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     serverDirs: context.serverDirs,
   })),
   commentsVite && registerConsoleSection(commentsVite.commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })),
-  registerConsoleSection(emailConsoleSection, () => undefined),
-  registerConsoleSection(rateLimitConsoleSection, context => ({
+  emailVite && registerConsoleSection(emailVite.emailConsoleSection, () => undefined),
+  rateLimitVite && registerConsoleSection(rateLimitVite.rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.rateLimitDiscoveryRoot ?? context.projectRoot,
     scanDirs: context.rateLimitScanDirs,
   })),
-  registerConsoleSection(sandboxTaskConsoleSection, context => ({
+  sandboxTaskVite && registerConsoleSection(sandboxTaskVite.sandboxTaskConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.sandboxTaskDiscoveryRoot ?? context.projectRoot,
   })),
@@ -132,12 +127,12 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     serverDirs: context.serverDirs,
     serverRootDir: context.workspaceDiscoveryRoot ?? context.projectRoot,
   })),
-  registerConsoleSection(workflowConsoleSection, context => ({
+  workflowVite && registerConsoleSection(workflowVite.workflowConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.workflowDiscoveryRoot ?? context.discoveryRoot,
     serverDirs: context.serverDirs,
   })),
-  registerConsoleSection(queueConsoleSection, context => ({
+  queueVite && registerConsoleSection(queueVite.queueConsoleSection, context => ({
     projectRoot: context.projectRoot,
     rootDir: context.queueDiscoveryRoot ?? context.discoveryRoot,
     serverDirs: context.serverDirs,

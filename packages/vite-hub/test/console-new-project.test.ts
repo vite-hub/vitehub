@@ -37,8 +37,8 @@ describe("planNewProject", () => {
   })
 
   it("adds implied features with the feature that turns each on, as the catalog does", () => {
-    const plan = planNewProject(stack({ host: "cloudflare", features: ["console"] }))
-    expect(plan.features.find(row => row.id === "comments")!.state).toEqual({ kind: "implied", by: ["console"] })
+    const plan = planNewProject(stack({ host: "cloudflare", features: ["comments"] }))
+    expect(plan.features.find(row => row.id === "comments")!.state).toEqual({ kind: "on" })
     expect(plan.features.find(row => row.id === "database")!.state).toEqual({ kind: "implied", by: ["comments"] })
     // A feature that is also picked stays picked.
     const picked = planNewProject(stack({ host: "cloudflare", features: ["comments", "database"] }))

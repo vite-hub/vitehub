@@ -14,7 +14,7 @@ The [Blob server API](/docs/blob/server-api) covers application code. This page 
 
 Attach Blob in read mode until the Agent must write objects.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { blob } from 'vite-hub/agent/capabilities'
 
@@ -93,7 +93,7 @@ Configure Blob serving or a Blob driver that returns public URLs. Publication fa
 
 Use `workspacePath` to upload a Workspace file, for example a screenshot that another Capability wrote. The path is Workspace-relative. The Capability reads from the active Agent Workspace Session first, then from the Workspace file system.
 
-```ts [Agent tool call]
+```ts [Agent tool call] fragment
 await blob_edit({
   operation: 'put',
   pathname: 'review/screenshots/home.png',
