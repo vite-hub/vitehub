@@ -230,7 +230,7 @@ export const landingPrimitives = [
   {
     id: "connections",
     name: "Connections",
-    description: "Connected account APIs",
+    description: "Connected accounts",
     to: "/docs/connections",
     icon: "i-vitehub-connections",
   },
@@ -244,7 +244,7 @@ export const landingPrimitives = [
   {
     id: "realtime",
     name: "Realtime",
-    description: "Collaborative documents",
+    description: "Live collaboration",
     to: "/docs/realtime",
     icon: "i-vitehub-realtime",
   },
@@ -265,7 +265,7 @@ export const landingPrimitives = [
   {
     id: "channels",
     name: "Channels",
-    description: "Named message delivery",
+    description: "Message delivery",
     to: "/docs/channels",
     icon: "i-vitehub-channels",
   },
@@ -293,7 +293,7 @@ export const landingPrimitives = [
   {
     id: "comments",
     name: "Comments",
-    description: "Feedback on live pages",
+    description: "Live page feedback",
     to: "/docs/comments",
     icon: "i-vitehub-comments",
   },

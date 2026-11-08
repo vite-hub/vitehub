@@ -86,6 +86,7 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
   }
   const { env } = context;
   const drainTimeoutMs = drainTimeout(values, env);
+  assertFeaturePackages(["sandboxTask"]);
   const { serveSsh } = await import("@vite-hub/sandbox/ssh");
   const server = await serveSsh({
     authorizedKeyFile: required(values, "authorized-key", env, "SSH_AUTHORIZED_KEY"),
@@ -154,7 +155,7 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
   const timeout = Number(option(values, "timeout", env) ?? 25_000);
   if (!Number.isInteger(timeout) || timeout < 1)
     throw new TypeError("[vitehub] --timeout must be a positive number of milliseconds.");
-  assertFeaturePackages(["agent"]);
+  assertFeaturePackages(["agent", "gateways", "sandboxTask"]);
   const [{ claudeCodeDriver, codexDriver, defineAgent }, { cliproxy }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
     import("@vite-hub/agent"),
     import("@vite-hub/gateways"),

@@ -41,7 +41,7 @@ export default defineNuxtConfig({
     mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
     sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
     // Fail the build on pages that a site audit would flag: see DocsSeoError.
-    seoAudit: true,
+    seoAudit: "error",
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
     rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),
   },

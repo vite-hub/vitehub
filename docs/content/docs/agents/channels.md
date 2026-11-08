@@ -46,6 +46,39 @@ Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/
 
 `webChat()` enables a generated AI SDK chat route by default. `http()` is a generic HTTP Channel and keeps its route disabled unless you pass `http({ route: true })`.
 
+## Try Channels without credentials
+
+Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, Teams, and Telegram Channels in `vite dev` before you create any bot or token:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'node', agent: { channels: { simulate: true } } }),
+  ],
+})
+```
+
+Each simulated Channel replaces its provider with the Chat SDK [web adapter](https://chat-sdk.dev/adapters/official/web). Its webhook route accepts an AI SDK chat request and streams the reply as an AI SDK UI message stream:
+
+```sh
+curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
+  -H 'content-type: application/json' \
+  -d '{"id":"try-1","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"Hello"}]}]}'
+```
+
+Open the Channel's webhook URL in a browser, such as `http://localhost:3000/api/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
+
+`pnpm vitehub channels list` marks each simulated Channel and prints the path of its chat page. The `channels.list` operation returns them as `simulated: true` and `simulator`.
+
+Point an AI SDK `useChat` client at the same route to chat from a page. The Agent still runs as that Channel, with its instructions and message settings. Simulated delivery runs inline within the HTTP request, even with `messages.durable: true` or an active Workflow runtime. A simulated Channel is a direct message with one user: mentions, threads, cards, and buttons are not simulated. Webhook verification, Telegram polling, and the Discord Gateway are off.
+
+The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
+
+Simulation applies to every app in the same Node.js process. To simulate only one app, start its dev server in a separate process.
+
 ## Answer replies in subscribed threads
 
 Built-in chat Channels require a mention for channel messages by default. Set
@@ -357,7 +390,7 @@ operations({ include: ['channels.*', 'conversations.export'], conversations: 'pa
 
 | Operation | Input | Answer |
 | --- | --- | --- |
-| `channels.list` | none | Each Agent and Channel with its provider and retention. |
+| `channels.list` | none | Each Agent and Channel with its provider and retention, and `simulated`. A simulated Channel also has its chat page path in `simulator`. |
 | `channels.threads` | `agent`, `channel`, `cursor?`, `limit?` | Threads from the journal, most recent first, with title, people, last activity, and number of runs. It reads no conversation, so it has no message count. |
 | `channels.conversation` | `agent`, `channel`, `thread`, `cursor?`, `limit?` | The messages in order, each with `role`, `author`, `text`, `attachments`, `at`, and `invocationId`, and the `messageCount`. |
 | `conversations.export` | `agent`, `channel`, `thread`, `format`, `media?` | `text` in `markdown` or `json`, and the attachment files when `media` is on. |
@@ -619,21 +652,24 @@ Select the Channel and its destination when the application starts the invocatio
 ```ts fragment
 import { runAgent } from 'vite-hub/agent'
 
-await runAgent(agent, {
-  runtime: 'vite',
-  waitUntil: schedule.waitUntil ?? (() => {}),
-  run: {
-    activity: {
-      links: [
-        { label: 'Session', url: sessionUrl },
-        { label: 'Memory', url: memoryUrl },
-      ],
-      target: { repository: 'acme/storefront', issue: 42 },
+const [error] = await runAgent(agent, { prompt: 'Converge this pull request.' }, {
+  runtimeContext: {
+    runtime: 'vite',
+    run: {
+      activity: {
+        links: [
+          { label: 'Session', url: sessionUrl },
+          { label: 'Memory', url: memoryUrl },
+        ],
+        target: { repository: 'acme/storefront', issue: 42 },
+      },
+      channelId: 'github',
+      runId: schedule.runId,
     },
-    channelId: 'github',
-    runId: schedule.runId,
   },
-}, { prompt: 'Converge this pull request.' }, { schedule, output: 'drained' })
+  schedule,
+})
+if (error) throw error
 ```
 
 The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.

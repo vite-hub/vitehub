@@ -83,6 +83,22 @@ export function docsUi(siteName: string): DocsThemeUi {
         },
       },
     },
+    // Nuxt UI makes a menu icon as tall as the line (16px beside 12px text). Icons near 1.15 times the font size
+    // read as part of the label.
+    dropdownMenu: {
+      slots: {
+        item: "items-center",
+      },
+      variants: {
+        size: {
+          xs: { itemLeadingIcon: "size-3.5", itemTrailingIcon: "size-3.5" },
+          sm: { itemLeadingIcon: "size-3.5", itemTrailingIcon: "size-3.5" },
+          md: { itemLeadingIcon: "size-4", itemTrailingIcon: "size-4" },
+          lg: { itemLeadingIcon: "size-4", itemTrailingIcon: "size-4" },
+          xl: { itemLeadingIcon: "size-4.5", itemTrailingIcon: "size-4.5" },
+        },
+      },
+    },
     contentNavigation: {
       defaultVariants: {
         variant: "link",

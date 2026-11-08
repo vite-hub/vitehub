@@ -14,7 +14,7 @@ import mdc from "shiki/dist/langs/mdc.mjs"
 import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 
-import type { ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
+import type { MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
 
 /** A page parsed on the server. The client renders `nodes` and never parses Markdown itself. */
@@ -25,7 +25,7 @@ export interface DocsDocument {
 
 export interface DocsParserOptions {
   /** More Comark plugins, after the built-in ones. A plugin with a built-in name replaces it. */
-  plugins?: ComarkPlugin[]
+  plugins?: ParserOptions["plugins"]
 }
 
 // Bash, JSON, JavaScript, TypeScript, Vue, and YAML are built in. Other code stays plain text.

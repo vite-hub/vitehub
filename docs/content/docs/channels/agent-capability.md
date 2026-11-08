@@ -14,7 +14,7 @@ Use it when an Agent Invocation must deliver its result somewhere other than the
 
 Pass the Channel client from `useChannel()` and the send options. Set `required` when the Agent Invocation must fail without a successful send:
 
-```ts [server/schedules/weekly-report.ts]
+```ts [server/schedules/weekly-report.ts] fragment
 import { defineSchedule } from '@vite-hub/schedule'
 import { defineAgent, runAgent } from 'vite-hub/agent'
 import { channelDelivery } from 'vite-hub/agent/capabilities'
@@ -41,7 +41,7 @@ const reportAgent = defineAgent({
 export default defineSchedule({
   cron: '0 15 * * 5',
   handler: async (schedule) => {
-    const [error] = await runAgent(reportAgent, { prompt: 'Write the weekly report.' }, { schedule, output: 'drained' })
+    const [error] = await runAgent(reportAgent, { prompt: 'Write the weekly report.' }, { schedule })
     if (error) throw error
     return new Response('Report sent')
   },
