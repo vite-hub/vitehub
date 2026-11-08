@@ -227,17 +227,17 @@ function runWhy(args: string[], context: ViteHubCliContext): number {
     context.stderr.write(missingReport)
     return 1
   }
-  const unavailable = target.startsWith("/") ? createBundleReport(reports)?.client?.routesUnavailable : undefined
-  if (unavailable) {
-    context.stdout.write(parsed.json ? `${JSON.stringify({ target, unavailable }, null, 2)}\n` : `Routes unavailable: ${unavailable}\n`)
-    return 1
-  }
   const route = target.startsWith("/") ? explainBundleRoute(reports, target) : undefined
   if (route) {
     context.stdout.write(parsed.json ? `${JSON.stringify(route, null, 2)}\n` : routeLines(route).join("\n"))
     return 0
   }
   const explanations = explainBundle(reports, target)
+  const unavailable = !explanations.length && target.startsWith("/") ? createBundleReport(reports)?.client?.routesUnavailable : undefined
+  if (unavailable) {
+    context.stdout.write(parsed.json ? `${JSON.stringify({ target, unavailable }, null, 2)}\n` : `Routes unavailable: ${unavailable}\n`)
+    return 1
+  }
   if (parsed.json) {
     context.stdout.write(`${JSON.stringify({ target, explanations }, null, 2)}\n`)
     return 0

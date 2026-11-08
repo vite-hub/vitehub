@@ -288,6 +288,23 @@ describe("route report", () => {
     expect(unavailable.stdout).toContain("Routes unavailable:")
     expect(unavailable.stdout).not.toContain("No page route")
     expect(JSON.parse((await run("why", ["/runtime-only", "--json"])).stdout)).toEqual({ target: "/runtime-only", unavailable: "Custom router options can replace routes." })
+
+    const layerFile = "/absolute/layer/file.vue"
+    writeEnvironmentReport(dir, collectEnvironmentReport({
+      "layer.js": chunk("layer.js", "x".repeat(100), [layerFile], { entry: true }),
+    }, {
+      build: "b", environment: "client", side: "client", root, outDir: `${root}/dist`, getModuleInfo: noGraph(layerFile),
+      routeOptions: { unavailable: "Custom router options can replace routes." },
+    }))
+    for (const target of [layerFile, "/absolute/layer"]) {
+      const explanation = await run("why", [target])
+      expect(explanation.code).toBe(0)
+      expect(explanation.stdout).toContain("Client: 100 B")
+      expect(explanation.stdout).toContain(layerFile)
+      const json = await run("why", [target, "--json"])
+      expect(json.code).toBe(0)
+      expect(JSON.parse(json.stdout)).toMatchObject({ target, explanations: [{ target: layerFile, bytes: 100 }] })
+    }
   })
 })
 

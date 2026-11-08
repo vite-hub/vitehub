@@ -195,7 +195,7 @@ type NuxtLike = {
   hook?: {
     (name: "pages:routerOptions", callback: (context: { files: Array<{ path: string, optional?: boolean }> }) => void): void
     (name: "app:templatesGenerated", callback: (app: {
-      components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0]
+      components: Array<{ pascalName: string, filePath: string }>
       layouts?: Record<string, { file: string }>
       pages?: NuxtPageLike[]
     }) => Promise<void> | void): void
