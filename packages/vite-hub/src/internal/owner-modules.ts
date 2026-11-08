@@ -92,17 +92,21 @@ export function commentsOffPlugin(): Plugin {
   }
 }
 
-const ownerFacade = /^vite-hub\/(ui|presets|shell)(?:\/|$)/
+const ownerFacade = /^vite-hub\/(ui|presets|shell|console\/ui)(?:\/|$)/
 
-/** The feature of a `vite-hub` subpath that re-exports `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`. */
-export function ownerFacadeFeature(specifier: string): "presets" | "shell" | "ui" | undefined {
+/**
+ * The feature of a `vite-hub` subpath that re-exports `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`, or of
+ * `vite-hub/console/ui`, whose components need optional peers.
+ */
+export function ownerFacadeFeature(specifier: string): "console ui" | "presets" | "shell" | "ui" | undefined {
   const feature = ownerFacade.exec(specifier)?.[1]
+  if (feature === "console/ui") return "console ui"
   return feature === "ui" || feature === "presets" || feature === "shell" ? feature : undefined
 }
 
 /**
- * `vite-hub/ui`, `vite-hub/presets/*`, and `vite-hub/shell` re-export optional owner packages. This plugin fails an
- * import of one of them with the install command when the app did not install its package.
+ * `vite-hub/ui`, `vite-hub/presets/*`, `vite-hub/shell`, and `vite-hub/console/ui` import optional peers. This plugin
+ * fails an import of one of them with the install command when the app did not install the packages.
  */
 export function optionalOwnerImportsPlugin(): Plugin {
   return {

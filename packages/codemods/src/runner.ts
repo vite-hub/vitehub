@@ -51,7 +51,7 @@ function formatLocation(file: string | undefined, line: number | undefined): str
 }
 
 /** Formats the planned edits as unified diffs. */
-export function formatDiff(result: CodemodResult): string {
+export function formatDiff(result: Pick<CodemodResult, "edits">): string {
   return result.edits
     .map(edit => createTwoFilesPatch(`a/${edit.path}`, `b/${edit.path}`, edit.before ?? "", edit.after, undefined, undefined, { context: 3 }))
     .join("\n")
