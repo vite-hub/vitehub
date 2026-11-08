@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { createNitro } from "nitro/builder"
-import { H3 } from "h3"
+import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveConfig } from "vite"
 
@@ -14,7 +14,6 @@ import { comments, componentNames, githubRepository, hubComments, readCommentsBu
 
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
 import type { NitroConfig } from "nitro/types"
-import type { H3Event } from "h3"
 import type { RealtimeDefinition } from "@vite-hub/realtime"
 import type { createCommentsHandler } from "../src/runtime/handler.ts"
 
@@ -281,7 +280,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
 
     const { default: room } = await import(pathToFileURL(join(directory, "comments.mjs")).href) as { default: RealtimeDefinition }
     // SAFETY: the room only keys access by this event; the Auth reader must never run.
-    const event = {} as H3Event
+    const event = new H3Event(new Request("http://site.test/"))
     const context = { event, definition: "comments", request: new Request("http://site.test?page=%2F") }
     const user = await room.identify!(context)
     expect(user).toEqual({ id: "custom", name: "Custom" })
@@ -580,11 +579,17 @@ describe("comments() without vite-hub", () => {
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
   })
 
-  it("steps aside, with its Nitro, when vitehub() runs Comments", () => {
+  it.each([
+    ["@vite-hub/comments/vite", "serve"],
+    ["@vite-hub/comments/vite", "build"],
+    ["vite-hub/comments-off", "serve"],
+    ["vite-hub/comments-off", "build"],
+  ] as const)("fails next to %s during %s and adds no second Nitro", (name, command) => {
     const [plugin, ...nitro] = comments() as Plugin[]
-    const config: UserConfig = { plugins: [[{ name: "@vite-hub/comments/vite" }]] }
-    const env: ConfigEnv = { command: "serve", mode: "development" }
-    expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env)).toBe(false)
+    const config: UserConfig = { plugins: [[{ name }]] }
+    const env: ConfigEnv = { command, mode: command === "serve" ? "development" : "production" }
+    expect(() => (plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env))
+      .toThrow(expect.objectContaining({ code: "COMMENTS_B0003", fix: expect.stringContaining("vitehub({ comments: true })") }))
     expect(nitro.length).toBeGreaterThan(0)
     for (const part of nitro) expect(typeof part.apply === "function" ? part.apply(config, env) : true).toBe(false)
     expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)({ plugins: [] }, env)).toBe(true)

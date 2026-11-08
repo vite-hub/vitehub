@@ -1,3 +1,4 @@
+import "./channel-extensions.ts"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
@@ -49,7 +50,7 @@ import { createExecutionBudget, createExecutionContext, createRuntimeContext, cr
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { withAgentRuntimeMemo } from "./runtime/context.ts"
 import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, resolveAgentUsageRecordDuringStream, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -74,6 +75,7 @@ import {
   messageChannelDeliveredReplyBody,
   messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
+  normalizeAgentChannelInput,
 } from "./channels.ts"
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
@@ -491,6 +493,7 @@ export type {
   AgentModelInstrumentation,
   AgentModelResolver,
   AgentModelInstrumentationContext,
+  AgentChannelsOptions,
   AgentModuleOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
@@ -1098,6 +1101,7 @@ export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunIn
 
 export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>, context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!agent.invocations) return
+  await loadAgentHost()
   const journal = await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), enforcement: "strict", recoverPending: true })
   if (journal?.claimStatus !== "owned") {
     if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
@@ -1169,7 +1173,7 @@ async function runAgentAsWorkflow<
   options: { fresh?: boolean, onInputHandoff?: () => void } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
-  const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
+  const cloudflareEnv = context.cloudflare?.env || getActiveCloudflareEnv()
   if (!canDispatchAgentWorkflow(binding, context)) return undefined
   // SAFETY: Replay sets this private boolean marker on its runtime; other runtimes may omit it.
   const exclusive = (context as AgentRuntimeContext & { [exclusiveAgentInvocation]?: boolean })[exclusiveAgentInvocation] === true
@@ -2098,11 +2102,11 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
     if (isAgentChannelDefinition(input)) continue
-    const channel: unknown = hasRuntimeType(input, "function") ? input() : undefined
+    const channel: unknown = hasRuntimeType(input, "function") ? input() : normalizeAgentChannelInput<TRuntimeConfig>(input)
     if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
       throw agentDiagnostics.AGENT_R0425({ message: hasRuntimeType(input, "function")
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be an Agent Channel definition. Create it with a factory from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
+        : `[vitehub] Channel "${id}" must be a Channel from defineChannel() in vite-hub/channels, or an adapter from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
     }
     // SAFETY: Factories are replaced by the definitions they return below.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
@@ -4277,7 +4281,7 @@ class AgentTelemetryCapabilityError extends Diagnostic {
     super({
       cause,
       code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+      docs: "https://vitehub.dev/docs/agents/diagnostics/agent_r0890",
       why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
     }, AgentTelemetryCapabilityError)
     this.name = "AgentTelemetryCapabilityError"
@@ -8771,6 +8775,7 @@ export async function startAgentInvocation<
     onInputHandoff?: () => void
   } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
+  await loadAgentHost()
   const invocationContext = withAgentIdentityOwner(agent, withAgentRuntimeMemo(context))
   const workflowContext = invocationContext.run?.activity && !invocationContext.run.activity.runId
     ? {
@@ -8929,34 +8934,35 @@ export async function runAgent<
   // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
-  // The host routes load on their first request. A run that starts first, such as one in a Schedule, loads them here,
-  // so it gets their capabilities, Workflow loaders, and Workspaces.
-  await loadAgentHost()
-  // Preserve the caller's runtime-config subtype through standalone context creation.
-  const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
-  // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
-  // that the generated routes give Agents. Capabilities from the caller override them key by key.
-  const hostCapabilities = agentHostCapabilities()
-  const runtimeContext = hostCapabilities
-    ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
-    : callerContext
-  const runtime = createRuntimeContext({
-    ...runtimeContext,
-    runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
-    runtime: runtimeContext?.runtime || "unknown",
-    run: {
-      ...runtimeContext?.run,
-      runId: schedule?.runId || schedule?.id || runtimeContext?.run?.runId || createTraceId(),
-    },
-  })
-  const context: AgentRuntimeContext<TRuntimeConfig> = {
-    ...runtimeContext,
-    memo: runtime.memo,
-    run: runtime.run,
-    runtime: runtime.runtime,
-    waitUntil: schedule?.waitUntil ?? runtime.waitUntil,
-  }
+  let runtime: ReturnType<typeof createRuntimeContext> | undefined
   try {
+    // The host routes load on their first request. A run that starts first, such as one in a Schedule, loads them here,
+    // so it gets their capabilities, Workflow loaders, and Workspaces.
+    await loadAgentHost()
+    // Preserve the caller's runtime-config subtype through standalone context creation.
+    const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+    // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
+    // that the generated routes give Agents. Capabilities from the caller override them key by key.
+    const hostCapabilities = agentHostCapabilities()
+    const runtimeContext = hostCapabilities
+      ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
+      : callerContext
+    runtime = createRuntimeContext({
+      ...runtimeContext,
+      runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
+      runtime: runtimeContext?.runtime || "unknown",
+      run: {
+        ...runtimeContext?.run,
+        runId: schedule?.runId || schedule?.id || runtimeContext?.run?.runId || createTraceId(),
+      },
+    })
+    const context: AgentRuntimeContext<TRuntimeConfig> = {
+      ...runtimeContext,
+      memo: runtime.memo,
+      run: runtime.run,
+      runtime: runtime.runtime,
+      waitUntil: schedule?.waitUntil ?? runtime.waitUntil,
+    }
     const binding = resolveAgentWorkflowRuntimeBinding(agent)
     const runsInline = requiresInlineInvocation(standaloneOptions)
     if (binding && "discoveryDefault" in binding && !runsInline) {
@@ -8972,7 +8978,7 @@ export async function runAgent<
   }
   catch (error) {
     // Finish owned background work without replacing the invocation's original failure.
-    await runtime.flushWaitUntil().catch(() => {})
+    await runtime?.flushWaitUntil().catch(() => {})
     return [isError(error) ? error : new Error(agentErrorMessage(error), { cause: error }), null]
   }
 }
@@ -8992,6 +8998,7 @@ async function runAgentWithContext<
   input: AgentRunInput<CALL_OPTIONS>,
   options: RunAgentOptions = {},
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
+  await loadAgentHost()
   if (options.schedule) {
     const schedule = options.schedule
     const runId = schedule.runId || schedule.id

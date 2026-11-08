@@ -1284,7 +1284,7 @@ function createCloudflareWorkflowWrapper(artifacts: GeneratedWorkflowArtifacts):
   return renderCloudflareWorkerWrapper(workflowDefinitions)
 }
 
-async function createCloudflareWorkflowCleanup(rootDir: string) {
+async function createCloudflareWorkflowCleanup(rootDir: string, cloudflareInNitro = false) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   let ownsWrapper = false
   try {
@@ -1298,7 +1298,8 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
     fileNames: ownsWrapper ? ["index.js", "worker.mjs", deployedWorkflowSourcesPath] : ["worker.mjs", deployedWorkflowSourcesPath],
     outputRoot,
     wranglerConfigOwnership: {
-      keys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
+      // Nitro has already written the shared config, including its Workflow bindings.
+      keys: cloudflareInNitro ? [] : ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
     },
   }
 }
@@ -1593,7 +1594,7 @@ async function generateProviderOutputsWithinLock(
         clientOutDir: options.clientOutDir,
         cloudflare: cloudflareOutput,
         cleanup: {
-          cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
+          cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir, options.cloudflareInNitro),
         },
         afterWrite: async (signal) => {
           signal?.throwIfAborted()
