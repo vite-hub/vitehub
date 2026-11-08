@@ -169,7 +169,7 @@ Console status endpoint and select the Agent, for example:
 
 ```bash
 curl -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
-  'http://localhost:5173/api/_vitehub/console/status?agent=support'
+  'http://localhost:5173/_vitehub/api/status?agent=support'
 ```
 
 `VITEHUB_CONSOLE_COOKIE` is the cookie copied from a signed-in Console session

@@ -117,7 +117,7 @@ See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` an
 
 `runAgent(agent, input, options?)` runs the Agent in the calling process and returns `[error, result]`. It does not throw for a failed run. `result.text` has the final text, and `result.output` has the typed Agent output: the `driver.output` schema value, the `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns. `runAgent()` consumes streamed output and `Response` bodies before it returns. `error.code` is `AGENT_RUN_FAILED` or `AGENT_RUN_CANCELLED`, and `error.cause` has the original failure.
 
-```ts
+```ts fragment
 const [error, result] = await runAgent(agent, { prompt: "Summarize the policy." }, {
   runtimeContext: getRuntimeContext(event),
 })
@@ -127,7 +127,7 @@ console.log(result.text)
 
 `runtimeContext` is the host Runtime Context, such as `getRuntimeContext(event)` from `@vite-hub/runtime/h3`. It is not `input.context`, which holds the Invocation context values. Without `runtimeContext`, ViteHub creates an isolated memo cache and run ID and waits for background work before it returns. When `runtimeContext.waitUntil` is set, the host keeps background work alive.
 
-Inside a running host, `runAgent()` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it at server startup, and the generated Deno server and Netlify function are that module, so the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it on its first request. An Invocation that starts before any request, such as a Schedule on a new Worker, loads it before the Invocation starts. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
 
 `runAgent()` and `streamAgent()` run the Agent inline, whatever its `runtime`. The generated routes and Channels start Workflow runs. Use `startAgentInvocation()` to start a run that you inspect or cancel later.
 
@@ -398,7 +398,7 @@ for the code format and an application catalog example.
 
 `teams()` builds its Chat SDK adapter from `env.server.teams` (`TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, `TEAMS_API_URL`) and needs `@chat-adapter/teams`. `adapter` options such as `{ userName }` take precedence over Env; an adapter or factory is used as given.
 
-`teams.connector()`, `slack.connector({ adapter })`, `discord.connector()`, and `telegram.connector()` are outbound connectors for `defineOutboundChannel()` with one contract: `send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their adapter from Server Env like their Agent Channel; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
+`teams()`, `slack({ adapter })`, `discord()`, and `telegram()` also send, as the adapter of a `defineChannel()` from `vite-hub/channels`, with one contract: `useChannel(name).send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their Chat SDK adapter for sends from Server Env; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
 
 To replace a temporary message in a channel thread, set `thread.root` on the first send so the temporary message is a reply. Replacing the root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
 
@@ -744,7 +744,7 @@ agentHostRoutes({
 ```
 
 The defaults are `/api/health` and
-`/api/_vitehub/console/invocations/:id/workspace`. Each option also accepts
+`/_vitehub/api/invocations/:id/workspace`. Each option also accepts
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
 `(invocationId, path?)` and return a Response; for GitHub checkouts, use
 `createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.

@@ -1,3 +1,4 @@
+import "./channel-extensions.ts"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
@@ -13,7 +14,7 @@ import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
-import agentRegistry from "#vitehub/agent/registry"
+import agentRegistry, { loadAgentHost } from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
@@ -77,6 +78,7 @@ import {
   messageChannelDeliveredReplyBody,
   messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
+  normalizeAgentChannelInput,
 } from "./channels.ts"
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
@@ -494,6 +496,7 @@ export type {
   AgentModelInstrumentation,
   AgentModelResolver,
   AgentModelInstrumentationContext,
+  AgentChannelsOptions,
   AgentModuleOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
@@ -1111,6 +1114,7 @@ export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunIn
 
 export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>, context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!agent.invocations) return
+  await loadAgentHost()
   const journal = await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), enforcement: "strict", recoverPending: true })
   if (journal?.claimStatus !== "owned") {
     if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
@@ -2112,11 +2116,11 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
     if (isAgentChannelDefinition(input)) continue
-    const channel: unknown = hasRuntimeType(input, "function") ? input() : undefined
+    const channel: unknown = hasRuntimeType(input, "function") ? input() : normalizeAgentChannelInput<TRuntimeConfig>(input)
     if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
       throw agentDiagnostics.AGENT_R0425({ message: hasRuntimeType(input, "function")
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be an Agent Channel definition. Create it with a factory from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
+        : `[vitehub] Channel "${id}" must be a Channel from defineChannel() in vite-hub/channels, or an adapter from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
     }
     // SAFETY: Factories are replaced by the definitions they return below.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
@@ -4285,7 +4289,7 @@ class AgentTelemetryCapabilityError extends Diagnostic {
     super({
       cause,
       code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+      docs: "https://vitehub.dev/docs/agents/diagnostics/agent_r0890",
       why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
     }, AgentTelemetryCapabilityError)
     this.name = "AgentTelemetryCapabilityError"
@@ -8431,6 +8435,7 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  await loadAgentHost()
   // Streamed runs do not pass through withAgentIdentityOwner(), so attach the forge access here.
   context = withForgeAccess(agent.channels, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -8758,6 +8763,7 @@ export async function startAgentInvocation<
     onInputHandoff?: () => void
   } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
+  await loadAgentHost()
   const invocationContext = withAgentIdentityOwner(agent, withAgentRuntimeMemo(context))
   const workflowContext = invocationContext.run?.activity && !invocationContext.run.activity.runId
     ? {
@@ -8829,9 +8835,11 @@ export async function runAgent<
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions = {},
 ): Promise<Result<AgentRunResult<TOutput>, AgentErrorCode>> {
-  const runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext, options.schedule)
+  let runtime: ReturnType<typeof createInvocationRuntimeContext<TRuntimeConfig>> | undefined
   const invocationInput = options.schedule ? withScheduleInput(input, options.schedule) : input
   try {
+    await loadAgentHost()
+    runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext, options.schedule)
     const output = await runAgentInlineWithContext(agent, runtime.context, invocationInput, {
       capabilities: options.capabilities,
       tools: options.tools,
@@ -8842,7 +8850,7 @@ export async function runAgent<
   }
   catch (error) {
     // Finish owned background work without replacing the invocation's original failure.
-    await runtime.flushWaitUntil().catch(() => {})
+    await runtime?.flushWaitUntil().catch(() => {})
     return [agentRunError(error, invocationFailureWasCancelled(error, input.abortSignal)), undefined]
   }
 }
@@ -8879,8 +8887,9 @@ export async function streamAgent<
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: StreamAgentOptions = {},
 ): Promise<Result<Response | AsyncIterable<StreamEvent>, AgentErrorCode>> {
-  const runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext)
   try {
+    await loadAgentHost()
+    const runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext)
     const output = await streamAgentInlineWithContext(agent, runtime.context, input, { output: options.output })
     return [undefined, options.output === "ui-message-stream" ? toUIMessageStreamResponse(output) : toAgentEventStream(output)]
   }
@@ -8995,6 +9004,7 @@ async function runAgentWithContext<
   input: AgentRunInput<CALL_OPTIONS>,
   options: Omit<RunAgentOptions, "runtimeContext"> & { output?: "drained" } = {},
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
+  await loadAgentHost()
   let context = withAgentRuntimeMemo(runtimeContext)
   if (options.schedule) {
     const schedule = options.schedule

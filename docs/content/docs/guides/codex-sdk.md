@@ -1,6 +1,6 @@
 ---
 title: Run the Codex SDK in production with ViteHub
-description: Run OpenAI Codex as a ViteHub Agent. Define it in one file with codexDriver(), call it from a route or a Channel, inspect each run, and deploy it to a Node.js host.
+description: "Run OpenAI Codex as a ViteHub Agent. Define it with codexDriver(), call it from a route or a Channel, inspect each run, and deploy it to a Node.js host."
 navigation.title: Codex SDK
 navigation.order: 5
 navigation.group: Agents

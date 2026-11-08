@@ -87,8 +87,8 @@ describe("runAgent()", () => {
     const [error, result] = await runAgent(agent, {})
     expect(error).toBeUndefined()
     expect(result?.text).toBe("streamed output")
-    expect(result?.output).toBeDefined()
-    expect(result?.output?.[Symbol.asyncIterator]).toBeTypeOf("function")
+    const output = result?.output
+    expect(typeof output === "object" && output !== null && Symbol.asyncIterator in output && typeof output[Symbol.asyncIterator]).toBe("function")
   })
 
   it("leaves output unset for a model stream without a schema", async () => {
@@ -130,7 +130,7 @@ describe("runAgent()", () => {
       const [error, result] = await runAgent(agent, {})
       expect(result).toBeUndefined()
       expect(error?.code).toBe("AGENT_RUN_FAILED")
-      expect(error?.docs).toBe("https://vitehub.dev/docs/agents/invocations#agent_run_failed")
+      expect(error?.docs).toBe("https://vitehub.dev/docs/agents/diagnostics/agent_run_failed")
       expect(error?.cause).toBe(thrown)
       expect(JSON.parse(JSON.stringify(error))).not.toHaveProperty("cause")
     }

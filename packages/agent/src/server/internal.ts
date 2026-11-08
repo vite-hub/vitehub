@@ -21,6 +21,7 @@ export {
 export { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 export { getStandardContext } from "@vite-hub/runtime/h3"
 export { observabilityStatus } from "../internal/observability-host.ts"
+export { d1AgentInvocationRetention } from "../invocations/d1-retention.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"
 export type { ChannelReplayRequestOptions } from "../channel-replay.ts"
 export { createAgentWebhookRequest } from "../internal/webhook-request.ts"

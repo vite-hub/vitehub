@@ -72,7 +72,7 @@ when you use a primitive that sets them.
 Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. Create a new
 context for each invocation:
 
-```ts [server/api/support.post.ts]
+```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'

@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 const modelGenerate = vi.hoisted(() => vi.fn())
 const registry = vi.hoisted((): Record<string, () => Promise<unknown>> => ({}))
 
-vi.mock("#vitehub/agent/registry", () => ({ default: registry }))
+vi.mock("#vitehub/agent/registry", () => ({ default: registry, loadAgentHost: async () => {} }))
 vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk: async () => ({
     // This SDK double executes fixture responses without invoking a language model.

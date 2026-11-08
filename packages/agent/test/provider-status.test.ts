@@ -7,7 +7,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>()
   return { ...original, spawn: vi.fn(original.spawn) }

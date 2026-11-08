@@ -16,7 +16,7 @@ import {
   withParsedAgentMessageMeta,
 } from "../src/internal/message-meta.ts"
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const metaSchema = {
   "~standard": {

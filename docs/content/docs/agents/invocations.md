@@ -68,7 +68,7 @@ The success value is an `AgentRunResult`:
 
 In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
-```ts [server/api/support.post.ts]
+```ts [server/api/support.post.ts] fragment
 import { createError, defineEventHandler, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
@@ -113,9 +113,10 @@ import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const body = await readBody<{ prompt: string }>(event)
+  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
 
-  const [error, response] = await streamAgent(support, { prompt }, {
+  const [error, response] = await streamAgent(support, { prompt: body.prompt }, {
     output: 'ui-message-stream',
     runtimeContext: getRuntimeContext(event),
   })
@@ -126,7 +127,7 @@ export default defineEventHandler(async (event) => {
 
 `output: 'ui-message-stream'` returns a `Response` with an AI SDK UI message stream that a chat client reads. Without `output`, `streamAgent()` returns an `AsyncIterable<StreamEvent>` of typed ViteHub stream events:
 
-```ts
+```ts fragment
 const [error, events] = await streamAgent(support, { prompt })
 if (error) throw error
 for await (const event of events) {
@@ -336,7 +337,7 @@ For a scheduled invocation, pass the schedule context: `runAgent(agent, input, {
 
 Trusted code can install tools for one invocation with the options argument: `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition } })`. `result.text` has the text after the stream finishes. These tools join the agent's tool set for that invocation and are never serialized into `input`. A name collision with an existing tool fails setup.
 
-A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module at startup on Node, Cloudflare, and Vercel. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
+A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module on its first request, not at startup. A run that starts before any request, such as a Schedule on a new Worker, loads the module before it runs. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
 
 To give one invocation more Agent Capabilities, pass them in `capabilities`: `runAgent(agent, { prompt }, { schedule, capabilities: [delivery] })`. They join the run after the agent's own Capabilities. The Agent Definition does not change, and a later run without the option does not get them. Use this when a background job runs one registered agent with job-specific tools, such as a delivery tool, so that you do not define one agent for each job. A Capability id that the agent already uses fails setup. These Capabilities cannot add triggers, Workspace Sources, or chat access, because those are fixed when the agent is defined.
 

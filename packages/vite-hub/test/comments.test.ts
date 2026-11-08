@@ -21,7 +21,8 @@ import { operationCell, operationLink } from "../src/console/runtime/client/oper
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 import type { Comments, CommentsPeople, CommentUser, DefineCommentsOptions } from "@vite-hub/comments"

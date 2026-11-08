@@ -20,7 +20,8 @@ const policyKey = Symbol.for("vitehub.console.access")
 const pageToolsKey = Symbol.for("vitehub.page-tools")
 
 function sessionApp() {
-  return { fetch: (request: Request) => pageSessionHandler(requestEvent(request)) }
+  // A development Console without sign-in serves only this machine, so the page comes from a loopback peer.
+  return { fetch: (request: Request) => pageSessionHandler(requestEvent(request, { remoteAddress: "127.0.0.1" })) }
 }
 
 /** The tools that the page tools session allows for one page request under a Console access policy. */
@@ -28,7 +29,7 @@ async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Re
   if (policy) installConsoleAccess(policy)
   else Reflect.deleteProperty(globalThis, policyKey)
   installConsolePageTool(app, { base })
-  const request = new Request(`http://site.test${base}/_vitehub/page/session`, { headers })
+  const request = new Request(`http://localhost:3000${base}/_vitehub/page/session`, { headers })
   const response = await app.fetch(request)
   const body: unknown = await response.json()
   return { body, cookie: response.headers.get("set-cookie") }

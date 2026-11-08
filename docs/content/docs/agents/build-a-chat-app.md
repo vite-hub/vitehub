@@ -74,7 +74,7 @@ The checkout already contains the finished files. Read and edit them as you foll
 }
 ```
 
-The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before the ViteHub UI module so Nuxt installs its Icon and color-mode dependencies. The ViteHub UI module registers the chat components. Disable font downloads so the offline app does not need a font service.
+The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
 Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project. The pinned Nitro version skips TypeScript transforms under `node_modules`, where this Nuxt version puts its default build directory.
 
@@ -83,7 +83,7 @@ import viteHub from "vite-hub/nuxt";
 
 export default defineNuxtConfig({
   buildDir: ".nuxt",
-  modules: ["@nuxt/ui", "@vite-hub/ui/nuxt", [viteHub, {
+  modules: ["@nuxt/ui", [viteHub, {
     preset: "node",
     agent: true,
     workflow: false,
@@ -104,6 +104,7 @@ export default defineNuxtConfig({
 ```css [app/assets/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "@vite-hub/ui/styles.css";
 
 body { margin: 0; font-family: system-ui, sans-serif; }
 ```
@@ -504,11 +505,14 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 503, statusMessage: "Set AI_GATEWAY_API_KEY on the server." });
   }
 
+  const response = event.node?.res;
+  if (!response) throw createError({ statusCode: 500, statusMessage: "This route requires a Node response." });
+
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
   const controller = new AbortController();
-  const abort = () => { if (!event.node.res.writableEnded) controller.abort(); };
-  event.node.res.once("close", abort);
+  const abort = () => { if (!response.writableEnded) controller.abort(); };
+  response.once("close", abort);
   const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
   activeChats.add(id);
@@ -541,7 +545,7 @@ export default defineEventHandler(async (event) => {
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
         clearTimeout(timeout);
-        event.node.res.off("close", abort);
+        response.off("close", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }

@@ -67,6 +67,8 @@ export interface ContentHeadMeta {
 export interface ContentHeadLink {
   rel: string
   href: string
+  /** The locale of an `alternate` link, or `x-default` for the page to show when no locale matches. */
+  hreflang?: string
 }
 
 export interface ContentHeadScript {
@@ -81,6 +83,8 @@ export interface ContentHead {
   meta: ContentHeadMeta[]
   link: ContentHeadLink[]
   script?: ContentHeadScript[]
+  /** `<html lang>`: the locale of the version the page shows, in a collection with `locales`. */
+  htmlAttrs?: { lang: string }
 }
 
 /** What `contentHead()` reads from a document: a Content read, an `/api/content` response, or any object with `data`. */
@@ -89,6 +93,12 @@ export interface ContentHeadDocument {
   /** Public URL path, such as `/blog/hello`, from the collection's `url`. */
   url?: string | null
   updatedAt?: string | null
+  /** The locale of the version, in a collection with `locales`. With `fallback`, it is the source locale. */
+  locale?: string | null
+  /** Set when the page shows the source locale version because its own locale has no translation. */
+  fallback?: boolean | null
+  /** The page of the document in each locale that has its own version, source locale first, from `get()`. */
+  alternates?: ReadonlyArray<{ locale: string, url: string }> | null
 }
 
 const descriptionFields = ["description", "summary", "excerpt"]
@@ -143,7 +153,8 @@ function jsonLdScript(value: Record<string, unknown>): ContentHeadScript {
 
 /**
  * Head tags for a Content document: title, description, canonical link, robots, Open Graph, and Twitter card tags, and
- * optional JSON-LD. Per-document `seo()` values win, then the document's own title and description or summary fields,
+ * optional JSON-LD. A document with a `locale` sets `<html lang>`, and one with `alternates` in two or more locales gets
+ * an `hreflang` link for each and `x-default` for the source locale. A fallback page is canonical to the source page. Per-document `seo()` values win, then the document's own title and description or summary fields,
  * then `defaults`. The result has the shape unhead's `useHead()` takes and depends on no framework.
  *
  * @example
@@ -163,7 +174,11 @@ export function contentHead(document: ContentHeadDocument | null | undefined, op
   const imageValue = seo.image ?? defaults.image
   const image = absolute(imageValue === undefined || imageValue === null ? undefined : resolveImage(imageValue) ?? undefined, site.url)
   const path = text(document?.url)
-  const canonical = absolute(text(seo.canonical) ?? path, site.url)
+  const locale = text(document?.locale)
+  const alternates = Array.isArray(document?.alternates) ? document.alternates.filter(page => text(page?.locale) && text(page?.url)) : []
+  // A fallback page shows the source locale version, so the source locale page is the canonical one.
+  const source = document?.fallback === true ? alternates.find(page => page.locale === locale)?.url : undefined
+  const canonical = absolute(text(seo.canonical) ?? source ?? path, site.url)
   const siteName = text(site.name)
 
   const template = options.titleTemplate === undefined ? (siteName ? `%s · ${siteName}` : null) : options.titleTemplate
@@ -189,6 +204,11 @@ export function contentHead(document: ContentHeadDocument | null | undefined, op
   add("name", "twitter:image", image)
 
   const head: ContentHead = { meta, link: canonical ? [{ rel: "canonical", href: canonical }] : [] }
+  if (alternates.length > 1) {
+    for (const page of alternates) head.link.push({ rel: "alternate", hreflang: page.locale, href: absolute(page.url, site.url)! })
+    head.link.push({ rel: "alternate", hreflang: "x-default", href: absolute(alternates[0]!.url, site.url)! })
+  }
+  if (locale) head.htmlAttrs = { lang: locale }
   if (title) head.title = title
   if (options.jsonLd) {
     const generated: Record<string, unknown> = {

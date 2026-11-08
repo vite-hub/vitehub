@@ -166,7 +166,7 @@ export default defineAgent({
 })
 ```
 
-```ts [server/lib/sync.ts]
+```ts [server/lib/sync.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import labeller from '../agents/labeller'
 

@@ -5,9 +5,9 @@ import type { ResultError } from "@vite-hub/runtime"
 /** Codes that `runAgent()` and `streamAgent()` return in the `[error, data]` tuple. */
 export type AgentErrorCode = "AGENT_RUN_CANCELLED" | "AGENT_RUN_FAILED"
 
-// Keep published codes stable. Each code has a heading on the docs page.
+// Keep published codes stable. Each code has its own diagnostic page.
 const agentRunErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/agents/invocations",
+  docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
     AGENT_RUN_CANCELLED: {
       why: "The Invocation stopped because its `abortSignal` aborted.",
