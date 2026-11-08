@@ -1,4 +1,4 @@
-import type { CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
+import type { AnchorPoint, CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, type PropType, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
@@ -13,6 +13,18 @@ import { type CommentAttachmentUrl, CommentThread } from "./comment-thread.ts";
 
 const popoverWidth = 360;
 const popoverHeight = 420;
+
+// Match the bubble's 18rem width and half-rem viewport inset, including a changed root font size.
+function placeDraft(point: AnchorPoint, page: boolean) {
+  const rem = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+  const inset = rem / 2;
+  const width = Math.min(18 * rem, Math.max(0, window.innerWidth - rem));
+  const x = page ? (window.innerWidth - width) / 2 - inset : point.x;
+  // If neither side fits, use the side with more room and shift only the bubble, leaving the pin on its spot.
+  const flipX = x > window.innerWidth / 2 && x + inset + width > window.innerWidth - inset;
+  const left = Math.max(inset, Math.min(flipX ? x - inset - width : x + inset, window.innerWidth - inset - width));
+  return { x, y: point.y, flipX, left: left - x };
+}
 
 // A pointer that moved more than this between down and up was a scroll or a drag, not a click.
 const clickSlop = 6;
@@ -223,23 +235,25 @@ export const CommentLayer = defineComponent({
 
       const draft = state.draft.value;
       const draftPosition = draft && state.positions.value.get(draftPositionKey);
-      // A comment on the whole page has no spot, so its composer stays where it opened.
+      // A comment on the whole page has no spot. Keep its opening height and center its bubble.
       const point = draftPosition && !draftPosition.detached && draft?.anchor.kind !== "page" ? draftPosition : draft?.point;
+      const placement = draft && point ? placeDraft(point, draft.anchor.kind === "page") : undefined;
       const composing =
-        draft && point
+        draft && placement
           ? h(
               "div",
               {
-                ...side(point.x, point.y),
+                ...side(placement.x, placement.y),
+                "data-flip-x": placement.flipX ? "true" : undefined,
                 "data-draft": "true",
                 "data-slot": "comment-layer-item",
-                style: { left: `${point.x}px`, top: `${point.y}px` },
+                style: { left: `${placement.x}px`, top: `${placement.y}px` },
               },
               [
                 h(CommentPin, { author: user.value, draft: true }),
                 h(
                   "div",
-                  { "data-slot": "comment-layer-popover" },
+                  { "data-slot": "comment-layer-popover", style: { left: `${placement.left}px`, right: "auto" } },
                   h(CommentComposer, {
                     accept: props.accept,
                     attachments: attachmentsOn.value,

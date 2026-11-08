@@ -424,7 +424,7 @@ Edit and Delete are shown when their respective handlers are supplied. An unchan
 
 ### CommentComposer
 
-The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). At the bottom of a panel or a thread it is one row under a divider: attach, the text, and send. Renders a `div` with `data-slot="comment-composer"`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"` and `data-layout`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -446,6 +446,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `attachments` | `boolean` | `true` | Take files from paste, drop, and the file button. An edit never takes files. |
 | `accept` | `string` | | The file types to take, as the `accept` of a file input. |
 | `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
+| `layout` | `"box" \| "row"` | `"box"` | `box` is a bordered field. `row` is one line that shows its edge only while it has the focus, for a box inside a card. |
 
 #### Events
 

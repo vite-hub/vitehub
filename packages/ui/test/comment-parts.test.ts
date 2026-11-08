@@ -927,9 +927,42 @@ describe("agent messages and replies since resolved", () => {
     expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2", "thread-3"]);
     expect(wrapper.find("[data-slot=comment-panel-group-header]").exists()).toBe(false);
   });
+
+  it("keeps a replied-to thread ungrouped when the app's grouper returns undefined", async () => {
+    const comments = client([
+      thread(1),
+      thread(2, { ...resolvedBy, messages: [message("m2"), message("m3", { createdAt: 3_000 })] }),
+    ]);
+    const group = (item: CommentThreadModel) => item.status === "open" ? "Current" : undefined;
+    const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, group, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    const sections = wrapper.findAll("[data-slot=comment-panel-groups] > *");
+    expect(sections.map(section => section.attributes("data-slot"))).toEqual(["comment-panel-items", "comment-panel-group"]);
+    expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+    expect(wrapper.findAll("[data-slot=comment-panel-group-header]").map(header => header.text())).toEqual(["Current"]);
+    expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+  });
 });
 
 describe("composer layout", () => {
+  afterEach(() => {
+    document.documentElement.style.fontSize = "";
+  });
+
+  async function draftLayer() {
+    const comments = client();
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    return { state, wrapper };
+  }
+
   it("puts the reply box of a thread and the box of a panel on one row, and leaves a standalone box bordered", async () => {
     const reply = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } }));
     expect(reply.get("[data-slot=comment-thread] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
@@ -948,17 +981,51 @@ describe("composer layout", () => {
   });
 
   it("opens a new comment on the layer as a one-line bubble", async () => {
-    const comments = client();
-    let state!: ReturnType<typeof useComments>;
-    const wrapper = keep(mount(defineComponent({
-      setup() {
-        state = useComments({ client: comments, subject: pricing });
-        return () => h(CommentLayer, { comments: state });
-      },
-    }), { attachTo: document.body, global }));
-    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    const { state, wrapper } = await draftLayer();
     state.startDraft("page");
     await flushPromises();
     expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+  });
+
+  it.each([
+    { viewport: 375, rem: 16, x: 50, left: 58, flipped: false },
+    { viewport: 375, rem: 16, x: 100, left: 79, flipped: false },
+    { viewport: 375, rem: 16, x: 250, left: 8, flipped: true },
+    { viewport: 375, rem: 16, x: 350, left: 54, flipped: true },
+    { viewport: 1024, rem: 16, x: 700, left: 708, flipped: false },
+    { viewport: 1024, rem: 16, x: 900, left: 604, flipped: true },
+    { viewport: 240, rem: 16, x: 100, left: 8, flipped: false },
+    { viewport: 400, rem: 20, x: 50, left: 30, flipped: false },
+  ])("keeps a draft at x=$x within a $viewport px viewport ($rem px root font)", async ({ viewport, rem, x, left, flipped }) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    document.documentElement.style.fontSize = `${rem}px`;
+    const { state, wrapper } = await draftLayer();
+    const target = document.createElement("div");
+    document.body.append(target);
+    state.startDraft(target, { point: { x, y: 100 } });
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(item.attributes("data-flip-x")).toBe(flipped ? "true" : undefined);
+    expect(Number.parseFloat(item.element.style.left)).toBe(x);
+    expect(x + Number.parseFloat(popover.element.style.left)).toBe(left);
+  });
+
+  it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(viewport);
+    const { state, wrapper } = await draftLayer();
+    state.startDraft("page");
+    await flushPromises();
+    const item = wrapper.get<HTMLElement>("[data-draft=true]");
+    const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
+    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.left) + 144).toBe(viewport / 2);
+  });
+
+  it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
+    const attach = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get('button[aria-label="Add attachment"]').attributes("variant");
+    expect(attach()).toBe("outline");
+    expect(attach("row")).toBe("ghost");
   });
 });

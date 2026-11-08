@@ -2004,6 +2004,11 @@
     transform-origin: top left;
     width: 18rem;
 
+    &:has([data-slot="prompt-input-textarea"]:focus-visible) {
+      outline: 2px solid var(--vh-ring);
+      outline-offset: 2px;
+    }
+
     & [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
       border-color: transparent;
       box-shadow: none;
@@ -2613,17 +2618,6 @@
       height: 2rem;
       justify-content: center;
       min-width: 2rem;
-    }
-
-    /* Attach is a quiet icon here, not an outlined button. Nuxt UI draws the outline with utility classes, which sit in
-       a later layer than this one, so only an important declaration here outranks them. */
-    & [data-slot="prompt-input-toolbar"] > button:not(:last-child) {
-      box-shadow: none !important;
-      color: var(--vh-muted) !important;
-
-      &:not(:hover, :focus-visible) {
-        background: transparent !important;
-      }
     }
 
     /* The same focus as the bordered box: a faint edge and a soft halo. */
