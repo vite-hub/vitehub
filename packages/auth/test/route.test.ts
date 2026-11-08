@@ -1,5 +1,4 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
-import { admin } from "better-auth/plugins"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { AuthDefinition } from "../src/types.ts"
@@ -17,12 +16,11 @@ const origin = "https://app.example.com"
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
 const credentials = { email: "owner@example.com", password: "correct-horse-battery" }
 
-function useDefinition(): void {
+function useDefinition(runtime: { secret?: string } = { secret }): void {
   const db: Record<string, unknown[]> = { account: [], session: [], user: [], verification: [] }
   definition.current = defineAuth({
     emailAndPassword: { enabled: true },
-    plugins: [admin()],
-    runtime: { database: memoryAdapter(db), secret },
+    runtime: { database: memoryAdapter(db), ...runtime },
   })
 }
 
@@ -61,14 +59,24 @@ describe("Auth route", () => {
   })
 
   it("reads the Cloudflare bindings of the Request's Standard Context", async () => {
-    useDefinition()
+    for (const name of ["VITEHUB_SECRET", "NUXT_APP_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) vi.stubEnv(name, undefined)
+    useDefinition({})
+    const env = { VITEHUB_SECRET: secret }
     const response = await authRoute.fetch(nitroRequest(
       authRequest("sign-up/email", { ...credentials, name: "Owner" }),
-      { VITEHUB_ADMIN_EMAILS: credentials.email },
+      env,
     ))
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ user: { email: credentials.email, role: "admin" } })
+    const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const session = await authRoute.fetch(nitroRequest(authRequest("get-session", undefined, { cookie }), env))
+    expect(await session.json()).toMatchObject({ user: { email: credentials.email } })
+
+    const otherSecret = await authRoute.fetch(nitroRequest(
+      authRequest("get-session", undefined, { cookie }),
+      { VITEHUB_SECRET: `${secret}-other` },
+    ))
+    expect(await otherSecret.json()).toBeNull()
   })
 
   it("limits each client address of the Request's Standard Context in its own bucket", async () => {

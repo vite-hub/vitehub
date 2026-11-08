@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page.
 
-```ts [app/components/PageEditor.vue]
+```ts [app/components/PageEditor.vue] fragment
 const realtime = useRealtimeTiptap('pages', () => props.path)
 const toast = useToast()
 

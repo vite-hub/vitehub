@@ -1,6 +1,7 @@
 ---
 title: Rate limiting vs throttling, and the four rate limiting algorithms
-description: Rate limiting rejects extra requests and throttling delays them. Compare fixed window, sliding window, token bucket, and leaky bucket, then add one with ViteHub.
+seo.title: "Rate limiting vs throttling, and four algorithms"
+description: "Rate limiting rejects extra requests and throttling delays them. Compare fixed window, sliding window, token bucket, and leaky bucket, and add one with ViteHub."
 navigation.title: Rate limiting algorithms
 navigation.order: 40
 navigation.group: Concepts
@@ -124,12 +125,12 @@ export default defineConfig({
 Call `requireRateLimit()` before the work. This route allows 10 requests per minute for each signed-in user. Request 11 in the same clock minute gets a `429` with a `Retry-After` header.
 
 ```ts [server/api/messages.post.ts]
-import { defineEventHandler } from 'h3'
+import { defineEventHandler, type H3Event } from 'h3'
 import { withAuth } from 'vite-hub/auth/server'
 import { requireRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(
-  withAuth(async (event, { user }) => {
+  withAuth(async (event: H3Event, { user }) => {
     await requireRateLimit(event, 'send-message', {
       key: user.id,
       limit: 10,

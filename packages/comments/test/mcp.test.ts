@@ -1,4 +1,5 @@
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
@@ -8,12 +9,21 @@ import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { ada, anchor, createComments } from "./harness.ts"
 
-import type { DefineCommentsOptions } from "../src/types.ts"
+import type { CommentsIdentifyContext, DefineCommentsOptions } from "../src/types.ts"
 import type { H3Event } from "h3"
 
 function event(headers: Record<string, string> = {}): H3Event {
   // SAFETY: Comments identity readers use the request headers from the H3 event.
-  return { req: new Request("http://site.test/api/_vitehub/comments/session", { headers }) } as H3Event
+  const event = { req: new Request("http://site.test/api/_vitehub/comments/session", { headers }), res: { headers: new Headers() } }
+  // The Console sets Standard Context before it passes the event to a tool, as the ViteHub Nitro plugin does.
+  installStandardContext(event)
+  return event as unknown as H3Event
+}
+
+/** An H3 1 event of Nuxt 4, with the Standard Context that the Console sets before it calls a tool. */
+function withStandardContext<T extends object>(event: T) {
+  installStandardContext(event)
+  return event
 }
 
 async function setup(options: DefineCommentsOptions = {}) {
@@ -164,7 +174,7 @@ describe("Comments MCP tools", () => {
   it("uses the configured Comments identity ahead of the Console user", async () => {
     const seen: unknown[] = []
     const comments = await createComments({
-      identify: ({ event }) => event.req.headers.get("x-person") === "ada" ? ada : null,
+      identify: ({ event }) => event["~standard"].req.headers.get("x-person") === "ada" ? ada : null,
       authorize: ({ user }) => { seen.push(user); return Boolean(user) },
     })
     const tool = commentsMcpTools(comments)[0]!
@@ -179,7 +189,7 @@ describe("Comments MCP tools", () => {
 
   it("uses the checked custom-server user without a request event", async () => {
     const seen: unknown[] = []
-    const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "ada" ? ada : null)
+    const identify = vi.fn(({ event }: CommentsIdentifyContext) => event["~standard"].req.headers.get("x-person") === "ada" ? ada : null)
     const session = vi.fn(async () => ada)
     const comments = await createComments({
       identify,
@@ -221,7 +231,7 @@ describe("Comments MCP tools", () => {
     const guestTools = commentsMcpTools(comments, { consoleSession: guestSession })
     await comments.reopen(thread!.id)
     const headers = { "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }
-    const request = nodeEvent ? { node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } } } } : event(headers)
+    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
     expect((await guestTools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: ada, event: request })).isError).toBeUndefined()
     expect((await guestTools[3]!.call({ id: thread!.id }, { user: ada, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)
