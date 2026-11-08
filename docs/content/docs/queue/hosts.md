@@ -25,7 +25,7 @@ With `preset: 'node'`, the built server uses the local provider too. This also w
 For Cloudflare or Vercel, use a build to check that ViteHub generates the right Nitro output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub @vite-hub/queue
 pnpm vite build
 pnpm vitehub inspect definitions --kind queue
 ```
@@ -52,3 +52,7 @@ Nitro is the only host output. The Queue Package discovers Queue Definitions, ge
 | Local | The Queue Nitro plugin. It reads `.vitehub/data/queue` when the server starts and runs the due jobs. `pnpm dev` uses it for every provider, and the build keeps the provider output above. |
 
 Do not import generated files from application code.
+
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it sends to production queues ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). Two Cloudflare Previews that bind the same queue name send to the same queue ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare preview queue producers in `previews.queues.producers` of the project Wrangler config, because ViteHub does not write that block. Cloudflare does not accept Queue consumers there ([Previews configuration](https://developers.cloudflare.com/workers/previews/configuration/)). For a preview Worker of its own, set `queue.namePrefix` in its build. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).

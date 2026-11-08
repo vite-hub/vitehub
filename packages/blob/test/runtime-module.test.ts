@@ -6,7 +6,9 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { BlobNotFoundError, BlobStoreNotFoundError } from "@vercel/blob"
 import { build as bundle } from "esbuild"
+import { S3Client } from "@aws-sdk/client-s3"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeBlobOptions } from "../src/config.ts"
@@ -55,7 +57,10 @@ const vercelBlobMock = vi.hoisted(() => ({
     url: `https://blob.example/${pathname}`,
   })),
 }))
-vi.mock("@vercel/blob", () => vercelBlobMock)
+vi.mock("@vercel/blob", async importOriginal => {
+  const actual = await importOriginal<typeof import("@vercel/blob")>()
+  return { ...vercelBlobMock, BlobNotFoundError: actual.BlobNotFoundError, BlobStoreNotFoundError: actual.BlobStoreNotFoundError }
+})
 
 vi.mock("files-sdk", () => ({
   Files: class {
@@ -148,6 +153,57 @@ afterEach(async () => {
 })
 
 describe("Blob Nitro runtime module", () => {
+  it.each(["lazy", "eager"])("uses native and HTTP R2 per development store when only one is remote (%s)", async (kind) => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-remote-r2-")
+    const resolved = normalizeBlobOptions({
+      stores: {
+        default: { binding: "BLOB", bucketName: "local-assets", driver: "cloudflare-r2" },
+        remote: {
+          accountId: "account",
+          accessKeyId: "access-key",
+          binding: "REMOTE_BLOB",
+          bucketName: "assets",
+          driver: "cloudflare-r2",
+          publicBaseUrl: "https://assets.example.test",
+          remote: true,
+          secretAccessKey: "secret-key",
+        },
+      },
+    }, { dev: true })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const localList = vi.fn(async () => ({ objects: [], truncated: false }))
+    const localPut = vi.fn(async () => ({ key: "local.txt", size: 5 }))
+    vi.stubGlobal("BLOB", { list: localList, put: localPut })
+    const list = vi.fn()
+    const put = vi.fn()
+    vi.stubGlobal("REMOTE_BLOB", { list, put })
+    const send = vi.spyOn(S3Client.prototype, "send").mockImplementation(async () => ({ Contents: [], ETag: '"etag"', IsTruncated: false }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const file = join(rootDir, "runtime.mjs")
+      await writeFile(file, `${renderBlobRuntimeModule(file, resolved, "cloudflare")}\nexport { createGeneratedBlobStorage }\n`, "utf8")
+      const runtime = await import(pathToFileURL(file).href) as { blob: BlobStorage, createGeneratedBlobStorage: () => BlobStorage }
+      const storage = kind === "lazy" ? runtime.blob : runtime.createGeneratedBlobStorage()
+
+      expect(await storage.list()).toMatchObject([undefined, { blobs: [], hasMore: false }])
+      expect(await storage.put("local.txt", "hello")).toMatchObject([undefined, { pathname: "local.txt", size: 5 }])
+      expect(localList).toHaveBeenCalledOnce()
+      expect(localPut).toHaveBeenCalledWith("local.txt", "hello", expect.any(Object))
+      expect(send).not.toHaveBeenCalled()
+
+      const remote = storage.store("remote")
+      expect(await remote.list()).toMatchObject([undefined, { blobs: [], hasMore: false }])
+      expect((await remote.put("remote.txt", "hello"))[0]).toBeUndefined()
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ Bucket: "assets", Key: "remote.txt" }) }), undefined)
+      expect(list).not.toHaveBeenCalled()
+      expect(put).not.toHaveBeenCalled()
+    }
+    finally {
+      send.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
   it.each([
     { objectAccess: "private" as const, storeAccess: "public" as const },
     { objectAccess: "public" as const, storeAccess: "private" as const },
@@ -183,9 +239,7 @@ describe("Blob Nitro runtime module", () => {
   })
 
   it("maps Vercel missing-object errors to Blob misses", async () => {
-    const missing = new Error("Vercel Blob: The requested blob does not exist")
-    missing.name = "BlobNotFoundError"
-    vercelBlobMock.head.mockRejectedValueOnce(missing)
+    vercelBlobMock.head.mockRejectedValueOnce(new BlobNotFoundError())
     const driver = createBundledVercelBlobDriver({
       access: "private",
       driver: "vercel-blob",
@@ -194,7 +248,7 @@ describe("Blob Nitro runtime module", () => {
 
     await expect(driver.head("missing.txt")).resolves.toBeNull()
 
-    const missingStore = new Error("Vercel Blob: The requested store does not exist")
+    const missingStore = new BlobStoreNotFoundError()
     vercelBlobMock.head.mockRejectedValueOnce(missingStore)
     await expect(driver.head("missing.txt")).rejects.toBe(missingStore)
   })
@@ -292,7 +346,7 @@ describe("Blob Nitro runtime module", () => {
     }
 
     const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("pathname=notes%2Fgenerated.txt"),
@@ -334,7 +388,7 @@ describe("Blob Nitro runtime module", () => {
     }
 
     const [error, object] = await runtimeModule.blob.store("assets").put("notes/assets.txt", "hello") as [unknown, { url?: string }]
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(object).toMatchObject({ url: "/notes/assets.txt" })
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -383,13 +437,13 @@ describe("Blob Nitro runtime module", () => {
     const runtimeModule = await import(pathToFileURL(file).href) as { blob: BlobStorage, createGeneratedBlobStorage: () => BlobStorage }
     const storage = kind === "lazy" ? runtimeModule.blob : runtimeModule.createGeneratedBlobStorage()
 
-    expect((await storage.store("reports").put("q1.txt", "revenue"))[0]).toBeNull()
-    expect((await storage.store("default", { mode: "write" }).put("q1.txt", "default"))[0]).toBeNull()
+    expect((await storage.store("reports").put("q1.txt", "revenue"))[0]).toBeUndefined()
+    expect((await storage.store("default", { mode: "write" }).put("q1.txt", "default"))[0]).toBeUndefined()
     const reader = storage.store("reports", { mode: "read" })
     expect(Object.keys(reader).sort()).toEqual(["get", "head", "list", "media", "serve", "sign"])
     expect(Object.keys(reader.media).sort()).toEqual(["get", "list", "variants"])
     const [getError, object] = await reader.get("q1.txt")
-    expect(getError).toBeNull()
+    expect(getError).toBeUndefined()
     expect(await object?.text()).toBe("revenue")
     expect((await reader.head("q1.txt"))[1]).toMatchObject({ pathname: "q1.txt", size: 7, url: "/reports/q1.txt" })
     expect((await reader.list())[1]?.blobs.map(item => item.pathname)).toEqual(["q1.txt"])
@@ -399,7 +453,7 @@ describe("Blob Nitro runtime module", () => {
 
     const signedReader = storage.store("signed", { mode: "read" })
     const [signError, signed] = await signedReader.sign("q1.txt", { expiresIn: 60, method: "GET" })
-    expect(signError).toBeNull()
+    expect(signError).toBeUndefined()
     expect(signed).toMatchObject({ method: "GET", url: expect.stringContaining("X-Amz-Signature=") })
     // JavaScript callers can bypass the public option types.
     await expect(Reflect.apply(signedReader.sign, signedReader, ["q1.txt", { expiresIn: 60, method: "PUT" }])).rejects.toMatchObject({ code: "BLOB_R0037" })
@@ -424,14 +478,14 @@ describe("Blob Nitro runtime module", () => {
     const svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"20\"></svg>"
 
     const [putError, record] = await runtimeModule.blob.media.put("posts/cover.svg", svg, { alt: "Cover" })
-    expect(putError).toBeNull()
+    expect(putError).toBeUndefined()
     expect(record).toMatchObject({ alt: "Cover", height: 20, pathname: "posts/cover.svg", url: "/media/posts/cover.svg", width: 40 })
     const [getError, stored] = await runtimeModule.blob.media.get("posts/cover.svg")
-    expect(getError).toBeNull()
+    expect(getError).toBeUndefined()
     expect(stored).toMatchObject({ alt: "Cover", pathname: "posts/cover.svg" })
 
     const [archiveError, archived] = await runtimeModule.blob.store("archive").media.put("cover.svg", svg)
-    expect(archiveError).toBeNull()
+    expect(archiveError).toBeUndefined()
     expect(archived).toMatchObject({ pathname: "cover.svg", width: 40 })
     expect(archived?.url).toBeUndefined()
   })
@@ -488,7 +542,7 @@ describe("Blob Nitro runtime module", () => {
       }
     }
     const [error] = await runtimeModule.blob.put("notes/generated.txt", "hello") as [unknown, unknown]
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
 

@@ -1,4 +1,5 @@
 import { bundleDiagnostics, cloudflareWorkerSizeLimit } from "./diagnostics.ts"
+import { moduleGroup } from "./groups.ts"
 
 import type { BundleChainStep, BundleEnvironmentReport, BundleExplanation, BundleFinding, BundleFindingCode, BundleSide, BundleStartupRule } from "./types.ts"
 
@@ -28,6 +29,26 @@ function uniqueRules(reports: readonly BundleEnvironmentReport[]): BundleStartup
     for (const rule of report.side === "server" ? report.rules ?? [] : []) rules.set(JSON.stringify(rule), rule)
   }
   return [...rules.values()]
+}
+
+/** A feature's configuration says nothing about independent consumers of the same packages. */
+function exclusivelyOwned(reports: readonly BundleEnvironmentReport[], rule: BundleStartupRule): boolean {
+  let ownedImport = false
+  for (const report of reports) {
+    if (report.side !== "server") continue
+    for (const chunk of report.chunks) {
+      for (const module of chunk.modules) {
+        const group = moduleGroup(module.id).name
+        if (module.entry && rule.packages.includes(group)) return false
+        for (const target of [...module.imports, ...module.dynamicImports]) {
+          if (!rule.packages.includes(moduleGroup(target).name)) continue
+          if (group === rule.owner) ownedImport = true
+          else if (!rule.packages.includes(group)) return false
+        }
+      }
+    }
+  }
+  return ownedImport
 }
 
 /** A package that a feature declared as not needed at startup, and that loads at startup. */
@@ -66,6 +87,6 @@ export function checkBundle(reports: readonly BundleEnvironmentReport[], server:
   if (!server) return []
   return [
     ...hostSizeLimit(server, host, explain),
-    ...startupUnused(server, uniqueRules(reports), explain),
+    ...startupUnused(server, uniqueRules(reports).filter(rule => exclusivelyOwned(reports, rule)), explain),
   ]
 }

@@ -1,6 +1,6 @@
 ---
 title: Add the docs assistant
-description: Answer reader questions from your pages with a ViteHub Agent on your ChatGPT plan, on Node.js or Cloudflare Workers, and change its instructions, model, pages, and limits.
+description: Answer reader questions from your pages with a ViteHub Agent on your ChatGPT plan. Run it on Node.js or Cloudflare Workers and set its model and limits.
 navigation.title: Docs assistant
 navigation.order: 4
 icon: i-lucide-message-square-text
@@ -15,7 +15,7 @@ By default it runs on your ChatGPT plan. You sign in once with your ChatGPT acco
 The assistant needs ViteHub Agents and [Connections](/docs/connections). On Node.js it also needs Codex in the app. A Worker build does not:
 
 ```bash [commands/install-assistant]
-pnpm add vite-hub @vite-hub/agent @vite-hub/database drizzle-orm @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm @openai/codex
 ```
 
 Add `vite-hub/nuxt` to `modules`, and set `assistant: true`:

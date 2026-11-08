@@ -40,6 +40,6 @@ export function libsqlStartupRule(config: ResolvedDBViteConfig | undefined, pres
     owner: "@vite-hub/database",
     packages: libsqlPackages,
     why: "This Worker uses D1 or Postgres for every Database, and no Database sets a remote libSQL URL. libSQL only serves the local SQLite that stands in for D1 in `vite dev`.",
-    fix: "If the chain passes through `@vite-hub/database`, update `vite-hub`: the Database then loads libSQL on its first query. If it passes through app code, remove the libSQL import or move it into an `import()` in the code that uses it.",
+    fix: "Update `vite-hub`: the Database then loads libSQL on its first query.",
   }
 }

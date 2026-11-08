@@ -13,11 +13,11 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function project(definitions: Record<string, string> = {}) {
+async function project(definitions: Record<string, string> = {}, extension = "ts") {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-bundle-"))
   tempDirs.push(rootDir)
   for (const [name, body] of Object.entries(definitions)) {
-    const file = join(rootDir, "server", "databases", name, "config.ts")
+    const file = join(rootDir, "server", "databases", name, `config.${extension}`)
     await mkdir(dirname(file), { recursive: true })
     await writeFile(file, [
       "import { defineDatabase } from '@vite-hub/database'",
@@ -60,5 +60,14 @@ describe("libSQL startup rule", () => {
     const rootDir = await project({ default: "cloudflare: { databaseId: 'id' }, connection: { url: 'file:.data/app.db' }" })
     const config = resolveDBViteConfig({ driver: "d1" }, rootDir, { implicitDefault: true })
     expect(libsqlStartupRule(config, "cloudflare-module")).toBeDefined()
+  })
+
+  it.each([
+    ["connection", "connection: { url: 'file:.data/app.db' }, connection: { url: 'libsql://app.turso.io' }"],
+    ["url", "connection: { url: 'file:.data/app.db', url: 'libsql://app.turso.io' }"],
+  ])("declares nothing when a JavaScript Definition repeats %s", async (_label, body) => {
+    const rootDir = await project({ default: `cloudflare: { databaseId: 'id' }, ${body}` }, "js")
+    const config = resolveDBViteConfig({ driver: "d1" }, rootDir, { implicitDefault: true })
+    expect(libsqlStartupRule(config, "cloudflare-module")).toBeUndefined()
   })
 })

@@ -50,7 +50,7 @@ export interface BundleEnvironmentReport {
  * `vitehub:bundle:rules`.
  */
 export interface BundleStartupRule {
-  /** The package that declares the rule, such as `@vite-hub/database`. */
+  /** The package that declares the rule. Independent consumers of `packages` suppress the finding. */
   owner: string
   /** Package names, as `vitehub bundle` groups them. Put the package that code imports first: findings explain it. */
   packages: string[]

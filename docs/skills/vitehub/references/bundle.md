@@ -23,7 +23,7 @@ Use `--json` on both commands when you compare numbers or write them into a repo
 
 `vitehub bundle` ends with its checks. `--json` gives them in `findings`. Each finding has `code`, `severity`, `why`, `fix`, `docs`, `bytes`, and `chain`, the import chain from the server entry. The checks report only what the build proves: a feature declares from its resolved configuration what the server never runs, and a host limit comes from the host's documentation.
 
-- `BUNDLE_STARTUP_UNUSED` (warning): a package loads at server startup, and a feature of this build never runs it there. Example: `@libsql/client` on a Cloudflare app where every Database is D1. Read `chain` from the end. If a ViteHub package imports it, update `vite-hub`. If app code imports it, remove the import or move it into an `import()` in the code that uses it.
+- `BUNDLE_STARTUP_UNUSED` (warning): a package loads at server startup, and a feature of this build never runs it there. Example: `@libsql/client` on a Cloudflare app where every Database is D1. Read `chain` from the end and update the ViteHub package that imports it. Independent imports from app code or other packages suppress the finding, because the feature cannot prove what those consumers need.
 - `BUNDLE_HOST_SIZE_LIMIT` (error): the server JavaScript is over the host limit, so the deployment fails. Cloudflare accepts a Worker up to 64 MiB before compression. Start with the largest groups.
 
 An error makes `vitehub bundle` exit with 1, so CI can run `vite build && vitehub bundle`. A warning keeps exit code 0. After a fix, build again and check that the finding is gone.

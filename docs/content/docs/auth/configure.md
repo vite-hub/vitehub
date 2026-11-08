@@ -159,7 +159,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 
 Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from '@vite-hub/auth'
 
 export default defineAuth({
@@ -219,7 +219,7 @@ pnpm vitehub db migrate
 - The owned tables use text IDs and text references. Use Better Auth's default ID generator or a custom function returning strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` require another adapter and a schema that you own; `authDatabase()` rejects them with `AUTH_C0053`.
 - The owned core tables have fixed columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, including Console profile fields, use another Better Auth adapter and a schema that includes those columns. `authDatabase()` rejects these options with `AUTH_C0055`; a Database contribution cannot extend the owned tables.
 - Plugins may use the owned columns of `admin()`, `jwt()`, and `oauthProvider()`. Plugins that add other columns to an owned table, such as `username()`, fail with `AUTH_C0056` before the adapter opens the Database. Model and field remapping on owned tables also fail with `AUTH_C0056`; use another adapter and a matching schema for those options.
-- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the fields of the [`admin()`](https://www.better-auth.com/docs/plugins/admin) plugin (`user.role`, bans, and `session.impersonatedBy`), and the `jwks` and `oauth*` tables that [Console MCP OAuth](/docs/development/mcp#set-up-oauth) needs. Column names follow the Better Auth CLI.
+- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the fields of the [`admin()`](https://www.better-auth.com/docs/plugins/admin) plugin (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables that [Console MCP OAuth](/docs/development/mcp#set-up-oauth) needs, and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
 - The tables use the dialect of the target Database: SQLite, libSQL, and Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database for them.
 - `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. The tables are also in `useDatabase(name).schema`, so server code can read them.
 - Other plugins that add tables, such as `organization()`, need their tables in the Database Definition. A table that the Database does not have fails when Better Auth uses it.
@@ -227,19 +227,33 @@ pnpm vitehub db migrate
 
 Better Auth's own adapters still work. Return one from the Definition callback or `runtime` when Auth uses another database.
 
+## Rate limiting
+
+Better Auth's limiter allows 100 requests per 10 seconds for each client IP and path, 3 per 10 seconds for sign-in and sign-up, and stricter rules that plugins add. Auth sets it up the same way on every host:
+
+- It is on outside a development server. The Auth Vite plugin marks `vite dev` and a Nitro dev server, so a Cloudflare Worker, which has no `NODE_ENV`, still limits requests. Set `rateLimit.enabled` to choose yourself.
+- The client IP is the address that the host reports: `cf-connecting-ip` on Cloudflare, and the peer address on Node. Auth does not read `X-Forwarded-For`, which a client can set. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the peer is your proxy, so Auth reads `X-Forwarded-For` first. Set `advanced.ipAddress.ipAddressHeaders` to read other headers.
+- The counters are in the `rate_limit` table with [`authDatabase()`](#keep-users-in-the-app-database), so every instance and every Auth built for a request share them. With a `secondaryStorage`, they are in that store. Otherwise they are in the memory of the process. Set `rateLimit.storage` or `rateLimit.customStorage` to choose yourself.
+
+Auth passes the address to Better Auth in the `x-vitehub-client-address` header and removes a value that a client sends. `auth.api` calls do not run the limiter. An `auth.api` call with only `headers` has no client IP, so `session.ipAddress` stays empty for a session that it creates.
+
+For a manual host that adapts requests to plain Web `Request` objects, call the handler returned by `createAuthHandler()` with `handler(request, { clientAddress })`, using the peer address from the host. Without it, these requests share an addressless rate-limit bucket. See [Mount a server handler](/docs/frameworks-hosts/node-self-hosted#mount-a-server-handler).
+
 ## Give the first admin role
 
-Set `VITEHUB_ADMIN_EMAILS` to a comma-separated list of emails. A new account with one of them gets the admin role of Better Auth's `admin()` plugin: an email and password sign-up, or the first sign-in with a social provider. Existing accounts keep their role. The Auth Console shows the rule in its access notes.
+Set `VITEHUB_ADMINS` to the social accounts that get the admin role, separated by commas. Each entry is `<provider>:<account id>`, the pair that Better Auth stores in the `account` table:
 
 ```bash [Terminal]
-VITEHUB_ADMIN_EMAILS=you@example.com pnpm dev
+VITEHUB_ADMINS=github:22072217 pnpm dev
 ```
 
-On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS`. The role is the first entry of `admin({ adminRoles })`, `admin` by default. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+A GitHub entry uses the numeric account id, because someone can rename a login and someone else can take the old one. Find it with `gh api users/<login> --jq .id`.
 
-The assignment runs after an application's `databaseHooks.user.create.before` hook, preserving its other fields and any cancellation. A hook's returned role cannot demote a new account with a listed email.
+When a listed account signs in, or is linked to a user, the user gets the first role of `admin({ adminRoles })`, `admin` by default. The role replaces the default role of `admin()` and joins the user's other roles. An entry added later works on the account's next sign-in. Removing an entry does not remove the role: an admin changes it in the Auth Console, which shows the rule in its access notes.
 
-The first account that signs up with a listed email gets the role. This is a bootstrap rule and does not prove email ownership. For email and password sign-up, restrict access to the deployment until you have created the admin account, then unset `VITEHUB_ADMIN_EMAILS` before opening public sign-up. Email verification alone does not protect this bootstrap: someone else can register the address with their own password, and keep that password if the mailbox owner follows the verification link. If the address has already been registered by someone else, remove that account through your trusted administration process before bootstrapping.
+On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMINS`. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+
+`VITEHUB_ADMINS` takes no emails. An email and password sign-up does not prove that the person owns the email, so the first person to sign up with the admin's email would get the role. An email entry fails with `AUTH_C0058`, and the removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
 ## Sign MCP clients in
 
@@ -269,7 +283,7 @@ export default defineAuth(({ requestOrigin }) => ({
 | `registration.maxBytes` | 16 KiB | The largest client registration body. |
 | `provider` | none | Other `oauthProvider()` options, such as `codeExpiresIn`. They win over the defaults. |
 
-Registration is open to anyone, as MCP clients expect, so `mcpOAuth()` bounds it. A body over `registration.maxBytes` gets `413` before Better Auth parses it. A registration with no redirect URI or more than 5, a field over 2048 characters, a list over 10 entries, or a `client_name` over 160 characters gets `400` with `invalid_client_metadata`. A client that sends no `application_type` and only loopback or private-use redirects, as Claude Code, Codex, and Cursor do, is a native client. Better Auth's limiter allows 5 registrations per minute and IP. It is on in production. Its default storage is the memory of one Auth instance, so set Better Auth `rateLimit.storage` to `database` or `secondary-storage` when the server runs more than one instance, or when the Auth follows `requestOrigin` and is built for each request.
+Registration is open to anyone, as MCP clients expect, so `mcpOAuth()` bounds it. A body over `registration.maxBytes` gets `413` before Better Auth parses it. A registration with no redirect URI or more than 5, a field over 2048 characters, a list over 10 entries, or a `client_name` over 160 characters gets `400` with `invalid_client_metadata`. A client that sends no `application_type` and only loopback or private-use redirects, as Claude Code, Codex, and Cursor do, is a native client. Better Auth's limiter allows 5 registrations per minute for each client IP. See [Rate limiting](#rate-limiting) for when it is on and where it keeps its counters.
 
 When Better Auth has a `secondaryStorage` adapter, also set `session: { storeSessionInDatabase: true }`. OAuth Provider requires database-backed sessions with secondary storage, including when `rateLimit.storage` is `secondary-storage`.
 
@@ -309,7 +323,7 @@ if (error) {
 }
 ```
 
-It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token whose scope has `offline_access` skips this check: the person granted access for while they are signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+It reads only the URL and the headers of the request, so H3's `event.req` or any value with `url` and `headers` works, and the body stays for the MCP handler. It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token whose scope has `offline_access` skips this check: the person granted access for while they are signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 
 ### Delete abandoned registrations
 
@@ -361,6 +375,9 @@ To persist Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-datab
 `hubAuth()` accepts `false` to disable Auth integration. The Vite config key `auth` overrides the plugin argument.
 
 ```ts [vite.config.ts]
+import { hubAuth } from '@vite-hub/auth/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubAuth()],
   auth: false,

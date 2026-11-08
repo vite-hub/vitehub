@@ -60,10 +60,16 @@ function nuxtBuild(build = "2026-11-06T10:00:00.000Z") {
 }
 
 describe("module ids and groups", () => {
-  it.each(["shared", "@consumer/shared", "@vite-hub/agent"])("uses the manifest name for a sibling workspace package named %s", (name) => {
+  it.each([
+    ["packages", "shared"],
+    ["packages", "@consumer/shared"],
+    ["packages", "@vite-hub/agent"],
+    ["libs", "shared"],
+    ["libs/nested", "@consumer/shared"],
+  ])("uses the manifest name for a sibling workspace under %s named %s", (parent, name) => {
     const workspace = mkdtempSync(join(tmpdir(), "vitehub-bundle-workspace-"))
     try {
-      const packageDir = join(workspace, "packages", "shared")
+      const packageDir = join(workspace, parent, "shared")
       mkdirSync(packageDir, { recursive: true })
       writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name }))
       const appRoot = join(workspace, "apps", "site")
@@ -110,6 +116,25 @@ describe("module ids and groups", () => {
 })
 
 describe("environment reports", () => {
+  it("keeps zero-byte entry facades as roots for static and dynamic import chains", () => {
+    const entry = `${root}/index.html`
+    const main = `${root}/src/main.ts`
+    const barrel = `${root}/src/barrel.ts`
+    const dependency = `${root}/node_modules/zod/index.js`
+    const lazy = `${root}/src/lazy.ts`
+    const report = collectEnvironmentReport({
+      "entry.js": chunk("entry.js", "x".repeat(10), { [entry]: 0, [barrel]: 0, [main]: 5, [dependency]: 5 }, { entry }),
+      "lazy.js": chunk("lazy.js", "xxx", { [lazy]: 3 }),
+    }, {
+      build: "b", environment: "client", side: "client", root, outDir: `${root}/dist`,
+      getModuleInfo: graph({ [entry]: [barrel], [barrel]: [main], [main]: [dependency] }, [entry], { [main]: [lazy] }),
+    })
+    expect(report.chunks[0]!.modules.find(module => module.id === "index.html")).toMatchObject({ bytes: 0, entry: true, imports: ["src/main.ts"] })
+    expect(explainBundle([report], "zod")[0]!.chain.map(step => step.id)).toEqual(["index.html", "src/main.ts", "node_modules/zod/index.js"])
+    expect(explainBundle([report], "src/lazy.ts")[0]).toMatchObject({ startup: false, chain: [{ id: "index.html" }, { id: "src/main.ts" }, { id: "src/lazy.ts" }] })
+    expect(createBundleReport([report])!.client!.groups.reduce((sum, group) => sum + group.bytes, 0)).toBe(13)
+  })
+
   it("normalizes Windows output folders so Nitro can place SSR modules", () => {
     const windowsRoot = "C:\\repo\\app"
     const ssr = collectEnvironmentReport({

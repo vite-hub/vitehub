@@ -114,6 +114,32 @@ describe("startup rules", () => {
     expect(createBundleReport([workerBuild({ host: "node-server", rules: [] })])!.findings).toEqual([])
   })
 
+  it.each(["imports", "dynamicImports"] as const)("stays quiet when app code also uses libSQL through %s", (edge) => {
+    const report = workerBuild()
+    const app = report.chunks.flatMap(chunk => chunk.modules).find(module => module.id === ".vitehub/agent/chat-webhook-route.ts")!
+    app[edge].push("node_modules/@libsql/client/lib-esm/web.js")
+    expect(createBundleReport([report])!.findings).toEqual([])
+  })
+
+  it("stays quiet when another dependency also uses libSQL", () => {
+    const report = workerBuild()
+    report.chunks[0]!.modules[0]!.imports.push("node_modules/remote-database/index.js")
+    report.chunks[0]!.modules.push({
+      id: "node_modules/remote-database/index.js",
+      bytes: 0,
+      imports: ["node_modules/@libsql/client/lib-esm/web.js"],
+      dynamicImports: [],
+      entry: false,
+    })
+    expect(createBundleReport([report])!.findings).toEqual([])
+  })
+
+  it("stays quiet when libSQL is an independent server entry", () => {
+    const report = workerBuild()
+    report.chunks.flatMap(chunk => chunk.modules).find(module => module.id === "node_modules/@libsql/client/lib-esm/web.js")!.entry = true
+    expect(createBundleReport([report])!.findings).toEqual([])
+  })
+
   it("prints a warning and keeps exit code 0", () => {
     const dir = projectWith(workerBuild())
     const text = run(dir, [])

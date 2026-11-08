@@ -40,6 +40,8 @@ The report joins the build environments. In Nuxt 5, Nitro bundles the SSR output
 
 An error makes the command exit with 1, so CI can run it after the build. A warning keeps exit code 0.
 
+A startup rule applies only when its packages are imported by its `owner` or each other. Imports from app code or another package suppress the finding, because the feature cannot prove what those consumers need.
+
 A feature adds a rule like this:
 
 ```ts
