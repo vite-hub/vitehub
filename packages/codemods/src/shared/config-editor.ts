@@ -2,7 +2,7 @@ import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, l
 import MagicString from "magic-string"
 
 import { CodemodError } from "../types.ts"
-import { findModuleEntry, literalValue, nitroPreset } from "./nuxt-config.ts"
+import { findModuleEntry, literalValue, nitroPreset, unwrapExpression } from "./nuxt-config.ts"
 
 import type { ObjectExpression, ObjectProperty, Statement } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -232,10 +232,15 @@ export function objectPropertyArray(object: ObjectExpression, name: string) {
   return property?.value.type === "ArrayExpression" ? property.value : undefined
 }
 
-export function hasInlinePreset(entry: Node | undefined): boolean {
-  if (entry?.type !== "ArrayExpression") return false
-  const options = entry.elements[1]
-  return options?.type === "ObjectExpression" && Boolean(findProperty(options, "preset"))
+/** Reads an explicit ViteHub option. Inline module options take precedence over `vitehub`. */
+export function findViteHubOption(config: NuxtConfigFile, name: string): ObjectProperty | undefined {
+  const entry = findViteHubEntry(config)
+  const inline = entry?.type === "ArrayExpression" ? entry.elements[1] : undefined
+  const inlineOptions = inline ? unwrapExpression(inline) : undefined
+  const inlineProperty = inlineOptions?.type === "ObjectExpression" ? findProperty(inlineOptions, name) : undefined
+  if (inlineProperty) return inlineProperty
+  const existing = findProperty(config.root, "vitehub")
+  return existing?.value.type === "ObjectExpression" ? findProperty(existing.value, name) : undefined
 }
 
 /** Returns the line of the property at `path` from the config root in `code`, or of its nearest parent. */
@@ -330,11 +335,9 @@ export interface PresetPlan {
 }
 
 export function planPreset(config: NuxtConfigFile): PresetPlan {
-  const existingOptions = findProperty(config.root, "vitehub")
-  const existingPreset = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "preset") : undefined
-  const inlinePreset = hasInlinePreset(findViteHubEntry(config))
-  if (existingPreset || inlinePreset) {
-    const value = existingPreset ? literalValue(existingPreset.value) : undefined
+  const existingPreset = findViteHubOption(config, "preset")
+  if (existingPreset) {
+    const value = literalValue(existingPreset.value)
     return { preset: typeof value === "string" ? value : undefined }
   }
   const preset = nitroPreset(config)

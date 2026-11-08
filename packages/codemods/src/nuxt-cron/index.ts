@@ -7,7 +7,7 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
-import { addViteHubOptions, ConfigEditor, createLineResolver, planPreset, useViteHubModule } from "../shared/config-editor.ts"
+import { addViteHubOptions, ConfigEditor, createLineResolver, findViteHubOption, planPreset, useViteHubModule } from "../shared/config-editor.ts"
 import { detectNuxtModule } from "../shared/detect.ts"
 import { findModuleEntry, literalValue, readNuxtConfig, unwrapExpression } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
@@ -31,6 +31,7 @@ export const cronPresets: Record<string, string> = {
   everyFifteenMinutes: "*/15 * * * *",
   everyThirtyMinutes: "*/30 * * * *",
   hourly: "0 * * * *",
+  // nuxt-cron 1.8.0 uses even hours for this name; preserve its runtime behavior.
   everyOddHour: "0 */2 * * *",
   everyTwoHours: "0 */2 * * *",
   everyThreeHours: "0 */3 * * *",
@@ -144,11 +145,11 @@ function migrateJob(file: string, target: string, code: string, defaults: Module
     replaced = true
   }
   if (!replaced) output.prepend(`${importText}\n\n`)
-  // The job keeps its depth below server/, so `../` imports still resolve. A `./` import pointed into the jobs folder.
-  const sameDepth = posix.dirname(file).split("/").length === posix.dirname(target).split("/").length
   walk(program, (node) => {
     if (node.type !== "ImportDeclaration" || !node.source.value.startsWith(".")) return
-    if (!sameDepth || node.source.value.startsWith("./")) followUps.push(follow(node, `This relative import may point elsewhere after the move to ${target}. Check it.`))
+    const before = posix.join(posix.dirname(file), node.source.value)
+    const after = posix.join(posix.dirname(target), node.source.value)
+    if (before !== after) followUps.push(follow(node, `This relative import may point elsewhere after the move to ${target}. Check it.`))
   })
   return {
     edits: [{ path: file, before: code, after: null }, { path: target, before: undefined, after: output.toString() }],
@@ -179,14 +180,27 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (!files.length) throw new CodemodError(`${jobsDirectory} has no cron jobs, so there is nothing to migrate. Remove ${moduleName} by hand.`)
 
   const preset = planPreset(config).preset
-  const processDriver = preset === "node" || preset === undefined
+  if (!preset) throw new CodemodError(`${config.fileName} has no statically known ViteHub preset. Set the effective vitehub.preset or inline module preset to a string literal, then run the codemod again.`)
+  if (preset === "deno") throw new CodemodError('The ViteHub "deno" preset cannot provide Schedule through the Nuxt integration. Keep nuxt-cron or compose an explicit Deno scheduling integration by hand.')
+  const processDriver = preset === "node"
+  const kv = findViteHubOption(config, "kv")
+  if (processDriver && kv && literalValue(kv.value) === false) {
+    throw new CodemodError(`${config.fileName} disables KV, but the Schedule Process Runtime needs its default KV store. Set the effective vitehub.kv or inline module kv to true or configure a default store, then run the codemod again.`)
+  }
+  const jobs = files.map((relativeFile) => {
+    const name = relativeFile.replace(/\.(?:ts|js|mjs)$/, "").replace(/\.cron$/, "")
+    return { file: posix.join(jobsDirectory, relativeFile), target: posix.join("server/schedules", `${name}.ts`) }
+  })
+  const targetCounts = new Map<string, number>()
+  for (const { target } of jobs) targetCounts.set(target, (targetCounts.get(target) ?? 0) + 1)
   const edits: FileEdit[] = []
   const followUps: FollowUp[] = []
   let migrated = 0
-  for (const relativeFile of files) {
-    const file = posix.join(jobsDirectory, relativeFile)
-    const name = relativeFile.replace(/\.(?:ts|js|mjs)$/, "").replace(/\.cron$/, "")
-    const target = posix.join("server/schedules", `${name}.ts`)
+  for (const { file, target } of jobs) {
+    if (targetCounts.get(target)! > 1) {
+      followUps.push({ file, message: `Multiple cron jobs collide at ${target}, so none of them were moved. Give them unique names and run the codemod again.` })
+      continue
+    }
     if (existsSync(join(cwd, target))) {
       followUps.push({ file, message: `${target} already exists, so this job was not moved. Rename one of them and move the job by hand.` })
       continue
@@ -210,9 +224,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const style = editor.style
   const scheduleValue = processDriver ? `{ runtime: { driver: ${quoteString("process", style)} } }` : "true"
   // The Process Runtime records Schedule Runs in the default KV store, so it needs KV.
-  const existingOptions = findProperty(config.root, "vitehub")
-  const hasKv = existingOptions?.value.type === "ObjectExpression" && Boolean(findProperty(existingOptions.value, "kv"))
-  const addKv = processDriver && !hasKv
+  const addKv = processDriver && !kv
   const { preset: added, presetNote } = addViteHubOptions(editor, config, {
     options: [
       { key: "schedule", label: "the Schedule options", value: () => scheduleValue },

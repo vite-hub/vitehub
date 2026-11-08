@@ -78,6 +78,8 @@ The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `ser
 
 Jobs with six-field crons, computed times, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. The report also lists `runOnInit`, which Schedule does not have.
 
+Jobs that map to the same Schedule file all stay unchanged. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. The codemod stops without edits when the effective preset is computed or is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
+
 ## Check real apps
 
 `test/real-world/projects.json` pins open source Nuxt apps that use the supported modules. The runner clones each app outside the repository, installs it when its codemod loads app code, runs the migration, and checks which codemods ran and what the report says:
