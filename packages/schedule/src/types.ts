@@ -3,6 +3,12 @@ export interface ScheduleRunContext {
   attemptId?: string
   /** The `payload` that `startSchedule()` stored. Absent for a run on the Definition's own cron. */
   payload?: unknown
+  /**
+   * Key derived from `scheduledAt`: `schedule:<name>:<scheduledAt ISO>`. Cloudflare and the Process Runtime retain
+   * occurrence identity. Vercel, Netlify, and Deno estimate it from callback time, so a late delivery or retry across
+   * a host cron boundary can have a different key. Pass it to Queue, Email, or a Channel to dedupe the same key.
+   */
+  idempotencyKey: string
   runId?: string
   scheduleId?: string
   scheduledAt: Date
@@ -25,8 +31,9 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
   cron?: string
   handler: ScheduleHandler<TResult>
   /**
-   * IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. The process driver follows daylight
-   * saving time. Provider cron output (Cloudflare, Vercel, Netlify, Deno) supports only UTC.
+   * IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. Every host follows daylight saving time:
+   * a skipped local time runs once, shifted by the gap, and a repeated local time runs once. For host cron output
+   * (Cloudflare, Vercel, Netlify, Deno), write it as a string literal so the build can read it.
    */
   timeZone?: string
 }

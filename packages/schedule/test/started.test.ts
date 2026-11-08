@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineSchedule } from "../src/definition.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions } from "../src/discovery.ts"
+import { scheduleIdempotencyKey } from "../src/runtime/date.ts"
 import { getScheduleRunStore, resetScheduleRuntime } from "../src/runtime/state.ts"
 import { createMemoryStartedScheduleStore, installStartedSchedules, runStartedSchedules } from "../src/runtime/started.ts"
 import { cancelSchedule, getSchedule, listSchedules, startSchedule } from "../src/started.ts"
@@ -30,7 +31,7 @@ async function createTempDir(prefix: string) {
 }
 
 function tick(scheduledAt: Date): Promise<void> {
-  return runStartedSchedules({ id: "tick", scheduledAt, waitUntil: () => {} })
+  return runStartedSchedules({ id: "tick", idempotencyKey: scheduleIdempotencyKey("vitehub/started-schedules", scheduledAt), scheduledAt, waitUntil: () => {} })
 }
 
 function installReminder() {
@@ -154,7 +155,7 @@ describe("startSchedule()", () => {
     await tick(new Date("2026-11-08T09:00:00Z"))
     await tick(new Date("2026-11-08T09:01:00Z"))
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ payload: { text: "Call Ana" }, scheduleId: schedule!.id, scheduledAt: new Date("2026-11-08T09:00:00Z"), target: "reminder" })
+    expect(calls[0]).toMatchObject({ idempotencyKey: `schedule:${schedule!.id}:2026-11-08T09:00:00.000Z`, payload: { text: "Call Ana" }, scheduleId: schedule!.id, scheduledAt: new Date("2026-11-08T09:00:00Z"), target: "reminder" })
 
     expect((await getSchedule(schedule!.id))[0]?.code).toBe("SCHEDULE_NOT_FOUND")
     const runs = await getScheduleRunStore().listRuns({ scheduleId: schedule!.id })
@@ -224,7 +225,7 @@ if (phase === "start") {
   console.log(JSON.stringify({ every: every.id, once: once.id }))
 }
 else {
-  await runtime.runStartedSchedules({ id: "tick", scheduledAt: new Date(now), waitUntil: () => {} })
+  await runtime.runStartedSchedules({ id: "tick", idempotencyKey: "schedule:vitehub/started-schedules:" + new Date(now).toISOString(), scheduledAt: new Date(now), waitUntil: () => {} })
   const [, left] = await root.listSchedules()
   console.log(JSON.stringify({ left: left.map(schedule => schedule.payload), ran }))
 }

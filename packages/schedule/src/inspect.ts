@@ -3,6 +3,7 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions } from "./discovery.ts"
 import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
+import { utcCronForTimeZone } from "./internal/time-zone-cron.ts"
 import { scheduleConsoleTiming } from "./runtime/console.ts"
 
 import type { ViteHubConsoleRecord, ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
@@ -20,9 +21,20 @@ export interface ScheduleInspectionOptions {
   serverRootDir: string
 }
 
-function inspectTimeZone(file: string): string {
-  const timeZone = readStaticScheduleTimeZone(file)
+function inspectTimeZone(timeZone: string | null | undefined): string {
   return timeZone === null ? "Not a static string" : timeZone ?? "UTC"
+}
+
+/** The UTC cron that Cloudflare, Vercel, Netlify, and Deno run for a Schedule with a static `timeZone`. */
+function inspectHostCron(cron: string, timeZone: string): ViteHubDefinitionField[] {
+  try {
+    const utcCron = utcCronForTimeZone(cron, timeZone)
+    return utcCron ? [{ label: "Host cron (UTC)", value: utcCron }] : []
+  }
+  catch {
+    // Inspection lists Definitions that host cron output would reject.
+    return []
+  }
 }
 
 function summarizeScheduleDefinition(
@@ -37,10 +49,12 @@ function summarizeScheduleDefinition(
     { label: "Kind", value: definition.startable ? "Started by code" : "Static schedule" },
   ]
   if (cron) {
+    const timeZone = readStaticScheduleTimeZone(definition.handler)
     fields.push(
       { label: "Cron", value: cron },
       ...(declaredCron && declaredCron !== cron ? [{ label: "Declared cron", value: declaredCron }] : []),
-      { label: "Time zone", value: inspectTimeZone(definition.handler) },
+      { label: "Time zone", value: inspectTimeZone(timeZone) },
+      ...(declaredCron === cron && timeZone ? inspectHostCron(cron, timeZone) : []),
     )
   }
   if (definition.startable) {

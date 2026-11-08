@@ -179,7 +179,7 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.d.ts"), "utf8")).resolves.toContain("ScheduleRegistryDefinition")
   })
 
-  it("wakes Definitions without cron with a minute Cron Trigger and installs their store", async () => {
+  it("keeps the started Schedule tick alongside a time-zoned Static Definition", async () => {
     const root = await temporaryDirectory("vitehub-schedule-started-nitro-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "reminder.ts"), [
@@ -188,18 +188,21 @@ describe("Vite schedule integration", () => {
       "",
     ].join("\n"), "utf8")
 
+    await writeFile(join(root, "server", "schedules", "daily.ts"), "export default defineSchedule({ cron: '0 8 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8")
+
     const userConfig: Record<string, unknown> = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root }
     await (hubSchedule().config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
       userConfig,
       { command: "build", mode: "production" },
     )
 
-    expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["* * * * *"] } } } } })
+    expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 6,7 * * *", "* * * * *"] } } } } })
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
     expect(pluginSource).toContain('import { createKVStartedScheduleStore, installStartedSchedules } from "@vite-hub/schedule/runtime"')
     expect(pluginSource).toContain('import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"')
     expect(pluginSource).toContain("    catchUpMs: 0,")
     expect(pluginSource).toContain("cloudflare:scheduled")
+    expect(pluginSource).toContain('timeZoneCrons: {"daily":"0 6,7 * * *"}')
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "started-registry.js"), "utf8")).resolves.toContain("[\"reminder\"]: async () => import(")
     const providerRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.js"), "utf8")
     expect(providerRegistry).toContain("[\"vitehub/started-schedules\"]")

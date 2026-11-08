@@ -1,7 +1,5 @@
-import {
-  defineAgent,
-  runAgentInline,
-} from "./index.ts"
+import { defineAgent } from "./index.ts"
+import { runAgentInline } from "./internal/agent-run.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime"

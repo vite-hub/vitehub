@@ -15,12 +15,12 @@ import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, readTimeZoneCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { ScheduleCronOverrides, ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
+import type { ScheduleCronOverrides, ScheduleTimeZoneCrons, ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -311,6 +311,7 @@ function mergeNitroVercelCrons(
 
 interface RenderNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
+  timeZoneCrons: ScheduleTimeZoneCrons
   importBase?: string
   pluginFile: string
   /** Set when a Definition has no `cron`: the registry of those Definitions, for `startSchedule()` and the tick. */
@@ -381,9 +382,11 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     ...(providerWake
       ? [
           "  nitroApp.hooks.hook('cloudflare:scheduled', async (event) => {",
-          Object.keys(options.cronOverrides).length
-            ? `    await executeCloudflareStaticSchedules(event, { cronOverrides: ${JSON.stringify(options.cronOverrides)}, registry: scheduleRegistry })`
-            : "    await executeCloudflareStaticSchedules(event, { registry: scheduleRegistry })",
+          `    await executeCloudflareStaticSchedules(event, { ${[
+            Object.keys(options.cronOverrides).length ? `cronOverrides: ${JSON.stringify(options.cronOverrides)}, ` : "",
+            "registry: scheduleRegistry",
+            Object.keys(options.timeZoneCrons).length ? `, timeZoneCrons: ${JSON.stringify(options.timeZoneCrons)}` : "",
+          ].join("")} })`,
           "  })",
         ]
       : []),
@@ -437,6 +440,8 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
 
 interface NitroNetlifySchedule {
   cron: string
+  /** `true` when `cron` is the UTC cron of a Schedule with a `timeZone`. */
+  inTimeZone?: boolean
   name: string
 }
 
@@ -468,17 +473,21 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
   }
   const netlifySchedules = netlify.schedules.map(schedule => ({ ...schedule, functionName: netlifyFunctionNames.get(schedule.name) }))
   const crons = Object.fromEntries(netlify.schedules.map(schedule => [schedule.name, schedule.cron]))
+  const timeZoneNames = netlify.schedules.filter(schedule => schedule.inTimeZone).map(schedule => schedule.name)
   const netlifyEntryRuntime = [
     `import scheduleRegistry from ${JSON.stringify(netlify.registryFile)}`,
-    `import { executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(netlify.runtimeImport)}`,
+    `import { executeStaticSchedule, isTimeZoneWakeDue, missingScheduleDefinitionError, scheduledWakeTime, unwrapScheduleDefinition } from ${JSON.stringify(netlify.runtimeImport)}`,
     "",
     `const crons = ${JSON.stringify(crons)}`,
+    `const timeZoneNames = new Set(${JSON.stringify(timeZoneNames)})`,
     "",
     "export async function runViteHubNetlifySchedule(name) {",
     "  const loader = scheduleRegistry[name]",
     "  const definition = loader ? unwrapScheduleDefinition(await loader()) : undefined",
     "  if (!definition) throw missingScheduleDefinitionError(name)",
-    "  await executeStaticSchedule({ cron: crons[name], definition, name, scheduledAt: new Date() })",
+    "  const scheduledAt = scheduledWakeTime(crons[name])",
+    "  if (timeZoneNames.has(name) && !isTimeZoneWakeDue(definition, name, scheduledAt)) return",
+    "  await executeStaticSchedule({ cron: crons[name], definition, name, scheduledAt })",
     "}",
     "",
   ].join("\n")
@@ -556,6 +565,7 @@ function renderScheduleRegistryTypes(importBase = schedulePackageName): string {
 interface WriteNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
   startableDefinitions: DiscoveredScheduleDefinition[]
+  timeZoneCrons: ScheduleTimeZoneCrons
   crons: string[]
   importBase?: string
   netlifySchedules: NitroNetlifySchedule[]
@@ -576,6 +586,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   const writes: Array<Promise<void>> = [
     writeFileIfChanged(pluginFile, renderNitroSchedulePlugin({
       cronOverrides: options.cronOverrides,
+      timeZoneCrons: options.timeZoneCrons,
       importBase: options.importBase,
       pluginFile,
       startedRegistryFile,
@@ -682,14 +693,16 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
 
   const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
   const nitroCrons = options.command === "build" ? await readDefinitionCrons(nitroDefinitions, cronOverrides) : new Map<string, string>()
+  const timeZoneCrons = options.command === "build" ? readTimeZoneCrons(nitroDefinitions, cronOverrides) : {}
   const crons = [...new Set(nitroCrons.values())]
-  const netlifySchedules = [...nitroCrons].map(([name, cron]) => ({ cron, name }))
+  const netlifySchedules = [...nitroCrons].map(([name, cron]) => ({ cron, ...(Object.hasOwn(timeZoneCrons, name) ? { inTimeZone: true } : {}), name }))
   const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
     crons,
     importBase: (options as InternalScheduleVitePluginOptions).importBase,
     netlifySchedules,
+    timeZoneCrons,
     processRuntime,
     providerDefinitions: nitroDefinitions,
     startableDefinitions,

@@ -2,6 +2,7 @@ export { onShutdown } from "@vite-hub/runtime/shutdown"
 
 import { createProcessWakeDriver } from "../internal/process-wake-runtime.ts"
 import { createScheduleError } from "../errors.ts"
+import { scheduleIdempotencyKey } from "./date.ts"
 import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule } from "./execute.ts"
 import { runStartedSchedules } from "./started.ts"
@@ -137,7 +138,14 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         }
         if (entry.definition.handler === runStartedSchedules) {
           // The tick of started Schedules records no run: it would add one each minute. Each started Schedule records its own.
-          await runStartedSchedules({ id: `tick_${input.scheduledAt.toISOString()}`, scheduledAt: input.scheduledAt, scheduleId: entry.name, target: entry.name, waitUntil })
+          await runStartedSchedules({
+            id: `tick_${input.scheduledAt.toISOString()}`,
+            idempotencyKey: scheduleIdempotencyKey(entry.name, input.scheduledAt),
+            scheduledAt: input.scheduledAt,
+            scheduleId: entry.name,
+            target: entry.name,
+            waitUntil,
+          })
           return
         }
         await executeStaticSchedule({
