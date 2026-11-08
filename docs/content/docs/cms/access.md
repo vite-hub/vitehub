@@ -53,7 +53,7 @@ Or open the Auth section of the [Console](/docs/auth/console), select the user, 
 
 To give a role when a user signs up, add a Better Auth database hook. Return the role only for the users that you know, so that the plugin gives everyone else `user`:
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 export default defineAuth({
   plugins: [admin(cmsAccess)],
   databaseHooks: {
@@ -74,7 +74,7 @@ With `extends: cms` alone, every action stays denied, even if your app has an un
 
 Set `authorize` to use your own policy. It replaces the CMS roles:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { cmsCan } from 'vite-hub/cms/access'

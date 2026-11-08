@@ -59,7 +59,7 @@ Database Definitions own tables and identity, while the Database Integration sel
 
 A Definition uses Cloudflare D1 from Vercel only when it declares `cloudflare.http`. Set it to `true` for Cloudflare's D1 raw API, then configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as Vercel Server Env. Cloudflare deployments still prefer the D1 binding.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/config.ts] fragment
 import { defineDatabase } from 'vite-hub/database'
 
 import { notes } from './schema'

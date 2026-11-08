@@ -35,7 +35,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `railExclude` | `string[]` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `DocsGroup[]` | `[]` | Rail items that hold several sections. A `DocsGroup` is `{ title, icon?, sections? }`: `sections` lists section ids, and a section can also join with `group` in its `.navigation.yml`. See [Groups](/docs/docs-site/configure#groups). |
 | `start` | `{ section, links? }` | None | The section that new readers open first, and site pages listed at its top. The header and the error page link to them. |
-| `socials` | `DocsLink[]` | `[]` | Links at the foot of the sidebar. A `DocsLink` is `{ label, to, icon? }`. |
+| `socials` | `DocsLink[]` | `[]` | Community links in the header on every page, or in its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
 | `footer` | `DocsLink[]` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy, so each one has a link to it. |
 | `banner` | `string` | None | One line above every docs page. |
 | `sitemap` | `string[]` | `[]` | More paths for `/sitemap.xml`. Every docs page is in it already. |
@@ -59,6 +59,7 @@ The module also sets the options of the modules that it installs: `llms` from `s
 | `title` | `string` | Required | Page heading, browser title, and search title. |
 | `description` | `string` | None | Text under the heading, the meta description, and the llms.txt entry. |
 | `tagline` | `string` | `description` | Text under the heading, when it must differ from the meta description. `description` keeps its other uses. |
+| `eyebrow` | `string` | none | A short label above the title, such as the package that the page documents. |
 | `credits` | `string` | None | Inline Markdown at the end of the page, such as the projects that the page builds on. The page route returns it parsed as `credits`. |
 | `keywords` | `string` or `string[]` | None | Words that find the page in search besides its own text. One string splits at commas. Search matches them like headings, below the page title. |
 | `icon` | `string` | `icons.page` | Sidebar icon, as an Iconify name. |
@@ -67,8 +68,8 @@ The module also sets the options of the modules that it installs: `llms` from `s
 | `codePanel` | `boolean` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `sidebar` | `boolean` | `true` | `false` hides the left navigation on this page. |
 | `toc` | `boolean` | `true`, `false` on `landing` and `home` | `false` hides the "On this page" outline. |
-| `navigation` | `false` or `{ title?, order?, group?, kind? }` | Listed | `false` keeps the page out of the sidebar. `title` is the sidebar label, `order` sorts the pages, and `group` is a sidebar heading. `kind` is stored in the manifest. |
-| `seo` | `{ title?, description?, image? }` | None | Title and description for search engines, shares, and the search dialog, when they must differ from the page. `image` is the share image, a path in `public/` or a URL, or `false` for none; without it the build renders one. |
+| `navigation` | `false` or `{ title?, order?, group?, kind?, panel? }` | Listed | `false` keeps the page out of the sidebar. `title` is the sidebar label, `order` sorts the pages, and `group` is a sidebar heading. `kind` is stored in the manifest. `panel: true` on the `index.md` of a folder inside a section makes the folder a [panel](/docs/docs-site/configure#panels). |
+| `seo` | `{ title?, description?, image?, index? }` | None | Title and description for search engines, shares, and the search dialog, when they must differ from the page. `image` is the share image, a path in `public/` or a URL, or `false` for none; without it the build renders one. `index: false` marks the page `noindex` and leaves it out of the prerender, `sitemap.xml`, llms.txt, and the share images. See [Pages that search engines skip](/docs/docs-site/configure#pages-that-search-engines-skip). |
 
 Dotted keys, such as `navigation.order: 2`, are the same as nested keys. `navigation: false` hides the page even when dotted keys set other navigation fields.
 

@@ -1,10 +1,8 @@
 import type { Result } from "@vite-hub/runtime"
 
-import { dynamicQueue, type LocalQueueClient, type LocalQueueErrorCode, type LocalQueueProviderOptions, type LocalQueueSendBatchMessage, type QueueErrorCode, type QueueSendResult } from "@vite-hub/queue"
-import queueNuxt, { type QueueNuxtModuleOptions } from "@vite-hub/queue/nuxt"
+import { dynamicQueue, type LocalQueueClient, type LocalQueueErrorCode, type LocalQueueProviderOptions, type LocalQueueSendBatchMessage, type QueueErrorCode, type QueueModuleOptions, type QueueSendResult } from "@vite-hub/queue"
 
-export const queueOptions = { provider: "cloudflare" } satisfies QueueNuxtModuleOptions
-export const setupQueue: typeof queueNuxt = queueNuxt
+export const queueOptions = { provider: "cloudflare" } satisfies QueueModuleOptions
 
 export const localOptions = { provider: "local", base: "data/queue", queue: "welcome" } satisfies LocalQueueProviderOptions
 export function enqueueLocal(client: LocalQueueClient<{ email: string }>) {

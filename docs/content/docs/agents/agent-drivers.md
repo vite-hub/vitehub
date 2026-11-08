@@ -111,7 +111,7 @@ Provider runtime cursors resume a thread while the Agent Definition process rema
 
 Resolve `env` per invocation when a provider needs short-lived credentials. Use `launch` when the provider process must start through an application-owned wrapper such as a remote execution CLI:
 
-```ts [server/agents/review/agent.ts]
+```ts [server/agents/review/agent.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
@@ -136,7 +136,7 @@ Set `requirements` to the commands that the provider's own shell needs, for exam
 
 Resolvers that route by the provider executable must use `providerCommand` before enabling `requirements`. During requirement inspection, `command` is `sh` and `providerCommand` still identifies the provider. An application-owned runner selector can use both fields:
 
-```ts
+```ts fragment
 launch: ({ command, providerCommand }) => ({
   args: ['exec', '--', command],
   command: selectRunnerForProvider(providerCommand),
