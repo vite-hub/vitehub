@@ -1,6 +1,8 @@
-import { Readable } from "node:stream"
+import { IncomingMessage, ServerResponse } from "node:http"
+import { Socket } from "node:net"
 
-import { H3 } from "h3"
+import { installStandardContext } from "@vite-hub/runtime/h3"
+import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defaultPolicy, defineComments } from "../src/index.ts"
@@ -9,7 +11,6 @@ import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { anchor, createDatabase } from "./harness.ts"
 
-import type { H3Event } from "h3"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
@@ -158,12 +159,16 @@ describe("createCommentsGitHubLogin", () => {
 
   function event(path: string, runtime: "web" | "node" = "web"): H3Event {
     if (runtime === "node") {
-      const req = Object.assign(Readable.from([]), { method: "GET", url: path, headers: { host: "site.test" } })
-      // SAFETY: This is the Node request shape of a Nuxt 4 H3 1 event.
-      return { node: { req, res: {} }, context: {} } as unknown as H3Event
+      const req = Object.assign(new IncomingMessage(new Socket()), { method: "GET", url: path, headers: { host: "site.test" } })
+      req.push(null)
+      const event = { node: { req, res: new ServerResponse(req) }, context: {} }
+      installStandardContext(event)
+      // SAFETY: This is the Node request shape of a Nuxt 4 H3 1 event with Standard Context installed.
+      return event as unknown as H3Event
     }
-    // SAFETY: The sign-in reads only the request of the event.
-    return { req: new Request(`${origin}${path}`), res: { headers: new Headers() } } as unknown as H3Event
+    const event = new H3Event(new Request(`${origin}${path}`))
+    installStandardContext(event)
+    return event
   }
 
   it("is off without an OAuth client, and says which variables turn it on", async () => {

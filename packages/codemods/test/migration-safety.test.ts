@@ -5,13 +5,14 @@ import { runInNewContext } from "node:vm"
 
 import { env, resolveServerEnv, SecretEnv } from "@vite-hub/env"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
+import { end, parseProgram, start } from "@vite-hub/internal/ast"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { end, parseProgram, start } from "../src/ast.ts"
 import { runCodemod } from "../src/index.ts"
 import { rewriteCallSites } from "../src/nuxt-safe-runtime-config/call-sites.ts"
 import { editNuxtConfig } from "../src/nuxt-safe-runtime-config/config-edit.ts"
-import { readNuxtConfig, readRuntimeConfig } from "../src/nuxt-safe-runtime-config/nuxt-config.ts"
+import { readRuntimeConfig } from "../src/nuxt-safe-runtime-config/nuxt-config.ts"
+import { readNuxtConfig } from "../src/shared/nuxt-config.ts"
 import { planFromJsonSchema } from "../src/nuxt-safe-runtime-config/schema.ts"
 
 import type { EnvRuntimeConfigOptions } from "@vite-hub/env"

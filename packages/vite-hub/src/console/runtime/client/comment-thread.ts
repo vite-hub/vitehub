@@ -4,12 +4,11 @@ import type { CommentsTransport, CommentSubject, CommentThread, CommentUser } fr
 
 /**
  * A Comments transport over the Console RPC. Each call runs the `comments.*` operation with the Console user, so the
- * `authorize` policy of the app decides what the user may read and change. `path` is any Console API path of the app,
- * and only locates the application mount.
+ * `authorize` policy of the app decides what the user may read and change.
  */
-export function consoleCommentsTransport(path: string, threadId?: () => string | undefined): CommentsTransport {
+export function consoleCommentsTransport(threadId?: () => string | undefined): CommentsTransport {
   // SAFETY: The operation of the same name answers with the type of the transport method that called it.
-  const call = <T>(operation: string, input: object) => requestConsoleOperation(path, `comments.${operation}`, { ...input }) as Promise<T>
+  const call = <T>(operation: string, input: object) => requestConsoleOperation(`comments.${operation}`, { ...input }) as Promise<T>
   return {
     create: input => call("create", input),
     delete: input => call("delete", input),
@@ -27,9 +26,9 @@ export function consoleCommentsTransport(path: string, threadId?: () => string |
 }
 
 /** Read an existing attachment through the operation, which checks access to its thread. */
-export async function readConsoleCommentAttachment(path: string, key: string, signal?: AbortSignal): Promise<{ data: string, inline: boolean, name: string, type: string }> {
+export async function readConsoleCommentAttachment(key: string, signal?: AbortSignal): Promise<{ data: string, inline: boolean, name: string, type: string }> {
   // SAFETY: `comments.attachment` returns the stored file's metadata and Base64-encoded bytes.
-  return await requestConsoleOperation(path, "comments.attachment", { key }, signal ? { signal } : {}) as { data: string, inline: boolean, name: string, type: string }
+  return await requestConsoleOperation("comments.attachment", { key }, signal ? { signal } : {}) as { data: string, inline: boolean, name: string, type: string }
 }
 
 /** The Console identity and capabilities for one thread. */
@@ -44,8 +43,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Ask `comments.session` for the Console identity and, with `threadId`, action-specific capabilities. */
-export async function readConsoleCommentSession(path: string, subject: CommentSubject, signal?: AbortSignal, threadId?: string): Promise<ConsoleCommentSession> {
-  const value = await requestConsoleOperation(path, "comments.session", { subject, ...(threadId ? { threadId } : {}) }, signal ? { signal } : {})
+export async function readConsoleCommentSession(subject: CommentSubject, signal?: AbortSignal, threadId?: string): Promise<ConsoleCommentSession> {
+  const value = await requestConsoleOperation("comments.session", { subject, ...(threadId ? { threadId } : {}) }, signal ? { signal } : {})
   const user = isRecord(value) && isRecord(value.user) && typeof value.user.id === "string" ? value.user : undefined
   const capabilities = isRecord(value) && isRecord(value.capabilities) ? value.capabilities : {}
   const ids = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : []

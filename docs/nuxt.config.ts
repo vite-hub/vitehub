@@ -4,7 +4,8 @@ import { docsIcons } from "./app/utils/docs-sidebar-icons";
 import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
 
 export default defineNuxtConfig({
-  modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
   // Motion components must use the same Vue runtime as Nuxt's server renderer.
   build: { transpile: ["motion-v"] },
   docs: {
@@ -25,9 +26,11 @@ export default defineNuxtConfig({
         { label: "Playground", to: "/playground", icon: "i-ph-code-light" },
         { label: "Projects", to: "/projects", icon: "i-ph-folder-simple-light" },
         { label: "Templates", to: "/templates", icon: "i-ph-layout-light" },
+        // The hosted Console opens deployed ViteHub apps from the browser. See /docs/development/console#hosted-console.
+        { label: "Console", to: "https://console.vitehub.dev", icon: "i-ph-monitor-light" },
       ],
     },
-    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://discord.gg/YTRDsRP3" }],
+    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://chat.vitehub.dev" }],
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,

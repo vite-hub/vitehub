@@ -115,6 +115,11 @@
       "import": "./dist/invocations/d1.js",
       "default": "./dist/invocations/d1.js"
     },
+    "./invocations/default": {
+      "types": "./dist/invocations/default.d.ts",
+      "import": "./dist/invocations/default.js",
+      "default": "./dist/invocations/default.js"
+    },
     "./invocations/sqlite": {
       "types": "./dist/invocations/sqlite.d.ts",
       "import": "./dist/invocations/sqlite.js",
@@ -235,7 +240,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/agent#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
@@ -325,7 +330,7 @@
     "evalite": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui",
+    "vue": "catalog:vue-compat",
     "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",

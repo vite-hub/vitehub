@@ -7,6 +7,7 @@ import { createAgentCliContributor } from "@vite-hub/agent/cli";
 import { runViteHubCli } from "@vite-hub/cli";
 import { createCmsCliContributor } from "@vite-hub/cms/vite";
 import { createContentCliContributor } from "@vite-hub/content/cli";
+import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
@@ -52,6 +53,11 @@ function documentedCommands(): string[] {
     .sort();
 }
 
+function documentedProjectCommands(): string[] {
+  const source = readFileSync(cliReference, "utf8");
+  return [...source.matchAll(/^\| `vitehub ([a-z0-9-]+)` \| [^|]+ \| ViteHub CLI \|/gm)].map((match) => match[1]!).sort();
+}
+
 function documentedNamespaces(): string[] {
   const source = readFileSync(cliReference, "utf8");
   const sample = source.split("Available namespaces:\n", 2)[1]?.split("```", 1)[0];
@@ -95,13 +101,14 @@ describe("CLI documentation contract", () => {
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
-    const runtimeNamespaces = [createSandboxCliNamespace()];
+    const runtimeNamespaces = [createDecisionsCliNamespace(), createSandboxCliNamespace()];
 
     await expect(
       runViteHubCli({ args: ["--help"], loadConfig, runtimeNamespaces, stdout: rootHelp }),
     ).resolves.toBe(0);
     const namespaces = helpNames(rootHelp.output(), "Available namespaces:");
     const commands: string[] = [];
+    const singleCommands: string[] = [];
 
     for (const namespace of namespaces) {
       const namespaceHelp = stream();
@@ -113,12 +120,22 @@ describe("CLI documentation contract", () => {
           stdout: namespaceHelp,
         }),
       ).resolves.toBe(0);
+      // A namespace that is one command, such as `vitehub pull`, prints the command's usage.
+      if (!namespaceHelp.output().includes("Available features:")) {
+        singleCommands.push(namespace);
+        continue;
+      }
       for (const feature of helpNames(namespaceHelp.output(), "Available features:")) {
         commands.push(`${namespace} ${feature}`);
       }
     }
 
+    const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
+    expect(projectCommands).toEqual(["add", "catalog", "status", "link", "unlink"]);
+    expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());
+    const reference = readFileSync(cliReference, "utf8");
+    expect(singleCommands.filter((command) => !reference.includes(`| \`vitehub ${command}\` |`))).toEqual([]);
   });
 });

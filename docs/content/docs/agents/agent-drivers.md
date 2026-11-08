@@ -17,7 +17,7 @@ An Agent Driver decides how one invocation runs. Choose the execution method tha
 | Custom run | Application code runs the entire operation. |
 | Ask | A fast decision model answers a fixed set of typed questions. |
 
-`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Application-supplied Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`.
+`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Application-supplied Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`. For a full setup with a route, credentials, and deployment, read [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk) and [Run the Codex SDK in production](/docs/guides/codex-sdk).
 
 ## Use a model-backed Driver
 
@@ -111,7 +111,7 @@ Provider runtime cursors resume a thread while the Agent Definition process rema
 
 Resolve `env` per invocation when a provider needs short-lived credentials. Use `launch` when the provider process must start through an application-owned wrapper such as a remote execution CLI:
 
-```ts [server/agents/review/agent.ts]
+```ts [server/agents/review/agent.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
@@ -136,7 +136,7 @@ Set `requirements` to the commands that the provider's own shell needs, for exam
 
 Resolvers that route by the provider executable must use `providerCommand` before enabling `requirements`. During requirement inspection, `command` is `sh` and `providerCommand` still identifies the provider. An application-owned runner selector can use both fields:
 
-```ts
+```ts fragment
 launch: ({ command, providerCommand }) => ({
   args: ['exec', '--', command],
   command: selectRunnerForProvider(providerCommand),

@@ -1,13 +1,11 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
-import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
-import type { ConsoleJournal } from "../storage-config.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
@@ -15,7 +13,6 @@ import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
-import { consoleD1MaxSizeError } from "./retention.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
@@ -37,6 +34,8 @@ let consoleRuntimeDigest: string | undefined
 /**
  * A digest of the packaged Console runtime, client, and assets.
  * The package does not change while the process runs, so read its files once, not on each file change.
+ * The Console client build puts a content hash in the name of each file in `public/console`, so the digest reads only
+ * those names. A cold dev start does not read the 20 MB client.
  */
 function readConsoleRuntimeDigest(): string {
   if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
@@ -50,7 +49,10 @@ function readConsoleRuntimeDigest(): string {
     }
   }
   if (existsSync(consoleRuntimeRoot)) visit(consoleRuntimeRoot)
-  for (const file of files.sort()) hash.update(file.slice(consoleRuntimeRoot.length)).update("\0").update(readFileSync(file)).update("\0")
+  for (const file of files.sort()) {
+    hash.update(file.slice(consoleRuntimeRoot.length)).update("\0")
+    if (!file.startsWith(consolePublicRoot + sep)) hash.update(readFileSync(file)).update("\0")
+  }
   consoleRuntimeDigest = hash.digest("hex")
   return consoleRuntimeDigest
 }
@@ -65,25 +67,6 @@ function consoleBuildId(contents: string): string {
     .slice(0, 16)
 }
 
-function renderRetentionLimit(value: AgentRetentionPolicy[keyof AgentRetentionPolicy]): string {
-  return value === undefined ? "undefined" : JSON.stringify(value)
-}
-
-/**
- * Validates `console.retention` before code generation. The libSQL journal accepts every limit.
- * The D1 journal rejects maxSize, because D1 reports the size of the whole app database.
- */
-export function assertConsoleRetention(retention: AgentRetentionPolicy | undefined, journal: ConsoleJournal | undefined): void {
-  if (retention === undefined) return
-  // Retention limits the Agent invocation journal.
-  const { maxSize } = requireOptionalOwner(ownerModules.agentVite, "agent").normalizeRetention(retention, {
-    label: "console.retention",
-    defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
-    size: "any",
-    error: message => viteHubErrorDiagnostics.VITE_HUB_B0015({ message: `[vitehub] ${message}` }),
-  })
-  if (maxSize !== false && journal && "d1Binding" in journal) throw consoleD1MaxSizeError()
-}
 /**
  * The Console access policy that generated output installs. Every Console data route checks it.
  * `check.module` is a generated Console Auth middleware that exports `checkConsoleAccess`, and `readConsoleUser` for a session.
@@ -91,7 +74,7 @@ export function assertConsoleRetention(retention: AgentRetentionPolicy | undefin
  * `authorize` is the `console.authorize` server file.
  */
 export interface ConsoleAccessBuild {
-  mode: "open" | "auth" | "cloudflare-access" | "local"
+  mode: "open" | "auth" | "cloudflare-access" | "local" | "token"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
   /** How MCP clients sign in with OAuth. Only `auth` mode accepts access tokens. `path` is the mounted MCP endpoint. */
@@ -100,6 +83,8 @@ export interface ConsoleAccessBuild {
   impersonation?: true
   /** Path of the sign-in page under the application mount, such as `/sign-in`. */
   signInPage?: string
+  /** `console.origins`, for `token` mode only: the browser origins that may call the data routes with the token. */
+  origins?: readonly string[]
 }
 
 interface ConsoleRuntimeCapabilityImport {
@@ -184,6 +169,9 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   }
   if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
+  // Install the list even when it is empty, so a reload in the same process revokes origins that were removed.
+  imports.push('import { installConsoleOrigins as vitehubInstallConsoleOrigins } from "vite-hub/console/sections"')
+  afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins ?? [])})`)
   return {
     imports,
     install: [
@@ -204,17 +192,13 @@ function renderConsoleNitroPlugin(
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
   invoke = false,
-  observations?: AgentInvocationsOptions["observations"],
-  journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
-  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
   applicationBase = "/",
   pageTools = true,
 ): string {
-  assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
   const operations = (catalog.operations ?? []).map(contribution => ({ ...contribution, module: consoleRuntimeReaderModule(contribution.module) }))
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
@@ -254,7 +238,7 @@ function renderConsoleNitroPlugin(
   ]
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
-    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
+    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async (request, options) => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request, options) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async () => (await import("#vitehub/env/server")).inspectServerEnv())`] : []),
     `installConsoleOperations([${[...(mcpClientEnabled ? ["{ operations: vitehubConsoleMcpClientOperations, plugin: \"vite-hub\" }"] : []), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
@@ -291,7 +275,8 @@ function renderConsoleNitroPlugin(
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
             `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`,
           ]
-        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAge: ${renderRetentionLimit(retention.maxAge)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)}, maxSize: ${renderRetentionLimit(retention.maxSize)} }` : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
+        // The Console reads the journal that the Agent Invocations plugin installed before it.
+        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
       : []),
     // The Console link lives in the shared page tools pill.
     pageTools
@@ -311,11 +296,8 @@ export async function writeConsoleNitroPlugin(
   fixture?: string,
   runtimeBinding?: string,
   invoke = false,
-  observations: AgentInvocationsOptions["observations"] = undefined,
   active: () => boolean = () => true,
-  journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
-  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
@@ -330,7 +312,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase, pageTools)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, independentAuth, access, runtimeCapabilityImports, development, applicationBase, pageTools)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

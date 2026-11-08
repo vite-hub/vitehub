@@ -55,11 +55,11 @@ export default defineConfig({
 })
 ```
 
-Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(values, { per, reserved, limit })` from `@vite-hub/database/drizzle` splits values into arrays that fit one statement each: `per` is the parameters of one value (a Drizzle table counts its columns, for a multi-row insert), `reserved` the other parameters of the statement, and `limit` defaults to 100. It throws a `RangeError` when one value does not fit.
+Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(values, { per, reserved, limit })` from `@vite-hub/database/drizzle` splits values into arrays that fit one statement each: `per` is the parameters of one value (a Drizzle table counts its columns, for a multi-row insert), `reserved` the other parameters of the statement, and `limit` defaults to 100. It throws a `RangeError` when one value does not fit. A query to D1, through the binding or D1 HTTP, rejects with `DATABASE_D1_TOO_MANY_PARAMETERS` above 100 bound parameters, `DATABASE_D1_STATEMENT_TOO_LONG` above 100,000 bytes of SQL, and `DATABASE_D1_VALUE_TOO_LARGE` for a bound string or BLOB above 2,000,000 bytes ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). When the build targets Cloudflare, `vite dev` runs the same checks on the local SQLite that stands in for D1.
 
 The table shorthand covers inserts binding at most one parameter per column. The helper does not inspect row contents or SQL defaults. For SQL expressions with more bindings, supply a numeric `per` covering the maximum bindings of a whole row, including defaults: a one-column row containing `` sql`${first} || ${second}` `` needs `{ per: 2 }`.
 
-```ts
+```ts fragment
 for (const chunk of chunkParameters(ids, { reserved: 1 })) {
   await db.delete(schema.files).where(and(eq(schema.files.ownerId, ownerId), inArray(schema.files.id, chunk)))
 }
@@ -157,21 +157,25 @@ The CMS preset, Comments, Connections, and Auth's `authDatabase()` use this rule
 
 ## Remote D1 development
 
-Set `cloudflare.http` on a Database Definition to query remote D1 during local development. `true` uses Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; an object selects an authenticated D1-compatible proxy.
+`vite dev` uses local SQLite by default. Set `remote: true` on a Database Definition to query its real D1 database during development. Writes then change real data.
 
-```ts
+```ts fragment
 export default defineDatabase({
   cloudflare: {
     databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
-    http: true,
   },
+  remote: true,
   schema,
 })
 ```
 
-Set `cloudflare.readReplication: true` (or `readReplication: true` on a D1 integration) to read from D1 read replicas. Each request gets one D1 session. A request with a method other than GET, HEAD, or OPTIONS starts on the primary database and returns a `vitehub-d1-bookmark-<binding>` cookie, so the same client reads its own writes next. Work outside a request uses the primary database. `vitehub provision run` turns on replication for the database. D1 over HTTP and SQLite ignore the option.
+`remote: true` uses the D1 HTTP path of `cloudflare.http: true`: Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. It applies even when a local D1 binding exists. The first query prints `Database "<name>" is remote` with the database id, and `vitehub inspect definitions --kind database` shows `Development: Remote`. Builds ignore `remote`, so the build output does not change. `vitehub db migrate` follows `cloudflare.http`, not `remote`.
 
-Remote access is explicit. Local development uses SQLite when neither the Definition nor its integration configures `cloudflare.http`. Cloudflare output prefers a matching D1 binding.
+`cloudflare.http` also makes `vite dev` remote, so in development it is an alias of `remote: true`. `true` uses Cloudflare's API; an object selects an authenticated D1-compatible proxy. Unlike `remote`, it also selects D1 over HTTP in hosted output without a binding, such as Vercel. `remote: false` with `cloudflare.http` fails with `DATABASE_REMOTE_CONFLICT`. `remote` is not a Postgres option.
+
+Set `cloudflare.readReplication: true` (or `readReplication: true` on a D1 integration) to read from D1 read replicas. Each request gets one D1 session. A request with a method other than GET, HEAD, or OPTIONS starts on the primary database and returns a `vitehub-d1-bookmark-<binding>` cookie, so the same client reads its own writes next. Work outside a request uses the primary database. `vitehub provision run` turns on replication for the database. Its plan shows an `update` action when an existing database does not replicate yet. D1 over HTTP and SQLite ignore the option.
+
+Remote access is explicit. Local development uses SQLite unless the Definition sets `remote: true`, or the Definition or its integration configures `cloudflare.http`. Cloudflare output prefers a matching D1 binding.
 
 A Definition inherits the integration resource when it omits both `databaseId` and `databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.
 

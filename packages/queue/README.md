@@ -5,7 +5,7 @@
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
-`@vite-hub/queue` discovers background job handlers during a Vite build and connects `runQueue()` to Cloudflare Queues, Vercel Queues, or the local provider of a Node server. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
+`@vite-hub/queue` discovers background job handlers during a Vite build and connects `runQueue()` to Cloudflare Queues, Vercel Queues, or the local provider of a Node server. In `vite dev`, every app runs its jobs in the dev server, so you can test a handler without an account. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
 
 Applications that already use the `vite-hub` framework distribution should enable Queue in `vitehub()` and import from `vite-hub/queue`. Install this owner package directly when you are building a custom composition, another framework integration, or package-level tooling. The [Queue guide](https://vitehub.dev/docs/queue) covers the framework-distribution setup.
 
@@ -79,7 +79,7 @@ pnpm vite build
 
 A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email` definition. Nitro writes the Worker and `.output/server/wrangler.json`. The Wrangler configuration contains one generated producer binding and one consumer for the Queue Definition.
 
-That build proves discovery and generated output only. `runQueue()` needs the generated runtime, a deployed Cloudflare binding, and an existing queue before it can return `[undefined, { status: "queued" }]`. Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
+That build proves discovery and generated output only. In the built Worker, `runQueue()` needs a deployed Cloudflare binding and an existing queue before it can return `[undefined, { status: "queued" }]`. In `vite dev`, it needs neither: see [Run jobs in vite dev](#run-jobs-in-vite-dev). Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
 
 ## Choose a provider
 
@@ -87,7 +87,7 @@ That build proves discovery and generated output only. `runQueue()` needs the ge
 | ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Cloudflare | The deployed runtime supplies request-scoped Cloudflare Queue bindings                                | Worker bundle and `wrangler.json` producer and consumer entries     | `contentType`, `delaySeconds`                                  |
 | Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | One Nitro route per Queue Definition, with a Vercel queue trigger | `delaySeconds`, `idempotencyKey`, `region`, `retentionSeconds` |
-| Local      | One Node server runs the jobs: `node .output/server/index.mjs`, Docker, `vite dev`, or a WebContainer  | A Nitro plugin that runs stored jobs in the server process         | `delaySeconds`, `idempotencyKey`                               |
+| Local      | One Node server runs the jobs: `node .output/server/index.mjs`, Docker, or a WebContainer               | A Nitro plugin that runs stored jobs in the server process         | `delaySeconds`, `idempotencyKey`                               |
 
 The ViteHub framework preset selects Cloudflare for `preset: "cloudflare"`, Vercel for `preset: "vercel"`, and the local provider for `preset: "node"`. The owner package selects the local provider for a Nitro `node-server` preset. Set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
@@ -101,6 +101,10 @@ The local provider stores each accepted job as a file in `.vitehub/data/queue`, 
 
 ```ts
 // vite.config.ts
+import { nitro } from "nitro/vite"
+import { hubQueue } from "@vite-hub/queue/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   nitro: { preset: "node-server", serverEntry: "./src/server.ts" },
   plugins: [hubQueue(), nitro()],
@@ -109,6 +113,10 @@ export default defineConfig({
 
 `hubQueue({ provider: "local", base: "data/queue" })` selects it explicitly and changes the directory.
 
+Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `getQueue()` in the dev server, or give the direct client a separate `base` directory.
+
+When a production server reopens a dev store, it redacts stored errors without a code before it exposes the jobs. Queue errors and `ViteHubError` keep their code and message.
+
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs of each Queue Definition.
 - The server writes the attempt count before the handler runs. A job whose handler was running when the process stopped runs again after the restart. If that was the fourth attempt, the job becomes a dead job instead.
 - Delivery is at least once. A successful handler can run again after a restart if the process stops before completion is saved, or if both deleting the job and saving its completed state fail. Make handler side effects idempotent.
@@ -116,7 +124,44 @@ export default defineConfig({
 - The jobs survive a restart on the same disk. Another host, a new container, or an ephemeral filesystem does not have them. Run one server process per directory: there is no lock between processes, so two processes can run the same job.
 - `onError` and `callbackOptions` are Cloudflare and Vercel options. The local provider does not call them.
 
-The server logs the directory and this durability once when it starts. `vitehub queue list` shows the provider, the directory, `durability: "single-host"`, the dead-job limit, and the pending, running, and dead jobs of each Queue Definition.
+The server logs the directory and this durability once when it starts. `vitehub queue list` shows the provider, the directory, `durability: "single-host"`, the dead-job limit, and the pending, running, and dead jobs of each Queue Definition. In `vite dev`, it also shows `rules`, the provider of the build. `vitehub queue jobs list` shows each job.
+
+## Run jobs in vite dev
+
+In `vite dev` and `nuxt dev`, `runQueue()` stores the job in `.vitehub/data/queue` of the project and the dev server runs the Queue Definition, whatever the provider of the build. A Cloudflare or Vercel app needs no binding, credentials, or `wrangler dev`. The build output does not change: `vite build` still writes the Cloudflare or Vercel runtime.
+
+The dev server follows the documented defaults of the provider of the build, so a handler fails and retries in dev as it does on the host:
+
+| Rule | Cloudflare | Vercel | Local |
+| --- | --- | --- | --- |
+| Attempts | 4 (`max_retries` 3) | No limit until the job expires | 4 |
+| Retry delay | None | 60 seconds (`retryAfterSeconds`) | 1, 2, then 4 seconds |
+| Largest `delaySeconds` | 86400 (24 hours) | 604800 (7 days) | No limit |
+| Retention | None | `retentionSeconds` from 60 to 604800, default 86400 | None |
+| Largest payload | 128 KB of JSON | 100 MB of JSON | No limit |
+| Largest `sendBatch()` | 100 jobs, 256 KB | 100 jobs | No limit |
+| Rejected options | `idempotencyKey`, `region`, `retentionSeconds` | `contentType` | `contentType`, `region`, `retentionSeconds` |
+
+The sources are the [Cloudflare Queues limits](https://developers.cloudflare.com/queues/platform/limits/), [Cloudflare batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/), the [Vercel Queues concepts](https://vercel.com/docs/queues/concepts), and the [Vercel Queues limits](https://vercel.com/docs/queues/pricing#limits). A broken limit fails `runQueue()` with `QUEUE_PROVIDER_FAILED`, and `error.cause` names the limit. A rejected option fails with `QUEUE_UNSUPPORTED_OPTION` and names the provider of the build.
+
+Dev does not emulate these parts of the host:
+
+- It delivers one job at a time per Queue Definition, up to `concurrency`. It has no Cloudflare batches, `max_batch_size`, or `max_batch_timeout`.
+- It does not call `onError` or `callbackOptions`. A failed handler retries by the rules above, and a Queue error that a retry cannot fix makes the job dead at once.
+- It keeps a dead job for inspection. Cloudflare deletes it, or moves it to a dead-letter queue, and Vercel deletes an expired job.
+- The payload is a JSON copy. Cloudflare `contentType: "v8"` can send values that JSON cannot, such as a `Map`. The payload size is the JSON size, not the provider encoding.
+- `idempotencyKey` deduplicates only while a job is pending or running. Vercel deduplicates for the retention, up to 24 hours. `getQueue()` returns the local client.
+
+List, inspect, run again, and remove the stored jobs with the CLI. The commands call the `queue.jobs-list`, `queue.jobs-show`, `queue.jobs-retry`, and `queue.jobs-clear` operations of the running dev server, or of a deployed app with `--url`. The Console and agents run the same operations.
+
+```sh
+pnpm vitehub queue jobs list --state dead
+pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs retry <message-id>
+pnpm vitehub queue jobs clear --state dead --yes
+```
+
+`--json` prints JSON. `jobs list` takes `--queue` and `--state`. `jobs retry` runs the job now: a dead job gets a new set of attempts, and a delayed job does not wait. `jobs clear` removes pending and dead jobs, not running ones. It asks for confirmation on a terminal and needs `--yes` elsewhere. The handler of a successful job deletes it, so the list shows pending, running, and dead jobs. In `vite dev`, a plain `Error` from a handler shows its message and stack. A production server shows `Queue Delivery failed.` instead, because a message can hold private data; throw a `ViteHubError` to keep a code and message. The same commands work on a Node server with the local provider. Cloudflare and Vercel do not let the app read their queue, so the commands fail there with `QUEUE_JOBS_UNAVAILABLE`.
 
 ## Treat acceptance and delivery separately
 

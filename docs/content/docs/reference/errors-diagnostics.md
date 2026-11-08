@@ -68,7 +68,7 @@ Some code runs where the Nostics package cannot load. Browser page evaluation, u
 
 ## Operational errors
 
-Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, missing Blob values, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
 
 `ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen. Its `cause` stays on the in-memory error and `toJSON()` omits it. Public details must be bounded JSON data.
 
@@ -141,6 +141,8 @@ server error. It is safe to serialize to a caller or use in an application-owned
 reply:
 
 ```ts
+import type { AgentPublicErrorCode } from 'vite-hub/agent'
+
 interface AgentPublicError {
   code: AgentPublicErrorCode
   error: string
