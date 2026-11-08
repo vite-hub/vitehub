@@ -48,6 +48,19 @@ A box inside a framed box uses the next smaller step, so the corners stay concen
 
 `--vh-focus` is sky 600 on light and sky 400 on dark, 3:1 on both pages. The theme uses it; components never do. Blue means focus and nothing else: links, selection, and primary buttons stay black and white.
 
+```
+A button, a link, a checkbox, a card link             → 2px ring, 2px outside
+A menu item, an option, a tab, a table row            → 2px ring, inside the item
+A link row in a framed list                           → add data-focus-inset, ring inside
+A framed text field                                   → its frame turns blue and 2px (red with an error)
+A field without a frame, the document editor          → the caret only
+An element that code focused (tabindex="-1")          → no ring
+```
+
+## Media
+
+`--vh-on-media` (white) and `--vh-media-scrim` (black at 50%) for marks over an image or a video, such as a focal point. They do not switch with the color mode, because the image does not.
+
 ## Type
 
 Geist for text, Geist Mono for code, paths, package names, environment variables, and numbers that line up. Sizes: 12px meta, 13px dense tables, 14px UI and body, 16px reading prose and fields on touch screens. Never below 12px. Headings are `font-semibold` with `tracking-[-0.015em]` at 24px and up. Numbers that change use `tabular-nums`.

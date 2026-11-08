@@ -92,6 +92,8 @@ export const vitehubTheme = {
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
     },
+    // A ghost button that toggles something, such as a filter or a view, shows that it is on with a filled background.
+    compoundVariants: [{ variant: "ghost", class: "aria-pressed:bg-elevated aria-pressed:text-highlighted" }],
   },
   card: {
     slots: {
@@ -106,12 +108,14 @@ export const vitehubTheme = {
     slots: {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
       label: "text-xs font-medium text-muted",
+      itemDescription: "text-clip whitespace-normal",
     },
   },
   contextMenu: {
     slots: {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
       label: "text-xs font-medium text-muted",
+      itemDescription: "text-clip whitespace-normal",
     },
   },
   empty: {
@@ -122,31 +126,46 @@ export const vitehubTheme = {
       actions: "mt-1",
     },
   },
-  // Text fields show focus on their own frame: theme.css turns the ring blue, and here it gets 2px wide.
+  // Text fields show focus on their own frame: theme.css turns the ring blue (red when the field has an error), and here
+  // the frame of a framed field gets 2px wide. A field without a frame shows focus with its caret. Every field is 14px,
+  // and 16px on touch screens so that iOS does not zoom.
   input: {
     defaultVariants: {
       size: "sm",
     },
+    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
     slots: {
-      base: "focus-visible:ring-2 pointer-coarse:text-base",
+      base: "pointer-coarse:text-base",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
     },
   },
   inputMenu: {
+    defaultVariants: {
+      size: "sm",
+    },
+    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
     slots: {
-      base: "focus-visible:ring-2 pointer-coarse:text-base",
+      base: "pointer-coarse:text-base",
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
     },
   },
   inputNumber: {
+    defaultVariants: {
+      size: "sm",
+    },
+    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
     slots: {
-      base: "focus-visible:ring-2 pointer-coarse:text-base",
+      base: "pointer-coarse:text-base",
     },
   },
   inputTags: {
+    defaultVariants: {
+      size: "sm",
+    },
+    compoundVariants: [{ variant: ["outline", "subtle"], class: { root: "has-focus-visible:ring-2" } }],
     slots: {
-      root: "has-focus-visible:ring-2 pointer-coarse:text-base",
+      root: "pointer-coarse:text-base",
     },
   },
   // Dialogs: 12px radius and a layered shadow. The top stays in place, so content that grows below a field moves
@@ -182,8 +201,9 @@ export const vitehubTheme = {
     defaultVariants: {
       size: "sm",
     },
+    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
     slots: {
-      base: "focus-visible:ring-2 pointer-coarse:text-base",
+      base: "pointer-coarse:text-base",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
       itemLeadingIcon: "size-4 opacity-80",
@@ -192,8 +212,12 @@ export const vitehubTheme = {
     },
   },
   selectMenu: {
+    defaultVariants: {
+      size: "sm",
+    },
+    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
     slots: {
-      base: "focus-visible:ring-2 pointer-coarse:text-base",
+      base: "pointer-coarse:text-base",
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
     },
   },
@@ -224,8 +248,12 @@ export const vitehubTheme = {
     },
   },
   textarea: {
+    defaultVariants: {
+      size: "sm",
+    },
+    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
     slots: {
-      base: "focus-visible:ring-2 pointer-coarse:text-base",
+      base: "pointer-coarse:text-base",
     },
   },
   toast: {

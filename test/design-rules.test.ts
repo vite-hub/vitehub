@@ -23,6 +23,9 @@ const allowed = [
   "packages/ui/src/theme.ts",
   "packages/docs/runtime/app/components/OgImage/",
   "packages/vite-hub/src/console/runtime/components/invocation/internal/brand-icons.ts",
+  // The pages that the server renders before the Console app loads copy the tokens of theme.css, and a test keeps them equal.
+  "packages/vite-hub/src/console/standalone-page.ts",
+  "docs/app/data/brand-colors.ts",
   "docs/app/components/content/examples/",
 ]
 
@@ -41,8 +44,8 @@ const rules: Array<{ rule: string, pattern: RegExp }> = [
   { rule: "focus class", pattern: /(?:^|[\s"'`[])(?:[\w-]+:)*(?:focus|focus-visible|focus-within|has-focus-visible|group-focus-visible|peer-focus-visible)(?::[\w[\]&>=-]+)*:(?:outline|ring)(?:-[\w/[\]().-]+)?(?=[\s"'`\]]|$)/ },
   // A CSS rule that draws focus.
   { rule: "focus css", pattern: /:focus(?:-visible|-within)?\b[^{]*\{[^}]*(?:outline|box-shadow)\s*:/ },
-  // A color literal. Colors come from the theme tokens.
-  { rule: "color literal", pattern: /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b(?![\w-])|\b(?:rgb|rgba|hsl|hsla|oklch)\(\s*\d/ },
+  // A color literal, also inside a Tailwind arbitrary value such as `shadow-[0_1px_rgb(0_0_0/4%)]`. Colors come from the theme tokens.
+  { rule: "color literal", pattern: /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b(?![\w-])|(?:\b|(?<=_))(?:rgb|rgba|hsl|hsla|oklch)\(\s*\d/ },
   // A tab strip built by hand. UTabs has the keyboard behavior and the theme's underline.
   { rule: "hand-made tabs", pattern: /role=["']tab(?:list)?["']|role:\s*["']tab(?:list)?["']/ },
 ]
