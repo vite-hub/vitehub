@@ -288,6 +288,11 @@
       "import": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
       "default": "./dist/_internal/workflow/runtime/cloudflare-vite.js"
     },
+    "./_internal/workflow/runtime/dev-runs": {
+      "types": "./dist/_internal/workflow/runtime/dev-runs.d.ts",
+      "import": "./dist/_internal/workflow/runtime/dev-runs.js",
+      "default": "./dist/_internal/workflow/runtime/dev-runs.js"
+    },
     "./_internal/workflow/runtime/execute": {
       "types": "./dist/_internal/workflow/runtime/execute.d.ts",
       "import": "./dist/_internal/workflow/runtime/execute.js",
@@ -1063,11 +1068,6 @@
       "import": "./dist/ui/multi-file-diff.js",
       "default": "./dist/ui/multi-file-diff.js"
     },
-    "./ui/nuxt": {
-      "types": "./dist/ui/nuxt.d.ts",
-      "import": "./dist/ui/nuxt.js",
-      "default": "./dist/ui/nuxt.js"
-    },
     "./ui/patch-diff": {
       "types": "./dist/ui/patch-diff.d.ts",
       "import": "./dist/ui/patch-diff.js",
@@ -1209,6 +1209,11 @@
       "import": "./dist/console/runtime/server/mcp-client-operations.js",
       "default": "./dist/console/runtime/server/mcp-client-operations.js"
     },
+    "./console/operations": {
+      "types": "./dist/console/runtime/server/operation-contributions.d.ts",
+      "import": "./dist/console/runtime/server/operation-contributions.js",
+      "default": "./dist/console/runtime/server/operation-contributions.js"
+    },
     "./console/sections": {
       "types": "./dist/console/runtime/server/sections.d.ts",
       "import": "./dist/console/runtime/server/sections.js",
@@ -1319,24 +1324,11 @@
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@valibot/to-json-schema": "catalog:runtime",
-    "@vite-hub/blob": "workspace:*",
-    "@vite-hub/browser": "workspace:*",
     "@vite-hub/bundle": "workspace:*",
-    "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
-    "@vite-hub/connections": "workspace:*",
-    "@vite-hub/decisions": "workspace:*",
-    "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
-    "@vite-hub/gateways": "workspace:*",
-    "@vite-hub/kv": "workspace:*",
-    "@vite-hub/markdown-template": "workspace:*",
-    "@vite-hub/queue": "workspace:*",
-    "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/source": "workspace:*",
-    "@vite-hub/workflow": "workspace:*",
     "confbox": "^0.2.4",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
@@ -1390,19 +1382,32 @@
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/browser": "workspace:*",
+    "@vite-hub/channels": "workspace:*",
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
+    "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/email": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/presets": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
+    "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "2.5.1",
@@ -1459,17 +1464,30 @@
     "@supabase/storage-js": "catalog:storage",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/browser": "workspace:*",
+    "@vite-hub/channels": "workspace:*",
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/comments": "workspace:*",
+    "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/email": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/presets": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
+    "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "ai": "catalog:ai-compat",
@@ -1548,10 +1566,22 @@
     "@vite-hub/auth": {
       "optional": true
     },
+    "@vite-hub/blob": {
+      "optional": true
+    },
+    "@vite-hub/browser": {
+      "optional": true
+    },
+    "@vite-hub/channels": {
+      "optional": true
+    },
     "@vite-hub/cms": {
       "optional": true
     },
     "@vite-hub/comments": {
+      "optional": true
+    },
+    "@vite-hub/connections": {
       "optional": true
     },
     "@vite-hub/content": {
@@ -1560,13 +1590,37 @@
     "@vite-hub/database": {
       "optional": true
     },
+    "@vite-hub/decisions": {
+      "optional": true
+    },
     "@vite-hub/docs": {
+      "optional": true
+    },
+    "@vite-hub/email": {
+      "optional": true
+    },
+    "@vite-hub/gateways": {
+      "optional": true
+    },
+    "@vite-hub/kv": {
+      "optional": true
+    },
+    "@vite-hub/markdown-template": {
       "optional": true
     },
     "@vite-hub/presets": {
       "optional": true
     },
+    "@vite-hub/queue": {
+      "optional": true
+    },
+    "@vite-hub/rate-limit": {
+      "optional": true
+    },
     "@vite-hub/realtime": {
+      "optional": true
+    },
+    "@vite-hub/sandbox": {
       "optional": true
     },
     "@vite-hub/schedule": {
@@ -1579,6 +1633,9 @@
       "optional": true
     },
     "@vite-hub/web-container": {
+      "optional": true
+    },
+    "@vite-hub/workflow": {
       "optional": true
     },
     "@vite-hub/workspace": {

@@ -17,6 +17,8 @@ export interface EnvField {
   variable: string
   /** Other host variables to read after `variable`. */
   extraVariables?: string[]
+  /** Treat an empty variable as unset, as `process.env.NAME || fallback` did. */
+  skipEmpty?: boolean
   kind: EnvFieldKind
   values?: string[]
   required: boolean
@@ -45,7 +47,7 @@ function words(path: readonly string[]): string[] {
     .filter(Boolean))
 }
 
-const credentialWords = new Set(["secret", "secrets", "token", "tokens", "password", "passwd", "pwd", "key", "keys", "credential", "credentials", "dsn", "apikey"])
+const credentialWords = new Set(["secret", "secrets", "token", "tokens", "password", "passwd", "pass", "pwd", "key", "keys", "credential", "credentials", "dsn", "apikey"])
 const connectionWords = new Set(["database", "db", "connection", "postgres", "postgresql", "mysql", "redis", "mongo", "mongodb", "sql", "libsql", "turso"])
 const urlWords = new Set(["url", "uri", "string"])
 

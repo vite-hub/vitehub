@@ -67,6 +67,13 @@ describe("default Agent Invocation journal", () => {
     await expect(resolveDefaultAgentInvocationsLocation(remote)).resolves.toEqual({ authToken: "token", url: "libsql://journal.example.com" })
   })
 
+  it.each([{ maxAge: 0 }, { maxRecords: 0 }])("rejects invalid D1 retention at startup: %j", (retention) => {
+    const env = vi.fn(() => ({}))
+    expect(() => createDefaultAgentInvocations({ d1: { binding: "DB", env }, env: {}, projectRoot: "/worker", retention }))
+      .toThrow(expect.objectContaining({ code: "AGENT_R0911" }))
+    expect(env).not.toHaveBeenCalled()
+  })
+
   it("records an Agent run with content in the local file on first use", { timeout: 30_000 }, async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-default-journal-"))
     try {

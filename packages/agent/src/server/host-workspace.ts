@@ -1,7 +1,7 @@
 /** Host-authorized inspection of a retained invocation Workspace. */
 export type AgentHostWorkspaceInspector = (id: string, path?: string) => Response | Promise<Response>
 
-export const agentHostWorkspaceRoute = "/api/_vitehub/console/invocations/:id/workspace"
+export const agentHostWorkspaceRoute = "/_vitehub/api/invocations/:id/workspace"
 const inspectorsKey: unique symbol = Symbol.for("vitehub.agent.host-workspace-inspectors")
 // SAFETY: This module owns the process registry shared by separately bundled host and Console modules.
 const state = globalThis as typeof globalThis & { [inspectorsKey]?: Map<string, AgentHostWorkspaceInspector> }

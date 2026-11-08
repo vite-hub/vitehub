@@ -193,6 +193,8 @@ The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `ma
 - **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
 - **Status.** `vitehub status` lists the added, modified, deleted, and conflicting files of each checkout folder, without calling the app. `vitehub pull --dry-run` also lists what changed on the ref since the last pull, and writes nothing.
 
+`pnpm vitehub hooks install` adds two Git hooks. Before a commit, `vitehub hooks pre-commit` fails while a checkout folder has conflicts; it works offline. Before a push, `vitehub hooks pre-push` runs `vitehub push` when the Git push updates the default branch (`origin/HEAD`, else `init.defaultBranch`, else `main`), and fails the Git push when the Workspace push fails. When the Workspace push changes `vitehub.lock` or pulls files into a checkout folder, the hook also fails the Git push, because the commits that Git pushes do not contain those changes: commit them, then run `git push` again. The second push has nothing for the Workspace, so it goes through. Other branches push nothing. Without `vitehub.lock`, both hooks do nothing. When Husky, lefthook, pre-commit, simple-git-hooks, or `core.hooksPath` runs the hooks of the repository, `install` writes no file and prints the two commands to add there. It never replaces or removes a hook that differs from the one it writes, so commands that you add to a hook stay. `vitehub hooks uninstall` removes its hooks.
+
 The commands call two operations of the app, which the Console section `workspaces` grants:
 
 | Operation | Kind | Result |
@@ -215,6 +217,18 @@ Each command fails on a flag that it does not know, before it calls the app. Pul
 Commands reject existing symbolic links in the checkout folder and its ancestors inside the project. These checks do not isolate files from another process that can replace paths during an operation. Use an OS or container boundary for that isolation.
 
 A push sends whole files, is limited to 4 MiB, and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
+
+#### On the GitHub Store
+
+The commands work the same on the GitHub Store, with these differences:
+
+- A revision id is a commit sha, and the digest of a file is its Git blob sha. `vitehub.lock` still records SHA-256.
+- Each instance of the app keeps the head of a ref for up to 5 seconds. A pull right after a commit on GitHub, or through another instance, can report the older head. A push still checks the real head before it commits, so it cannot overwrite that commit. If your push reaches an instance with an older head, the push can first undo the newer commit in your folder and then pull it again. A line that you also changed then gets conflict markers.
+- The media type of a file comes from its name. A push keeps the Git mode of an executable file or a symbolic link (`gitMode` metadata). The Store keeps no other file metadata.
+- GitHub records the account of the token as the author of each commit, and the revision `author` is that account. The signed-in user is in the `Vitehub-Metadata` trailer of the commit message. Anyone with write access to the repository can write that trailer, so the Store does not report it as the author.
+- The first push to a ref that does not exist creates a branch from the published branch when the Store sets `refs.published`, else from the default branch. The push then pulls the files that the new branch has from that branch.
+- A pull reads up to two blobs for each changed file: the head version and the version at the last pull. The first pull reads one blob for each file. GitHub allows 5,000 API requests per hour for most tokens, so the first pull of a large Workspace can use a large part of that limit. `vitehub status` and `vitehub pull --dry-run` read no file content.
+- A force push can remove the revision that `vitehub.lock` records. A pull then fails with `WORKSPACE_NOT_FOUND`. Move the folder away, remove its entry from `vitehub.lock`, pull again, and copy your changes back.
 
 ### Derived files
 

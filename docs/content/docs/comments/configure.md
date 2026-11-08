@@ -1,6 +1,6 @@
 ---
 title: Comments configuration
-description: Decide who can comment, sign people in with GitHub, let guests in, keep comments on your own records, choose where threads go, upgrade the tables, mention and notify people, attach files, turn comment mode on and off, and mark Content fields for edits in place.
+description: "Decide who can comment, sign people in with GitHub, choose where threads go, notify mentions, attach files, and mark Content fields for edits in place."
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal
@@ -32,6 +32,8 @@ vitehub({
   comments: { database: 'team' },
 })
 ```
+
+Do not add the `comments()` plugin next to `vitehub()`. The dev server and the build fail with `COMMENTS_B0003`.
 
 `comments: false` turns Comments off. With `comments: false` and a `server/comments.ts`, the build fails with `VITE_HUB_B0019`: remove one of them. With Comments on and `database: false`, the build fails with `VITE_HUB_B0018`. Comments keeps its threads in the Database, so remove `database: false` or set `comments: false`.
 

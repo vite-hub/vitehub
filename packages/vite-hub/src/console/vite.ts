@@ -260,19 +260,9 @@ export function updateConsoleInvocationRootState(
   bindConsoleInvocationsIdentity(state.binding, identity, projectRoot)
 }
 
-function consoleAccessTargets(base: string | undefined, sections?: readonly ConsoleSectionId[]): Array<{ method?: string; route: string }> {
-  return [
-    { route: consoleMountPath(base, "/_vitehub/**") },
-    ...(sections?.includes("agents")
-      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") }]
-      : []),
-    ...(sections?.includes("logs")
-      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/logs") }]
-      : []),
-    ...(sections?.includes("agents") && sections.includes("usage")
-      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/usage") }]
-      : []),
-  ]
+// `/_vitehub/**` covers the Console pages, its RPC, MCP, and its API at `/_vitehub/api`.
+function consoleAccessTargets(base: string | undefined): Array<{ method?: string; route: string }> {
+  return [{ route: consoleMountPath(base, "/_vitehub/**") }]
 }
 
 function consoleMountPath(base: string | undefined, path: string): string {
@@ -337,10 +327,10 @@ function configureConsoleNitroRoutes(
       }
     }
     for (const handler of [
-      ...(sections.includes("agents") ? [{ handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/status"), method: "get" }] : []),
+      ...(sections.includes("agents") ? [{ handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/_vitehub/api/status"), method: "get" }] : []),
       // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
-      ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/logs"), method: "get" }] : []),
-      ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/usage"), method: "get" }] : []),
+      ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/_vitehub/api/logs"), method: "get" }] : []),
+      ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/_vitehub/api/usage"), method: "get" }] : []),
       ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(mount, "/_vitehub/sign-in"), method: "get" }] : []),
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub") },
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub/**") },
@@ -348,10 +338,10 @@ function configureConsoleNitroRoutes(
     kit.addHandler({
       handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
       lazy: true,
-      route: consoleMountPath(mount, "/api/_vitehub/console/client.js"),
+      route: consoleMountPath(mount, "/_vitehub/api/client.js"),
       method: "get",
     })
-    if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, lazy: true, route: consoleMountPath(mount, "/api/_vitehub/console/auth/**") })
+    if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, lazy: true, route: consoleMountPath(mount, "/_vitehub/api/auth/**") })
     if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   }
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, sections, !rpcOnly && oauth, crossOrigin)
@@ -410,8 +400,8 @@ export function resolveConsoleAuthorizeFile(root: string, authorize: unknown): s
   return file
 }
 
-function consoleAppAuthRouteIndexes(auth: ResolvedAuthViteConfig, base: string | undefined, sections?: readonly ConsoleSectionId[]): Array<{ authorize: boolean, index: number, method?: string, route: string }> {
-  const targets = consoleAccessTargets(base, sections)
+function consoleAppAuthRouteIndexes(auth: ResolvedAuthViteConfig, base: string | undefined): Array<{ authorize: boolean, index: number, method?: string, route: string }> {
+  const targets = consoleAccessTargets(base)
   return auth.access.routes.flatMap((route, index) => targets.some(target => authRouteProtects(route, target) || route.route.startsWith(target.route.replace(/\/\*\*$/, "")))
     ? [{ authorize: route.authorize === true, index, method: route.method?.toUpperCase(), route: route.route }]
     : [])
@@ -462,7 +452,7 @@ export function resolveConsoleAccessBuild(
   if (configured.auth === "token") return withAccessOptions({ mode: "token", origins })
   if (configured.auth === "app") {
     return withSignInPage(withAccessOptions(options.appAuth
-      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins }
+      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins }
       : { mode: "auth" }))
   }
   if (!options.handlers) return withAccessOptions({ mode: "open" })
@@ -492,7 +482,7 @@ export function assertConsoleAccess(
     throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: '[vitehub] console: { auth: "app" } requires a discovered ViteHub Auth Definition. Set auth: true and add server/auth.ts, or use console: { auth: false }.' })
   }
   if (configured.authorize) return
-  const accessRoutes = consoleAccessTargets(options.base, options.sections)
+  const accessRoutes = consoleAccessTargets(options.base)
   const missing = accessRoutes.filter(target => !options.auth?.access.routes.some(route => authRouteProtects(route, target)))
   if (missing.length) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0006({ message: `[vitehub] console: { auth: "app" } needs console.authorize, or app Auth access routes with an authorize callback for ${missing.map(target => target.route).join(" and ")}.` })
