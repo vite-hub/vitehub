@@ -52,17 +52,17 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
   for (const [source, feature] of [
     ["vite-hub/ui", "ui"],
     ["vite-hub/ui/avatar-stack", "ui"],
-    ["vite-hub/ui/nuxt", "ui"],
     ["vite-hub/ui/styles.css", "ui"],
     ["vite-hub/presets/babysitter/server", "presets"],
     ["vite-hub/shell", "shell"],
     ["vite-hub/shell/workspace", "shell"],
+    ["vite-hub/console/ui", "console ui"],
   ] as const) {
     vi.mocked(assertFeaturePackages).mockClear()
     resolve(source)
     expect(assertFeaturePackages, source).toHaveBeenCalledExactlyOnceWith([feature])
   }
   vi.mocked(assertFeaturePackages).mockClear()
-  for (const source of ["vite-hub", "vite-hub/blob", "vite-hub/uikit", "vite-hub/shells", "@vite-hub/ui", "./ui"]) resolve(source)
+  for (const source of ["vite-hub", "vite-hub/blob", "vite-hub/uikit", "vite-hub/shells", "vite-hub/console", "vite-hub/console/uikit", "@vite-hub/ui", "./ui"]) resolve(source)
   expect(assertFeaturePackages).not.toHaveBeenCalled()
 })

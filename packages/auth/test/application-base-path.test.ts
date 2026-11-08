@@ -109,9 +109,9 @@ describe("Auth below an application base path", () => {
   it("keeps a base path that already includes the application base path", () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
     // Console Auth mounts its Definition below the app base path itself.
-    const definition = defineAuth({ appName: "Console", basePath: "/app/api/_vitehub/console/auth" })
+    const definition = defineAuth({ appName: "Console", basePath: "/app/_vitehub/api/auth" })
 
-    expect(resolveAuthOptions(definition).providerOptions.basePath).toBe("/app/api/_vitehub/console/auth")
+    expect(resolveAuthOptions(definition).providerOptions.basePath).toBe("/app/_vitehub/api/auth")
   })
 
   it("keeps root paths when no application base path is configured", () => {
@@ -154,8 +154,21 @@ describe("Auth below an application base path", () => {
     const config = (plugin.config as unknown as (config: typeof input) => { define?: unknown, nitro?: unknown })(input)
     const nitro = (input as typeof input & { nitro?: { replace?: unknown } }).nitro
 
-    expect(config.define).toBeUndefined()
-    expect(nitro?.replace).toBeUndefined()
+    expect(config.define).toEqual({ __VITEHUB_AUTH_DEV__: "false" })
+    expect(nitro?.replace).toEqual({ __VITEHUB_AUTH_DEV__: "false" })
+  })
+
+  it("marks the server bundle of a dev server for the limiter", async () => {
+    const root = await createProject()
+    const input = { root }
+    // SAFETY: hubAuth defines a synchronous function config hook.
+    const config = (hubAuth().config as unknown as (config: typeof input, env: { command: "serve" }) => { define?: unknown })(input, { command: "serve" })
+    const nitro = (input as typeof input & { nitro?: { replace?: unknown } }).nitro
+
+    expect(config.define).toEqual({ __VITEHUB_AUTH_DEV__: "true" })
+    expect(nitro?.replace).toEqual({ __VITEHUB_AUTH_DEV__: "true" })
+    expect(createAuthNitroConfig(hubAuth(), { nitro: { dev: true }, projectRoot: root })).toMatchObject({ replace: { __VITEHUB_AUTH_DEV__: "true" } })
+    expect(createAuthNitroConfig(hubAuth(), { nitro: { dev: false }, projectRoot: root })).toMatchObject({ replace: { __VITEHUB_AUTH_DEV__: "false" } })
   })
 
   it("defines Nuxt app.baseURL for the default Vue client", () => {

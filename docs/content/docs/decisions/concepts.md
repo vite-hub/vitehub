@@ -26,7 +26,7 @@ A **choices** object is what `defineChoices()` returns. It holds all the decisio
 
 A **group** is one decision, such as "which supplier" or "which chart". Each group has a label and its options.
 
-An **option** is one thing the person can pick. It has a `value` (your id), a `label` (what people call it), and optional `aliases` (codes, short names, other languages).
+An **option** is one thing the person can pick. It has a `value` (your id), a `label` (what people call it), optional `aliases` (codes, short names, other languages), and an optional `description` (what the option is about).
 
 ```ts fragment
 { value: "nord", label: "Nord Parts", aliases: ["nord"] }
@@ -50,6 +50,39 @@ selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", pro
 
 `value` is `null` when no option reaches the `option` threshold. Show the ranked list, or ask the person.
 
+## Infer one option
+
+By default, a group takes only the options that the text names. "Nord parts" picks Nord Parts. "Something broke" picks nothing.
+
+Some decisions are never named in the text. A bug report does not say which project it belongs to, and a support email does not say which team should answer it. Set `infer: true` on a group with `multiple: false`. The model then chooses the option that fits the text best, from what the text is about and from each option's `description`:
+
+```ts
+import { defineChoices } from 'vite-hub/decisions'
+import { vercel } from 'vite-hub/gateways'
+
+const inbox = defineChoices({
+  gateway: vercel(),
+  groups: {
+    project: {
+      label: "Project",
+      multiple: false,
+      infer: true,
+      options: [
+        { value: "docs", label: "Docs", description: "The docs site and its landing page." },
+        { value: "console", label: "Console", description: "The Console app: runs, queues, and logs." },
+        { value: "other", label: "Other", description: "Anything that is not about one of the projects." },
+      ],
+    },
+  },
+  limits: { text: 2000 },
+})
+
+const [error, selection] = await inbox.resolve("the queue tab crashes when I open it")
+selection?.project // { value: "console", confidence: 0.9, ranked: [...] }
+```
+
+An `infer` group has no "none" answer, so add an option such as "Other" when nothing may fit. `value` is still `null` below the `option` threshold, and `ranked` keeps every option. The `supported` check covers only the groups that do not infer. When every group infers, it is not asked. A group with one option returns that option without a request.
+
 ## Thresholds
 
 The model gives a probability for each answer. Two thresholds turn probabilities into decisions.
@@ -61,7 +94,7 @@ Raise `option` when a wrong chip costs more than a missing chip. Change both wit
 
 ## The model never invents a value
 
-The model does not write the answer. It answers fixed questions about your options. For a multi-select group, each option gets an "include, exclude, or none?" question. For a non-empty single-select group, one question asks which option to choose, or none. ViteHub builds those questions from your groups. It maps the answers back to your option values.
+The model does not write the answer. It answers fixed questions about your options. For a multi-select group, each option gets an "include, exclude, or none?" question. For a non-empty single-select group, one question asks which option to choose, or none. An `infer` group has no "none". ViteHub builds those questions from your groups. It maps the answers back to your option values.
 
 So every value in the selection is one of your values. The model cannot return a supplier that you did not list. If the text names something that is not in the options, the option is not included. If the text needs something the options cannot express, such as "orders over 500", `resolve()` returns `DECISIONS_R0004` instead of a guess.
 

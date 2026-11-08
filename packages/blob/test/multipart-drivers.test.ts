@@ -4,7 +4,9 @@ import { createDriver as createR2Driver, getOptionalBucket } from "../src/driver
 import { createDriver as createVercelDriver } from "../src/drivers/vercel-bundled.ts"
 import { createBlobStorage } from "../src/storage.ts"
 
-import type { BlobResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode } from "../src/types.ts"
 
 const vercel = vi.hoisted(() => ({
   completeMultipartUpload: vi.fn(async (pathname: string) => ({ pathname, url: `https://store.public.blob.vercel-storage.com/${pathname}` })),
@@ -22,7 +24,7 @@ const vercel = vi.hoisted(() => ({
 
 vi.mock("@vercel/blob", () => ({ ...vercel, del: vi.fn(), get: vi.fn(), list: vi.fn(), put: vi.fn() }))
 
-function ok<T>(result: BlobResult<T>): T {
+function ok<T>(result: Result<T, BlobErrorCode>): T {
   const [error, value] = result
   if (error) throw error
   return value
