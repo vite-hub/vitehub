@@ -7,9 +7,9 @@ import { formatBytes } from "./bytes.ts"
 // on the Free and the Paid plan. "There is no compressed size limit. Only the uncompressed bundle size counts."
 export const cloudflareWorkerSizeLimit = 64 * 1024 * 1024
 
-// Keep published codes stable. Each code has a heading on the docs page.
+// Keep published codes stable. Each code has a generated docs page.
 export const bundleDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: code => `https://vitehub.dev/docs/reference/errors-diagnostics#${String(code).toLowerCase()}`,
+  docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
     BUNDLE_STARTUP_UNUSED: {
       why: ({ packages, reason }: { packages: ReadonlyArray<{ name: string, bytes: number }>, reason: string }) =>

@@ -94,7 +94,7 @@ describe("startup rules", () => {
       severity: "warning",
       side: "server",
       bytes: 1300,
-      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#bundle_startup_unused",
+      docs: "https://vitehub.dev/docs/development/diagnostics/bundle_startup_unused",
     })
     expect(finding!.why).toBe("`@libsql/client` (900 B), `@libsql/hrana-client` (400 B) load at server startup. This Worker uses D1 for every Database.")
     expect(finding!.fix).toBe("Update `vite-hub`. Run `vitehub bundle why @libsql/client` for the import chain.")
