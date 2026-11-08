@@ -136,7 +136,7 @@ Content builds the map from paths to documents once per revision of the ref and 
 
 Set `locales` to keep one document in several languages. The first locale is the source locale: you write it, and the other locales are translations of it. `{locale}` in the path marks the folder of each locale.
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 docs: documents({
   path: 'docs/{locale}/**/*.md',
   locales: ['en', 'es'],
@@ -147,7 +147,7 @@ docs: documents({
 
 A document keeps its id in every locale: `guide` is `docs/en/guide.md` in English and `docs/es/guide.md` in Spanish. `{locale}` must be a whole folder before the first wildcard, and with several globs, all of them must share the folder that holds it.
 
-```ts
+```ts fragment
 const docs = content.collection('docs')
 await docs.save('guide', { data: { title: 'Guide' }, body: 'Hello.' })
 const english = await docs.get('guide', { ref: 'draft', locale: 'es' }) // { locale: 'en', fallback: true, source: { path, digest }, ... }: no translation yet
@@ -167,7 +167,7 @@ await docs.status('guide') // { locale: 'en', translations: { es: 'current' }, .
 
 A catch-all page serves every locale with the calls a page already makes. `content.resolve(path)` gives the document and the locale of the path, and `get(id, { locale })` reads that locale:
 
-```ts [server/api/page.get.ts]
+```ts [server/api/page.get.ts] fragment
 import { defineEventHandler, getQuery, HTTPError } from 'h3'
 import { content } from '../content'
 
@@ -445,7 +445,7 @@ import { defineHandler, getRouterParam } from 'h3'
 import { renderContentHtml } from 'vite-hub/content'
 import { content } from '../../content'
 
-export default defineEventHandler(async (event) => {
+export default defineHandler(async (event) => {
   const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)
   if (!guide) return new Response('Not found', { status: 404 })
   return new Response(`<article>${await renderContentHtml(guide)}</article>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })

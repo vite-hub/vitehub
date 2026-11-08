@@ -152,7 +152,7 @@ await settings.get() // the published settings, also at /api/content/get/setting
 
 `documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"] })` keeps a document in several locales. The first locale is the source locale, and a document keeps its id in every locale: `guide` is `docs/en/guide.md` and `docs/es/guide.md`. `get()`, `raw()`, and `list()` take `locale`; without a translation, `get()` and `list()` return the source locale version with `fallback: true`. `save()`, `remove()`, and `restore()` take `{ locale }`. `get()` returns `source: { path, digest }`, the source locale version in the `sha256-` lineage form. A save in another locale with `sourceDigest: source.digest` records `derivedFrom: { path, digest }` of the source version that was read, as `@vite-hub/workspace/lineage` reads it. Without `sourceDigest`, an existing translation keeps its `derivedFrom` and a new one records the source locale draft. `status()` gives each source locale document `translations`, such as `{ es: "stale" }`: `current`, `stale` when the source changed since or `derivedFrom` names another file than the source locale file of the same id, or `missing`. `publish()` publishes every locale, and `publish({ expect })` entries take `locale`. A `url` pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale.
 
-```ts
+```ts fragment
 const docs = content.collection("docs")
 const english = await docs.get("guide", { ref: "draft", locale: "es" }) // the fallback, with source: { path, digest }
 await docs.save("guide", { data: { title: "Guía" }, body: "Hola." }, { locale: "es", sourceDigest: english.source.digest }) // records derivedFrom
