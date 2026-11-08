@@ -7,7 +7,7 @@ icon: i-lucide-file-user
 navigation.kind: Reference
 ---
 
-An Agent Definition is the single configuration object for one Agent. It selects an [Agent Driver](/docs/agents/agent-drivers), attaches Capabilities and Workspace context, and defines any Channels, Actor resolution, hooks, or hosted runtime behavior.
+An Agent Definition is the single configuration object for one Agent. It selects an [Agent Driver](/docs/agents/agent-drivers), attaches Capabilities and Workspace context, and defines any Channels, Invoker resolution, hooks, or hosted runtime behavior.
 
 ViteHub discovers definitions in `server/agents`. Both `server/agents/support.ts` and `server/agents/support/agent.ts` create an Agent named `support`.
 
@@ -189,9 +189,9 @@ A child Agent that sets `data` or `intercept` replaces the parent value. ViteHub
 
 ## Choose hosted execution
 
-Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
+Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: agentWorkflow('support')`.
 
-The two-argument `runAgent(agent, input)` form cannot discover the host Workflow by itself. Set `runtime: false` for standalone inline calls, supply an explicit `workflow('support')` binding, or pass a host Runtime Context. See [Run without a host context](/docs/agents/invocations#run-without-a-host-context).
+The two-argument `runAgent(agent, input)` form cannot discover the host Workflow by itself. Set `runtime: false` for standalone inline calls, supply an explicit `agentWorkflow('support')` binding, or pass a host Runtime Context. See [Run without a host context](/docs/agents/invocations#run-without-a-host-context).
 
 ## Definition options
 
@@ -209,7 +209,7 @@ The two-argument `runAgent(agent, input)` form cannot discover the host Workflow
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
-| `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
+| `invoker` | Configures Agent Invoker profiles and resolution. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
 | `invocations` | Selects the [Invocation journal](/docs/agents/invocation-storage) and its storage policy. |
 | `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. Finish and error hooks act on the triggering Channel message through [`event.message`](/docs/agents/channels#act-on-the-channel-message-in-hooks). |
@@ -217,4 +217,4 @@ The two-argument `runAgent(agent, input)` form cannot discover the host Workflow
 | `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |
 | `cli.capabilities` | Enables or disables Capability-contributed CLI commands. |
 
-Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Actors](/docs/agents/actors), and [Invocations](/docs/agents/invocations).
+Use the dedicated pages for option details rather than growing the Definition itself: [Drivers](/docs/agents/agent-drivers), [Channels](/docs/agents/channels), [Trusted Invokers](/docs/agents/trusted-invokers), and [Invocations](/docs/agents/invocations).

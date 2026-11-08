@@ -21,7 +21,7 @@ function staticSpecifiers(code: string): string[] {
 /** The source file of a `vite-hub/*` or `@vite-hub/internal/*` specifier. ViteHub bundles `@vite-hub/internal`. */
 function sourceFile(specifier: string, importer?: string): string | undefined {
   if (specifier.startsWith(".") && importer) return resolve(dirname(importer), specifier)
-  if (specifier === "@vite-hub/agent/invocations/default") return join(agentSource, "invocations/default.ts")
+  if (specifier === "@vite-hub/agent/internal/default-invocations") return join(agentSource, "invocations/default.ts")
   if (specifier.startsWith("@vite-hub/internal/")) return join(internalSource, `${specifier.slice("@vite-hub/internal/".length)}.ts`)
   const target = specifier.startsWith("vite-hub/") ? packageExports[`./${specifier.slice("vite-hub/".length)}`]?.import : undefined
   return target ? join(packageRoot, target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")) : undefined
@@ -80,7 +80,7 @@ describe("Console server startup graph", () => {
         expect(loaded).not.toContain(`src/console/runtime/server/${lazy}`)
       }
       for (const lazy of ["d1.ts", "sqlite.ts"]) expect(files).not.toContain(join(agentSource, "invocations", lazy))
-      for (const lazy of ["@vite-hub/agent/invocations/d1", "@libsql/client", "drizzle-orm"]) expect(packages).not.toContain(lazy)
+      for (const lazy of ["@vite-hub/agent/invocations", "@libsql/client", "drizzle-orm"]) expect(packages).not.toContain(lazy)
     }
     finally {
       await rm(root, { force: true, recursive: true })

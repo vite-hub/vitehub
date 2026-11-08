@@ -125,7 +125,7 @@ Pass a store to `defineAgentInvocations()` when the built-in names do not fit. T
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -286,7 +286,7 @@ The result has `available: false` and a `reason` when the record cannot reproduc
 | `invocation-not-terminal` | The record is pending or running. |
 | `input-not-captured` | The prompt was not retained. |
 | `replay-metadata-unavailable` | Replay metadata is missing or incomplete. |
-| `input-has-invoker` | A direct Actor identity, or a resolver-derived Invoker without a selected Invoker Profile. |
+| `input-has-invoker` | A direct Invoker identity, or a resolver-derived Invoker without a selected Invoker Profile. |
 | `input-has-data` | Structured input. |
 | `input-has-options` | Call options. |
 | `input-has-messages` | A singular Message or prior Messages. |
@@ -357,7 +357,7 @@ const nextPage = page.cursor
 Use `observations` to set limits for long traces:
 
 ```ts
-import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
@@ -466,7 +466,7 @@ Use the D1 adapter when the application already has a D1 database. The binding c
 
 ```ts [server/invocations.ts]
 import { env } from 'cloudflare:workers'
-import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
+import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 export const invocations = defineAgentInvocations({
@@ -483,7 +483,7 @@ The store creates its table and indexes on first use of each binding in a Worker
 To manage the schema with your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
 
 ```ts [scripts/invocation-schema.ts]
-import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations/d1'
+import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations'
 
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```
@@ -552,7 +552,7 @@ Cancellation before Driver dispatch stops startup without a `notEnforcedBy` warn
 
 ## Recover interrupted Invocations
 
-For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
+For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
 
 With a libSQL Agent state provider, a persistent Nitro server runs this recovery for each Agent journal when it resumes queued webhook deliveries, one second after it starts or on the first request that loads the Agent routes. It fails the Agent's pending or running invocations that started before the process, except invocations that a persisted queued delivery runs again under the same run ID. Agents with a durable Workflow runtime are skipped. A recovery failure is logged and the queue still resumes.
 

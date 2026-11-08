@@ -22,7 +22,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/deployment` | `detectPreset()`: the preset that `vitehub()` detects when `preset` is omitted, for host-specific config. |
 | `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
-| `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
+| `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
@@ -33,9 +33,10 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/logs/host` | Install and resolve a project's LogSource through the process-shared registry without Evlog. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
-| `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
+| `vite-hub/agent/server` | Manual server integration. |
+| `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
-| `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
+| `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
 | `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
 | `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
 | `vite-hub/gateways` | [AI gateways](/docs/agents/ai-gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
@@ -44,11 +45,9 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
 | `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
-| `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
+| `vite-hub/agent/invocations` | Durable Agent Invocation stores: Cloudflare D1 with its schema statements, and libSQL-compatible SQLite. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
-| `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
-| `vite-hub/agent/runtime/process` | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | Define a Console-owned Auth Definition and its access policy. |
 | `vite-hub/console/auth/client` | Configure Console Auth client plugins and setup. |
@@ -172,11 +171,13 @@ for libraries, focused integrations, and advanced composition.
 
 | Import path | Owner | Use |
 | --- | --- | --- |
-| `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, and trusted caller types. |
+| `@vite-hub/agent` | Agent Package | `defineAgent()`, `runAgent()`, `streamAgent()`, `startAgentInvocation()`, `loadAgent()`, `agentWorkflow()`, Drivers, triggers, and the `AgentInvoker` type. |
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, and `inputCommands()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/observability` | Agent Package | `useObservability()` and observability types. |
-| `@vite-hub/agent/process-host` | Agent Package | `withAgentProcessHost()` and webhook intake for preset process hosts. |
+| `@vite-hub/agent/process` | Agent Package | `withAgentProcessHost()`, `createProcessAgentHost()`, and `createProcessAgentCapacity()` for long-running Node hosts. |
+| `@vite-hub/agent/invocations` | Agent Package | `createD1AgentInvocationStore()`, `d1AgentInvocationSchema()`, and `createLibsqlAgentInvocationStore()`. |
+| `@vite-hub/agent/state` | Agent Package | `createSqliteAgentState()` and `createLibsqlAgentState()`. |
 | `@vite-hub/presets/babysitter` | Presets Package | Composable Babysitter repair-loop preset. |
 | `@vite-hub/presets/babysitter/server` | Presets Package | Babysitter host runtime integration. |
 | `@vite-hub/presets/labeller` | Presets Package | Gmail labelling preset. |
@@ -184,7 +185,6 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/observability/host` | Agent Package | `installObservability()` for hosts without `vitehub()`. |
 | `@vite-hub/agent/observability/posthog` | Agent Package | Optional PostHog exporter. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
-| `@vite-hub/agent/runtime/process` | Agent Package | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
 | `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Agent state helpers. |
 | `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |

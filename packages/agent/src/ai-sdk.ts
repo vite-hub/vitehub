@@ -951,7 +951,6 @@ function createAiSdkRuntimeContext(context: AgentAdapterRunContext) {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   return {
     ...runtime,
-    actor: context.actor,
     context: context.context,
     input: context.input,
     invoker: context.invoker,
@@ -1343,7 +1342,6 @@ async function createAgent(
   const metadataContext = {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
-    actor: context.actor,
     context: context.context,
     fs: context.workspace?.fs,
     invoker: context.invoker,
@@ -1360,7 +1358,7 @@ async function createAgent(
     : await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const observedModel = instrumentations.length
-    ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
+    ? await instrumentModel(model, instrumentations, { ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
   if (context.executionBudgetActive && !hasRuntimeType(wrapLanguageModel, "function")) {
@@ -1413,7 +1411,6 @@ async function createAgent(
   const baseCallSettings = copyCallSettings(execution?.callSettings)
   const instrumentedCallSettings = await instrumentCallSettings(baseCallSettings, instrumentations, {
     ...runtime,
-    actor: context.actor,
     context: context.context,
     input: context.input,
     invoker: context.invoker,

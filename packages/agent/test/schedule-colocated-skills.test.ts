@@ -38,7 +38,7 @@ it.each(["default-expression", "default-binding", "default-reexport"])("preserve
       "const daily = defineAgent({ extends: reporter, description: 'Daily report' })",
       "export default defineSchedule({ cron: '0 9 * * *', handler: async () => runAgent(daily, { runtime: 'unknown', memo: () => {}, waitUntil: () => {} }, { prompt: 'Write the report.' }) })",
     ].join("\n"))
-    const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+    const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
     await build({
       root,
       configFile: false,

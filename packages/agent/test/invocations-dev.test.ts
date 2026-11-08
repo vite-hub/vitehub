@@ -107,7 +107,7 @@ describe("Agent Invocations Nitro dev handler", () => {
   it("generates a handler that authenticates with the project root and server ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-handler-"))
     try {
-      const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
       const hook = plugin.configResolved
       if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
       // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
@@ -167,7 +167,7 @@ describe("Agent Invocations Nitro dev handler", () => {
   it("reads the Request from the H3 1 event that Nitro 2 passes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-handler-h3-v1-"))
     try {
-      const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
       const hook = plugin.configResolved
       if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
       // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
@@ -214,7 +214,7 @@ describe("Agent Invocations Nitro dev handler", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-cli-load-"))
     try {
       const generate = async (config: Record<string, unknown>) => {
-        const hook = hubAgent({ providers: { state: { provider: "memory" } } }).configResolved
+        const hook = hubAgent({ providers: { state: { driver: "memory" } } }).configResolved
         if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
         // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
         await hook.call({} as never, { root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, ...config } as never)

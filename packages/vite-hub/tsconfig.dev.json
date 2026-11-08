@@ -20,6 +20,7 @@
       "vite-hub": ["../../packages/vite-hub/src/index.ts"],
       "vite-hub/*": ["../../packages/vite-hub/src/*"],
       "@vite-hub/agent": ["../../packages/agent/src/index.ts"],
+      "@vite-hub/agent/invocations": ["../../packages/agent/src/invocations/index.ts"],
       "@vite-hub/agent/*": ["../../packages/agent/src/*"],
       "@vite-hub/auth": ["../../packages/auth/src/index.ts"],
       "@vite-hub/auth/*": ["../../packages/auth/src/*"],

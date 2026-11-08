@@ -157,7 +157,7 @@ describe("Console Channel replay route", () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toMatchObject({ processed: 2 })
       expect(fixture.runContext?.request?.headers.get("cookie")).toBe("session=verified")
-      expect(fixture.runContext?.actor).toMatchObject({ id: "console-user", kind: "authUser" })
+      expect(fixture.runContext?.invoker).toMatchObject({ id: "console-user", kind: "authUser" })
     }
     finally {
       installConsoleAccess({ mode: "open" })

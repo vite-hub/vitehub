@@ -100,6 +100,7 @@ export const docsPageRedirects = {
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/capabilities/code-host": "/docs/agents/capabilities/forge",
   "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
+  "/docs/agents/actors": "/docs/agents/trusted-invokers",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",

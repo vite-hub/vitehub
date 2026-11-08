@@ -20,9 +20,9 @@ describe("agent config", () => {
         workflow: "auto",
       },
       providers: {
-        sandbox: { provider: "auto" },
-        scheduler: { provider: "auto" },
-        state: { provider: "auto" },
+        sandbox: { driver: "auto" },
+        scheduler: { driver: "auto" },
+        state: { driver: "auto" },
       },
       routes: {
         discordGateway: false,
@@ -44,11 +44,11 @@ describe("agent config", () => {
   it("preserves provider options", () => {
     expect(normalizeAgentOptions({
       integrations: { sandbox: false },
-      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
+      providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       runtime: "cloudflare-agents",
     })).toMatchObject({
       integrations: { sandbox: false, workflow: "auto" },
-      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
+      providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       routes: {
         discordGateway: false,
         inspection: false,

@@ -4,7 +4,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 
 import { createConsoleInvocationsIdentity, installConsoleInvocationFallback, markConsoleFixtureInvocations, resolveConsoleInvocationsByIdentity, resolveConsoleInvocationsRevision } from "../../internal.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
-import { defaultAgentInvocationsMetadataContent } from "@vite-hub/agent/invocations/default"
+import { defaultAgentInvocationsMetadataContent } from "@vite-hub/agent/internal/default-invocations"
 
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { ConsoleFixture } from "../../fixture.ts"

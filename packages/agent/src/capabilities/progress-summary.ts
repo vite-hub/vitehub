@@ -200,7 +200,6 @@ function progressSummaryAdapterRunContext(
     throw agentDiagnostics.AGENT_R0156({ message: "[vitehub] progressSummary({ driver }) requires an agent runtime context." })
   }
   return markAuxiliaryMessageChannelInstructionContext({
-    actor: context.actor,
     context: context.context,
     toolStepReporter: context.runtimeContext.toolStepReporter,
     input: progressSummaryDriverInput(input, prompt),
@@ -222,7 +221,6 @@ function progressSummaryRunContext(
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtimeContext
   return {
     ...runtime,
-    actor: context.actor,
     context: context.context,
     input: progressSummaryDriverInput(input, prompt),
     invoker: context.invoker,

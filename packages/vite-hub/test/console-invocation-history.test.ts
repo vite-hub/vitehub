@@ -49,7 +49,7 @@ describe("Console invocation history", () => {
     try {
       expect(await fixture.request({ prompt: "Use my capabilities." })).toMatchObject({ ok: true })
       await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
-      expect(fixture.run.mock.calls[0]![0].actor).toMatchObject({ id: "editor", kind: "authUser", meta: { authUserId: "editor" } })
+      expect(fixture.run.mock.calls[0]![0].invoker).toMatchObject({ id: "editor", kind: "authUser", meta: { authUserId: "editor" } })
       expect(check).toHaveBeenCalledOnce()
       expect(user).toHaveBeenCalledOnce()
     }

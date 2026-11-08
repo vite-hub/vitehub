@@ -32,7 +32,6 @@ function capabilityContext(): AgentCapabilityContext {
   const messages = () => []
   return {
     capabilities: {},
-    actor: { id: "test" },
     context: {} as never,
     fs: {} as never,
     invocation: {

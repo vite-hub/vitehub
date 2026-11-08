@@ -1,5 +1,5 @@
 import { ask } from "@vite-hub/gateways"
-import { defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
+import { defineAgent, type AgentDefinition, type AgentInvoker, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
 import { cleanupGmailChannel, gmail } from "@vite-hub/agent/channels"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
 import type { CleanupGmailChannelResult, GmailChannelOptions, GmailCleanupRule, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
@@ -221,7 +221,7 @@ function decision(message: GmailMessage, rules: Readonly<Record<string, Labeller
   }
 }
 
-type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, LabellerResult | LabellerDecision>
+type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, LabellerResult | LabellerDecision>
 export type LabellerAgent = ConfiguredAgentDefinition<LabellerOptions, LabellerDefinition>
 
 // defineAgent materializes the template once before consumers supply their options.

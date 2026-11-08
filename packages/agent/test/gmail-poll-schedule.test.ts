@@ -39,7 +39,7 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
       "import { inbox } from '../inbox'",
       "export default defineSchedule({ cron: '*/5 * * * *', handler: async () => await pollGmailChannel(inbox) })",
     ].join("\n"))
-    const plugin = hubAgent({ providers: { state: { provider: "libsql", url: `file:${join(root, "state.db")}` } } })
+    const plugin = hubAgent({ providers: { state: { driver: "libsql", url: `file:${join(root, "state.db")}` } } })
     if (typeof plugin.config !== "function") throw new Error("Expected config hook")
     const configured = await plugin.config.call({} as never, { root, nitro: {} } as never, { command: "build", mode: "production" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)) })
@@ -99,7 +99,7 @@ it("installs the Deno polling host before importing cron registrations", async (
       "Deno.cron('mail', '*/5 * * * *', () => pollGmailChannel(inbox))",
       "await globalThis.gmailPollCron()",
     ].join("\n"))
-    const plugin = hubAgent({ runtime: "deno", providers: { state: { provider: "libsql", url: `file:${join(root, "state.db")}` } } })
+    const plugin = hubAgent({ runtime: "deno", providers: { state: { driver: "libsql", url: `file:${join(root, "state.db")}` } } })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], resolve: { alias: [] } })
     const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"))
     await build({
@@ -129,7 +129,7 @@ it("bundles the Channel host from the retained Netlify Agent registry", async ()
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")
-    const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "libsql://state.example.com" } } })
+    const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "libsql://state.example.com" } } })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] } })
     await (plugin.buildEnd as () => Promise<void>)()
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
@@ -150,7 +150,7 @@ it("installs configured workspace dependency loaders in the retained polling hos
     await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")
     // SAFETY: Framework integrations supply these internal import options to hubAgent.
     const plugin = hubAgent({
-      providers: { state: { provider: "libsql", url: "libsql://state.example.com" } },
+      providers: { state: { driver: "libsql", url: "libsql://state.example.com" } },
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
         sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",

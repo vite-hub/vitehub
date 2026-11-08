@@ -64,9 +64,9 @@ Use a callback when invocation context decides the Agent Definition's Capability
 ```ts [server/agents/support.ts] fragment
 export default defineAgent({
   driver: { model },
-  capabilities: ({ actor }) => [
+  capabilities: ({ invoker }) => [
     workspaceShell({ mode: 'read' }),
-    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
+    ...(invoker.meta?.support === true ? [internalDiagnostics] : []),
   ],
 })
 ```

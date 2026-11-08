@@ -1,3 +1,4 @@
+import { createExecutionContext } from "@vite-hub/runtime"
 import { join } from "node:path"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 
@@ -13,11 +14,11 @@ import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInv
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
+import { resolveAgentTriggerInvocation, runAgentInline, streamAgent } from "../index.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
 import { handleChannelReplayRequest } from "../channel-replay.ts"
 import { channelDeliveryHandlers } from "../internal/channel-delivery-handlers.ts"
-import { markDiscoveredWorkspaceAgentDefinitionRegistered, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
+import { markDiscoveredWorkspaceAgentDefinitionRegistered, resolveAgentInspectionMetadata, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
@@ -47,7 +48,7 @@ import type {
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isTriggerInputSchema } from "../trigger-runtime.ts"
+import { isResolvedAgentTriggerHandledInvocation, isTriggerInputSchema, resolveAgentTriggers } from "../trigger-runtime.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const workspaceRegistryId = "#vitehub-workspace-registry"
@@ -318,7 +319,7 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
   const entries: AgentInvocationStreamEntry[] = []
   for (const { agent, aliases, definition, identity } of loaded) {
     const context = createViteAgentDiscoveryContext(identity)
-    const triggers = await resolveAgentTriggers(agent as never, context as never)
+    const triggers = await resolveAgentTriggers(agent as never, createExecutionContext(context) as never)
     entries.push({ agent, ...(aliases ? { aliases } : {}), identity, name: definition.name, triggers })
   }
   return entries

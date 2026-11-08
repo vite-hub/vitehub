@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { defineAgent, runAgent, workflow as agentWorkflow } from "vite-hub/agent"
+import { agentWorkflow, defineAgent, runAgent } from "vite-hub/agent"
 import { blob as blobCapability } from "vite-hub/agent/capabilities"
 import { env } from "vite-hub/env"
 import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"

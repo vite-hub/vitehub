@@ -60,7 +60,7 @@ import type { OperationAccess, OperationActor, OperationUser } from 'vite-hub/op
 interface OperationContext {
   access: OperationAccess // the checked Console access of the call
   user: OperationUser | null // the signed-in user
-  actor?: OperationActor // the Agent Actor, when an agent calls for `user`
+  actor?: OperationActor // the Agent Invoker, when an agent calls for `user`
   surface: 'console' | 'cli' | 'mcp' | 'agent'
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
@@ -125,7 +125,7 @@ export default defineAgent({
 
 Each operation becomes a tool named after it, with dots as underscores: `reports.list` is `reports_list`. The Channel conversations are private: an Agent reads them only with `operations({ conversations: 'participant' | 'all' })`, as [Who can read a conversation](/docs/agents/channels#who-can-read-a-conversation) describes. `approve` says which operations wait for approval: `'write'` (the default: write and destructive operations wait), `'destructive'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as read only never waits.
 
-The agent acts for the Auth user that its Actor stands for (`auth.user(actor)`, or the `user` option), so `context.user` and `context.actor` are set. The capability then runs `console.authorize` for that user, with a request that has no headers, and offers only the operations of the sections it allows. A read-only grant (`'<section>:read'`) offers only the operations that read, and the ones with a `readOnlyWhen` dry run; the run still refuses a write. If the app has no `console.authorize`, nothing filters by section, and the `include` list is the only gate: list only what the agent may do. `content.save`, `content.remove`, and `content.restore` reject `lease: 'override'` from an agent or an MCP client unless you create the capability with `operations({ overrideLeases: true })`. When a person holds the lease, the error names them and tells the model to wait, not how to override.
+The agent acts for the Auth user that its Invoker stands for (`auth.user(invoker)`, or the `user` option), so `context.user` and `context.actor` are set. The capability then runs `console.authorize` for that user, with a request that has no headers, and offers only the operations of the sections it allows. A read-only grant (`'<section>:read'`) offers only the operations that read, and the ones with a `readOnlyWhen` dry run; the run still refuses a write. If the app has no `console.authorize`, nothing filters by section, and the `include` list is the only gate: list only what the agent may do. `content.save`, `content.remove`, and `content.restore` reject `lease: 'override'` from an agent or an MCP client unless you create the capability with `operations({ overrideLeases: true })`. When a person holds the lease, the error names them and tells the model to wait, not how to override.
 
 The operation registry is installed when the server starts, so the tools do not depend on an earlier RPC call.
 

@@ -138,7 +138,7 @@ Host Commands that change chat, session, UI, or product state belong outside thi
 `inputCommands()` adds no model-facing tool, so the model cannot call a command. It has no `policy` option.
 Any user who can send input to the Agent can run every configured command. Use `channels` to limit a command to selected Channels. A command with `channels` does not run in invocations without a matching Channel ID, and its text stays in the input.
 
-Handlers run as server code with the host Runtime Capabilities in `context`, such as `db` and `context.console`. They do not pass through Capability approval. Check `context.actor` or `context.invoker` in the handler before you read private data or change state.
+Handlers run as server code with the host Runtime Capabilities in `context`, such as `db` and `context.console`. They do not pass through Capability approval. Check `context.invoker` in the handler before you read private data or change state.
 
 Text that a handler returns becomes model input. Treat `args` as untrusted user input.
 

@@ -99,7 +99,7 @@ export default defineEventHandler(async (event) => {
 
 This streaming route requires a host lifetime API that stays active until the stream is consumed or cancelled. Calling `flushWaitUntil()` before returning the stream does not cover work scheduled later. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup) for host lifetime ownership.
 
-`run` contains origin and trace metadata; it is not chat context. Authenticate before passing Actor identity, session selection, or trusted metadata into the Trigger input.
+`run` contains origin and trace metadata; it is not chat context. Authenticate before passing Invoker identity, session selection, or trusted metadata into the Trigger input.
 
 Direct Trigger consumers must authenticate first, reject threads the caller does not own, then load and supply the current thread's ordered messages, including the new message. `triggerHistory` limits that input; it does not backfill messages from `threadId` or a session id.
 

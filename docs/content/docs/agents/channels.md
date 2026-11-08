@@ -10,7 +10,7 @@ navigation.kind: Guides
 
 A Channel describes where an Agent Invocation came from and how replies return there. It carries transport, event, thread, message, and delivery facts. It does not prove who the caller is.
 
-Use [Agent Actors](/docs/agents/actors) for trusted identity and [Input Commands](/docs/agents/capabilities/input-commands) for explicit command handling.
+Use [Trusted Invokers](/docs/agents/trusted-invokers) for trusted identity and [Input Commands](/docs/agents/capabilities/input-commands) for explicit command handling.
 
 ## Supported channels
 
@@ -384,7 +384,7 @@ On the Console, the CLI, and [MCP](/docs/development/mcp) (where the app serves 
 operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
 ```
 
-`channels.*` does not match `conversations.export`, so list it as well. `participant` lets the Agent read the threads where its Actor takes part. That means the Actor id, its Auth user id (`actor.meta.authUserId`), or the user id of the call equals the id of a person in the thread: an author, the user key of a transcript, or the person who started an Invocation. An Actor without an identity that matches is refused with `CHANNELS_FORBIDDEN`. `all` lets it read every thread that the Channel knows. An Agent's `conversations.export` always waits for approval, unless `approve` is `'never'`, and never includes media.
+`channels.*` does not match `conversations.export`, so list it as well. `participant` lets the Agent read the threads where its Invoker takes part. That means the Invoker id, its Auth user id (`invoker.meta.authUserId`), or the user id of the call equals the id of a person in the thread: an author, the user key of a transcript, or the person who started an Invocation. An Invoker without an identity that matches is refused with `CHANNELS_FORBIDDEN`. `all` lets it read every thread that the Channel knows. An Agent's `conversations.export` always waits for approval, unless `approve` is `'never'`, and never includes media.
 
 ### Operations and commands
 
@@ -417,7 +417,7 @@ The failures have their own codes: `CHANNELS_EXPORT_TOO_LARGE` (413) when the ex
 
 ### State
 
-The Console reads conversations with the State and the adapters that the webhook routes use. The generated webhook route module installs the reader when the server starts, for a libSQL State (the default in `vite dev`, or `VITEHUB_AGENT_STATE_URL` and `agent.providers.state`) and for a Cloudflare Durable Object State (`agent.providers.state: 'cloudflare'`). On Cloudflare, the reader runs in a Worker that starts the webhook route module. A custom State that the generated code does not install makes the operations answer `CHANNELS_HOST_UNAVAILABLE` with the State options to use. A Channel with its own `history` collection has no per-thread conversation; use `channels history` and `channels replay` for it.
+The Console reads conversations with the State and the adapters that the webhook routes use. The generated webhook route module installs the reader when the server starts, for a libSQL State (the default in `vite dev`, or `VITEHUB_AGENT_STATE_URL` and `agent.providers.state`) and for a Cloudflare Durable Object State (`agent.providers.state.driver: 'cloudflare'`). On Cloudflare, the reader runs in a Worker that starts the webhook route module. A custom State that the generated code does not install makes the operations answer `CHANNELS_HOST_UNAVAILABLE` with the State options to use. A Channel with its own `history` collection has no per-thread conversation; use `channels history` and `channels replay` for it.
 
 ## Replay Channel history
 
@@ -975,7 +975,7 @@ export default defineAgent({
 })
 ```
 
-Channel-scoped Capabilities select abilities, not identity. Authenticate and resolve the Actor at the route, trigger, or `access()` boundary.
+Channel-scoped Capabilities select abilities, not identity. Authenticate and resolve the Invoker at the route, trigger, or `access()` boundary.
 
 ## Add instructions to one Channel
 
@@ -1014,7 +1014,7 @@ Provider-backed Drivers materialize inline data and application-owned `fetchData
 | Concern | Owner |
 | --- | --- |
 | Origin, event, thread, message, custody, and reply delivery | Channel |
-| Trusted caller identity | Agent Actor |
+| Trusted caller identity | Agent Invoker |
 | User-authored command parsing | Input Commands Capability |
 | Prior conversational messages | Chat History and sessions |
 | Product event to Agent input | Trigger |
@@ -1025,11 +1025,11 @@ A Channel and an Agent Invocation are separate records. One Agent Definition can
 
 | | Channel | Agent Invocation |
 | --- | --- | --- |
-| Describes | Message origin and delivery | Actor, Capabilities, execution, and result |
+| Describes | Message origin and delivery | Invoker, Capabilities, execution, and result |
 | Lifetime | Can contain many messages and Invocations | One request |
 | Can exist alone | Yes. A Channel can receive a message without starting an Agent. | Yes. A route or schedule can start an Invocation without a Channel. |
 
-Use verified Channel metadata to identify the Agent Actor, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, carries the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together.
+Use verified Channel metadata to identify the Agent Invoker, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, carries the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together.
 
 To send an application message without an Agent, use the [Channels Server Primitive](/docs/channels).
 

@@ -100,11 +100,11 @@ it("passes configured capabilities and the Console request to Agent startup", as
   expect(context.request.headers.get("cookie")).toBe("session=verified")
 })
 
-it("uses the verified Console user as the Agent Actor", async () => {
+it("uses the verified Console user as the Agent Invoker", async () => {
   installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "console-user", email: "user@example.com" }) })
   try {
     await invoke({ prompt: "test" })
-    expect(mocks.start.mock.calls[0]?.[2]).toMatchObject({ context: { actor: { id: "console-user", kind: "authUser", meta: { authUserId: "console-user" } } } })
+    expect(mocks.start.mock.calls[0]?.[2]).toMatchObject({ context: { invoker: { id: "console-user", kind: "authUser", meta: { authUserId: "console-user" } } } })
   }
   finally {
     installConsoleAccess({ mode: "open" })

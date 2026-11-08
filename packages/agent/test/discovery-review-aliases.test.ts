@@ -192,26 +192,6 @@ it.each([
   await expect(workspaceFor(source.replace("capabilities:", "workspace: {}, capabilities:"))).resolves.toBe("support")
 })
 
-it.each([
-  'condition ? "workspace" : "plain"',
-  'selection',
-  '`work${suffix}`',
-  '"work" + suffix',
-  '("plain") && "workspace"',
-  '("plain") ? "workspace" : "plain"',
-])("requires explicit ownership for dynamic preset selection: %s", async preset => {
-  const source = `const selection = condition ? "workspace" : "plain"; const storage = defineAgent({ workspace: {} }); const plain = defineAgent({}); export default defineAgent({ presets: { workspace: storage, plain }, preset: ${preset} })`
-  await expect(workspaceFor(source)).rejects.toThrow("dynamic preset selection")
-  await expect(workspaceFor(source.replace("presets:", "workspace: {}, presets:"))).resolves.toBe("support")
-})
-
-
-it("preserves a static preset alias without semicolons", async () => {
-  await expect(workspaceFor(`const selection = "workspace"
-const storage = defineAgent({ workspace: {} })
-export default defineAgent({ presets: { workspace: storage }, preset: selection })`)).resolves.toBe("support")
-})
-
 it.each(["as", "satisfies"])("discovers both branches after a Capability %s assertion", async assertion => {
   await expect(workspaceFor(`const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); const list = [plain]; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ([plain] ${assertion} Capability[] === list ? [plain] : [storage]) }) })`)).resolves.toBe("support")
 })
@@ -222,15 +202,8 @@ it.each(["importedOptions", "{ ...importedOptions }"])("rejects opaque Capabilit
   await expect(workspaceFor(source.replace("capabilities: [storage]", "workspace: {}, capabilities: [storage]"))).resolves.toBe("support")
 })
 
-it.each(["importedPresets", "{ ...importedPresets }"])("rejects opaque preset registries: %s", async presets => {
-  const source = `import { importedPresets } from "./presets"; export default defineAgent({ preset: "storage", presets: ${presets} })`
-  await expect(workspaceFor(source)).rejects.toThrow("cannot inspect opaque Agent settings")
-  await expect(workspaceFor(source.replace('preset: "storage"', 'workspace: {}, preset: "storage"'))).resolves.toBe("support")
-})
-
-it("inspects locally defined Capability options and preset registries", async () => {
+it("inspects locally defined Capability options", async () => {
   await expect(workspaceFor('const options = { workspace: {} }; const storage = defineCapability({ ...options }); export default defineAgent({ capabilities: [storage] })')).resolves.toBe("support")
-  await expect(workspaceFor('const registry = { storage: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "storage", presets: { ...registry } })')).resolves.toBe("support")
 })
 
 

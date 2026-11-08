@@ -175,11 +175,11 @@ it.each(['review', '__proto__'])('bundles the published runtime lookup for %s wi
   expect(await readFile(registry, 'utf8')).toContain('\nresetPublicUrlAgentNames()\n')
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
-  await writeFile(entry, `import { getAgentFromRegistry } from '@vite-hub/agent'
+  await writeFile(entry, `import { loadAgent } from '@vite-hub/agent'
 import registry, { metadata } from '#vitehub/agent/registry'
 import { agents } from ${JSON.stringify(join(root, '.vitehub/agent/registry-agents.mjs'))}
 export async function inspect() {
-  const agent = await getAgentFromRegistry(${JSON.stringify(name)})
+  const agent = await loadAgent(${JSON.stringify(name)})
   return {
     instructions: agent.__vitehubAgentSettings.driver.instructions,
     registryNames: Object.keys(registry),
@@ -225,11 +225,11 @@ it('loads discovered instructions through the Vite server registry', async () =>
   await mkdir(join(root, 'workspace-store'), { recursive: true })
   await writeFile(join(root, 'workspace-store/context.txt'), 'Owned workspace context.')
   const entry = join(root, 'entry.ts')
-  await writeFile(entry, `import { defineAgent, getAgentFromRegistry, runAgent } from '@vite-hub/agent'
+  await writeFile(entry, `import { defineAgent, loadAgent, runAgent } from '@vite-hub/agent'
 import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition } from '@vite-hub/workspace/runtime'
 export async function inspect() {
   setWorkspaceRuntimeRegistry({ standalone: async () => ({ default: { sources: { context: { content: 'Standalone context.' } } } }) })
-  const agent = await getAgentFromRegistry('review')
+  const agent = await loadAgent('review')
   const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { provider: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
   const result = await runAgent(runnable, { runtime: 'unknown', memo: (_key, create) => create(), waitUntil: () => {} }, {})
   const standalone = await resolveRegisteredWorkspaceDefinition('standalone')

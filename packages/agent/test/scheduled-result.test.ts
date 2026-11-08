@@ -1,7 +1,8 @@
 import type { AgentInput, AgentRunInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../src/types.ts"
 import type { RunAgentOptions } from "../src/index.ts"
 import { expect, it, vi } from "vitest"
-import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent, runAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { toAgentRunResult } from "../src/output.ts"
 
 

@@ -81,7 +81,7 @@ export default defineAgent({
 })
 ```
 
-## Scope access by Actor
+## Scope access by Invoker
 
 Use `access()` when trusted caller identity narrows the files visible to one invocation. Place it before `workspaceShell()` so the shell receives the scoped Workspace.
 
@@ -106,7 +106,7 @@ export default defineAgent({
 })
 ```
 
-Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before deriving Actor-specific access. Workspace policy enforces authorization, so base it only on trusted identity and application-owned facts. Actor-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; provider Drivers receive a writable session limited to the selected paths. Without Actor-scoped Access, write authority depends on the Workspace mode, its rules, and the tools exposed to the Driver.
+Authenticate the request and pass an [Agent Invoker](/docs/agents/trusted-invokers) before deriving Invoker-specific access. Workspace policy enforces authorization, so base it only on trusted identity and application-owned facts. Invoker-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; provider Drivers receive a writable session limited to the selected paths. Without Invoker-scoped Access, write authority depends on the Workspace mode, its rules, and the tools exposed to the Driver.
 
 ## Use Workspace context with a provider
 
@@ -136,7 +136,7 @@ After the provider finishes, the host can call `checkout.push(cwd)`. This refres
 | Files or generated state | Workspace files and Sources |
 | Model-facing rules | Colocated or Driver Instructions |
 | Read or write tools | Capabilities such as `workspaceShell` |
-| Caller-specific file scope | Access plus a trusted Agent Actor |
+| Caller-specific file scope | Access plus a trusted Agent Invoker |
 | Provider working directory | A write-mode Workspace |
 
 Inspect the resolved Workspace, Sources, and access policy through the [CLI](/docs/development/cli) before relying on them in production.

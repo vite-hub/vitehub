@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAgent, resolveAgentTriggerInvocation } from "@vite-hub/agent"
-import { getAgentProcessHostContribution, registerAgentProcessHostIntake } from "@vite-hub/agent/process-host"
+import { getAgentProcessHostContribution, registerAgentProcessHostIntake } from "@vite-hub/agent/process"
 import { babysitter } from "../src/babysitter.ts"
 import { usesProcessHostPreset } from "../../agent/src/discovery.ts"
 

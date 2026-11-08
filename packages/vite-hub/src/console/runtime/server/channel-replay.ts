@@ -4,7 +4,7 @@ import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-
 
 import { console } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
-import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
 import { consoleRequestJSON, consoleRequestURL, setConsoleResponseHeaders } from "./request.ts"
 
@@ -64,11 +64,11 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   const { agent: _, ...replay } = replayBody
   const agent = getConsoleAgentDefinition(name)
   if (!agent) return replayError("Channel replay is not available. Enable Console invocation for this Agent.", 404)
-  const actor = consoleAccessActor(access.user)
+  const invoker = consoleAccessInvoker(access.user)
   const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
-    ...(actor ? { actor } : {}),
+    ...(invoker ? { invoker } : {}),
     capabilities: { ...await getConsoleAgentCapabilities(), console },
     memo: memo(),
     request: consoleRequest(event),
@@ -76,7 +76,7 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  return await handleChannelReplayRequest(agent, replay, { actor, maxLimit: maximumReplayItemsPerRequest, runtime: context })
+  return await handleChannelReplayRequest(agent, replay, { invoker, maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
 
 const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleCors(withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true }))

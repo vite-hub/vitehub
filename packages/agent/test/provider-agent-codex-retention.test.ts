@@ -68,7 +68,6 @@ function runtime(threadId: string, resumeCursor: unknown) {
 function context(threadId: string) {
   const values = new Map<string, unknown>()
   return {
-    actor: { id: "actor" },
     context: {
       entries: () => values.entries(),
       get: (key: string) => values.get(key),

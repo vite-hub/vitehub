@@ -2884,8 +2884,6 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     }
     const inherited = options.get("extends")
     if (inherited !== undefined && ownsWorkspace(inherited, seen, true)) return true
-    const preset = options.get("preset")
-    const registry = options.get("presets")
     const configure = options.get("configure")
     if (configure !== undefined) {
       // A configure callback may return an existing Agent binding directly;
@@ -3132,21 +3130,12 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
       }
       if (returnedDefinitions.some((index) => ownsWorkspace(index, new Set(seen)))) return true
     }
-    if (preset === undefined || registry === undefined) return false
-    const selectionIndex = resolveReference(preset)
-    const selection = tokens[selectionIndex]
-    if (!/^["'`]/.test(selection) || (selection.startsWith("`") && selection.includes("${"))
-      || hasLogicalOperator(preset) || hasLogicalOperator(selectionIndex) || conditionalBranches(preset)
-      || ["+", "?", ".", "[", "("].includes(tokens[selectionIndex + 1])) {
-      throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic preset selection. Use a statically known preset name or add an explicit Workspace ownership marker.")
-    }
-    const entry = properties(registry, false, true).get(propertyName(selection))
-    return entry !== undefined && ownsWorkspace(entry, seen, true)
+    return false
   }
 
   return {
     agentOwnsWorkspace(): boolean {
-      // The default export owns the folder; helper definitions and unselected presets do not.
+      // The default export owns the folder; helper definitions do not.
       if (exported !== undefined) return ownsWorkspace(exported)
       return tokens.some((token, index) => token === "defineAgent" && ownsWorkspace(index))
     },

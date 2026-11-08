@@ -193,7 +193,7 @@ To omit the entire Capability, resolve the Agent Definition's `capabilities` lis
 ```ts [server/capabilities/inventory-runtime.ts] fragment
 export const inventoryRuntime = defineCapability({
   id: 'inventory-runtime',
-  cli: ({ actor }) => actor.kind === 'support'
+  cli: ({ invoker }) => invoker.kind === 'support'
     ? {
         name: 'inventory',
         commands: {

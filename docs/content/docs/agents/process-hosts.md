@@ -23,7 +23,7 @@ Export the host from a server module. The `run` callback discovers work and trac
 it only while the host is accepting new work:
 
 ```ts [server/host.ts] fragment
-import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentHost } from 'vite-hub/agent/process'
 
 export default await createProcessAgentHost({
   name: 'reviewer',
@@ -78,7 +78,7 @@ when all slots are occupied. `createProcessAgentCapacity()` can lower new
 admissions when the host is under pressure:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const sharedCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -289,7 +289,7 @@ Use a disposable directory and a custom `sample` function to exercise admission
 without depending on the machine's current pressure:
 
 ```ts
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 const capacity = createProcessAgentCapacity({
   concurrency: 2,

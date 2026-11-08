@@ -95,6 +95,11 @@
       "import": "./dist/eve.js",
       "default": "./dist/eve.js"
     },
+    "./internal/default-invocations": {
+      "types": "./dist/internal/default-invocations.d.ts",
+      "import": "./dist/internal/default-invocations.js",
+      "default": "./dist/internal/default-invocations.js"
+    },
     "./internal/workspace/internal/runtime/hosted": {
       "types": "./dist/internal/workspace/internal/runtime/hosted.d.ts",
       "import": "./dist/internal/workspace/internal/runtime/hosted.js",
@@ -110,20 +115,10 @@
       "import": "./dist/internal/workspace/runtime.js",
       "default": "./dist/internal/workspace/runtime.js"
     },
-    "./invocations/d1": {
-      "types": "./dist/invocations/d1.d.ts",
-      "import": "./dist/invocations/d1.js",
-      "default": "./dist/invocations/d1.js"
-    },
-    "./invocations/default": {
-      "types": "./dist/invocations/default.d.ts",
-      "import": "./dist/invocations/default.js",
-      "default": "./dist/invocations/default.js"
-    },
-    "./invocations/sqlite": {
-      "types": "./dist/invocations/sqlite.d.ts",
-      "import": "./dist/invocations/sqlite.js",
-      "default": "./dist/invocations/sqlite.js"
+    "./invocations": {
+      "types": "./dist/invocations/index.d.ts",
+      "import": "./dist/invocations/index.js",
+      "default": "./dist/invocations/index.js"
     },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
@@ -165,20 +160,15 @@
       "import": "./dist/output.js",
       "default": "./dist/output.js"
     },
-    "./process-host": {
-      "types": "./dist/process-host.d.ts",
-      "import": "./dist/process-host.js",
-      "default": "./dist/process-host.js"
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "import": "./dist/process.js",
+      "default": "./dist/process.js"
     },
     "./runtime/invocations-dev": {
       "types": "./dist/runtime/invocations-dev.d.ts",
       "import": "./dist/runtime/invocations-dev.js",
       "default": "./dist/runtime/invocations-dev.js"
-    },
-    "./runtime/process": {
-      "types": "./dist/runtime/process.d.ts",
-      "import": "./dist/runtime/process.js",
-      "default": "./dist/runtime/process.js"
     },
     "./runtime/registry": {
       "types": "./dist/runtime/registry.d.ts",
@@ -215,10 +205,10 @@
       "import": "./dist/server/workspace.js",
       "default": "./dist/server/workspace.js"
     },
-    "./state/sqlite": {
-      "types": "./dist/state/sqlite.d.ts",
-      "import": "./dist/state/sqlite.js",
-      "default": "./dist/state/sqlite.js"
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "import": "./dist/state.js",
+      "default": "./dist/state.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",

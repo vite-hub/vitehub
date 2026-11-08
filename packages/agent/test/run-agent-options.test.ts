@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest"
-import { defineAgent, defineCapability, runAgent, workflow } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, agentWorkflow } from "../src/index.ts"
 import { setAgentHostCapabilities } from "../src/server/internal.ts"
 import { installAgentRegistry } from "#vitehub/agent/registry"
 
@@ -110,7 +110,7 @@ it("keeps standalone runs without host capabilities when no host registered them
 
 it("rejects callable tools before starting an explicit Workflow", async () => {
   const run = vi.fn(() => "unreachable")
-  const agent = defineAgent({ driver: { run }, runtime: workflow("durable-roast") })
+  const agent = defineAgent({ driver: { run }, runtime: agentWorkflow("durable-roast") })
   await expect(runAgent(agent, { prompt: "Write the roast" }, {
     output: "drained",
     schedule,
@@ -179,7 +179,7 @@ it("runs a discovered Agent inline when it receives invocation capabilities", as
 
 it("rejects invocation capabilities before starting an explicit Workflow", async () => {
   const run = vi.fn(() => "unreachable")
-  const agent = defineAgent({ driver: { run }, runtime: workflow("durable-brief") })
+  const agent = defineAgent({ driver: { run }, runtime: agentWorkflow("durable-brief") })
   const delivery = defineCapability({ id: "job-delivery", tools: { send_message: { name: "send_message", execute: vi.fn() } } })
   await expect(runAgent(agent, { prompt: "Send" }, { output: "drained", schedule, capabilities: [delivery] }))
     .resolves.toEqual([expect.objectContaining({ message: expect.stringContaining("Invocation capabilities cannot be used") }), null])

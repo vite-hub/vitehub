@@ -1,11 +1,11 @@
-import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "@vite-hub/agent/internal/default-invocations"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 import { isDefaultAgentJournal } from "../../agent-invocations-setting.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
-import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
+import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/internal/default-invocations"
 import type { AgentInvocationObservationOptions, AgentInvocationsOptions, AgentInvocationStore, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { DatabaseAgentInvocationStoreOptions } from "../../agent/invocations/database.ts"
 

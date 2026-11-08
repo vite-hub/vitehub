@@ -39,7 +39,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
   return { ...actual, resolveSandbox };
 });
 
-import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, getAgentFromRegistry } from "@vite-hub/agent";
+import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
 import type { BabysitterPlacement } from "../src/babysitter.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
@@ -317,8 +317,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   const events = vi.fn();
   const agent = agentWithColocatedInstructions(defineAgent({
     ...(discovered ? {} : { name: "babysitter" }),
-    preset: "babysitter",
-    presets: { babysitter },
+    extends: babysitter,
     // SAFETY: exercise preservation of a valid custom capability across the preset boundary.
     capabilities: [defineCapability({
       id: "internal-check",
@@ -336,7 +335,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
   }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
-    agent: discovered ? await getAgentFromRegistry("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
+    agent: discovered ? await loadAgent("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
     ...(discovered ? { agentName: preset.agentName ?? "babysitter" } : {}),
     github,
     inboxPath: preset.inboxPath ?? join(root, "inbox.sqlite"),

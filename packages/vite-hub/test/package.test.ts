@@ -12,7 +12,7 @@ import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentEve from "@vite-hub/agent/eve";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
-import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
+import * as ownerAgentProcessRuntime from "@vite-hub/agent/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
 import * as ownerAuthConsole from "@vite-hub/auth/runtime/console";
@@ -32,7 +32,7 @@ import * as frameworkAgent from "vite-hub/agent";
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve";
 import * as frameworkCapabilities from "vite-hub/agent/capabilities";
 import * as frameworkAgentMcp from "vite-hub/agent/mcp";
-import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
+import * as frameworkAgentProcessRuntime from "vite-hub/agent/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
@@ -155,7 +155,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/runtime/registry",
   "@vite-hub/agent/runtime/invocations-dev",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
-  "@vite-hub/agent/invocations/default",
+  "@vite-hub/agent/internal/default-invocations",
   "@vite-hub/agent/operations",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",

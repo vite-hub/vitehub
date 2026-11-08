@@ -113,7 +113,6 @@ it.each([
   'extends: importedParent',
   'extends: alias',
   'extends: namespace.parent',
-  'preset: "selected", presets: { selected: importedParent }',
 ])("rejects opaque imported Agent parents: %s", async (settings) => {
   const source = `import importedParent from "./parent"; import * as namespace from "./parent"; const alias = importedParent; export default defineAgent({ options: {}, configure: () => defineAgent({ ${settings} }) })`
   await expect(discover(source)).rejects.toThrow("Agent Workspace discovery cannot inspect an imported Agent parent")
@@ -130,11 +129,9 @@ it.each(["@vite-hub/agent/channels", "vite-hub/agent/channels", "./channels"])("
   }
 })
 
-it("preserves local parent shadowing and ignores unselected imported parents", async () => {
+it("preserves local parent shadowing", async () => {
   const definitions = await discover('import parent from "./parent"; export default defineAgent({ options: {}, configure: () => { const parent = defineAgent({ workspace: {} }); return defineAgent({ extends: parent }) } })')
   expect(definitions[0]?.workspace).toBe("notes")
-  const plain = await discover('import parent from "./parent"; const local = defineAgent({}); export default defineAgent({ preset: "local", presets: { local, unused: parent } })')
-  expect(plain[0]?.workspace).toBeUndefined()
 })
 
 it.each([

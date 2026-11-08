@@ -4,7 +4,7 @@ import { installAgentRegistry } from "#vitehub/agent/registry"
 
 import { defineCollection } from "../../source/src/index.ts"
 import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
-import { defineAgent, runAgentInline, workflow } from "../src/index.ts"
+import { defineAgent, runAgentInline, agentWorkflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { bindAgentInvocations, createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, workflowDispatchAttemptedAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -28,7 +28,7 @@ it.each(["openworkflow", "vercel"] as const)("loads the cold host before reconci
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
   const run = vi.fn(() => "unused")
-  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run }, invocations, name, runtime: workflow(name) })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run }, invocations, name, runtime: agentWorkflow(name) })
   const runId = channelMessageRunId("mailbox", "m1")
   const providerId = provider === "vercel" ? "wrun_existing" : runId
   const reservation = await bindAgentInvocations(invocations, { ...runtime, run: { runId, annotations: pendingAgentInvocationAnnotations({}) } }, { agentName: name })
@@ -97,7 +97,7 @@ it("reserves concurrent Workflow replays before activity and hands the journal t
       createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
     }),
   })
-  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "replay-workflow", runtime: workflow("replay-workflow") })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "replay-workflow", runtime: agentWorkflow("replay-workflow") })
   const results = await Promise.all([replayChannel(agent, "mailbox", { runtime }), replayChannel(agent, "mailbox", { runtime })])
   expect(update.mock.calls.filter(([context]) => context.activity.status === "queued")).toHaveLength(1)
   expect(entered).toBe(1)
@@ -138,7 +138,7 @@ it("records durable replay cancellation observed before provider dispatch", asyn
       },
     }) as never,
   })
-  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "cancelled-replay", runtime: workflow("cancelled-replay") })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "cancelled-replay", runtime: agentWorkflow("cancelled-replay") })
   expect(await replayChannel(agent, "mailbox", { runtime })).toMatchObject({ failed: 1, processed: 0 })
   expect(providerRun).not.toHaveBeenCalled()
   await expect(invocations.getByRunId(runId, "cancelled-replay")).resolves.toMatchObject({ status: "cancelled" })
@@ -162,7 +162,7 @@ it.each([true, false])("recovers an expired Workflow reservation only when no di
       createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
     }),
   })
-  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "recover-workflow", runtime: workflow("recover-workflow") })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "recover-workflow", runtime: agentWorkflow("recover-workflow") })
   vi.useFakeTimers()
   try {
     const reservation = await bindAgentInvocations(invocations, { ...runtime, run: { runId: channelMessageRunId("mailbox", "m1"), annotations: explicit ? pendingAgentInvocationAnnotations({}) : { [pendingAgentInvocationAnnotation]: true } } }, { agentName: "recover-workflow", recoverPending: true })
@@ -282,7 +282,7 @@ it.each(["queued", "unknown", "unavailable-marker"] as const)("reconciles an acc
       createWorkflow: () => ({ getRun, run: providerRun }) as never,
     }),
   })
-  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "confirm-workflow", runtime: workflow("confirm-workflow") })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "confirm-workflow", runtime: agentWorkflow("confirm-workflow") })
   vi.useFakeTimers()
   try {
     const dispatch = await replayChannel(agent, "mailbox", { runtime })
@@ -345,7 +345,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
       createWorkflow: () => ({ getRun: async (id: string) => ({ id, provider: "openworkflow", status: "unknown" }), run: providerRun }) as never,
     }),
   })
-  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "attempt-write-workflow", runtime: workflow("attempt-write-workflow") })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "attempt-write-workflow", runtime: agentWorkflow("attempt-write-workflow") })
   const dispatch = replayChannel(agent, "mailbox", { runtime })
   await started
   if (failure !== "rejected") await vi.advanceTimersByTimeAsync(1_000)
@@ -382,7 +382,7 @@ it.each(["provider", "preparation"] as const)("retains terminal journaling for a
       createWorkflow: () => ({ getRun, run: providerRun }) as never,
     }),
   })
-  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "definite-failure-workflow", runtime: workflow("definite-failure-workflow") })
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run: () => "unused" }, invocations, name: "definite-failure-workflow", runtime: agentWorkflow("definite-failure-workflow") })
   expect(await replayChannel(agent, "mailbox", { runtime })).toMatchObject({ failed: 1, processed: 0 })
   const record = await invocations.getByRunId(channelMessageRunId("mailbox", "m1"), "definite-failure-workflow")
   expect(record?.status).toBe("failed")

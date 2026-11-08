@@ -298,7 +298,7 @@ Only `codexDriver()` and `claudeCodeDriver()` import the provider runtime, so th
 Self-hosted Node applications can admit new work according to current machine pressure instead of relying on a fixed schedule. Keep one shared capacity object in an application module and reuse it across the Agent Definitions that compete for the same host resources:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const agentCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -324,7 +324,7 @@ export default defineAgent({
 })
 ```
 
-The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Actor as both `actor` and `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
+The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Invoker as `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
 ViteHub cannot stop a custom run callback. When a user cancels the Invocation, `input.abortSignal` aborts, and the cancel result reports `notEnforcedBy: 'run'`. Pass the signal to your own I/O, or throw `input.abortSignal.reason`, to stop early. Model-backed and provider-backed Drivers stop on cancel. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation).
 

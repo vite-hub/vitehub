@@ -360,7 +360,6 @@ function titleAdapterRunContext(
     throw agentDiagnostics.AGENT_R0232({ message: "[vitehub] title({ driver }) requires an agent runtime context." })
   }
   return withProviderCallbackMetadata(markAuxiliaryMessageChannelInstructionContext({
-    actor: context.actor,
     context: context.context,
     toolStepReporter: context.runtimeContext.toolStepReporter,
     input: titleDriverInput(input, prompt),
@@ -382,7 +381,6 @@ function titleRunContext(
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtimeContext
   return {
     ...runtime,
-    actor: context.actor,
     context: context.context,
     input: titleDriverInput(input, prompt),
     invoker: context.invoker,

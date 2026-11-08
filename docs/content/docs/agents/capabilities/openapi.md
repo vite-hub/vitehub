@@ -195,7 +195,7 @@ openapi({
 })
 ```
 
-Treat Channel metadata as an availability hint, not authorization. Check trusted request, Agent Actor, or `access()` evidence before privileged API calls.
+Treat Channel metadata as an availability hint, not authorization. Check trusted request, Agent Invoker, or `access()` evidence before privileged API calls.
 
 Run the generated CLI through the Agent Dev Loop.
 Agents expose generated Capability CLI Contributions by default. Use `defineAgent({ cli: { capabilities: false } })` to attach the OpenAPI Capability without exposing its CLI.

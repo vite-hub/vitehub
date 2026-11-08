@@ -82,25 +82,24 @@ const changelogAgent = agentWithSkills(
 
 Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
 
-## Named presets
+## Presets from a package
 
 Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and follow its setup guide.
 
-Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
 
 ```ts fragment
 import { defineAgent } from "vite-hub/agent"
 import { notetaker } from "@example/agents"
 
 export default defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   name: "meeting-notes",
   driver: { model: "gpt-5.6-sol" },
 })
 ```
 
-`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+A preset is an ordinary parent: `extends` applies child overrides and creates a fresh runtime. Importing a preset does not register a global name or load other packages, and the preset name never becomes model instructions.
 
 Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
 
@@ -123,8 +122,7 @@ Consumers select the definition and override only the options they need:
 
 ```ts fragment
 const notes = defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   options: { format: "detailed", labels: [] },
   driver: { model: "gpt-5.4" },
 })
@@ -181,7 +179,7 @@ Discovery cannot resolve these forms:
 | --- | --- |
 | Opaque callback results | Imported callbacks, `builders["workspace"]()`, `build!()`, `(build as Factory)()`, or returned Agent members such as `agents.storage`. |
 | Dynamic settings | Unresolved computed keys, quoted keys with unsupported escapes, compound `void` expressions, `options.workspaceName`, or spreads such as `...importedSettings`. |
-| Indirect preset selection | Imported Agent parents or preset registries, registry spreads, and dynamic preset names. |
+| Indirect parents | Imported Agent parents that discovery cannot follow. |
 | Indirect Capability configuration | Imported options or values, destructured bindings, `options.caps`, `values.storage`, or `values.storage()`. |
 | Constructed Capability lists | `false \|\| [storage]`, `Array.of(storage)`, or `[plain].concat(storage)`. |
 | Opaque Channels | Imported Channel maps, package imports, local Channel factories, or `makeChannel()`. |
@@ -199,7 +197,7 @@ Discovery rejects Channel option bindings that are mutated or passed to opaque c
 
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook, so an extension cannot remove the preset's behavior by adding its own `agent:finish`. Option callbacks are values and are also replaced, never invoked by merging.
 
-Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+Publish the exported definition on npm and pass it as `extends`. There is no second preset factory or global package loader.
 
 ## Next steps
 

@@ -3,9 +3,9 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteRaw } from "drizzle-orm/sqlite-core/query-builders/raw"
 import { useDatabase } from "@vite-hub/database/drizzle"
 import { trackD1Database } from "@vite-hub/database/runtime/request-stats"
-import { createD1AgentInvocationStore } from "@vite-hub/agent/invocations/d1"
+import { createD1AgentInvocationStore } from "@vite-hub/agent/invocations"
 
-import type { AgentInvocationD1Database, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "@vite-hub/agent/invocations/d1"
+import type { AgentInvocationD1Database, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "@vite-hub/agent/invocations"
 import type { AgentInvocationStore } from "@vite-hub/agent"
 
 export interface DatabaseAgentInvocationStoreOptions extends Omit<D1AgentInvocationStoreOptions, "database"> {

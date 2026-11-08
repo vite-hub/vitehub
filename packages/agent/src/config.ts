@@ -27,14 +27,14 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
     },
     providers: {
       sandbox: {
-        provider: options?.providers?.sandbox?.provider || "auto",
+        driver: options?.providers?.sandbox?.driver || "auto",
       },
       scheduler: {
-        provider: options?.providers?.scheduler?.provider || "auto",
+        driver: options?.providers?.scheduler?.driver || "auto",
       },
       state: {
         ...options?.providers?.state,
-        provider: options?.providers?.state?.provider || "auto",
+        driver: options?.providers?.state?.driver || "auto",
       },
     },
     routes: {

@@ -93,10 +93,10 @@
       "import": "./dist/_internal/agent/runtime/invocations-dev.js",
       "default": "./dist/_internal/agent/runtime/invocations-dev.js"
     },
-    "./_internal/agent/runtime/process": {
-      "types": "./dist/_internal/agent/runtime/process.d.ts",
-      "import": "./dist/_internal/agent/runtime/process.js",
-      "default": "./dist/_internal/agent/runtime/process.js"
+    "./_internal/agent/process": {
+      "types": "./dist/_internal/agent/process.d.ts",
+      "import": "./dist/_internal/agent/process.js",
+      "default": "./dist/_internal/agent/process.js"
     },
     "./_internal/agent/runtime/workflow": {
       "types": "./dist/_internal/agent/runtime/workflow.d.ts",
@@ -123,10 +123,10 @@
       "import": "./dist/_internal/agent/server/workspace.js",
       "default": "./dist/_internal/agent/server/workspace.js"
     },
-    "./_internal/agent/state/sqlite": {
-      "types": "./dist/_internal/agent/state/sqlite.d.ts",
-      "import": "./dist/_internal/agent/state/sqlite.js",
-      "default": "./dist/_internal/agent/state/sqlite.js"
+    "./_internal/agent/state": {
+      "types": "./dist/_internal/agent/state.d.ts",
+      "import": "./dist/_internal/agent/state.js",
+      "default": "./dist/_internal/agent/state.js"
     },
     "./_internal/auth/runtime/console": {
       "types": "./dist/_internal/auth/runtime/console.d.ts",
@@ -363,20 +363,15 @@
       "import": "./dist/agent/eval.js",
       "default": "./dist/agent/eval.js"
     },
-    "./agent/invocations/d1": {
-      "types": "./dist/agent/invocations/d1.d.ts",
-      "import": "./dist/agent/invocations/d1.js",
-      "default": "./dist/agent/invocations/d1.js"
+    "./agent/invocations": {
+      "types": "./dist/agent/invocations.d.ts",
+      "import": "./dist/agent/invocations.js",
+      "default": "./dist/agent/invocations.js"
     },
     "./agent/invocations/database": {
       "types": "./dist/agent/invocations/database.d.ts",
       "import": "./dist/agent/invocations/database.js",
       "default": "./dist/agent/invocations/database.js"
-    },
-    "./agent/invocations/sqlite": {
-      "types": "./dist/agent/invocations/sqlite.d.ts",
-      "import": "./dist/agent/invocations/sqlite.js",
-      "default": "./dist/agent/invocations/sqlite.js"
     },
     "./agent/mcp": {
       "types": "./dist/agent/mcp.d.ts",
@@ -388,10 +383,10 @@
       "import": "./dist/agent/observability.js",
       "default": "./dist/agent/observability.js"
     },
-    "./agent/runtime/process": {
-      "types": "./dist/agent/runtime/process.d.ts",
-      "import": "./dist/agent/runtime/process.js",
-      "default": "./dist/agent/runtime/process.js"
+    "./agent/process": {
+      "types": "./dist/agent/process.d.ts",
+      "import": "./dist/agent/process.js",
+      "default": "./dist/agent/process.js"
     },
     "./agent/server": {
       "types": "./dist/agent/server.d.ts",
@@ -403,10 +398,10 @@
       "import": "./dist/agent/server/github.js",
       "default": "./dist/agent/server/github.js"
     },
-    "./agent/state/sqlite": {
-      "types": "./dist/agent/state/sqlite.d.ts",
-      "import": "./dist/agent/state/sqlite.js",
-      "default": "./dist/agent/state/sqlite.js"
+    "./agent/state": {
+      "types": "./dist/agent/state.d.ts",
+      "import": "./dist/agent/state.js",
+      "default": "./dist/agent/state.js"
     },
     "./agent/vite": {
       "types": "./dist/agent/vite.d.ts",
@@ -1224,11 +1219,6 @@
     },
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json",
-    "./agent/process-host": {
-      "types": "./dist/agent/process-host.d.ts",
-      "import": "./dist/agent/process-host.js",
-      "default": "./dist/agent/process-host.js"
-    },
     "./console/ui": {
       "types": "./dist/console/ui.d.ts",
       "import": "./dist/console/ui.js",

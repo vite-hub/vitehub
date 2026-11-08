@@ -109,13 +109,13 @@ describe("agent test runner", () => {
   })
 
   it("keeps Agent Run Event store resolvers out of workflow payloads", async () => {
-    const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+    const { defineAgent, runAgent, agentWorkflow } = await import("../src/index.ts")
     const { defineAgentRunEvents } = await import("../src/server.ts")
     const resolveStore = vi.fn()
     const agent = defineAgent({
       driver: { run: () => "done" },
       runEvents: defineAgentRunEvents({ store: resolveStore }),
-      runtime: workflow("run-events-payload"),
+      runtime: agentWorkflow("run-events-payload"),
     })
 
     await runAgent(agent, {
@@ -323,11 +323,11 @@ describe("agent test runner", () => {
   })
 
   it("runs workflow-backed Agent Definitions inline only in tests", async () => {
-    const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+    const { defineAgent, runAgent, agentWorkflow } = await import("../src/index.ts")
     const { createAgentRuntimeContext, createAgentTestRunner } = await import("../src/test.ts")
     const agent = defineAgent({
       driver: { run: () => "inline" },
-      runtime: workflow("support"),
+      runtime: agentWorkflow("support"),
     })
 
     await expect(createAgentTestRunner(agent, {

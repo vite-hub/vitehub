@@ -7,7 +7,7 @@ icon: i-lucide-play-circle
 navigation.kind: Guides
 ---
 
-An Agent Invocation is one request to an Agent. ViteHub prepares its input, Actor, Capabilities, Workspace, and Driver, then returns or streams the result.
+An Agent Invocation is one request to an Agent. ViteHub prepares its input, Invoker, Capabilities, Workspace, and Driver, then returns or streams the result.
 
 Start with [Agent Definitions](/docs/agents/agent-definitions). For a complete browser-to-model example, follow [Build a chat app](/docs/agents/build-a-chat-app).
 
@@ -18,7 +18,7 @@ An Agent Definition describes reusable behavior. An Invocation records one execu
 | Stage | What happens |
 | --- | --- |
 | Entry | A route, Channel, schedule, webhook, CLI command, or another caller provides input. |
-| Actor | ViteHub resolves the trusted [Agent Actor](/docs/agents/actors). |
+| Invoker | ViteHub resolves the trusted [Agent Invoker](/docs/agents/trusted-invokers). |
 | Capabilities | The Definition and invocation context select the abilities for this request. |
 | Context | ViteHub prepares tools, policy, context values, and the Workspace Scope. |
 | Execution | The Agent Driver runs the prepared request. |
@@ -86,7 +86,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`requireAuthenticatedUser` is an application helper from `server/utils/auth.ts`, omitted here. Implement it with your authentication provider so it rejects unauthenticated requests and returns the trusted user's `id` and `email`. It is not a ViteHub export. Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Actor](/docs/agents/actors).
+`requireAuthenticatedUser` is an application helper from `server/utils/auth.ts`, omitted here. Implement it with your authentication provider so it rejects unauthenticated requests and returns the trusted user's `id` and `email`. It is not a ViteHub export. Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Invoker](/docs/agents/trusted-invokers).
 
 The second argument is [Runtime Context](/docs/reference/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
 

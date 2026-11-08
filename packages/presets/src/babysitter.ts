@@ -3,7 +3,7 @@ import type {
   ConfiguredAgentDefinition,
   AgentDefinition,
   AgentRuntimeConfig,
-  AgentInvokerProfile,
+  AgentInvoker,
   AgentInvocationContextValues,
 } from "@vite-hub/agent";
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "@vite-hub/agent/channels";
@@ -14,7 +14,7 @@ import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
 import { defineChannel, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
-import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process-host";
+import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
@@ -48,7 +48,7 @@ export interface BabysitterPlacement {
 
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
-  capacity?: Pick<import("@vite-hub/agent/runtime/process").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
+  capacity?: Pick<import("@vite-hub/agent/process").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
   /**
    * Places each pass on this host or in a Sandbox before host dependency installation. Sandbox passes
    * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
@@ -248,7 +248,7 @@ const babysitterIntake = defineChannel("babysitter-github", {
 type BabysitterDefinition = AgentDefinition<
   AgentRuntimeConfig,
   unknown,
-  AgentInvokerProfile,
+  AgentInvoker,
   AgentInvocationContextValues,
   BabysitterPassResult
 > & {

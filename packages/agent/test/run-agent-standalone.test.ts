@@ -1,6 +1,6 @@
 import { createRuntimeContext } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent, runAgent, startAgentInvocation, streamAgent, workflow } from "../src/index.ts"
+import { defineAgent, runAgent, startAgentInvocation, streamAgent, agentWorkflow } from "../src/index.ts"
 
 function deferred() {
   let resolve!: () => void
@@ -24,7 +24,7 @@ describe("standalone Agent invocations", () => {
     try {
       const agent = defineAgent({
         driver: { run: () => "workflow output" },
-        runtime: workflow("standalone-explicit"),
+        runtime: agentWorkflow("standalone-explicit"),
       })
       const [error, result] = await runAgent(agent, {})
       expect(error).toBeNull()

@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import type { AgentInvocationRecord, AgentInvocationSummary } from "@vite-hub/agent"
-import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/invocations/default"
+import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/internal/default-invocations"
 import type { Client } from "@libsql/client"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
