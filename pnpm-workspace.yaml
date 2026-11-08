@@ -191,6 +191,8 @@ catalogs:
     vite: ^8.2.2
   vite-compat:
     vite: ">=8.0.0"
+  vue-compat:
+    vue: ^3.5.0
   workflow:
     "@workflow/builders": 5.0.6
     cron-schedule: ^6.0.0
