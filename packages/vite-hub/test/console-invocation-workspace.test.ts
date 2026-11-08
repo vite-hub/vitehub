@@ -38,6 +38,17 @@ describe("Workspace files inspection", () => {
     expect(mocks.open).not.toHaveBeenCalled()
   })
 
+  it.each(["refs", "list"] as const)("reports a retained-history provider failure from %s", async operation => {
+    const error = new Error("History provider unavailable")
+    const head = { id: "main-head", ref: "main", parentId: null, createdAt: "2026-11-07T09:00:00.000Z", files: 1, bytes: 4 }
+    mocks.refs.mockResolvedValue([{ name: "main", head }])
+    mocks[operation].mockRejectedValue(error)
+    mocks.useWorkspaceFiles.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
+    await expect(filesHandler(filesRequest())).rejects.toBe(error)
+    await expect(handler(request())).rejects.toBe(error)
+    expect(mocks.glob).not.toHaveBeenCalled()
+  })
+
   it("reads a mounted file using the current revision returned by the browser descriptor", async () => {
     mocks.refs.mockRejectedValue(Object.assign(new Error("No retained history"), { code: "WORKSPACE_R0069" }))
     mocks.useWorkspaceFiles.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
@@ -47,7 +58,7 @@ describe("Workspace files inspection", () => {
     expect(mocks.open).not.toHaveBeenCalled()
   })
 
-  it.each([{}, { ref: "run-1" }])("uses one ref for revision files, paged history, and changes with %j", async (selection) => {
+  it.each<Record<string, string>>([{}, { ref: "run-1" }])("uses one ref for revision files, paged history, and changes with %j", async (selection) => {
     const main = { id: "main-head", ref: "main", parentId: null, createdAt: "2026-11-07T09:00:00.000Z", files: 1, bytes: 4 }
     const run = { ...main, id: "run-head", ref: "run-1" }
     mocks.refs.mockResolvedValue([{ name: "main", head: main }, { name: "run-1", head: run }])
@@ -130,7 +141,7 @@ describe("invocation Workspace inspection", () => {
     expect(mocks.readFile).toHaveBeenCalledWith("AGENTS.md", { encoding: "utf8" })
     expect(mocks.exists).not.toHaveBeenCalled()
   })
-  it.each([{}, { revision: "rev-run" }])("keeps the recorded ref after branch convergence with overrides %j", async (query) => {
+  it.each<Record<string, string>>([{}, { revision: "rev-run" }])("keeps the recorded ref after branch convergence with overrides %j", async (query) => {
     const main = { id: "rev-main", ref: "main", parentId: null, createdAt: "2026-11-07T09:00:00.000Z", files: 2, bytes: 20 }
     const run = { id: "rev-run", ref: "run-1", parentId: null, createdAt: "2026-11-07T10:00:00.000Z", files: 3, bytes: 30 }
     const files = {

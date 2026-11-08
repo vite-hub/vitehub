@@ -68,6 +68,15 @@ it("restores desktop surfaces, visibility, and maximization through the URL and 
     router.forward()
     await flushPromises()
     expect(selected()).toContain("Workspace")
+    await router.push("/session?details=max&tab=trace")
+    await flushPromises()
+    await wrapper.get('[aria-label="Close the right panel"]').trigger("click")
+    await flushPromises()
+    expect(router.currentRoute.value.query.details).toBeUndefined()
+    expect(panel().attributes()).not.toHaveProperty("data-panel-open")
+    router.back()
+    await flushPromises()
+    expect(panel().attributes()).toHaveProperty("data-maximized")
   }
   finally { wrapper.unmount() }
 })

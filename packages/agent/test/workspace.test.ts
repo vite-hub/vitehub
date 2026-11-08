@@ -142,6 +142,48 @@ function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
 }
 
 describe("defineAgent workspace option", () => {
+  it("records the initial retained Workspace revision in native Invocation telemetry", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const facade = readonlyWorkspaceFacade()
+    const head = vi.spyOn(facade.history, "head").mockResolvedValue({
+      id: "run-revision", ref: "run-1", parentId: null, createdAt: "2026-11-07T09:00:00.000Z", files: 1, bytes: 4,
+    })
+    useWorkspace.mockReturnValueOnce(facade)
+    const agent = defineAgent({
+      name: "revision-test",
+      workspace: { name: "docs" },
+      capabilities: [defineCapability({ id: "test-telemetry", telemetry: { exporter: telemetry } })],
+      driver: { run: () => {
+        head.mockResolvedValue(null)
+        return "ok"
+      } },
+    })
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })
+    await Promise.all(tasks)
+    const configuration = JSON.stringify(telemetry.mock.calls)
+    expect(configuration).toContain('"revision":"run-revision"')
+    expect(configuration).toContain('"ref":"run-1"')
+    expect(head).toHaveBeenCalledOnce()
+  })
+
+  it("keeps native Invocation telemetry compatible with Stores without retained history", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const agent = defineAgent({
+      name: "no-history-test",
+      workspace: { name: "docs" },
+      capabilities: [defineCapability({ id: "test-telemetry", telemetry: { exporter: telemetry } })],
+      driver: { run: () => "ok" },
+    })
+    expect(await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })).toBe("ok")
+    await Promise.all(tasks)
+    expect(JSON.stringify(telemetry.mock.calls)).toContain('"workspace":{"mode":"read","name":"docs"}')
+  })
+
   afterEach(async () => {
     await Promise.all(tempRoots.splice(0).map(root => rm(root, { force: true, recursive: true })))
   })

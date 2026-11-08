@@ -157,7 +157,7 @@ export async function historyMetadata(history: WorkspaceHistoryReader, ref: stri
     return await loadHistoryPage(history, ref, cursor)
   }
   catch (error) {
-    if (required) throw error
+    if (required || record(error)?.code !== "WORKSPACE_R0069") throw error
     return undefined
   }
 }

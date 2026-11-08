@@ -261,6 +261,7 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceName,
+  WorkspaceRevision,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
@@ -4927,6 +4928,15 @@ async function createAgentInvocationContext<
       ...tool,
       ...(toolOwners.has(transformed.originalNames.get(tool.name) ?? tool.name) ? { capabilityId: toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name) } : {}),
     }))
+    let workspaceRevision: WorkspaceRevision | null | undefined
+    if ((capabilities.registries.telemetry.length || invocationJournal) && activeWorkspace) {
+      try {
+        workspaceRevision = await activeWorkspace.history.head()
+      }
+      catch (error) {
+        if (!isRuntimeRecord(error) || error.code !== "WORKSPACE_R0069") throw error
+      }
+    }
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
@@ -4959,6 +4969,7 @@ async function createAgentInvocationContext<
             workspace: {
               mode: workspaceMode,
               ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
+              ...(workspaceRevision ? { ref: workspaceRevision.ref, revision: workspaceRevision.id } : {}),
               ...(activeWorkspaceDefinition.sources ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources) } : {}),
             },
           }

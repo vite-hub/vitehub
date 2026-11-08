@@ -127,17 +127,42 @@ export const AgentSession = defineComponent({
   setup(props, { attrs, emit, expose, slots }) {
     const stored = readLayout(props.storageKey);
     const known = (id: string | null | undefined) => props.surfaces.some((surface) => surface.id === id);
-    const panelOpen = ref(props.panelOpen ?? stored.panelOpen ?? props.defaultPanelOpen);
+    const localPanelOpen = ref(stored.panelOpen ?? props.defaultPanelOpen);
+    const panelOpen = computed({
+      get: () => props.panelOpen ?? localPanelOpen.value,
+      set: (open: boolean) => {
+        if (open === (props.panelOpen ?? localPanelOpen.value)) return;
+        if (props.panelOpen === undefined) localPanelOpen.value = open;
+        emit("update:panelOpen", open);
+      },
+    });
     // Like T3 Code, the inline card keeps the user's choice, and the popover that replaces it on a narrow column starts
     // closed, so a remembered card never covers the timeline.
     const detailsOpen = ref(stored.detailsOpen ?? props.defaultDetailsOpen);
     const popoverOpen = ref(false);
-    const maximized = ref(props.maximized ?? stored.maximized ?? false);
+    const localMaximized = ref(stored.maximized ?? false);
+    const maximized = computed({
+      get: () => props.maximized ?? localMaximized.value,
+      set: (value: boolean) => {
+        if (value === (props.maximized ?? localMaximized.value)) return;
+        if (props.maximized === undefined) localMaximized.value = value;
+        emit("update:maximized", value);
+      },
+    });
     const width = ref(stored.width ?? props.defaultWidth);
     const initialTabs = (stored.tabs ?? (props.defaultSurface ? [props.defaultSurface] : [])).filter(known);
     const tabs = ref<string[]>(initialTabs);
-    const initialSurface = props.surface !== undefined ? props.surface : stored.active;
-    const active = ref<string | null>(known(initialSurface) ? initialSurface ?? null : initialTabs[0] ?? null);
+    const localActive = ref<string | null>(known(stored.active) ? stored.active ?? null : initialTabs[0] ?? null);
+    const active = computed({
+      get: () => props.surface !== undefined ? props.surface : localActive.value,
+      set: (id: string | null) => {
+        if (id === (props.surface !== undefined ? props.surface : localActive.value)) return;
+        if (props.surface === undefined) localActive.value = id;
+        emit("update:surface", id);
+      },
+    });
+    // Keep the controlled surface's tab visible while a parent holds or delays a close request.
+    const visibleTabs = computed(() => active.value && !tabs.value.includes(active.value) ? [...tabs.value, active.value] : tabs.value);
     if (active.value && !tabs.value.includes(active.value)) tabs.value.push(active.value);
     const root = ref<HTMLElement>();
     const body = ref<HTMLElement>();
@@ -151,22 +176,16 @@ export const AgentSession = defineComponent({
         panelOpen: panelOpen.value,
         detailsOpen: detailsOpen.value,
         width: width.value,
-        tabs: tabs.value,
+        tabs: visibleTabs.value,
         active: active.value,
         maximized: maximized.value,
       };
       localStorage.setItem(props.storageKey, JSON.stringify(value));
     }, { deep: true });
-    watch(active, (id) => emit("update:surface", id));
-    watch(panelOpen, (open) => emit("update:panelOpen", open));
-    watch(maximized, (value) => emit("update:maximized", value));
     watch([() => props.surface, () => props.surfaces], ([id]) => {
       if (id === undefined || (id !== null && !known(id))) return;
       if (id && !tabs.value.includes(id)) tabs.value = [...tabs.value, id];
-      active.value = id;
     }, { immediate: true });
-    watch(() => props.panelOpen, (open) => { if (open !== undefined) panelOpen.value = open; });
-    watch(() => props.maximized, (value) => { if (value !== undefined) maximized.value = value; });
 
     let observer: ResizeObserver | undefined;
     onMounted(() => {
@@ -207,14 +226,15 @@ export const AgentSession = defineComponent({
     }
 
     function closeSurface(id: string) {
-      const index = tabs.value.indexOf(id);
-      tabs.value = tabs.value.filter((tab) => tab !== id);
+      const index = visibleTabs.value.indexOf(id);
+      tabs.value = visibleTabs.value.filter((tab) => tab !== id);
       if (active.value === id) active.value = tabs.value[Math.max(0, index - 1)] ?? null;
     }
 
     function togglePanel() {
-      panelOpen.value = !panelOpen.value;
-      if (!panelOpen.value) maximized.value = false;
+      const open = !panelOpen.value;
+      if (!open) maximized.value = false;
+      panelOpen.value = open;
     }
 
     expose({ openSurface, closeSurface, togglePanel });
@@ -328,7 +348,7 @@ export const AgentSession = defineComponent({
       }, [
         h("div", { class: "vh-agent-session__panel-header", "data-slot": "agent-session-panel-header" }, [
           h("div", { class: "vh-agent-session__tabs", role: "tablist" }, [
-            ...tabs.value.map((id) => {
+            ...visibleTabs.value.map((id) => {
               const surface = surfaceById.get(id);
               if (!surface) return null;
               const selected = id === active.value;
