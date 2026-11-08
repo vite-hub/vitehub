@@ -19,6 +19,11 @@ export type DocsPageNavigation = false | {
   group?: string
   /** Task lane of the page, such as `guide` or `reference`. */
   kind?: string
+  /**
+   * On the `index.md` of a folder inside a section: the folder becomes its own panel. The section sidebar shows one link
+   * to it, and its pages show a sidebar of their own with a link back to the section.
+   */
+  panel?: boolean
 }
 
 /** Frontmatter of a docs page, after dotted keys such as `navigation.order` became nested objects. */
@@ -44,9 +49,11 @@ export interface DocsPageFrontmatter {
   navigation?: DocsPageNavigation
   /**
    * Search and share fields, when they differ from the page's own. `image` is the share image: a path in `public/` or a
-   * URL, or `false` for none. Without it the build renders one from the title and description.
+   * URL, or `false` for none. Without it the build renders one from the title and description. `index: false` asks
+   * search engines not to index the page and leaves it out of the sitemap, llms.txt, the site search, and the prerender.
+   * The server renders it on request.
    */
-  seo?: { title?: string, description?: string, image?: string | false }
+  seo?: { title?: string, description?: string, image?: string | false, index?: boolean }
 }
 
 /**
@@ -58,9 +65,11 @@ export interface DocsPageFile extends DocsPageFrontmatter {
   "navigation.order"?: number
   "navigation.group"?: string
   "navigation.kind"?: string
+  "navigation.panel"?: boolean
   "seo.title"?: string
   "seo.description"?: string
   "seo.image"?: string | false
+  "seo.index"?: boolean
 }
 
 /** `.navigation.yml` of a section folder. */
@@ -85,12 +94,14 @@ const navigationFields: Fields<Exclude<DocsPageNavigation, false>> = {
   order: z.number().optional(),
   group: z.string().optional(),
   kind: z.string().optional(),
+  panel: z.boolean().optional(),
 }
 
 const seoFields: Fields<NonNullable<DocsPageFrontmatter["seo"]>> = {
   title: z.string().optional(),
   description: z.string().optional(),
   image: z.union([z.string(), z.literal(false)]).optional(),
+  index: z.boolean().optional(),
 }
 
 const pageFields: Fields<DocsPageFrontmatter> = {
@@ -120,9 +131,11 @@ export const docsPageFields: Fields<DocsPageFile> = {
   "navigation.order": navigationFields.order,
   "navigation.group": navigationFields.group,
   "navigation.kind": navigationFields.kind,
+  "navigation.panel": navigationFields.panel,
   "seo.title": seoFields.title,
   "seo.description": seoFields.description,
   "seo.image": seoFields.image,
+  "seo.index": seoFields.index,
 }
 
 /** The build validates frontmatter with this schema after `docsFrontmatter()` expanded its dotted keys. */
