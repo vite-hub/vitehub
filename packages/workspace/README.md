@@ -343,6 +343,11 @@ placement, materialization, sync, and access rules. Source owns retrieval.
 Content also accepts the definition with `defineContent({ source: docs })` and
 opens a new reader for each refresh.
 
+In application `server/workspaces/<name>.ts` files, local Sources read from the
+resolved project root. Flat files supplied by Nuxt layers keep their colocated
+Source root: the file's folder, or its `workspace/` folder when present.
+An explicit `sourceRootDir` overrides these defaults.
+
 Use Workspace helpers such as `file()` and `github()` when a definition only
 needs Workspace binding options. Existing bindings remain valid. For standalone
 custom loaders, replace the Source `custom()` helper with `defineSource()`.
