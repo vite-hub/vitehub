@@ -153,6 +153,21 @@ describe("startup rules", () => {
     expect(JSON.parse(json.stdout).findings).toMatchObject([{ code: "BUNDLE_STARTUP_UNUSED", chain: expect.any(Array) }])
     expect(run(projectWith(workerBuild({ lazyLibsql: true })), []).stdout).toContain("Checks: no findings.")
   })
+
+  it("reports warnings when comparing with a saved build", () => {
+    const dir = projectWith(workerBuild())
+    const before = projectWith(workerBuild({ lazyLibsql: true }))
+    const text = run(dir, ["--against", before])
+    expect(text.code).toBe(0)
+    expect(text.stdout).toContain("compared with the build from")
+    expect(text.stdout).toContain("warning BUNDLE_STARTUP_UNUSED")
+    const json = run(dir, ["--against", before, "--json"])
+    expect(json.code).toBe(0)
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      server: { delta: expect.any(Object) },
+      findings: [{ code: "BUNDLE_STARTUP_UNUSED" }],
+    })
+  })
 })
 
 describe("host size limit", () => {
@@ -183,6 +198,20 @@ describe("host size limit", () => {
     expect(finding!.chain.map(step => step.id)).toEqual(["node_modules/@huge/data/index.js"])
     expect(run(dir, []).code).toBe(1)
     expect(run(dir, ["--json"]).code).toBe(1)
+  })
+
+  it("fails an oversized Worker when comparing with a saved build", () => {
+    const dir = projectWith(bigWorker("cloudflare-module", cloudflareWorkerSizeLimit + 1))
+    const before = projectWith(bigWorker("cloudflare-module", cloudflareWorkerSizeLimit))
+    const text = run(dir, ["--against", before])
+    expect(text.code).toBe(1)
+    expect(text.stdout).toContain("error BUNDLE_HOST_SIZE_LIMIT")
+    const json = run(dir, ["--against", before, "--json"])
+    expect(json.code).toBe(1)
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      server: { delta: { bytes: 1 } },
+      findings: [{ code: "BUNDLE_HOST_SIZE_LIMIT" }],
+    })
   })
 
   it("accepts a Worker at the limit and any size on other hosts", () => {
