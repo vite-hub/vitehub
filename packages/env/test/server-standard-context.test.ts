@@ -45,7 +45,8 @@ describe("Server Env Standard Context", () => {
     runWithCloudflareEnv(bindings, () => {
       const request = new Request("https://example.test/")
       expect(resolveServerEnv(registry(), request as never)).toEqual({ token: "request-token" })
-      expect(request).not.toHaveProperty("~standard")
+      // A Request without host data gets a `fetch` Standard Context without bindings, so Env reads the active bindings.
+      expect((request as Request & ViteHubContext)["~standard"]).toMatchObject({ runtime: {}, vendor: "fetch" })
       expect(resolveServerEnv(registry())).toEqual({ token: "request-token" })
     })
   })

@@ -1,12 +1,11 @@
-import { getBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
-
 import { consoleAccessAllows, type ConsoleAccess } from "./access.ts"
 import { getConsoleBlob } from "./blob.ts"
 import { consoleActionError, consoleDocumentActionContext, loadConsoleDocumentActions, runConsoleDocumentAction, type ConsoleMediaAccess } from "./documents.ts"
 import { consoleRequestError } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
-import type { BlobResult, BlobStorage, MediaFocalPoint, MediaRecord, MediaUpdate } from "@vite-hub/blob"
+import type { BlobErrorCode, BlobStorage, MediaFocalPoint, MediaRecord, MediaUpdate } from "@vite-hub/blob"
+import type { Result } from "@vite-hub/runtime"
 
 /**
  * The media library of a document editor section. Blob owns storage: every change runs through `blob.media` of the Blob
@@ -181,7 +180,7 @@ function isReservedPath(pathname: string): boolean {
 }
 
 /** Turns a Blob failure into a Console failure with a status the library shows. */
-function unwrap<T>(result: BlobResult<T>): T {
+function unwrap<T>(result: Result<T, BlobErrorCode>): T {
   const [error, value] = result
   if (!error) return value
   if (error.code === "BLOB_NOT_FOUND") throw failure(404, error.code, error.message)
@@ -190,7 +189,7 @@ function unwrap<T>(result: BlobResult<T>): T {
 }
 
 /** Blob input diagnostics, such as a reserved pathname or an invalid crop, describe the request. */
-async function blobCall<T>(call: () => Promise<BlobResult<T>>): Promise<T> {
+async function blobCall<T>(call: () => Promise<Result<T, BlobErrorCode>>): Promise<T> {
   try {
     return unwrap(await call())
   }
@@ -210,6 +209,8 @@ function joinUrl(base: string, route: string): string {
 /** The served Blob Store, or `default` when `blob.serve` is off. */
 async function mediaStore(): Promise<{ served: string | null, storage: BlobStorage, store: string }> {
   const inspection = getConsoleBlob()
+  // Blob is an optional peer. The Console RPC route loads this module in apps without it.
+  const { getBlobRuntimeConfig } = await import("@vite-hub/blob/runtime/state")
   const config = await getBlobRuntimeConfig().catch(() => false as const)
   const serve = config ? config.serve : undefined
   const store = serve && inspection.stores.includes(serve.store) ? serve.store : "default"

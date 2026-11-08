@@ -10,7 +10,7 @@ Use one proof loop: orient, route, inspect the contract, build, and prove. Exact
 ## 1. Orient
 
 - Run `pnpm vitehub status --json` first from a project containing `package.json` or a Vite/Nuxt config. It parses the config without running it, so it works on a broken config. A bare folder returns `SETUP_NOT_A_PROJECT` with exit code `1`; initialize the application first. It names the framework, the host, each feature as `on`, `off`, or `unknown`, and the missing packages with their fix. Where `vite-hub` is not installed yet, run `pnpm dlx vite-hub status --json`. No npm package is named `vitehub`, so `npx vitehub` fails. Use the package name `vite-hub`.
-- Run `pnpm vitehub catalog --json` before you choose a feature or a host. It lists each feature key, its packages, and how each host supports it (`native`, `explicit`, or `unsupported`), from the same catalog that the build checks. See [Read a project without loading it](https://vitehub.dev/raw/docs/development/cli.md#read-a-project-without-loading-it).
+- Run `pnpm vitehub catalog --json` before you choose a feature or a host. Where `vite-hub` is not installed yet, use `pnpm dlx vite-hub catalog --json`. It lists each feature key, its packages, and how each host supports it (`native`, `explicit`, or `unsupported`), from the same catalog that the build checks. See [Read a project without loading it](https://vitehub.dev/raw/docs/development/cli.md#read-a-project-without-loading-it).
 - Then read only what the two commands do not answer: the lockfile, the server entry, nearby project instructions, and config parts that `status` reports as `unknown` or `manual`.
 - Identify installed ViteHub packages and versions, package manager, framework, host target, and requested outcome.
 - Open `https://vitehub.dev/llms.txt`, then select the smallest raw Markdown page covering the primary behavior. Links inside references are selection menus; do not open every linked page.
@@ -57,7 +57,7 @@ Read only the references whose conditions match, but read them before writing co
 | Capability, tool, secret, rate limit, telemetry, or other granted authority | [Capabilities and authority](references/capabilities-authority.md) |
 | Schedule, Workflow, orchestration retry, idempotency, or terminal state | [Schedules, Workflows, and Invocations](references/schedules-workflows-invocations.md) |
 | Sandbox, trusted host, isolation, required command, host link, or deployment | [Sandboxes and hosts](references/sandboxes-hosts.md) |
-| Bundle size, startup cost, host size limits, or why a package is in the output | [Bundle size and startup cost](references/bundle.md) |
+| Bundle size, startup cost, host size limits, why a package is in the output, or whether a change made the bundle smaller | [Bundle size and startup cost](references/bundle.md) |
 | A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
 | Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
 
@@ -85,7 +85,7 @@ Turn features on with `vitehub add <feature>`, not by editing `vitehub({...})` b
 - Run `--dry-run` first and read the diff, then apply with `--yes`. Without a terminal, `add` writes nothing until it gets `--yes`.
 - Pass `--name <name>` for a starter Definition, such as `server/queues/<name>.ts`. It never overwrites a file.
 - Pass provider options as `--option key=value`, such as `--option email.driver=resend`.
-- Follow the exit code. `0`: done or unchanged. `2`: input is needed; run the `rerun` command it prints, or supply the options listed in `missing` with their `choices`. `3`: a conflict; read the diagnostic code. For `SETUP_FILE_EXISTS`, choose another `--name` or edit the existing file by hand. For `SETUP_CONFIG_MANUAL`, paste the printed `snippet` into the `vitehub()` options by hand. For an unsupported feature, choose another host or report the boundary, because a hand-written key does not give the host the feature.
+- Follow the exit code. `0`: done or unchanged. `2`: input is needed; run the `rerun` command it prints, or supply the options listed in `missing` with their `choices`. `3`: a conflict; read the diagnostic code. For `SETUP_FILE_EXISTS`, choose another `--name`, or edit the existing file by hand and then rerun `vitehub add <feature> --yes` without `--name`, keeping the required `--option` values, to install packages and enable the feature. For `SETUP_CONFIG_MANUAL`, paste the printed `snippet` into the `vitehub()` options by hand. For an unsupported feature, choose another host or report the boundary, because a hand-written key does not give the host the feature. `4` (`SETUP_STALE_PLAN`): the config changed during installation; discard the plan and rerun against the current config.
 - `vitehub remove` is not available yet. To turn a feature off, set its key to `false` in `vitehub({...})` by hand.
 
 Building is complete when every requested behavior has an implemented row and no placeholder, unused integration, implicit authority, or unowned persistence remains.

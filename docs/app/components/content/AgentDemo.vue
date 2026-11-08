@@ -1,6 +1,5 @@
 <script setup lang="ts">
 // `::agent-demo` in Markdown mounts the interactive Agent playground from the site landing page.
-import { MotionConfig } from "motion-v";
 import AgentPlayground from "../landing/AgentPlayground.vue";
 </script>
 
@@ -8,9 +7,7 @@ import AgentPlayground from "../landing/AgentPlayground.vue";
   <div class="not-prose vh-agent-demo">
     <div class="vh-agent-demo-stage">
       <ClientOnly>
-        <MotionConfig reduced-motion="user">
-          <AgentPlayground class="min-w-0" />
-        </MotionConfig>
+        <AgentPlayground class="min-w-0" />
         <template #fallback>
           <div
             role="status"

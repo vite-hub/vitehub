@@ -73,7 +73,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-With the framework distribution, import from `vite-hub/ui/markdown`. The UI Nuxt module auto-imports `Markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
+With the framework distribution, import from `vite-hub/ui/markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
 
 Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not install `@comark/html`.
 
@@ -86,6 +86,9 @@ Content bundles Comark UI's parser and editor implementation and installs the Co
 `components` lists the Comark components that bodies may use, such as `alert` for `::alert`, and the Console editor offers them in its `/` menu. Each prop has a `type`: `string`, `number`, `boolean`, `json`, `image`, or `file`. An `image` or `file` prop opens the same Media picker as `image()` and `file()` fields, limited to `store` when set. It stores the picked file as a string attribute: the served URL, such as `/media/icons/train.webp`, or the Blob pathname when the store is not served. Content stores the Markdown as written and does not check component use.
 
 ```ts
+import { z } from "zod"
+import { documents } from "@vite-hub/content/collections"
+
 documents({
   path: "notes/*.md",
   fields: { title: z.string() },
@@ -129,6 +132,7 @@ content.collections() // [posts], each with name, kind, format, path, fields, an
 `singleton({ path, fields })` defines one document at a fixed path, such as site settings. Its methods take no id, and `publish({ expect })` entries for it may omit `id`. The extension sets the format of a document or collection: `.json` stores an indented JSON object, `.yaml`/`.yml` a block-style YAML mapping, and anything else Markdown with YAML frontmatter. JSON and YAML documents have no body.
 
 ```ts
+import { z } from "zod"
 import { defineContent } from "@vite-hub/content"
 import { documents, singleton } from "@vite-hub/content/collections"
 
@@ -144,6 +148,16 @@ const settings = content.collection("settings") // kind: "singleton", id: "setti
 const draft = await settings.save({ data: { title: "ViteHub" } })
 await content.publish({ expect: [{ collection: "settings", digest: draft.digest }] })
 await settings.get() // the published settings, also at /api/content/get/settings
+```
+
+`documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"] })` keeps a document in several locales. The first locale is the source locale, and a document keeps its id in every locale: `guide` is `docs/en/guide.md` and `docs/es/guide.md`. `get()`, `raw()`, and `list()` take `locale`; without a translation, `get()` and `list()` return the source locale version with `fallback: true`. `save()`, `remove()`, and `restore()` take `{ locale }`. `get()` returns `source: { path, digest }`, the source locale version in the `sha256-` lineage form. A save in another locale with `sourceDigest: source.digest` records `derivedFrom: { path, digest }` of the source version that was read, as `@vite-hub/workspace/lineage` reads it. Without `sourceDigest`, an existing translation keeps its `derivedFrom` and a new one records the source locale draft. `status()` gives each source locale document `translations`, such as `{ es: "stale" }`: `current`, `stale` when the source changed since or `derivedFrom` names another file than the source locale file of the same id, or `missing`. `publish()` publishes every locale, and `publish({ expect })` entries take `locale`. A `url` pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale.
+
+```ts fragment
+const docs = content.collection("docs")
+const english = await docs.get("guide", { ref: "draft", locale: "es" }) // the fallback, with source: { path, digest }
+await docs.save("guide", { data: { title: "Guía" }, body: "Hola." }, { locale: "es", sourceDigest: english.source.digest }) // records derivedFrom
+await docs.get("intro", { locale: "es" }) // { locale: "en", fallback: true, ... } without a translation
+await docs.status("guide") // { locale: "en", translations: { es: "current" }, ... }
 ```
 
 Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve `published`, except to a request with a valid preview cookie. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths: the `draft` ref accepts fields in progress, every other ref only valid documents. `save()` stores invalid fields and returns them as `issues`; `publish()` and `schedule()` refuse such drafts with `CONTENT_INVALID` naming each one. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. `publish({ expect })` publishes exactly the reviewed draft digests and throws `WORKSPACE_CONFLICT` when one changed, so confirm and approve flows use it. Listed documents carry `updatedAt`, when each last changed on the ref read. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can({ user, actor })` first, where `user` is the Auth user and `actor` is the Agent Actor, if any. Zod date fields project to `date-time` strings in `schema`; wrap Valibot fields in `toStandardJsonSchema()`, and Content warns once for each field whose JSON Schema is empty.
@@ -175,7 +189,7 @@ With Realtime enabled on a host with a room authority, ViteHub contributes a `co
 
 `documents({ url: "/blog/:id" })` maps documents to public URLs, and reads carry `document.url`. `content.resolve("/blog/hello")` maps a page back to its `{ collection, id }` with the same `url`, for an Edit button; a collection without `url` resolves the id after a slash, without a trailing `/index`. `seo()` is a field for per-document `{ title, description, image, canonical, noindex }`; pass `seo({ image: image() })` to store a Blob reference. `contentHead(document, { collection, site, defaults })`, also exported from `@vite-hub/content/client`, returns unhead-shaped `{ title, meta, link, script? }` that merge the `seo()` values, the document fields, and site defaults. It finds the `seo()` field of `collection` by its marker, and resolves Blob images with the served route of the generated Blob config. `defineContent({ seo: { site, sitemap: true, robots: true } })` makes ViteHub generate `/sitemap.xml` and `/robots.txt`; `content.sitemap()` and `content.robots()` return the same output. `seo: { markdown: true }` also serves each published Markdown document at its URL plus `.md`, such as `/blog/hello.md` for `/blog/hello` and `/index.md` for `/`. The copy starts with the document's title, unless the body has its own heading, and its description as a quote, and turns root-relative links into absolute ones. Agents read it, and readers paste it into a chat. `content.markdown("/blog/hello.md")` returns the same text, or null. The sitemap also lists the documents of Sources with `contentSource(input, { url })`, without `lastmod`. Markdown copies read `collections` only.
 
-```ts
+```ts fragment
 useHead(contentHead(post, { site: { url: "https://vitehub.dev", name: "ViteHub" }, defaults: { description: settings.data.description } }))
 ```
 

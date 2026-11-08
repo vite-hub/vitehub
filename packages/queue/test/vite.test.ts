@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
+import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { createQueueNitroConfig, hubQueue } from "../src/vite.ts"
@@ -26,6 +26,27 @@ async function runBuildEnd(plugin: ReturnType<typeof hubQueue>) {
 }
 
 describe("hubQueue", () => {
+  it.each([undefined, "JOBS"])("inspects the effective Cloudflare producer binding %s", async (binding) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-binding-inspection-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ binding, namePrefix: "preview-", provider: "cloudflare" })
+    const config = { command: "build", nitro: { preset: "cloudflare_module" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+
+    const resources = await collectViteHubResourceSummaries([plugin])
+    expect(resources).toMatchObject([{
+      binding: binding ?? "QUEUE_77656C636F6D65",
+      definition: "welcome",
+      name: "preview-queue--77656c636f6d65",
+    }])
+    expect(config.nitro).toHaveProperty("cloudflare.wrangler.queues.producers", [{
+      binding: resources[0]?.binding,
+      queue: resources[0]?.name,
+    }])
+  })
+
   it("resets omitted Queue options to the plugin options on each config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-options-"))
     roots.push(root)

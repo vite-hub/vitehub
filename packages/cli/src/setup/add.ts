@@ -4,19 +4,21 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { consoleFeaturePackages, featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
+import { consoleFeaturePackages, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { basename, dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { installArgs, installCommand, setsOption, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { FeatureId } from "@vite-hub/internal/features"
-import type { SetupFailure, SetupMissing } from "./envelope.ts"
+import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
+import type { SetupMissing } from "./envelope.ts"
 import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
 
@@ -55,13 +57,6 @@ export interface SetupAddPlan {
   nextSteps: readonly string[]
 }
 
-/** A failure with its exit code, `missing`, and `rerun`. */
-class SetupAddError extends Error {
-  constructor(readonly error: Error, readonly failure: SetupFailure) {
-    super(error.message)
-  }
-}
-
 const usage = "vitehub add <feature...> [--name <definition>] [--option <key=value>]... [--dry-run] [--yes] [--no-install] [--json]"
 
 /**
@@ -74,6 +69,22 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "kv.driver": { values: ["upstash"] },
   "realtime.authority": { values: ["memory"] },
   "workflow.provider": { values: ["openworkflow"] },
+}
+
+/** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
+const providerKeys = ["authority", "driver", "provider", "store"]
+
+function selectsProvider(id: FeatureId, value: JsonValue | undefined, host: DeploymentPreset): boolean {
+  if (!isRecord(value)) return false
+  if (id === "workflow") return value.provider !== undefined || featurePackages(id, value, host).includes("openworkflow")
+  return providerKeys.some(key => value[key] !== undefined)
+}
+
+/** How `host` supports `id`, with the override that `env` selects, such as BLOB_READ_WRITE_TOKEN for the Vercel Workspace. */
+function hostSupport(id: FeatureId, host: DeploymentPreset, env: NodeJS.ProcessEnv): HostSupport {
+  const support = featureSupport(id, host)
+  if (support.level !== "native") return support
+  return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
 }
 
 /** Features whose key accepts only a boolean. */
@@ -177,36 +188,45 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
   return parsed
 }
 
-function quote(value: string): string {
+/** Quotes `value` for a POSIX shell when it needs quotes. */
+export function shellQuote(value: string): string {
   return /^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-function flatten(prefix: string, value: JsonValue, out: string[]): string[] {
-  if (isRecord(value)) for (const [key, child] of Object.entries(value)) flatten(`${prefix}.${key}`, child, out)
+/** `value` as `--option` values under `prefix`, such as `["email.driver=resend"]`. */
+export function flattenOptions(prefix: string, value: JsonValue, out: string[] = []): string[] {
+  if (isRecord(value)) for (const [key, child] of Object.entries(value)) flattenOptions(`${prefix}.${key}`, child, out)
   else out.push(`${prefix}=${value === null || typeof value !== "object" ? String(value) : JSON.stringify(value)}`)
   return out
 }
 
+/** `--option` values by feature. */
+export type SetupOptions = Partial<Record<FeatureId, Record<string, JsonValue>>>
+
+/** Builds the command that `rerun` reports: the request with `extra` options and `extraFeatures` added. */
+export type SetupRerun = (args: SetupAddArgs, extra?: SetupOptions, extraFeatures?: readonly FeatureId[]) => string
+
 /** The `vitehub add` command for `args`, with `extra` options and `--yes` unless it is a dry run. */
-function rerunCommand(args: SetupAddArgs, extra: Partial<Record<FeatureId, Record<string, JsonValue>>> = {}, extraFeatures: readonly FeatureId[] = []): string {
+function rerunCommand(args: SetupAddArgs, extra: SetupOptions = {}, extraFeatures: readonly FeatureId[] = []): string {
   const ids = [...args.features, ...extraFeatures.filter(id => !args.features.includes(id))]
   const optionIds = [...new Set([...ids, ...Object.keys(args.options), ...Object.keys(extra)])] as FeatureId[]
   const options = optionIds.flatMap((id) => {
     const merged = mergeValue(args.options[id], extra[id])
-    return isRecord(merged) ? flatten(id, merged, []) : []
+    return isRecord(merged) ? flattenOptions(id, merged) : []
   })
   return [
     "vitehub add",
     ...ids,
     ...(args.name ? ["--name", args.name] : []),
-    ...options.flatMap(option => ["--option", quote(option)]),
+    ...options.flatMap(option => ["--option", shellQuote(option)]),
     ...(args.install ? [] : ["--no-install"]),
     ...(args.dryRun ? ["--dry-run"] : ["--yes"]),
     ...(args.json ? ["--json"] : []),
   ].join(" ")
 }
 
-function mergeValue(base: JsonValue | undefined, patch: JsonValue | undefined): JsonValue | undefined {
+/** Merges `patch` into `base`, object key by object key. */
+export function mergeValue(base: JsonValue | undefined, patch: JsonValue | undefined): JsonValue | undefined {
   if (patch === undefined) return base
   if (!isRecord(base) || !isRecord(patch)) return patch
   const merged: Record<string, JsonValue> = { ...base }
@@ -231,9 +251,22 @@ function toSource(value: JsonValue): string {
   return JSON.stringify(value)
 }
 
-function diffOf(path: string, before: string, after: string): string {
+/** A unified diff of `path`. An empty `before` is a new file. */
+export function setupDiff(path: string, before: string, after: string): string {
   return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", `b/${path}`, before, after, undefined, undefined, { context: 3 })
     .replace(/^=+\n/u, "")
+}
+
+/** The Database owner rejects any Named Definition beside a Default Definition. */
+function namedDatabaseFiles(project: SetupProject, root: string): string[] {
+  const suffix = /\.database\.(?:c|m)?[jt]s$/i
+  return [
+    ...(project.serverDirs ?? [join(project.root, "server")]).flatMap((serverDir) => {
+      const directory = join(serverDir, "databases")
+      return listMatchingFiles(directory, name => /^config\.(?:c|m)?[jt]s$/i.test(name)).filter(file => dirname(file) !== directory)
+    }),
+    ...listMatchingFiles(root, name => suffix.test(name)).filter(file => normalizeSuffixDefinitionName(root, file, suffix, { stripPrefix: "src/" }) !== "database"),
+  ].map(file => relative(project.root, file))
 }
 
 /**
@@ -252,22 +285,23 @@ function nextValue(id: FeatureId, status: SetupStatus, project: SetupProject, op
   return sameValue(literal, merged) ? undefined : { value: merged }
 }
 
-interface Planned {
+/** A `vitehub add` plan with the file contents that applying it writes. */
+export interface SetupAddPlanned {
   plan: SetupAddPlan
   configFile?: { path: string, before: string, after: string }
   files: { path: string, content: string }[]
   install: { prod: string[], dev: string[] }
 }
 
-/** Plans `vitehub add` without writing anything. Throws `SetupAddError` when the change needs input or is not possible. */
-export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, env: NodeJS.ProcessEnv): Promise<Planned> {
+/** Plans `vitehub add` without writing anything. Throws `SetupFailure` when the change needs input or is not possible. */
+export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, env: NodeJS.ProcessEnv, rerun: SetupRerun = rerunCommand): Promise<SetupAddPlanned> {
   const status = setupStatus(project, env)
   const host = status.host.name
   if (host === "unknown") {
     const file = project.configFile ?? "vite.config.ts"
     const reason = project.config && !project.config.ok ? project.config.reason : "dynamic-options"
     const snippet = args.features.map(id => `${id}: ${toSource(mergeValue(true, args.options[id])!)},`).join("\n")
-    throw new SetupAddError(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), { data: { snippet }, exitCode: setupExitCodes.conflict })
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
   }
 
   for (const id of args.features) {
@@ -275,10 +309,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const driver = args.options[id]?.driver ?? (current?.kind === "literal" && isRecord(current.value) ? current.value.driver : undefined)
     if (id === "email" && driver === "cloudflare-email" && host !== "cloudflare") {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare-email driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare-email driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), setupExitCodes.conflict)
     }
     if (support.level === "unsupported") {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: support.detail, feature: id, host }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: support.detail, feature: id, host }), setupExitCodes.conflict)
     }
   }
 
@@ -308,41 +342,45 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const value = valueFor(id)
     if (id === "connections" && isRecord(value) && value.management) requireFeature("console")
     if (id === "observability" && isRecord(value) && value.papercuts) {
+      const agent = valueFor("agent")
+      if (host === "netlify" || (isRecord(agent) && agent.runtime === "deno")) {
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "observability.papercuts requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: id, host }), setupExitCodes.conflict)
+      }
       requireFeature("agent")
       requireFeature("console")
     }
     if (id === "observability" && isRecord(value) && value.posthog) requireFeature("env")
     if (id === "realtime" && args.name !== undefined) requireFeature("workspace")
     if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
     }
     if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
       const choices = host === "cloudflare" ? ["cloudflare", "auto"] : ["memory"]
       if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
-        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this preset. ${support.detail}`, feature: id, host }), { exitCode: setupExitCodes.conflict })
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this preset. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }
     }
     if (id === "cache" && isRecord(value) && value.driver !== undefined) {
       const nativeDriver = { cloudflare: "cloudflare-kv-binding", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel-runtime-cache" }[host]
       if (value.driver !== "kv" && value.driver !== nativeDriver) {
-        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this preset. ${support.detail}`, feature: id, host }), { exitCode: setupExitCodes.conflict })
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this preset. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }
     }
     const invocations = id === "agent" && isRecord(value) ? value.invocations : undefined
     if (host === "netlify" && invocations !== undefined && invocations !== false) {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations requires Nitro-hosted Agents. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations requires Nitro-hosted Agents. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), setupExitCodes.conflict)
     }
     if (id === "console" && host !== "node" && isRecord(value) && isRecord(value.auth) && "provider" in value.auth && value.auth.provider !== "cloudflare-access") {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Inline Console Auth requires the Node deployment preset. Use a file-based Console Auth Definition on this host.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Inline Console Auth requires the Node deployment preset. Use a file-based Console Auth Definition on this host.", feature: id, host }), setupExitCodes.conflict)
     }
     if (id === "console" && isRecord(value) && value.auth === "app"
       && ((!args.features.includes("auth") && status.features.find(item => item.id === "auth")?.enabled !== "on") || !hasAuthDefinition(project))) {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "console.auth=app requires enabled app Auth and a discovered Auth Definition. Set auth: true and add an Auth Definition in the application server directory, or choose console.auth=false or a Console Auth Definition.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "console.auth=app requires enabled app Auth and a discovered Auth Definition. Set auth: true and add an Auth Definition in the application server directory, or choose console.auth=false or a Console Auth Definition.", feature: id, host }), setupExitCodes.conflict)
     }
     // Setup never evaluates Auth callbacks. Delegate production access to an explicit server file.
     if (id === "console" && isRecord(value) && value.auth === "app"
       && (typeof value.authorize !== "string" || !value.authorize.trim() || !existsSync(resolve(project.root, value.authorize)))) {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Adding console.auth=app requires console.authorize to name an existing server file. Create a Console authorization file and pass --option console.authorize=server/console-authorize.ts, or configure app Auth access routes and Console by hand.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Adding console.auth=app requires console.authorize to name an existing server file. Create a Console authorization file and pass --option console.authorize=server/console-authorize.ts, or configure app Auth access routes and Console by hand.", feature: id, host }), setupExitCodes.conflict)
     }
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       requireFeature("database")
@@ -388,17 +426,16 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const agent = valueFor("agent")
   if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && enabledAfter("agent")
     && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
-    throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), { exitCode: setupExitCodes.conflict })
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), setupExitCodes.conflict)
   }
   for (const id of Object.keys(args.options) as FeatureId[]) {
     if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)
   }
   if (missing.length) {
     const fields = missing.map(item => `\`${item.field}\``).join(", ")
-    throw new SetupAddError(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} preset.` }), {
-      exitCode: setupExitCodes.inputNeeded,
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} preset.` }), setupExitCodes.inputNeeded, {
       missing,
-      ...(rerunnable ? { rerun: rerunCommand(args, defaults, requires) } : {}),
+      ...(rerunnable ? { rerun: rerun(args, defaults, requires) } : {}),
     })
   }
 
@@ -412,16 +449,18 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
 
   const changes: SetupChange[] = []
-  const files: Planned["files"] = []
-  let configFile: Planned["configFile"]
+  const files: SetupAddPlanned["files"] = []
+  let configFile: SetupAddPlanned["configFile"]
   const serverDir = relative(project.root, project.serverDirs?.[0] ?? join(project.root, "server"))
+  const nuxtRoot = project.config?.ok ? project.config.site.nuxt?.keys.rootDir : undefined
+  const definitionRoot = nuxtRoot?.kind === "literal" && typeof nuxtRoot.value === "string" ? resolve(project.root, nuxtRoot.value) : project.root
 
   // Starter Definition files.
   if (args.name !== undefined) {
     const withStarter = args.features.filter(id => features[id].definition)
     if (!withStarter.length) throw invalid(`${args.features.join(", ")} has no Definition files, so --name has no effect. Features with Definitions: ${featureIds.filter(id => features[id].definition).join(", ")}.`)
     if (project.framework === "nuxt" && !project.serverDirs?.length) {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL(), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL(), setupExitCodes.conflict)
     }
     for (const id of withStarter) {
       const starter = features[id].definition!
@@ -430,10 +469,16 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       const file = join(project.root, path)
       if (existsSync(file)) {
         if (await readFile(file, "utf8") === content) continue
-        throw new SetupAddError(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: path }), { exitCode: setupExitCodes.conflict })
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: path }), setupExitCodes.conflict)
       }
+      const conflicts = starter.conflicts(args.name).flatMap(other => other.startsWith("server/")
+        ? (project.serverDirs ?? [join(project.root, "server")]).map(directory => relative(project.root, join(directory, relative("server", other))))
+        : [relative(project.root, join(definitionRoot, other))])
+      if (id === "database" && args.name === "default") conflicts.push(...namedDatabaseFiles(project, definitionRoot))
+      const conflict = conflicts.find(other => existsSync(join(project.root, other)))
+      if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
-      changes.push({ after: content, diff: diffOf(path, "", content), kind: "create", path })
+      changes.push({ after: content, diff: setupDiff(path, "", content), kind: "create", path })
     }
   }
 
@@ -441,13 +486,13 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const manualReason = !project.config ? "no-vitehub" : !project.config.ok ? project.config.reason : expression ? "dynamic-options" : undefined
     const file = project.configFile ?? (project.framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts")
     const snippet = edits.map(edit => edit.op === "set" ? `${edit.key}: ${toSource(edit.value)},` : "").join("\n")
-    const manual = (reason: string) => new SetupAddError(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), { data: { snippet }, exitCode: setupExitCodes.conflict })
+    const manual = (reason: string) => new SetupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
     if (manualReason || !project.configFile) throw manual(manualReason ?? "no-vitehub")
-    const before = await readFile(join(project.root, project.configFile), "utf8")
+    const before = project.configSource ?? await readFile(join(project.root, project.configFile), "utf8")
     const result = editViteHubConfig(project.configFile, before, edits)
     if (!result.ok) throw manual(result.reason)
     configFile = { after: result.code, before, path: project.configFile }
-    changes.push({ after: result.code, before, diff: diffOf(project.configFile, before, result.code), kind: "patch", path: project.configFile })
+    changes.push({ after: result.code, before, diff: setupDiff(project.configFile, before, result.code), kind: "patch", path: project.configFile })
   }
 
   // The features that this command turns on, through the config or through an implication.
@@ -455,7 +500,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
-  const packages = packageFeatures.flatMap(id => features[id].packages)
+  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host))
   const observability = valueFor("observability")
   if (packageFeatures.includes("observability") && isRecord(observability) && observability.posthog) packages.push("posthog-node")
   if (enabled.has("console")) {
@@ -464,7 +509,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const auth = isRecord(consoleValue) ? consoleValue.auth : "app"
     if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
   }
-  const install: Planned["install"] = {
+  const install: SetupAddPlanned["install"] = {
     dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
     prod: [...new Set(packages)].filter(name => !project.declared(name, false)),
   }
@@ -478,6 +523,15 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
     else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
+  }
+  // Host defaults that build and run, but keep state in one process.
+  for (const id of [...addedFeatures, ...implied]) {
+    if (selectsProvider(id, valueFor(id), host)) continue
+    const support = hostSupport(id, host, env)
+    if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
+  }
+  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"), host)) {
+    nextSteps.push(`${join(serverDir, "workflows", `${args.name}.ts`)} has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
   if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)
   for (const id of args.features) nextSteps.push(`${features[id].title}: https://vitehub.dev${features[id].docs}`)
@@ -496,7 +550,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   return { files, install, plan, ...(configFile ? { configFile } : {}) }
 }
 
-async function applyPlan(project: SetupProject, planned: Planned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
+async function applyPlan(project: SetupProject, planned: SetupAddPlanned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
   const { dev, prod } = planned.install
   if (args.install) {
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
@@ -505,12 +559,12 @@ async function applyPlan(project: SetupProject, planned: Planned, args: SetupAdd
       // The package manager logs to stderr, so `--json` keeps one document on stdout.
       const result = await context.spawn(project.packageManager, commandArgs, { cwd: project.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw new SetupAddError(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), { exitCode: setupExitCodes.error })
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
       }
     }
   }
   if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
-    throw new SetupAddError(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), { exitCode: setupExitCodes.stalePlan })
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
   }
   for (const file of planned.files) {
     await mkdir(dirname(join(project.root, file.path)), { recursive: true })
@@ -519,13 +573,13 @@ async function applyPlan(project: SetupProject, planned: Planned, args: SetupAdd
       await writeFile(join(project.root, file.path), file.content, { flag: "wx" })
     }
     catch {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: file.path }), { exitCode: setupExitCodes.conflict })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: file.path }), setupExitCodes.conflict)
     }
   }
   if (planned.configFile) {
     const path = join(project.root, planned.configFile.path)
     if (await readFile(path, "utf8") !== planned.configFile.before) {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), { exitCode: setupExitCodes.stalePlan })
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
     }
     await writeFile(path, planned.configFile.after)
   }
@@ -546,7 +600,8 @@ function writeResult(plan: SetupAddPlan, context: ViteHubCliContext): void {
   context.stdout.write(`\nNext steps:\n${plan.nextSteps.map(step => `- ${step}`).join("\n")}\n`)
 }
 
-async function confirm(): Promise<boolean> {
+/** Asks on the terminal whether to apply the changes. */
+export async function confirmSetupChange(): Promise<boolean> {
   const terminal = createInterface({ input: process.stdin, output: process.stderr })
   try {
     return /^y(?:es)?$/iu.test((await terminal.question("Apply these changes? [y/N] ")).trim())
@@ -565,8 +620,7 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
       return setupExitCodes.done
     }
     if (!parsed.features.length) {
-      throw new SetupAddError(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: "[vitehub] Name at least one feature, such as `vitehub add kv`." }), {
-        exitCode: setupExitCodes.inputNeeded,
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: "[vitehub] Name at least one feature, such as `vitehub add kv`." }), setupExitCodes.inputNeeded, {
         missing: [{ choices: featureIds, field: "feature" }],
       })
     }
@@ -583,14 +637,13 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
       const interactive = !parsed.json && !!process.stdin.isTTY && !!process.stderr.isTTY
       if (!interactive) {
         if (!parsed.json) writePlan(plan, context)
-        throw new SetupAddError(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub add` changes files and was not confirmed. Without a terminal, pass --yes." }), {
+        throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub add` changes files and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, {
           data: plan,
-          exitCode: setupExitCodes.inputNeeded,
           rerun: rerunCommand(parsed),
         })
       }
       writePlan(plan, context)
-      if (!await confirm()) throw new SetupAddError(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), { exitCode: setupExitCodes.error })
+      if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
     await applyPlan(project, planned, parsed, context)
     const applied: SetupAddPlan = { ...plan, status: "applied" }
@@ -600,7 +653,6 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
   }
   catch (error: unknown) {
     const json = parsed?.json ?? args.includes("--json")
-    if (error instanceof SetupAddError) return writeSetupError(context, json, error.error, error.failure)
     return writeSetupError(context, json, error)
   }
 }
