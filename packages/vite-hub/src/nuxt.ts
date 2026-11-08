@@ -1358,7 +1358,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // Nuxt resolves pages and layouts before the client build, so the client report can say what each route loads.
     nuxt.hook?.("app:templatesGenerated", (app) => {
       const customOptions = routerOptions?.files.find(file => !file.optional)
-      bundlePlugin.api.setRoutes(customOptions ? [] : nuxtPageRoutes(app.pages ?? [], app.layouts), {
+      const layoutComponent = app.components.find(component => component.pascalName === "NuxtLayout")?.filePath
+      bundlePlugin.api.setRoutes(customOptions ? [] : nuxtPageRoutes(app.pages ?? [], layoutComponent ? app.layouts : {}, layoutComponent), {
         sensitive: nuxt.options.router?.options?.sensitive ?? true,
         strict: nuxt.options.router?.options?.strict ?? false,
         ...(customOptions ? { unavailable: `Custom router options (${customOptions.path}) can change routes or matching at runtime.` } : {}),

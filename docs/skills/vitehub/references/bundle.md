@@ -19,7 +19,7 @@ Use this when a task asks how big the app is, why the server starts slowly or hi
 
 ## Routes
 
-Static aliases load the same files as their canonical route. Lookup follows Nuxt's case and trailing-slash settings. When a custom `app/router.options.ts` file is present (also from a layer or module), route estimates are unavailable because that file can change routes at runtime. The CLI explains this and JSON includes `client.routesUnavailable`; bundle totals and module explanations still work.
+Static aliases load the same files as their canonical route. Lookup follows Nuxt's case and trailing-slash settings. When a custom `app/router.options.ts` file is present (also from a layer or module), route estimates are unavailable because that file can change routes at runtime. Page redirects also make route estimates unavailable because the destination can change before rendering. The CLI explains this and JSON includes `client.routesUnavailable`; bundle totals and module explanations still work.
 
 In a Nuxt app, `vitehub bundle` also lists the largest page routes. For each route it gives the JavaScript of a first visit and the part of it that only page files add. `vitehub bundle why /docs/kv` takes a URL path, finds the route that renders it, such as `/docs/:slug()`, and prints:
 
@@ -27,10 +27,22 @@ In a Nuxt app, `vitehub bundle` also lists the largest page routes. For each rou
 - the CSS of those files,
 - the largest modules in the page files. These are what the route adds. Run `vitehub bundle why <module>` on one to get its import chain.
 
-Code that the page loads later with `import()` does not count. The layout comes from a static `layout` in `definePageMeta`, or is `default`. A layout set at runtime, route middleware, and prefetching are not counted: Nuxt's `<link rel="prefetch">` files and the pages of visible `<NuxtLink>`s load at low priority after the page. Nuxt can inline some CSS in the HTML, so `cssBytes` is an upper bound for the CSS files the browser fetches. `--json` gives the routes in `client.routes`.
+Code that the page loads later with `import()` does not count. The layout comes from a static `layout` in `definePageMeta`, or is `default`, and counts only when the startup or page files load `NuxtLayout`. If Nuxt does not expose that component's file, layouts are omitted. A layout set at runtime, conditional rendering of `NuxtLayout`, route middleware, and prefetching are not counted: Nuxt's `<link rel="prefetch">` files and the pages of visible `<NuxtLink>`s load at low priority after the page. Nuxt can inline some CSS in the HTML, so `cssBytes` is an upper bound for the CSS files the browser fetches. `--json` gives the routes in `client.routes`.
 
 Use `--json` on both commands when you compare numbers or write them into a report.
 
 ## Prove a change
 
-Run the build and `vitehub bundle` before and after the change. Report both numbers for the side and the group that changed, and the import chain that you removed.
+Save the report before you change the code, then compare after the next build:
+
+```sh
+nuxt build                                            # or vite build, with bundle: true
+vitehub bundle --json > .vitehub/bundle-before.json
+# change the code
+nuxt build
+vitehub bundle --against .vitehub/bundle-before.json
+```
+
+`--against` prints, for the client and the server, the bytes and gzip bytes before and after, the same for the startup code, and each group that grew, shrank, was added, or was removed, with its total and startup delta. Groups that did not change are not shown. Add `--json` to get the same data. `--against` also reads a copy of `.vitehub/bundle/` or the project root of another checkout that has one.
+
+If the output says that both reports are from the same build, you did not build again after the change. Report the side and startup deltas and the groups that changed. When you removed a package, also give the import chain from `vitehub bundle why <package>` on the old build.

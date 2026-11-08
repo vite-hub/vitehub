@@ -161,3 +161,49 @@ export interface BundleRouteExplanation {
   /** Modules of the files that are not startup files, largest first. They are what the route adds. */
   modules: BundleRouteModule[]
 }
+
+/** Bytes of a side, as `vitehub bundle --against` compares them. */
+export interface BundleTotals {
+  bytes: number
+  gzip: number
+  startupBytes: number
+  startupGzip: number
+}
+
+/** Bytes of a group, as `vitehub bundle --against` compares them. */
+export interface BundleGroupSize {
+  bytes: number
+  startupBytes: number
+}
+
+/**
+ * A group that changed between two builds. `added` and `removed` mean that the group is in one build only. Otherwise
+ * the total bytes decide between `grew` and `shrank`, and the startup bytes decide when the total did not change.
+ */
+export interface BundleGroupChange {
+  name: string
+  kind: BundleGroupKind
+  change: "added" | "removed" | "grew" | "shrank"
+  before: BundleGroupSize
+  after: BundleGroupSize
+  /** `after` minus `before`. */
+  delta: BundleGroupSize
+}
+
+/** One side of two builds. A side that a build does not have counts as 0 bytes. */
+export interface BundleSideComparison {
+  before: BundleTotals
+  after: BundleTotals
+  /** `after` minus `before`. */
+  delta: BundleTotals
+  /** Only the groups that changed, the largest change first. */
+  groups: BundleGroupChange[]
+}
+
+/** What changed from one build to the next. `vitehub bundle --against <saved report> --json` prints it. */
+export interface BundleComparison {
+  schemaVersion: 1
+  builds: { before: string, after: string }
+  client?: BundleSideComparison
+  server?: BundleSideComparison
+}

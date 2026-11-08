@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -136,6 +137,53 @@ describe("Nuxt pages", () => {
 })
 
 describe("route report", () => {
+  it("imports the built report exports without Vue or Vue Router runtime peers", () => {
+    const entries = ["index", "cli", "vite"].map(entry => new URL(`../dist/${entry}.js`, import.meta.url).href)
+    execFileSync(process.execPath, ["--input-type=module", "--eval", `
+      import { registerHooks } from "node:module"
+      registerHooks({ resolve(specifier, context, nextResolve) {
+        if (/^(vue|vue-router)(\\/|$)/.test(specifier)) throw new Error("Unexpected runtime peer: " + specifier)
+        return nextResolve(specifier, context)
+      } })
+      for (const entry of ${JSON.stringify(entries)}) await import(entry)
+    `])
+  })
+
+  it.each([
+    { path: "/old", alias: "/previous", file: "/app/pages/old.vue", redirect: "/new" },
+    { path: "/parent", children: [{ path: "old", file: "/app/pages/old.vue", meta: { redirect: { path: "/new" } } }] },
+  ])("makes route estimates unavailable for page redirects", (page) => {
+    const report = collectEnvironmentReport({}, {
+      build: "test", environment: "client", side: "client", root, outDir: `${root}/dist`,
+      getModuleInfo: () => null,
+      routes: nuxtPageRoutes([page, { path: "/new", file: "/app/pages/new.vue" }]),
+    })
+    expect(report.routes).toBeUndefined()
+    expect(createBundleReport([report])?.client?.routesUnavailable).toContain("Page redirects")
+    expect(explainBundleRoute([report], "/old")).toBeUndefined()
+  })
+
+  it.each([false, true])("counts layouts only when the route loads NuxtLayout (renderer loaded: %s)", (usesLayout) => {
+    const entry = `${root}/entry.js`
+    const page = `${root}/app/pages/index.vue`
+    const layout = `${root}/app/layouts/default.vue`
+    const renderer = `${root}/node_modules/nuxt/dist/app/components/nuxt-layout.js`
+    const report = collectEnvironmentReport({
+      "entry.js": chunk("entry.js", "entry", [entry], { entry: true, imports: usesLayout ? ["renderer.js"] : [] }),
+      "page.js": chunk("page.js", "page", [page]),
+      "layout.js": chunk("layout.js", "layout", [layout]),
+      // An emitted renderer that the route never imports must not imply a rendered layout.
+      "renderer.js": chunk("renderer.js", "renderer", [renderer]),
+    }, {
+      build: "test", environment: "client", side: "client", root, outDir: `${root}/dist`, getModuleInfo: noGraph(entry),
+      routes: nuxtPageRoutes([{ path: "/", file: page }], { default: { file: layout } }, renderer),
+    })
+    const route = createBundleReport([report])!.client!.routes![0]!
+    expect(route.files.some(file => file.file === "layout.js")).toBe(usesLayout)
+    expect(route.components.includes("app/layouts/default.vue")).toBe(usesLayout)
+    expect(route.bytes).toBe(usesLayout ? 23 : 9)
+  })
+
   it("gives aliases the same files and bytes as the canonical route", () => {
     const report = clientReport()
     const canonical = report.routes!.find(route => route.path === "/docs/:slug()")!

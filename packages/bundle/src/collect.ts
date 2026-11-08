@@ -167,7 +167,27 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     }
   }).sort((left, right) => right.bytes - left.bytes || left.file.localeCompare(right.file))
   const css = client ? cssFiles(bundle) : []
-  const routes = client && !options.routeOptions?.unavailable ? options.routes?.map(route => ({ path: route.path, components: route.files.map(file => moduleId(file, options.root, packages)) })) : undefined
+  const unavailable = options.routeOptions?.unavailable ?? options.routes?.find(route => route.unavailable)?.unavailable
+  const routeOptions = unavailable ? { ...options.routeOptions, unavailable } : options.routeOptions
+  const routes = client && !unavailable ? options.routes?.map((route) => {
+    let files = route.files
+    const layout = route.layout
+    if (layout) {
+      const pages = new Set(files.filter(file => file !== layout.file).map(file => moduleId(file, options.root, packages)))
+      const loaded = new Set<string>()
+      const pending = rows.filter(chunk => chunk.startup || chunk.modules.some(module => pages.has(module.id)))
+      while (pending.length) {
+        const chunk = pending.pop()!
+        if (loaded.has(chunk.file)) continue
+        loaded.add(chunk.file)
+        pending.push(...rows.filter(candidate => chunk.imports?.includes(candidate.file)))
+      }
+      const renderer = moduleId(layout.component, options.root, packages)
+      const usesLayout = rows.some(chunk => loaded.has(chunk.file) && chunk.modules.some(module => module.id === renderer))
+      if (!usesLayout) files = files.filter(file => file !== layout.file)
+    }
+    return { path: route.path, components: files.map(file => moduleId(file, options.root, packages)) }
+  }) : undefined
 
   return {
     schemaVersion: 1,
@@ -178,6 +198,6 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     chunks: rows,
     ...(css.length ? { css } : {}),
     ...(routes?.length ? { routes } : {}),
-    ...(client && options.routeOptions ? { routeOptions: options.routeOptions } : {}),
+    ...(client && routeOptions ? { routeOptions } : {}),
   }
 }

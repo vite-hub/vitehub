@@ -6,6 +6,10 @@ import type { BundleEnvironmentReport, BundleRoute, BundleRouteExplanation, Bund
 export interface PageRoute {
   path: string
   files: string[]
+  /** Include this layout only when the route also loads its renderer. */
+  layout?: { file: string, component: string }
+  /** Suppress route estimates for this build when a route cannot be measured safely. */
+  unavailable?: string
 }
 
 /** The parts of a Nuxt page that the report reads. */
@@ -15,7 +19,8 @@ export interface NuxtPageLike {
   file?: string
   /** Named views, including `default`. */
   components?: Record<string, string>
-  meta?: { layout?: unknown }
+  redirect?: unknown
+  meta?: { layout?: unknown, redirect?: unknown }
   children?: NuxtPageLike[]
 }
 
@@ -30,7 +35,7 @@ function joinPath(parent: string, path: string): string {
  * every parent page. The layout is the last static `layout` in the page meta of the route, or `default`. A layout
  * that the app sets at runtime is not known at build time.
  */
-export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly<Record<string, { file: string }>> = {}): PageRoute[] {
+export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly<Record<string, { file: string }>> = {}, layoutComponent?: string): PageRoute[] {
   const routes = new Map<string, PageRoute>()
   const walk = (list: readonly NuxtPageLike[], parentPaths: string[], parentFiles: string[], parentLayout: unknown) => {
     for (const page of list) {
@@ -39,10 +44,16 @@ export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly
       const own = page.components ? Object.values(page.components) : page.file ? [page.file] : []
       const files = [...parentFiles, ...own]
       const layout = typeof page.meta?.layout === "string" || page.meta?.layout === false ? page.meta.layout : parentLayout
-      if (own.length) {
+      const redirect = page.redirect ?? page.meta?.redirect
+      if (own.length || redirect !== undefined) {
         const layoutFile = typeof layout === "string" ? layouts[layout]?.file : undefined
         // A child with the same path, such as `index.vue` in a folder, renders instead of its parent alone.
-        for (const path of paths) routes.set(path, { path, files: layoutFile ? [layoutFile, ...files] : files })
+        for (const path of paths) routes.set(path, {
+          path,
+          files: layoutFile ? [layoutFile, ...files] : files,
+          ...(layoutFile && layoutComponent ? { layout: { file: layoutFile, component: layoutComponent } } : {}),
+          ...(redirect !== undefined ? { unavailable: "Page redirects can change the route before its components render." } : {}),
+        })
       }
       if (page.children?.length) walk(page.children, paths, files, layout)
     }
@@ -118,7 +129,7 @@ export function routesOf(report: BundleEnvironmentReport): BundleRoute[] {
 export function matchRoute<T extends { path: string }>(routes: readonly T[], target: string, options: BundleRouteOptions = {}): T | undefined {
   if (options.unavailable) return undefined
   const path = target.replace(/[?#].*$/, "")
-  const matcher = createRouterMatcher(routes.map((route, index) => ({ path: route.path, name: String(index) })), options)
+  const matcher = createRouterMatcher(routes.map((route, index) => ({ path: route.path, name: String(index), children: [] })), options)
   const match = matcher.getRoutes().find(route => route.re.test(path))
   return match ? routes[Number(match.record.name)] : undefined
 }

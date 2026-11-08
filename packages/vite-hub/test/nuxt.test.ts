@@ -1016,6 +1016,27 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it("passes the resolved NuxtLayout renderer to bundle route capture", async () => {
+    const setRoutes = vi.fn()
+    mocks.vitehub.mockReturnValue([{ name: "@vite-hub/bundle/vite", api: { startBuild: vi.fn(), setRoutes } }])
+    const { nuxt, templatesGeneratedHooks } = createNuxt(false)
+    await viteHubNuxtModule({ bundle: true }, nuxt)
+    const app = {
+      components: [{ pascalName: "NuxtLayout", filePath: "/nuxt/nuxt-layout.js" }],
+      pages: [{ path: "/", file: "/app/pages/index.vue" }],
+      layouts: { default: { file: "/app/layouts/default.vue" } },
+    }
+    for (const hook of templatesGeneratedHooks) await hook(app)
+    expect(setRoutes).toHaveBeenLastCalledWith([{
+      path: "/", files: ["/app/layouts/default.vue", "/app/pages/index.vue"],
+      layout: { file: "/app/layouts/default.vue", component: "/nuxt/nuxt-layout.js" },
+    }], { sensitive: true, strict: false })
+    for (const hook of templatesGeneratedHooks) await hook({ ...app, components: [] })
+    expect(setRoutes).toHaveBeenLastCalledWith([{
+      path: "/", files: ["/app/pages/index.vue"],
+    }], { sensitive: true, strict: false })
+  })
+
   it("finalizes Sandbox Wrangler config after every Nuxt replay contributor", async () => {
     const configResolved = vi.fn((config: { nitro?: Record<string, unknown> }) => {
       const migrations = ((config.nitro!.cloudflare as Record<string, unknown>).wrangler as Record<string, unknown>).migrations as Array<Record<string, unknown>>
