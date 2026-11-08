@@ -1,7 +1,7 @@
 /**
  * The "New project" page of a hosted Console. A person picks a host, features, and the options that the host needs,
- * and the page prints the `vite-hub init` command for that stack. The stack lives in the URL query, so the page is
- * shareable and survives a reload. The one-time Console link is per browser, so it never goes in the URL.
+ * and the page prints the `vite-hub init` command for that stack. Shareable options live in the URL query. Private
+ * options stay in page memory. The one-time Console link is per browser, so it never goes in the URL.
  */
 
 import { featureIds, features, featureSupport } from "@vite-hub/internal/features"
@@ -42,6 +42,8 @@ export interface NewProjectOptionInput {
   /** The values that the option accepts. Without them the person types the value. */
   choices?: readonly [string, ...string[]]
   placeholder?: string
+  /** The value can contain credentials. Keep it in page memory, out of the shareable query. */
+  private?: boolean
   /** Why the option is needed, from the feature catalog when the host is `explicit`. */
   detail: string
 }
@@ -86,7 +88,7 @@ export interface NewProjectPlan {
 const optionInputs: Readonly<Record<string, Omit<NewProjectOptionInput, "detail" | "feature">>> = {
   "blob.driver": { path: "blob.driver", choices: ["s3"] },
   "cache.driver": { path: "cache.driver", choices: ["kv"] },
-  "database.connection": { path: "database.connection.url", placeholder: "libsql://my-db.example.com" },
+  "database.connection": { path: "database.connection.url", placeholder: "libsql://my-db.example.com", private: true },
   "email.driver": { path: "email.driver", choices: ["resend"] },
   "kv.driver": { path: "kv.driver", choices: ["upstash"] },
   "realtime.authority": { path: "realtime.authority", choices: ["memory"] },
@@ -102,6 +104,7 @@ const optionRequires: Readonly<Record<string, { value: string, feature: FeatureI
 /** The options that `vitehub add` needs for a feature on a host, beyond the `explicit` option of the catalog. */
 function requiredInputs(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
   if (id === "console") return [{ feature: id, path: "console.auth", choices: ["token"], detail: "The hosted Console signs in with the key of the one-time link. App sign-in needs a session on the app's origin." }]
+  if (id === "logs") return [{ feature: id, path: "logs.source", placeholder: "./server/logs.ts", detail: "The server module that exports your LogSource. Add this module before you build the app." }]
   if (id === "observability") return [{ feature: id, path: "observability.service", placeholder: packageNameOf(dir), detail: "The service name in the telemetry of the app." }]
   if (id === "schedule" && host === "node") return [{ feature: id, path: "schedule.runtime.driver", choices: ["process"], detail: "A Node server runs Schedules in its own process." }]
   return []
@@ -235,9 +238,14 @@ function isHost(value: string | null): value is NewProjectHost {
   return newProjectHosts.some(host => host.id === value)
 }
 
+function isPrivateOption(path: string): boolean {
+  return Object.values(optionInputs).some(input => input.path === path && input.private)
+}
+
 /**
  * Read the stack from the query of the page, such as
- * `?host=vercel&features=kv,email&option=email.driver%3Dresend&dir=shop`. Unknown hosts and features are dropped.
+ * `?host=vercel&features=kv,email&option=email.driver%3Dresend&dir=shop`. Unknown hosts and features, and private options,
+ * are dropped.
  */
 export function readNewProjectQuery(search: string): NewProjectStack {
   const params = new URLSearchParams(search)
@@ -246,7 +254,7 @@ export function readNewProjectQuery(search: string): NewProjectStack {
   const options: Record<string, string> = {}
   for (const option of params.getAll("option")) {
     const separator = option.indexOf("=")
-    if (separator > 0) options[option.slice(0, separator)] = option.slice(separator + 1)
+    if (separator > 0 && !isPrivateOption(option.slice(0, separator))) options[option.slice(0, separator)] = option.slice(separator + 1)
   }
   return {
     dir: params.get("dir") ?? newProjectDefaultDir,
@@ -257,8 +265,8 @@ export function readNewProjectQuery(search: string): NewProjectStack {
 }
 
 /**
- * The query for a stack, with `?`, or `""` for an empty stack. It keeps only the options that the plan asks for, so a
- * shared URL does not carry values of another host.
+ * The query for a stack, with `?`, or `""` for an empty stack. It keeps only the non-private options that the plan asks
+ * for, so a shared URL carries no credentials or values of another host.
  */
 export function newProjectQuery(stack: NewProjectStack, plan: NewProjectPlan = planNewProject(stack)): string {
   const params = new URLSearchParams()
@@ -267,7 +275,7 @@ export function newProjectQuery(stack: NewProjectStack, plan: NewProjectPlan = p
   if (stack.features.length) params.set("features", stack.features.join(","))
   for (const input of plan.options) {
     const value = stack.options[input.path]
-    if (value) params.append("option", `${input.path}=${value}`)
+    if (value && !input.private) params.append("option", `${input.path}=${value}`)
   }
   const query = params.toString()
   return query ? `?${query}` : ""

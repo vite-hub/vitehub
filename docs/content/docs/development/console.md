@@ -358,7 +358,7 @@ pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --console <i
 
 5. Deploy the app, then open the link that the CLI prints in the same browser. See [Link a new project](#link-a-new-project).
 
-The address of the page holds the stack: the folder, the host, the features, and the options, such as `/new?host=vercel&features=email&option=email.driver%3Dresend`. Share it, or reload it, and the page shows the same stack. The `--console` value is not in the address, because its link works only in the browser that made it. When you change the stack after the command appears, the command changes and keeps the same link.
+The address of the page holds the stack: the folder, the host, the features, and non-private options, such as `/new?host=vercel&features=email&option=email.driver%3Dresend`. Database connection URLs can contain credentials, so they stay only in page memory and the generated command. Enter them again after a reload or when you open a shared link. The `--console` value is not in the address, because its link works only in the browser that made it. When you change the stack after the command appears, the command changes and keeps the same link.
 
 Creating a command needs persistent browser storage and Web Locks, which keep the key across navigation and let only one tab confirm a link. Allow browser storage and use a current browser on an HTTPS Console.
 

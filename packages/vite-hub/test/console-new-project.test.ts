@@ -105,6 +105,21 @@ describe("planNewProject", () => {
     ])
   })
 
+  it("requires a Logs source on every host before printing a command", () => {
+    for (const { id: host } of newProjectHosts) {
+      const value = stack({ host, features: ["logs"] })
+      expect(planNewProject(value).problems).toEqual([
+        { field: "option", path: "logs.source", message: "Enter a value for logs.source." },
+      ])
+      expect(newProjectCommand(value, ticket)).toBeUndefined()
+
+      const filled = { ...value, options: { ...value.options, "logs.source": "./server/logs.ts" } }
+      expect(planNewProject(filled).problems).toEqual([])
+      expect(newProjectCommand(filled, ticket)).toContain(" --option logs.source=./server/logs.ts ")
+      expect(readNewProjectQuery(newProjectQuery(filled))).toEqual(filled)
+    }
+  })
+
   it("rejects a value that is not one of the choices", () => {
     const plan = planNewProject({ dir: "my-app", host: "vercel", features: ["email"], options: { "email.driver": "smtp" } })
     expect(plan.problems).toEqual([{ field: "option", path: "email.driver", message: "email.driver must be resend." }])
@@ -146,8 +161,27 @@ describe("new project query", () => {
   })
 
   it("round-trips values that need encoding", () => {
-    const value = stack({ host: "deno", features: ["comments"], options: { "database.connection.url": "libsql://db.example.com/x?a=b&c=d e" } })
+    const value = stack({ host: "deno", features: ["observability"], options: { "observability.service": "shop & team=blue" } })
     expect(readNewProjectQuery(newProjectQuery(value))).toEqual(value)
+  })
+
+  it("keeps database URLs in the command but out of shareable state", () => {
+    const url = "libsql://db.example.com?authToken=private-token"
+    const value = stack({ host: "deno", features: ["comments"], options: { "database.connection.url": url } })
+    const query = newProjectQuery(value)
+    expect(query).toBe("?host=deno&features=comments")
+    expect(newProjectCommand(value, ticket)).toContain(`--option 'database.connection.url=${url}'`)
+    expect(planNewProject(readNewProjectQuery(query)).problems).toEqual([
+      { field: "option", path: "database.connection.url", message: "Enter a value for database.connection.url." },
+    ])
+  })
+
+  it("drops database URLs from older shared links", () => {
+    const query = `?host=deno&features=comments&option=${encodeURIComponent("database.connection.url=libsql://db.example.com?authToken=private-token")}`
+    const value = readNewProjectQuery(query)
+    expect(value.options).toEqual({})
+    expect(newProjectQuery(value)).toBe("?host=deno&features=comments")
+    expect(newProjectCommand(value, ticket)).toBeUndefined()
   })
 
   it("keeps only the options that the stack asks for", () => {

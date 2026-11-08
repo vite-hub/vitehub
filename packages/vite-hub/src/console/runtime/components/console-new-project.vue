@@ -23,7 +23,7 @@ import ConsoleMark from "./console-mark.vue";
 addNewProjectHostIcons();
 
 /**
- * The `/new` page of a hosted Console. The stack lives in the URL query, so the page is shareable and survives a reload.
+ * The `/new` page of a hosted Console. The stack's non-private values live in the shareable URL query.
  * It prints the `vite-hub init` command, or a prompt that asks a coding agent to run it. The one-time link is made once
  * the stack has no problems, one per page view, and its id and verifier stay out of the URL.
  */
@@ -135,11 +135,11 @@ function note(row: NewProjectFeature): string | undefined {
   return undefined;
 }
 
-// Replace, not push: each change is not a page of its own, and Back leaves the page.
+// Replace, not push: each change is not a page of its own, and Back leaves the page. Also clean older links on load.
 watch(stack, (value) => {
   const url = `${window.location.pathname}${newProjectQuery(value, planNewProject(value))}`;
   window.history.replaceState(window.history.state, "", url);
-});
+}, { immediate: true });
 
 async function focusFirstProblem(): Promise<void> {
   await nextTick();
@@ -226,7 +226,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
         <div class="grid gap-1.5">
           <h1 ref="heading" class="vitehub-new-project__title" tabindex="-1">New project</h1>
           <p class="vitehub-new-project__text">
-            Pick a host and the features. The Console prints the <code class="vitehub-new-project__code">vite-hub init</code> command for this stack, or a prompt for your coding agent. The address of this page holds the stack, so you can share it.
+            Pick a host and the features. The Console prints the <code class="vitehub-new-project__code">vite-hub init</code> command for this stack, or a prompt for your coding agent. The address holds the stack without private values, so you can share it.
           </p>
         </div>
 
@@ -364,6 +364,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
               </template>
               <template #description>
                 <span class="text-pretty">{{ features[input.feature].title }}: <ConsoleCodeText :text="input.detail" /></span>
+                <span v-if="input.private" class="block text-pretty">Kept only on this page. Enter it again after reloading or opening a shared link.</span>
               </template>
               <USelect
                 v-if="input.choices"
