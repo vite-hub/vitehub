@@ -36,6 +36,8 @@ const props = withDefaults(
     invocation: AgentInvocationView;
     maximized?: boolean;
     maximizable?: boolean;
+    /** Show only this view, without the tab strip, for a layout that has its own tabs such as AgentSession. */
+    view?: InspectorTab;
     workspaceBase?: string;
   }>(),
   { maximized: false, maximizable: true },
@@ -254,6 +256,19 @@ watch(
     // An open panel always shows something: the Details tab when no other tab is open, such as a link to a tab
     // that this session does not have.
     else openView("details");
+  },
+  { flush: "post", immediate: true },
+);
+
+// A single-view inspector opens its view once the default Details tab is in place, and keeps a file that the caller
+// asked for, since opening the Workspace view clears the selection.
+watch(
+  () => props.view,
+  (view) => {
+    if (!view) return;
+    const path = selectedPath.value;
+    openView(view);
+    if (path && view === "workspace") selectedPath.value = path;
   },
   { flush: "post", immediate: true },
 );
@@ -554,8 +569,8 @@ function message(error: unknown) {
 </script>
 
 <template>
-  <aside class="session-inspector">
-    <header class="session-inspector__header">
+  <aside class="session-inspector" :data-single-view="props.view ? '' : undefined">
+    <header v-if="!props.view" class="session-inspector__header">
       <div ref="tabstrip" class="session-inspector__tabstrip">
         <TabsRoot
           v-if="surfaceItems.length"
@@ -645,7 +660,7 @@ function message(error: unknown) {
       </div>
     </header>
 
-    <div v-if="!activeSurfaceExists" class="session-inspector__empty border-0">
+    <div v-if="!props.view && !activeSurfaceExists" class="session-inspector__empty border-0">
       <div class="session-inspector__empty-copy">
         <strong>Open a tab</strong>
         <span>Choose what to inspect in this Agent Invocation.</span>

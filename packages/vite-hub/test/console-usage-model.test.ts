@@ -31,6 +31,8 @@ function evidence(overrides: Partial<ConsoleUsageEvidence> = {}): ConsoleUsageEv
     costUsd: "0",
     inputTokens: 0,
     inputTokensAvailable: true,
+    invocations: 1,
+    invocationsAvailable: true,
     outputTokens: 0,
     outputTokensAvailable: true,
     pricedInvocations: 1,
