@@ -78,6 +78,9 @@ catalogs:
     '@chat-adapter/discord':
       specifier: 4.44.0
       version: 4.44.0
+    '@chat-adapter/slack':
+      specifier: 4.44.0
+      version: 4.44.0
     '@chat-adapter/teams':
       specifier: 4.44.0
       version: 4.44.0
@@ -716,6 +719,9 @@ importers:
         specifier: catalog:tooling
         version: 2.9.1
     devDependencies:
+      '@chat-adapter/slack':
+        specifier: catalog:chat
+        version: 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.139
@@ -930,7 +936,7 @@ importers:
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@github-tools/eve-extension':
         specifier: 0.8.1
-        version: 0.8.1(35451487153d6ed8d138dfb03cf3495f)
+        version: 0.8.1(5effb93e4530c8df43af3cf7bee39d71)
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
@@ -1322,6 +1328,9 @@ importers:
 
   packages/channels:
     dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -1359,12 +1368,18 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      diff:
+        specifier: catalog:runtime
+        version: 9.0.0
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -1372,6 +1387,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -1472,6 +1490,9 @@ importers:
       scule:
         specifier: ^1.3.0
         version: 1.3.0
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       tinyglobby:
         specifier: catalog:workspace
         version: 0.2.17
@@ -1485,6 +1506,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -1870,6 +1894,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      ai:
+        specifier: catalog:ai
+        version: 7.0.130(zod@4.6.7)
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -2610,9 +2637,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      nuxt:
-        specifier: catalog:nuxt
-        version: nuxt-nightly@5.0.0-2611052317-a04317f(0263ced4b68338756b387b590791e7c6)
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3327,15 +3351,6 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261019.1
-      '@json-render/core':
-        specifier: 0.21.0
-        version: 0.21.0(zod@4.6.7)
-      '@json-render/vue':
-        specifier: 0.21.0
-        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
-      '@modelcontextprotocol/sdk':
-        specifier: catalog:ai
-        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
@@ -3402,9 +3417,6 @@ importers:
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
-      '@vueuse/core':
-        specifier: catalog:ui
-        version: 14.4.0(vue@3.5.44(typescript@6.0.3))
       confbox:
         specifier: ^0.2.4
         version: 0.2.4
@@ -3505,12 +3517,21 @@ importers:
       '@internationalized/date':
         specifier: ^3.12.4
         version: 3.12.4
+      '@json-render/core':
+        specifier: 0.21.0
+        version: 0.21.0(zod@4.6.7)
+      '@json-render/vue':
+        specifier: 0.21.0
+        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
       '@microsoft/microsoft-graph-client':
         specifier: catalog:storage
         version: 3.0.7(@azure/identity@4.13.3)
+      '@modelcontextprotocol/sdk':
+        specifier: catalog:ai
+        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.12.0(697bb245be559288e779d6f33ea89de2)
@@ -3607,6 +3628,9 @@ importers:
       '@vue/test-utils':
         specifier: 2.5.1
         version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
+      '@vueuse/core':
+        specifier: catalog:ui
+        version: 14.4.0(vue@3.5.44(typescript@6.0.3))
       '@workflow/builders':
         specifier: catalog:workflow
         version: 5.0.6(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
@@ -3877,6 +3901,9 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.1
     devDependencies:
       '@libsql/client':
         specifier: catalog:database
@@ -4841,6 +4868,10 @@ packages:
 
   '@chat-adapter/shared@4.44.0':
     resolution: {integrity: sha512-g6MmtkFLVE3Fn19Ly8e+3bZTAw5Kzh/2oP3qKRaVW0IPwVLDa2GRq/Q5fpGS+Xmzn2oqzpaHJrRuQRdWjLboqg==}
+    engines: {node: '>=20'}
+
+  '@chat-adapter/slack@4.44.0':
+    resolution: {integrity: sha512-pY8QKy/cKjBX/m+h/j7zSSNfXYEiDTqu0wyjDMPyTg0T7WsDRZZZzdZD9I49cP9rZsr3k+5mb4zbyQMBmGRn+A==}
     engines: {node: '>=20'}
 
   '@chat-adapter/teams@4.44.0':
@@ -9838,6 +9869,22 @@ packages:
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
 
+  '@slack/logger@4.0.1':
+    resolution: {integrity: sha512-6cmdPrV/RYfd2U0mDGiMK8S7OJqpCTm7enMLRR3edccsPX8j7zXTLnaEF4fhxxJJTAIOil6+qZrnUPTuaLvwrQ==}
+    engines: {node: '>= 18', npm: '>= 8.6.0'}
+
+  '@slack/socket-mode@2.0.7':
+    resolution: {integrity: sha512-qYy07je71WnEHgRwmw12DlAnZLi5HXmdlI2WUzUK2LH/rYXQpP6uEg462S5CwfE8FoCKUdIigHtYnOOfzZH1lQ==}
+    engines: {node: '>= 18', npm: '>= 8.6.0'}
+
+  '@slack/types@2.22.0':
+    resolution: {integrity: sha512-sZ9lIgJhPX2qft/tKWiklFlc0o1FWeI7QtciZJfW1+ErH1eGGHvOZ8e73sleTCFEFJp1q/R0WeS8Oa7AsiDprg==}
+    engines: {node: '>= 12.13.0', npm: '>= 6.12.0'}
+
+  '@slack/web-api@7.19.0':
+    resolution: {integrity: sha512-ItjyjEZml+LDH8CjcCLRLJHh7VZtevPKExrRN3l5KWyBliyDnGAeoO4Y+K+fFBmRpKLYVPgqWMX4THldv2HVtA==}
+    engines: {node: '>= 18', npm: '>= 8.6.0'}
+
   '@smithy/core@3.35.1':
     resolution: {integrity: sha512-i4YPS4B6ts7bjn7UwLnGjiZdprOvHvgGobFZsYK3GIY3E5hIqtj0rReU69BcTpGp+fvtraSNXeG1l+jtJvF55w==}
     engines: {node: '>=18.0.0'}
@@ -10024,7 +10071,7 @@ packages:
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {integrity: sha512-LlFE6bvmv5/lhouvR+rnHr5JIcynqdVhL7xor+UK1wToAuF4ahFKaOB996bLjnhGgRzXbv/d+fLnOm8XZNTVkw==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.1
@@ -10634,6 +10681,9 @@ packages:
 
   '@types/resolve@1.20.2':
     resolution: {integrity: sha512-60BCwRFOZCQhDncwQdxxeOEEkbc5dIMccYLwbxsS4TUNeVECQ/pBJ0j09mrHOl/JJvpRPGwO9SvE4nR2Nb/a4Q==}
+
+  '@types/retry@0.12.0':
+    resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
 
   '@types/retry@0.12.5':
     resolution: {integrity: sha512-3xSjTp3v03X/lSQLkczaN9UIEwJMoMCA1+Nb5HfbJEQWogdeQIyVtTvxPXDQjZ5zws8rFQfVfRdz03ARihPJgw==}
@@ -12457,7 +12507,7 @@ packages:
       comark: ^0.8.0
 
   comark-annotate@https://pkg.pr.new/onmax/comark-ui/comark-annotate@f31c298:
-    resolution: {integrity: sha512-zEURO0Ga+Iy7ZMg6FZfE5yY53Jq/UvBl1Sqd3qx8QMe8sFhUbg6OxG9ZwewxVCArzWKY8DPcf4r257go2e+brA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-annotate@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-annotate@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     hasBin: true
@@ -12485,7 +12535,7 @@ packages:
         optional: true
 
   comark-badge@https://pkg.pr.new/onmax/comark-ui/comark-badge@f31c298:
-    resolution: {integrity: sha512-4ewkw31iyTybK82McL90bRLf4hqr6DWDEMTIISvkOgtOQw+WY8yjynQjWtjNxdGSBPw9Wkicxlqq8YSSFxAfog==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-badge@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-badge@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12524,7 +12574,7 @@ packages:
         optional: true
 
   comark-cards@https://pkg.pr.new/onmax/comark-ui/comark-cards@f31c298:
-    resolution: {integrity: sha512-p4T/zJSxQnTZRuNmaT8Vl+X6iNhgXLkLZcETXepoPDpURTJeY9nKOSFEJB6hrEQ87Stwoq3YA6KedbBqH2G+KA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-cards@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-cards@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12563,7 +12613,7 @@ packages:
         optional: true
 
   comark-carousel@https://pkg.pr.new/onmax/comark-ui/comark-carousel@f31c298:
-    resolution: {integrity: sha512-Yv0rZQok3nfSNQUzENSIFaArGappwv//WIkfLTkEpiHHTYY8O++Vo7azSlf/Ve3muDOylsnMTMNGMw885vkmwg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-carousel@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-carousel@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12602,7 +12652,7 @@ packages:
         optional: true
 
   comark-cast@https://pkg.pr.new/onmax/comark-ui/comark-cast@f31c298:
-    resolution: {integrity: sha512-tCrU8H+Gv7wNW1rAAE4xWwnjlGUjFLAcv6UI1XEABMWwXIqWcD6ceIoVpt0T3HXLYnxAhuX2Djss2JcK0brS0w==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-cast@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-cast@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12641,7 +12691,7 @@ packages:
         optional: true
 
   comark-charts@https://pkg.pr.new/onmax/comark-ui/comark-charts@f31c298:
-    resolution: {integrity: sha512-tQKZ7JQwKo2pZCsvp16PK84ouNUM+0/pDtvq56hr8n6bQR7O0dF/wJgF+cHMKj18hlBBMKZPNwTJhjjR5qIX5Q==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-charts@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-charts@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12704,7 +12754,7 @@ packages:
         optional: true
 
   comark-chips@https://pkg.pr.new/onmax/comark-ui/comark-chips@f31c298:
-    resolution: {integrity: sha512-gQ6bKCYZRpAnvoVeI2DbWcM9NvVPtRVfgLHc7y6gD9Oj2sssieiKj5ZM1G6jJjmZOJFh1bN21ficlVleudEL3g==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-chips@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-chips@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12730,7 +12780,7 @@ packages:
       comark: ^0.8.0
 
   comark-cjk@https://pkg.pr.new/onmax/comark-ui/comark-cjk@f31c298:
-    resolution: {integrity: sha512-SbbBIx3pVJLOcFuimHX0qgPRpK2MLPH7yQfE3eqtr+deYuZ/w8Ax+dGnpuKT/f0GmfRnoGO8f4dFaxeIIW4FIw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-cjk@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-cjk@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12756,7 +12806,7 @@ packages:
         optional: true
 
   comark-code-notes@https://pkg.pr.new/onmax/comark-ui/comark-code-notes@f31c298:
-    resolution: {integrity: sha512-6Es4KC7zK8zGzaqVncfx7gyAO/BjXAPqWT32BYkGzm4i0K/JomDwsfSyCpLFrnm2bbIhSW0y8SMDeXjMQ9yAMA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-code-notes@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-code-notes@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12795,7 +12845,7 @@ packages:
         optional: true
 
   comark-code@https://pkg.pr.new/onmax/comark-ui/comark-code@f31c298:
-    resolution: {integrity: sha512-XdbCiaQJa3WDHyCJWtLpx7KhDWU9O04/RVOKnRs5j6vypamM1Sxzn4yo80zL4YlEp+gkiXDh3jH/w7pkgjSRSw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-code@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-code@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12834,7 +12884,7 @@ packages:
         optional: true
 
   comark-colors@https://pkg.pr.new/onmax/comark-ui/comark-colors@f31c298:
-    resolution: {integrity: sha512-W09c6wfmH3OiJb3JEHTtIV+3/4bzd9BS17pfYOdNVMKy9R8Y3zX97SWOLCD6NlW2cACKbDryxpTSDitHSp3ARA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-colors@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-colors@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12864,7 +12914,7 @@ packages:
         optional: true
 
   comark-comments@https://pkg.pr.new/onmax/comark-ui/comark-comments@f31c298:
-    resolution: {integrity: sha512-uMMZdTAciPQlPGq3fjZRTtUFat/Z+gmRTyaI+WM73LcTM/kEMs1PrwxfhR03ln/bf9OBeKMkp/QjQ2pYIwILZA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-comments@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-comments@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12890,7 +12940,7 @@ packages:
       comark: ^0.8.0
 
   comark-critic@https://pkg.pr.new/onmax/comark-ui/comark-critic@f31c298:
-    resolution: {integrity: sha512-pFbKfNOE7eTG1U8eJ7PyIKu4hwl7HnWYWMgV8FL+2++q/beON7EoNVMyTwrhrNAMtkpewS0Du2iLvWJlDmBlbg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-critic@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-critic@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12903,7 +12953,7 @@ packages:
       comark: ^0.8.0
 
   comark-deflist@https://pkg.pr.new/onmax/comark-ui/comark-deflist@f31c298:
-    resolution: {integrity: sha512-rs9n4rvAQ4z3o9nFe5P1VpU+8XLYM5HzYhm5uBNZdo68tRJakqxuACZXcKvrxF1sJpzxQQgi85OxulBorUNykA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-deflist@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-deflist@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12929,7 +12979,7 @@ packages:
         optional: true
 
   comark-details@https://pkg.pr.new/onmax/comark-ui/comark-details@f31c298:
-    resolution: {integrity: sha512-F5oO0YMlIGMzbLhDzC2CZLx89o+KjF5ijSo/t2eO9QdOD4ECJcRjr/0xwPHu3zI7rEayi/Xczxv+NjwX+aITKw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-details@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-details@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12968,7 +13018,7 @@ packages:
         optional: true
 
   comark-diagrams@https://pkg.pr.new/onmax/comark-ui/comark-diagrams@f31c298:
-    resolution: {integrity: sha512-emjwKqfIJC5cSdNQ403v00bjWcPvwVmBpboPO/7hpwR9Q/NBMFVHIAQuvrkSCBrkoB3vpqLdn7h3o7Td6prXLA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-diagrams@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-diagrams@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12998,7 +13048,7 @@ packages:
         optional: true
 
   comark-diff@https://pkg.pr.new/onmax/comark-ui/comark-diff@f31c298:
-    resolution: {integrity: sha512-wukKWUKQUs2etiIn+WJhJ7f6a/1fJqeFOaNmZuNVHwrGc8M9RIzMgh0IbodqpOf1/rbkE7WFIJ6iNxsljnGZvg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-diff@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-diff@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13028,7 +13078,7 @@ packages:
         optional: true
 
   comark-embed@https://pkg.pr.new/onmax/comark-ui/comark-embed@f31c298:
-    resolution: {integrity: sha512-dr4DirZkfYJ474oo11P6iBOvS5k6VOkfzgLNr3tzjUa2iG8ganfDWsvVCeJrQrIOV0kGlKY3KS15Ra+Yxg0qcQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-embed@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-embed@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13067,7 +13117,7 @@ packages:
         optional: true
 
   comark-fields@https://pkg.pr.new/onmax/comark-ui/comark-fields@f31c298:
-    resolution: {integrity: sha512-R629IwXUSxa+bfh8zMItfoinR2ngbgxaGqz7q9KdIdAuvNN7qHB5EGgrRarMAL+bPa5XNfxxqOM453NKOa/EtQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-fields@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-fields@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13093,7 +13143,7 @@ packages:
       comark: ^0.8.0
 
   comark-figure@https://pkg.pr.new/onmax/comark-ui/comark-figure@f31c298:
-    resolution: {integrity: sha512-1mi9gFCkVTspkh6LiTjJ7deEiK5/cvaRWEV/0CKitzHxQEmEWUesPUMcEcWLN/gt9K3CjluhHOzN1wo4wasY7g==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-figure@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-figure@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13119,7 +13169,7 @@ packages:
         optional: true
 
   comark-file-tree@https://pkg.pr.new/onmax/comark-ui/comark-file-tree@f31c298:
-    resolution: {integrity: sha512-OK/oGSHOIwAT+scZPQUZ2eWT/svVddlwYBrmfh+yXAx18eQodLJ6AUIKphPYnzpZVvbmbwq7OV8/6rG1KazEtw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-file-tree@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-file-tree@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13145,7 +13195,7 @@ packages:
       comark: ^0.8.0
 
   comark-footnotes@https://pkg.pr.new/onmax/comark-ui/comark-footnotes@f31c298:
-    resolution: {integrity: sha512-1yU+e71gk9cvipRqlCnEobKg7CfKvBkgPt4DS6cau9EhXzQTNo8VC9jACYBodAF044RRvJ+nsEaF8HyWfloriA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-footnotes@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-footnotes@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13171,7 +13221,7 @@ packages:
         optional: true
 
   comark-github@https://pkg.pr.new/onmax/comark-ui/comark-github@f31c298:
-    resolution: {integrity: sha512-4VtzMg+Iwq1BqUuvExzu7y9PZkzm+aXgf6r2QhB3fvpMsh1zIKumnaoTrdgGamjRhI9nOtC9wfhuPwfmAURaLg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-github@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-github@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13210,7 +13260,7 @@ packages:
         optional: true
 
   comark-icon@https://pkg.pr.new/onmax/comark-ui/comark-icon@f31c298:
-    resolution: {integrity: sha512-ZdAC1a0DEg8ryaUZdA42xZqfq/HvL0N2fdUnUsjnpK0ISby977ZCBoeqqWx9ltHcyvAnQxl/YdskmeXfyN7NsQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-icon@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-icon@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13236,7 +13286,7 @@ packages:
       comark: ^0.8.0
 
   comark-include@https://pkg.pr.new/onmax/comark-ui/comark-include@f31c298:
-    resolution: {integrity: sha512-/n1O91Wq7bgPuqRjD7t5ahRfqd1Xsa8OA7Pq+P0Llb+Q/JVHFQWUxBwRNcat6pcfUcQwpazVTKzHroFeA4c29Q==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-include@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-include@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13249,7 +13299,7 @@ packages:
       comark: ^0.8.0
 
   comark-keys@https://pkg.pr.new/onmax/comark-ui/comark-keys@f31c298:
-    resolution: {integrity: sha512-WzFaUUcDQKuPPrph4QQ0QbLCnjRELmkhN4mhC/AuPGaXML6GcOyAtPsFStu1wawMLGbr4I2Woqmas3v1WQLevQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-keys@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-keys@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13275,7 +13325,7 @@ packages:
         optional: true
 
   comark-links@https://pkg.pr.new/onmax/comark-ui/comark-links@f31c298:
-    resolution: {integrity: sha512-vPeV9923Lue52lhRFyp4qXX0pAIWCFl2xXD/SWJ3DpRfVP4gbRzVwH+t/hsaA5mkg381chE9mWlA10xDgbQ7Hg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-links@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-links@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13314,7 +13364,7 @@ packages:
         optional: true
 
   comark-magic-move@https://pkg.pr.new/onmax/comark-ui/comark-magic-move@f31c298:
-    resolution: {integrity: sha512-XJy8q77fJ5SEy/yQLi/3BG4Ty9iuRmXyWNhxt/WDTD9DgLkmWcmBUZavhHg1wbXFKh2fi3Nh8wzxq6D+XCNIXA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-magic-move@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-magic-move@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13353,7 +13403,7 @@ packages:
         optional: true
 
   comark-mark@https://pkg.pr.new/onmax/comark-ui/comark-mark@f31c298:
-    resolution: {integrity: sha512-AdnOZAtLHoAbsXDHxGnbmKVQCMiP1htKzXEvYnZQjD/rPyWTokXHf7l29W1xRQ7GHRJ5AYkxwvjQY7HI5cDPYw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-mark@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-mark@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13395,7 +13445,7 @@ packages:
         optional: true
 
   comark-mathml@https://pkg.pr.new/onmax/comark-ui/comark-mathml@f31c298:
-    resolution: {integrity: sha512-9cuEIrQM5RFvBqH0PwgP1EiKXXCNoirtwiQPlWEVQbeJkXfOTMLEmNcHEvv+kapgqvz5mNOGK7focBRLrfSTYg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-mathml@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-mathml@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13437,7 +13487,7 @@ packages:
         optional: true
 
   comark-media@https://pkg.pr.new/onmax/comark-ui/comark-media@f31c298:
-    resolution: {integrity: sha512-fHczthzF/rNN0AIUkIrjdoSZMwN9qFaO94tusbfAV5GghSRS29fX+NbhHnCveKflgiwx+VRbW00hbW2ZxupN5w==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-media@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-media@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13476,7 +13526,7 @@ packages:
         optional: true
 
   comark-metrics@https://pkg.pr.new/onmax/comark-ui/comark-metrics@f31c298:
-    resolution: {integrity: sha512-V11Mlw8+6HA4YjhqR5LsmbuEf8S/AG9dMPrAn77A9RX026hT1HH8mxE48cm65xMUagaxjiMiOV+gVnoOrgloqQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-metrics@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-metrics@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13515,7 +13565,7 @@ packages:
         optional: true
 
   comark-outline@https://pkg.pr.new/onmax/comark-ui/comark-outline@f31c298:
-    resolution: {integrity: sha512-LuT7C9xEpTh0YnvgMrV95S3R47lf7g1vpOJXS0mw4O898tV18LW9IwDQTfGU3ZY6QL5NJtYr3i2bhoejVPDMZw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-outline@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-outline@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13576,7 +13626,7 @@ packages:
         optional: true
 
   comark-properties@https://pkg.pr.new/onmax/comark-ui/comark-properties@f31c298:
-    resolution: {integrity: sha512-hlH3BdAq9843IJOAejdTmeFJ3q9j+2DfKWtTdpDqHVWux4aTQdIQ/9xcVrXb+upZWL7XjxjLME4pXPbl427d9A==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-properties@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-properties@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13615,7 +13665,7 @@ packages:
         optional: true
 
   comark-qr@https://pkg.pr.new/onmax/comark-ui/comark-qr@f31c298:
-    resolution: {integrity: sha512-LKKrbiO0Uj9HKvdxil7XILq69t+BTp1LPUAtNU7caYkZtlTbjCmaZbW0MzEepxNczAy9hfqps7G6/9wyNP4glw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-qr@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-qr@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13645,7 +13695,7 @@ packages:
         optional: true
 
   comark-quiz@https://pkg.pr.new/onmax/comark-ui/comark-quiz@f31c298:
-    resolution: {integrity: sha512-KS+EOva6qRKG8d84s0eXENUqALpmkgFEJugu3oVXkAoYdUV5tyzsBPLSb1ai9oDPKSyKEKJflntx5hSCKPM8vA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-quiz@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-quiz@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13662,7 +13712,7 @@ packages:
       comark: ^0.8.0
 
   comark-reading-time@https://pkg.pr.new/onmax/comark-ui/comark-reading-time@f31c298:
-    resolution: {integrity: sha512-Ri0QLBeQdTOGuyJFHyEKQe7T+stuhGwTJZzkVv3E3pnyfJxRG6y2oldq6/Wu4vCczLKqq/zBJWuP4oiJyWyqTQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-reading-time@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-reading-time@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13688,7 +13738,7 @@ packages:
         optional: true
 
   comark-sources@https://pkg.pr.new/onmax/comark-ui/comark-sources@f31c298:
-    resolution: {integrity: sha512-dBDyk9yzx9i+Y9TwrNLKO/vKgx7XyuQURvo48G0Uh+kfKJNNfg6UGed780yXNrDTNaUs8qCVcQGQikAt6yQofQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-sources@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-sources@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13727,7 +13777,7 @@ packages:
         optional: true
 
   comark-steps@https://pkg.pr.new/onmax/comark-ui/comark-steps@f31c298:
-    resolution: {integrity: sha512-koxMbgcVubtpqjyGcvgKM5FMwdLqgD1kIUJCm80aaFH14F/dOh1FCHp+0wUAIxWImEEUYDL8tiMSVOA6CSU9zQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-steps@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-steps@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13766,7 +13816,7 @@ packages:
         optional: true
 
   comark-table@https://pkg.pr.new/onmax/comark-ui/comark-table@f31c298:
-    resolution: {integrity: sha512-VckKXIkvRuegK9SlJpLeq6PFXDMofklUf94QTmqTztQrBwYD2EG5Iqy542ZUAxxAccO/Dx90hv/AA4bKhzVB+Q==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-table@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-table@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13805,7 +13855,7 @@ packages:
         optional: true
 
   comark-tabs@https://pkg.pr.new/onmax/comark-ui/comark-tabs@f31c298:
-    resolution: {integrity: sha512-QsPwlkNLc/jnkIVGXv2qLzmlslidkZ0Bk+D30RlEJ6VEcvyK/zYRVwbbJMb61JTw6O1qNHd2ko2RT1zZY1beVw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-tabs@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-tabs@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13844,7 +13894,7 @@ packages:
         optional: true
 
   comark-tests@https://pkg.pr.new/onmax/comark-ui/comark-tests@f31c298:
-    resolution: {integrity: sha512-BgCdvhL/dMINfOoGunogXTt+Bh9Jb8DYMCroihuYKCsEv6Hj9qgN2OM8pxo/VhhmI/mlrzUIhYzXUwa3c3r+5g==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-tests@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-tests@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13864,7 +13914,7 @@ packages:
         optional: true
 
   comark-time@https://pkg.pr.new/onmax/comark-ui/comark-time@f31c298:
-    resolution: {integrity: sha512-lTc294CQTJFMSDftQenoQLT8EwP8aGFv24KPxgvIdGPwN2nIcFrw3qWewQcYbe6n+iHoarRRi3njB7Te7FqvNw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-time@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-time@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13971,7 +14021,7 @@ packages:
       comark: ^0.8.0
 
   comark-xref@https://pkg.pr.new/onmax/comark-ui/comark-xref@f31c298:
-    resolution: {integrity: sha512-D3dWMgfuhCeg8IcsKqBQBVSWUBc2uhOit7+ESa1R1HRMFgkBLENLWm1lUWVRA9WEOuNdD0cvIiIsv2ukoQXmaA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-xref@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-xref@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -13997,7 +14047,7 @@ packages:
         optional: true
 
   comark-zoom@https://pkg.pr.new/onmax/comark-ui/comark-zoom@f31c298:
-    resolution: {integrity: sha512-BlGSj+9WLFi7FoWQVhg/n122OHusOHgoZNfuLxi/xexhqHFUWAyuQL/Iy256NiG45DMJi9R0zCYeqTJITCvTWw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-zoom@f31c298}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-zoom@f31c298}
     version: 0.9.1
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -14986,6 +15036,12 @@ packages:
   event-target-shim@5.0.1:
     resolution: {integrity: sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==}
     engines: {node: '>=6'}
+
+  eventemitter3@4.0.7:
+    resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
+
+  eventemitter3@5.0.4:
+    resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
 
   events-universal@1.0.1:
     resolution: {integrity: sha512-LUd5euvbMLpwOF8m6ivPCbhQeSiYVNb8Vs0fQ8QjXo0JTkEHpz8pxdQf0gStltaPpw0Cca8b39KxvK9cfKRiAw==}
@@ -16095,6 +16151,9 @@ packages:
     resolution: {integrity: sha512-eljcgEDlEns/7AXFosB5K/2nCM4P7FQPkGc/DWLy5rmFEWvZayGrik1d9/QIY5nJ4f9YsVvBkA6kJpHn9rISdQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
     hasBin: true
+
+  is-electron@2.2.2:
+    resolution: {integrity: sha512-FO/Rhvz5tuw4MCWkpMzHFKWD2LsfHzIb7i6MdPYZ/KW7AlxawyLkqdy+jPZP1WubqEADE3O4FUENlJHDfQASRg==}
 
   is-extglob@2.1.1:
     resolution: {integrity: sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==}
@@ -17624,6 +17683,10 @@ packages:
     resolution: {integrity: sha512-Q6Bekk5wpzW5qIyUP4gdMEujObYstZl6DMMOSenwBvV0BlE5LkDwkjs5yHbZmdCEq2o4RJx4tE1vwxFVf2FG1w==}
     engines: {node: '>=16.17'}
 
+  p-finally@1.0.0:
+    resolution: {integrity: sha512-LICb2p9CB7FS+0eR1oqWnHhp0FljGLZCWBE9aix0Uye9W8LTQPwMTYVGWQWIw9RdQiDg4+epXQODwIYJtSJaow==}
+    engines: {node: '>=4'}
+
   p-limit@3.1.0:
     resolution: {integrity: sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==}
     engines: {node: '>=10'}
@@ -17643,6 +17706,18 @@ packages:
   p-map@7.0.8:
     resolution: {integrity: sha512-MitaVsCuCFIvOLLPIU7NnfrZvS9H9h7kwMUkDo+T2pEISaJD48IV9S8iIdXB7PsvvdxyYcsSTTrr90XKsbulNw==}
     engines: {node: '>=18'}
+
+  p-queue@6.6.2:
+    resolution: {integrity: sha512-RwFpb72c/BhQLEXIZ5K2e+AhgNVmIejGlTgiB9MzZ0e93GRvqZ7uSi0dvRF7/XIXDeNkra2fNHBxTyPDGySpjQ==}
+    engines: {node: '>=8'}
+
+  p-retry@4.6.2:
+    resolution: {integrity: sha512-312Id396EbJdvRONlngUx0NydfrIQ5lsYu0znKVUzVvArzEIt08V1qhtyESbGVd1FGX7UKtiFp5uwKZdM8wIuQ==}
+    engines: {node: '>=8'}
+
+  p-timeout@3.2.0:
+    resolution: {integrity: sha512-rhIwUycgwwKcP9yTOOFK/AKsAopjjCakVqLHePO3CC6Mir1Z99xT+R63jZxAT5lFZLa2inS5h+ZS2GvR99/FBg==}
+    engines: {node: '>=8'}
 
   p-timeout@6.1.4:
     resolution: {integrity: sha512-MyIV3ZA/PmyBN/ud8vV9XzwTrNtR4jFrObymZYnZqMmW0zA8Z17vnT0rBgFE/TlohB+YCHqXMgZzb3Csp49vqg==}
@@ -21097,6 +21172,21 @@ snapshots:
       - workflow
       - zod
 
+  '@chat-adapter/slack@4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)':
+    dependencies:
+      '@chat-adapter/shared': 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
+      '@slack/socket-mode': 2.0.7
+      '@slack/web-api': 7.19.0
+      chat: 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
+    transitivePeerDependencies:
+      - ai
+      - bufferutil
+      - debug
+      - supports-color
+      - utf-8-validate
+      - workflow
+      - zod
+
   '@chat-adapter/teams@4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)':
     dependencies:
       '@chat-adapter/shared': 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
@@ -22133,13 +22223,13 @@ snapshots:
 
   '@fontsource-variable/geist@5.3.0': {}
 
-  '@github-tools/eve-extension@0.8.1(35451487153d6ed8d138dfb03cf3495f)':
+  '@github-tools/eve-extension@0.8.1(5effb93e4530c8df43af3cf7bee39d71)':
     dependencies:
-      '@github-tools/sdk': 1.18.0(033ff6a893a4c95efbda109932799f13)
+      '@github-tools/sdk': 1.18.0(3a7668ace58173e5c04810bf4b4b29be)
       eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.130(zod@4.6.7))(chat@4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       zod: 4.6.7
     optionalDependencies:
-      '@vercel/connect': 2.4.0(1a22172d7ce8de142aedb344320b1a53)
+      '@vercel/connect': 2.4.0(467acba675e7706a01273d84bd7af925)
     transitivePeerDependencies:
       - '@ai-sdk/workflow'
       - '@nestjs/common'
@@ -22165,14 +22255,14 @@ snapshots:
       - vite
       - workflow
 
-  '@github-tools/sdk@1.18.0(033ff6a893a4c95efbda109932799f13)':
+  '@github-tools/sdk@1.18.0(3a7668ace58173e5c04810bf4b4b29be)':
     dependencies:
       ai: 7.0.130(zod@4.6.7)
       evlog: 2.33.1(caf14031acd1d761c69e2fe65f353053)
       octokit: 5.0.5
       zod: 4.6.7
     optionalDependencies:
-      '@vercel/connect': 2.4.0(1a22172d7ce8de142aedb344320b1a53)
+      '@vercel/connect': 2.4.0(467acba675e7706a01273d84bd7af925)
       eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.130(zod@4.6.7))(chat@4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       workflow: 5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0)
     transitivePeerDependencies:
@@ -25246,8 +25336,8 @@ snapshots:
       defu: 6.1.7
       destr: 2.0.5
       errx: 0.1.2
-      exsolve: 1.1.3
-      ignore: 7.0.12
+      exsolve: 1.2.0
+      ignore: 7.0.14
       jiti: 2.7.0
       klona: 2.0.6
       mlly: 1.8.2
@@ -30337,6 +30427,44 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
+  '@slack/logger@4.0.1':
+    dependencies:
+      '@types/node': 24.19.1
+
+  '@slack/socket-mode@2.0.7':
+    dependencies:
+      '@slack/logger': 4.0.1
+      '@slack/web-api': 7.19.0
+      '@types/node': 24.19.1
+      '@types/ws': 8.18.2
+      eventemitter3: 5.0.4
+      ws: 8.22.0
+    transitivePeerDependencies:
+      - bufferutil
+      - debug
+      - supports-color
+      - utf-8-validate
+
+  '@slack/types@2.22.0': {}
+
+  '@slack/web-api@7.19.0':
+    dependencies:
+      '@slack/logger': 4.0.1
+      '@slack/types': 2.22.0
+      '@types/node': 24.19.1
+      '@types/retry': 0.12.0
+      axios: 1.20.0
+      eventemitter3: 5.0.4
+      form-data: 4.0.6
+      is-electron: 2.2.2
+      is-stream: 2.0.1
+      p-queue: 6.6.2
+      p-retry: 4.6.2
+      retry: 0.13.1
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
   '@smithy/core@3.35.1':
     dependencies:
       '@smithy/types': 4.19.0
@@ -31092,6 +31220,8 @@ snapshots:
 
   '@types/resolve@1.20.2': {}
 
+  '@types/retry@0.12.0': {}
+
   '@types/retry@0.12.5': {}
 
   '@types/semver@7.8.0': {}
@@ -31290,10 +31420,10 @@ snapshots:
 
   '@unhead/bundler@3.4.2(@oxc-project/types@0.156.0)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.153.0)(rolldown@1.2.16)(rollup@4.67.5)(unhead@3.4.2(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5))':
     dependencies:
-      magic-string: 1.4.3
+      magic-string: 1.4.5
       oxc-walker: 1.1.1(@oxc-project/types@0.156.0)(oxc-parser@0.153.0)(rolldown@1.2.16)
       unhead: 3.4.2(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
-      unplugin: 3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
+      unplugin: 3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
     optionalDependencies:
       esbuild: 0.28.2
       lightningcss: 1.33.0
@@ -31311,10 +31441,10 @@ snapshots:
 
   '@unhead/bundler@3.4.2(@oxc-project/types@0.156.0)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.153.0)(rolldown@1.2.16)(rollup@4.67.5)(unhead@3.4.2(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5))':
     dependencies:
-      magic-string: 1.4.3
+      magic-string: 1.4.5
       oxc-walker: 1.1.1(@oxc-project/types@0.156.0)(oxc-parser@0.153.0)(rolldown@1.2.16)
       unhead: 3.4.2(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
-      unplugin: 3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
+      unplugin: 3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
     optionalDependencies:
       esbuild: 0.28.2
       lightningcss: 1.33.0
@@ -31332,10 +31462,10 @@ snapshots:
 
   '@unhead/bundler@3.4.2(@oxc-project/types@0.156.0)(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.153.0)(rolldown@1.2.16)(rollup@4.67.5)(unhead@3.4.2(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
-      magic-string: 1.4.3
+      magic-string: 1.4.5
       oxc-walker: 1.1.1(@oxc-project/types@0.156.0)(oxc-parser@0.153.0)(rolldown@1.2.16)
       unhead: 3.4.2(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      unplugin: 3.7.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
     optionalDependencies:
       esbuild: 0.28.2
       lightningcss: 1.33.0
@@ -31353,10 +31483,10 @@ snapshots:
 
   '@unhead/bundler@3.4.2(@oxc-project/types@0.156.0)(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.153.0)(rolldown@1.2.16)(rollup@4.67.5)(unhead@3.4.2(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
-      magic-string: 1.4.3
+      magic-string: 1.4.5
       oxc-walker: 1.1.1(@oxc-project/types@0.156.0)(oxc-parser@0.153.0)(rolldown@1.2.16)
       unhead: 3.4.2(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      unplugin: 3.7.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
     optionalDependencies:
       esbuild: 0.28.2
       lightningcss: 1.33.0
@@ -31673,11 +31803,12 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  '@vercel/connect@2.4.0(1a22172d7ce8de142aedb344320b1a53)':
+  '@vercel/connect@2.4.0(467acba675e7706a01273d84bd7af925)':
     dependencies:
       '@vercel/oidc': 4.0.0
     optionalDependencies:
       '@ai-sdk/mcp': 2.0.69(zod@4.6.7)
+      '@chat-adapter/slack': 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@modelcontextprotocol/sdk': 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
       ai: 7.0.130(zod@4.6.7)
       better-auth: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
@@ -32658,7 +32789,7 @@ snapshots:
       '@workflow/rollup': 5.0.6(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
       '@workflow/swc-plugin': 5.0.1(@swc/core@1.15.3(@swc/helpers@0.5.23))
       '@workflow/vite': 5.0.6(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
-      exsolve: 1.1.3
+      exsolve: 1.2.0
       pathe: 2.0.3
     transitivePeerDependencies:
       - '@opentelemetry/api'
@@ -32909,7 +33040,7 @@ snapshots:
       '@workflow/rollup': 5.0.6(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
       '@workflow/swc-plugin': 5.0.1(@swc/core@1.15.3(@swc/helpers@0.5.23))
       '@workflow/vite': 5.0.6(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
-      exsolve: 1.1.3
+      exsolve: 1.2.0
       fs-extra: 11.4.1
       pathe: 2.0.3
     transitivePeerDependencies:
@@ -35821,6 +35952,10 @@ snapshots:
 
   event-target-shim@5.0.1: {}
 
+  eventemitter3@4.0.7: {}
+
+  eventemitter3@5.0.4: {}
+
   events-universal@1.0.1:
     dependencies:
       bare-events: 2.9.2
@@ -37170,6 +37305,8 @@ snapshots:
   is-docker@2.2.1: {}
 
   is-docker@3.0.0: {}
+
+  is-electron@2.2.2: {}
 
   is-extglob@2.1.1: {}
 
@@ -41325,6 +41462,8 @@ snapshots:
     dependencies:
       p-timeout: 6.1.4
 
+  p-finally@1.0.0: {}
+
   p-limit@3.1.0:
     dependencies:
       yocto-queue: 0.1.0
@@ -41342,6 +41481,20 @@ snapshots:
       p-limit: 4.0.0
 
   p-map@7.0.8: {}
+
+  p-queue@6.6.2:
+    dependencies:
+      eventemitter3: 4.0.7
+      p-timeout: 3.2.0
+
+  p-retry@4.6.2:
+    dependencies:
+      '@types/retry': 0.12.0
+      retry: 0.13.1
+
+  p-timeout@3.2.0:
+    dependencies:
+      p-finally: 1.0.0
 
   p-timeout@6.1.4: {}
 
@@ -43200,7 +43353,7 @@ snapshots:
   unhead@3.4.2(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5):
     dependencies:
       hookable: 6.1.2
-      unplugin: 3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
+      unplugin: 3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
     optionalDependencies:
       vite: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
     transitivePeerDependencies:
@@ -43217,7 +43370,7 @@ snapshots:
   unhead@3.4.2(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5):
     dependencies:
       hookable: 6.1.2
-      unplugin: 3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
+      unplugin: 3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)
     optionalDependencies:
       vite: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
     transitivePeerDependencies:
@@ -43234,7 +43387,7 @@ snapshots:
   unhead@3.4.2(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:
       hookable: 6.1.2
-      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      unplugin: 3.7.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
     optionalDependencies:
       vite: 8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
     transitivePeerDependencies:
@@ -43251,7 +43404,7 @@ snapshots:
   unhead@3.4.2(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:
       hookable: 6.1.2
-      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      unplugin: 3.7.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
     optionalDependencies:
       vite: 8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
     transitivePeerDependencies:
@@ -44063,7 +44216,6 @@ snapshots:
       rolldown: 1.2.16
       rollup: 4.67.5
       vite: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
-    optional: true
 
   unplugin@3.7.0(esbuild@0.28.2)(rolldown@1.2.16)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:

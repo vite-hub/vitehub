@@ -8,15 +8,27 @@
 
 The package requires Node.js 22.18 or newer.
 
-## Run a codemod
+## Migrate an app
+
+```sh
+npx @vite-hub/codemods [dir] [--dry-run]
+```
+
+The command finds every module in the app that a codemod supports and runs those codemods one after another, so each one sees the edits of the ones before it. `dir` is the application directory. It defaults to the current directory. `--dry-run` prints the combined edits as diffs and the report, and writes nothing.
+
+The report lists, for each codemod, why it ran and what it did, then the files it changed, a numbered list of manual follow-ups with `file:line`, notes, and the commands to run next. A codemod that cannot migrate the app changes nothing and says why; the others still run. The report also warns when `package.json` requires a Nuxt version before 5, because ViteHub supports Nuxt 5 and Nitro 3 only. The codemods do not upgrade Nuxt or install packages. Nuxt 5 also stops auto-importing Nitro helpers such as `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
+
+The migration uses a unique scratch directory and preserves existing `.vitehub-migrate` directories. If a codemod would edit a symbolic link or a file inside a linked directory, it stops without applying that codemod's edits. Replace the link with a local file or directory before retrying.
+
+The command exits with `0` when every codemod completes, also when they report follow-ups. It exits with `1` when a codemod could not migrate, or when the app has no `nuxt.config`.
+
+## Run one codemod
 
 ```sh
 npx @vite-hub/codemods nuxt-safe-runtime-config [dir] [--dry-run]
 ```
 
-`dir` is the application directory. It defaults to the current directory. `--dry-run` prints the planned edits as diffs and the report, and writes nothing. Run the command with no arguments, or with `--help`, to list the codemods.
-
-The command exits with `0` when the codemod completes, also when it reports follow-ups. It exits with `1` when it cannot migrate, for example when it cannot find or parse `nuxt.config`. The codemods do not install packages. The report prints the install command.
+The command runs only the named codemod. Run it with `--help` to list the codemods. It exits with `1` when the codemod cannot migrate, for example when it cannot find or parse `nuxt.config`.
 
 | Codemod | Moves |
 | --- | --- |
@@ -28,6 +40,8 @@ The codemod reads one of the two schema sources of the module:
 
 - `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `@vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env and other `NUXT_*` keys become Server Env, with the same names and variables. Server `paths` stay the same. Public Env is flat, so a nested public path falls back to its flat name.
 - `safeRuntimeConfig.$schema` is a Valibot, Zod, or ArkType schema, inline or in a module. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. Literal `runtimeConfig` values, including empty strings, become defaults, and keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
+
+When `safeRuntimeConfig` declares neither and the app has no layers, the module validates nothing, so the codemod removes it from `modules`, `nuxt.config`, and `package.json`. It stops instead when code still calls `useSafeRuntimeConfig()`. Schema-free removal also stops when the config extends layers, uses a root spread, or has automatic `layers/` directories: inherited schemas and composable calls are unknown. Review those layers and remove the module by hand, or declare the schema in the app config before retrying.
 
 In both cases the codemod replaces `'nuxt-safe-runtime-config'` with `'vite-hub/nuxt'` in `modules`, removes `safeRuntimeConfig` and the migrated `runtimeConfig` keys, sets `vitehub.preset`, and swaps the package in `package.json`. It rewrites `useSafeRuntimeConfig()` to `useServerEnv()` from `#vitehub/env/server` in server files and to `usePublicEnv()` from `#vitehub/env/public` in app files.
 
@@ -41,9 +55,20 @@ The report lists what Env cannot express and what the codemod could not rewrite:
 corepack pnpm exec vp run codemods:e2e
 ```
 
+## Check real apps
+
+`test/real-world/projects.json` pins open source Nuxt apps that use the supported modules. The runner clones each app outside the repository, installs it when its codemod loads app code, runs the migration, and checks which codemods ran and what the report says:
+
+```sh
+corepack pnpm exec vp run -t @vite-hub/codemods#build
+node packages/codemods/test/real-world/run.mjs [--build] [id...]
+```
+
+With `--build`, it also moves each app that has a `build` entry to Nuxt 5 nightly with the local `vite-hub` checkout, builds it, starts the server, and checks the probes. Set `VITEHUB_REAL_WORLD_DIR` to choose where the apps go.
+
 ## Add a codemod
 
-A codemod is a `Codemod` object with a `name`, a one-line `description`, and a `run()` function that returns planned edits and follow-ups. `run()` must not write files; the runner writes them, or prints them in a dry run. Add the codemod to `src/registry.ts`.
+A codemod is a `Codemod` object with a `name`, a one-line `description`, a `detect()` function that tells whether the app uses what it migrates, and a `run()` function that returns planned edits and follow-ups. `run()` must not write files; the runner writes them, or prints them in a dry run. Add the codemod to `src/registry.ts`; the order there is the order in which the migration runs codemods. Shared `nuxt.config` and `package.json` helpers live in `src/shared`.
 
 ```ts
 import { runCodemod, formatReport } from "@vite-hub/codemods"

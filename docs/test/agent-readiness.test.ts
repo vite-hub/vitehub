@@ -17,7 +17,10 @@ describe("agent-ready HTTP contracts", () => {
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const docsPackage = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
 
-    expect(config.modules?.[0]).toBe("@vite-hub/docs/nuxt");
+    const modules = config.modules ?? [];
+    const diagnostics = modules.indexOf("./modules/diagnostics");
+    expect(diagnostics).toBeGreaterThanOrEqual(0);
+    expect(modules.indexOf("@vite-hub/docs/nuxt")).toBeGreaterThan(diagnostics);
     // The docs module installs nuxt-llms and nuxt-agent-discovery, so the site does not list them.
     expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery", "nuxt-llms"]));
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
@@ -87,17 +90,17 @@ describe("agent-ready HTTP contracts", () => {
     expect(documented.sort()).toEqual(["/llms-full.txt", "/llms.txt"]);
   });
 
-  it("pins the patched Nuxt toolchain and disables DevTools", () => {
+  it("pins the Nuxt 5 toolchain and disables DevTools", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
 
-    expect(workspace).toContain("nuxt: ^4.6.4");
-    expect(lockfile).toContain("nuxt@4.6.4:");
+    expect(workspace).toContain("nuxt: npm:nuxt-nightly@5.0.0-2611052317-a04317f");
+    expect(workspace).toContain('nuxt: ">=5.0.0-0"');
+    expect(lockfile).toContain("nuxt-nightly@5.0.0-2611052317-a04317f:");
+    expect(lockfile).toContain("nitro@3.0.261103-rc:");
     expect(lockfile).toContain("'@nuxt/devtools@3.4.4':");
-    expect(lockfile).not.toContain("nuxt@4.4.8:");
-    expect(lockfile).not.toContain("'@nuxt/devtools@3.2.4':");
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
     expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });

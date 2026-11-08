@@ -84,19 +84,24 @@ export function createViteWorkspaceAgentLoader(
   return async () => {
     const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
     // Use the host facade so definitions authored with the primitive package also inherit
-    // the Console's configured journal. The facade keeps journal selection lazy and scoped.
+    // the app-wide Agent journal. The facade keeps journal selection lazy and scoped.
     const authored = module.default
     let journalSource = authored
     const invocations = Object.getOwnPropertyDescriptor(authored, "invocations")
-    if (server.config.plugins?.some(plugin => plugin.name === "vite-hub/console")) {
+    const hostPlugins = server.config.plugins ?? []
+    const usesJournal = hostPlugins.some(plugin => plugin.name === "vite-hub/agent-invocations")
+    const usesConsole = hostPlugins.some(plugin => plugin.name === "vite-hub/console")
+    if (usesJournal || usesConsole) {
       // Nitro runs its plugins in another module runner. Initialize the same generated
-      // Console configuration in this runner before resolving its journal fallback.
+      // journal and Console configuration in this runner before resolving the journal.
       // SAFETY: Nitro extends Vite's open config with its registered runtime plugins.
       const nitro = (server.config as typeof server.config & { nitro?: { plugins?: unknown[] } }).nitro
-      const bootstrap = nitro?.plugins?.find((plugin): plugin is string =>
-        hasRuntimeType(plugin, "string") && /[\\/]\.vitehub[\\/]nitro[\\/]console[\\/]plugin(?:-[^\\/]+)?\.mjs$/.test(plugin))
+      const generated = (pattern: RegExp) => nitro?.plugins?.find((plugin): plugin is string => hasRuntimeType(plugin, "string") && pattern.test(plugin))
+      const journal = usesJournal ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]agent[\\/]invocations\.mjs$/) : undefined
+      const bootstrap = usesConsole ? generated(/[\\/]\.vitehub[\\/]nitro[\\/]console[\\/]plugin(?:-[^\\/]+)?\.mjs$/) : undefined
+      if (journal) await server.ssrLoadModule(journal)
       if (bootstrap) await server.ssrLoadModule(bootstrap)
-      // SAFETY: The active Console plugin belongs to vite-hub, whose Agent facade exports DefineAgent.
+      // SAFETY: These generated plugins belong to vite-hub, whose Agent facade exports DefineAgent.
       const framework = await server.ssrLoadModule("vite-hub/agent") as { defineAgent: DefineAgent }
       if (!invocations?.get && authored.invocations === undefined) {
         // Only obtain the lazy journal binding; extending authored would rerun preset configuration.
