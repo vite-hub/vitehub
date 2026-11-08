@@ -70,7 +70,10 @@ export { forgeAccessKey } from "../internal/forge-access.ts"
 export { decodeColocatedAgentSkills, inspectAgentSkillFiles, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { runAgent } from "../index.ts"
+// The root entry installs the internal Agent runners that this entry exports.
+import "../index.ts"
+export { runAgentInline, runAgentWithContext, streamAgentInline } from "../internal/agent-run.ts"
+export type { RunAgentInlineOptions } from "../internal/agent-run.ts"
 import type { AgentInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../types.ts"
 
 type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
