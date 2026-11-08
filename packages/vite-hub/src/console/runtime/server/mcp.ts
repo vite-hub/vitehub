@@ -1,12 +1,10 @@
-import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
 import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { assertLoopbackWithoutSignIn, eventRemoteAddress } from "./loopback.ts"
 import { serveMcp } from "./mcp-protocol.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { isConsoleDevelopmentRuntime } from "./request.ts"
@@ -86,6 +84,7 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
               return toolFailure({ code: "CONSOLE_ACCESS_DENIED", ...denial, status: 403 })
             }
             const user = operation.user === false ? undefined : await readConsoleOperationUser(access)
+            const standard = getStandardContext(context.event)
             const operationContext: OperationContext = {
               access,
               development: isConsoleDevelopmentBuild(),
@@ -95,8 +94,8 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
               surface: "mcp",
               // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
               user: user ? user as OperationContext["user"] : null,
-              env: getCloudflareEnv(context.event, { fallback: false }),
-              waitUntil: resolveWaitUntil(context.event, { preferHost: true }),
+              env: standard.runtime?.cloudflare?.env,
+              waitUntil: standard.waitUntil,
             }
             return operationResult(await (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext))
           }
@@ -167,15 +166,7 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
 }
 
 const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
-  // Nuxt 4's H3 1 events carry Node's request, which `toEventRequest` reads as a web Request.
-  const request = toEventRequest(event)
-  try {
-    assertLoopbackWithoutSignIn(request, new URL(request.url), { access, remoteAddress: eventRemoteAddress(event) })
-  }
-  catch (error) {
-    const { code, fix, message } = toOperationFailure(error)
-    return Response.json({ code, ...(fix ? { fix } : {}), message }, { headers: { "cache-control": "no-store" }, status: 403 })
-  }
+  const request = getStandardContext(event).req
   const context = { access, event, request }
   const installed = getConsoleSections()
   const registered = getViteHubMcpTools().filter(tool => installed.includes(tool.section))

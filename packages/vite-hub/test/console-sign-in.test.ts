@@ -8,11 +8,12 @@ import { consoleSignInURL } from "../src/console/runtime/client/sign-in.ts"
 import { consoleRequest, installConsoleAccess, isConsoleSignInPage } from "../src/console/runtime/server/access.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import consoleSignInMiddleware from "../src/console/runtime/server/sign-in.ts"
+import { requestEvent } from "./console-event.ts"
 
 const origin = "http://vitehub.local"
 const unsafePages = ["/..//evil.example/sign-in", "/%2e%2e//evil.example/sign-in"]
 const signedOut = async () => new Response(null, { status: 401 })
-const visit = (path: string) => ({ req: new Request(`${origin}${path}`, { headers: { accept: "text/html" } }) })
+const visit = (path: string) => (requestEvent(new Request(`${origin}${path}`, { headers: { accept: "text/html" } })))
 const page = (signInPage: string) => ({
   document: { querySelector: () => ({ getAttribute: () => signInPage }) },
   location: new URL(`${origin}/portal/_vitehub/auth?tab=users`),
@@ -65,7 +66,7 @@ describe("Console sign-in before app Auth", () => {
         check: event => requireAuthAccessRoutes(consoleRequest(event), [0], definition, [0], { redirectToSignIn: false }),
         signInPage: "/sign-in",
       })
-      const request = visit(`${mount}/_vitehub/auth`).req
+      const request = visit(`${mount}/_vitehub/auth`)["~standard"].req
       await (await createAuthForRequest(definition, request).$context).runMigrations()
       // Reproduce the rejection that previously prevented the Console page handler from running.
       expect((await authMiddleware(request))?.status).toBe(401)
@@ -97,7 +98,7 @@ describe("Console sign-in before app Auth", () => {
     for (const init of fetches) {
       const denied = new Response("Sign in first.", { status: 401 })
       installConsoleAccess({ mode: "auth", check: async () => denied, ...(signInPage ? { signInPage } : {}) })
-      const request = (path: string) => ({ req: new Request(`${origin}${path}`, init) })
+      const request = (path: string) => (requestEvent(new Request(`${origin}${path}`, init)))
       await expect(consoleSignInMiddleware(request("/_vitehub/kv/dev"))).resolves.toBeUndefined()
       const response = await consolePageHandler(request("/_vitehub/kv/dev"))
       expect(response, JSON.stringify(init)).toBe(denied)
@@ -108,7 +109,7 @@ describe("Console sign-in before app Auth", () => {
   it("redirects a signed-out page visit when HTML has positive quality", async () => {
     for (const accept of ["text/html", "application/json, text/html;q=0.5", "TEXT/HTML; Q=1"]) {
       installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/sign-in" })
-      const request = () => ({ req: new Request(`${origin}/_vitehub/auth`, { headers: { accept } }) })
+      const request = () => (requestEvent(new Request(`${origin}/_vitehub/auth`, { headers: { accept } })))
       for (const handler of [consoleSignInMiddleware, consolePageHandler]) {
         const response = await handler(request())
         expect(response?.status, accept).toBe(302)
@@ -120,7 +121,7 @@ describe("Console sign-in before app Auth", () => {
   it("passes a Response from console.authorize through to a request that is not a page visit", async () => {
     const notFound = new Response("Not found", { status: 404 })
     installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "u1", email: "member@vitehub.dev" }), authorize: () => notFound, signInPage: "/sign-in" })
-    const response = await consolePageHandler({ req: new Request(`${origin}/_vitehub/unknown`, { headers: { accept: "application/json" } }) })
+    const response = await consolePageHandler(requestEvent(new Request(`${origin}/_vitehub/unknown`, { headers: { accept: "application/json" } })))
     expect(response).toBe(notFound)
   })
 

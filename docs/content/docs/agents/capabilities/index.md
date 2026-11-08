@@ -61,7 +61,7 @@ Create `support.md` in the project root before running this example. Attaching a
 
 Use a callback when invocation context decides the Agent Definition's Capability list. ViteHub calls it once after resolving the Agent Invoker and before Capability setup; Capabilities contributed by the active Channel still compose normally.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 export default defineAgent({
   driver: { model },
   capabilities: ({ actor }) => [
@@ -94,7 +94,7 @@ Agent Evals expose those values through `observation.extensions.get(capabilityId
 
 A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types its output as the union of that value and the Driver output.
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/labeller.ts] fragment
 export default defineAgent({
   data: email,
   intercept: ({ data }) => data.from.endsWith('@github.com') ? { source: 'rule' as const, label: 'GitHub' } : undefined,
@@ -128,7 +128,7 @@ ViteHub detects compatible Eve extension packages in a static Capability list an
 pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
 ```
 
-```ts [server/agents/reviewer.ts]
+```ts [server/agents/reviewer.ts] fragment
 import github from '@github-tools/eve-extension'
 import { defineAgent } from 'vite-hub/agent'
 

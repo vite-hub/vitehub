@@ -1,4 +1,4 @@
-import type { H3Event } from "h3"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 import type { CommentsDefinition, CommentsUser } from "./operations-core/define.ts"
 import type {
@@ -62,8 +62,14 @@ export interface CommentsForgeOptions {
   fetch?: typeof fetch
 }
 
+/**
+ * The request event of a Comments call. Read the request, its cookies, and the platform bindings from
+ * `event["~standard"]`. `context` is the H3 event context, when the call came through an H3 route.
+ */
+export type CommentsRequestEvent = ViteHubContext<{ context?: Record<string, unknown> }>
+
 export interface CommentsIdentifyContext {
-  event: H3Event
+  event: CommentsRequestEvent
 }
 
 export interface DefineCommentsOptions extends CommentsDefinition {

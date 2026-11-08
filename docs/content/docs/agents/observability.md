@@ -9,6 +9,7 @@ navigation.kind: Guides
 Configure observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
@@ -45,7 +46,7 @@ Remove an existing evlog Nitro module and host plugin when you adopt this option
 
 Read the instance in server code:
 
-```ts
+```ts fragment
 import { useObservability } from 'vite-hub/agent/observability'
 
 const observability = useObservability()

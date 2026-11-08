@@ -9,7 +9,7 @@ it.each([false, true])("publishes response image bytes before exposing links, fa
   const bytes = new Uint8Array([137, 80, 78, 71])
   const put = vi.fn(async (_pathname: string, _bytes: Uint8Array) => {
     if (fail) throw new Error("storage offline")
-    return [null, { url: "/blob/persistent.png" }]
+    return [undefined, { url: "/blob/persistent.png" }]
   })
   let render!: AgentOutputRenderer
   // Only these public capability context fields participate in artifact publication.
@@ -33,7 +33,7 @@ it.each([false, true])("publishes response image bytes before exposing links, fa
 it("keeps the Workspace diff available to later output Capabilities", async () => {
   const renders: AgentOutputRenderer[] = []
   const context = {
-    capabilities: { blob: { put: vi.fn(async () => [null, { url: "/blob/persistent.png" }]) } },
+    capabilities: { blob: { put: vi.fn(async () => [undefined, { url: "/blob/persistent.png" }]) } },
     context: createAgentInvocationContextStore(),
     driver: { kind: "provider" },
     output: { final(renderer: AgentOutputRenderer) { renders.push(renderer) } },

@@ -14,7 +14,7 @@ const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 
-it("publishes the Queue result, error code and Nuxt types without Vite", async () => {
+it("publishes the Queue result, error code and option types without Vite", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-queue-types-"))
 
   try {

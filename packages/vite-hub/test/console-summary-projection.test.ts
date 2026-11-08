@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../../agent/src/invocations.ts"
 import invocationsHandlerRoute from "../src/console/runtime/server/invocations.get.ts"
 import { allowed } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const invocationsHandler = allowed(invocationsHandlerRoute)
 
@@ -39,7 +40,7 @@ it.each(["list", "ids"])("polls 50 session summaries using only finish observati
   if (mode === "ids") {
     for (let index = 0; index < 50; index++) url.searchParams.append("id", `session-${index}`)
   }
-  const result = await invocationsHandler({ method: "GET", req: { url } })
+  const result = await invocationsHandler(consoleEvent({ url: url.href }))
   expect(result.invocations).toHaveLength(50)
   for (const summary of result.invocations) {
     expect(summary).toMatchObject({ usage: { totalTokens: 42 } })

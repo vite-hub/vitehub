@@ -69,7 +69,7 @@ Use the three-argument form when the behavior depends on a host
 `RuntimeContext`, request metadata, or a stream's background lifetime. That
 form throws invocation failures and returns the result directly:
 
-```ts
+```ts fragment
 const result = await runAgent(agent, runtimeContext, { prompt: 'Ada' })
 ```
 
@@ -83,7 +83,7 @@ cleanup.
 An Eval runs a real Agent Definition inline. Keep credentials and the model in
 the Agent file, then describe the scenario and scorer in `*.eval.ts`:
 
-```ts [server/agents/support.eval.ts]
+```ts [server/agents/support.eval.ts] fragment
 import { callsTool, defineEval, textContains } from 'vite-hub/agent/eval'
 import support from './support'
 
