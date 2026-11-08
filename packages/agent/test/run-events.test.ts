@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { defineAgentRunEvents } from "../src/server.ts"
 
 import type {
@@ -68,7 +69,7 @@ describe("Agent Run Events", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "summary-run" },
       runtime: "vercel",
@@ -110,7 +111,7 @@ describe("Agent Run Events", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
@@ -129,7 +130,7 @@ describe("Agent Run Events", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-1" },
       runtime: "unknown",
