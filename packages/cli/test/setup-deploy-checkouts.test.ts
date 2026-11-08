@@ -22,8 +22,8 @@ const remote = "https://docs.example.com"
 
 /**
  * A small stand-in for `@vite-hub/workspace/checkout`, resolved from the project's node_modules as deploy resolves the
- * real one. The status reads `conflicts` of the lock. The push pulls with `workspace.changes`, writes the pulled files,
- * then commits with `workspace.commit`, both through the call that deploy passes.
+ * real one. The status reads `conflicts` of the lock. Pull writes the remote files and updates the lock. Push pulls
+ * again, then commits with `workspace.commit`, both through the call that deploy passes.
  */
 const fakeCheckoutModule = `import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -38,21 +38,39 @@ export async function localCheckoutStatus(root) {
   return names.map(workspace => ({ workspace, dir: lock.workspaces[workspace].dir, local: { added: [], modified: [], deleted: [], conflicted: lock.workspaces[workspace].conflicts ?? [] } }))
 }
 
+async function pullEntry(call, rootDir, workspace, entry) {
+  const changes = await call("workspace.changes", { workspace, ref: entry.ref, since: entry.head }, entry.remote)
+  if (!changes.ok) throw fail(changes)
+  const pull = { workspace, ref: entry.ref, from: entry.head, head: changes.value.head, files: [] }
+  for (const file of changes.value.files) {
+    const target = join(rootDir, entry.dir, file.path)
+    mkdirSync(dirname(target), { recursive: true })
+    writeFileSync(target, file.content)
+    pull.files.push({ path: file.path, action: "added" })
+  }
+  entry.head = changes.value.head
+  if (changes.value.conflicts) entry.conflicts = changes.value.conflicts
+  return pull
+}
+
+export async function pullWorkspaces({ call, rootDir }) {
+  const lock = read(rootDir)
+  const results = []
+  try {
+    for (const [workspace, entry] of Object.entries(lock.workspaces)) results.push(await pullEntry(call, rootDir, workspace, entry))
+  }
+  finally {
+    writeFileSync(join(rootDir, "vitehub.lock"), JSON.stringify(lock))
+  }
+  return results
+}
+
 export async function pushWorkspaces({ call, rootDir }) {
   const lock = read(rootDir)
   const results = []
   try {
     for (const [workspace, entry] of Object.entries(lock.workspaces)) {
-      const changes = await call("workspace.changes", { workspace, ref: entry.ref, since: entry.head }, entry.remote)
-      if (!changes.ok) throw fail(changes)
-      const pull = { workspace, ref: entry.ref, from: entry.head, head: changes.value.head, files: [] }
-      for (const file of changes.value.files) {
-        const target = join(rootDir, entry.dir, file.path)
-        mkdirSync(dirname(target), { recursive: true })
-        writeFileSync(target, file.content)
-        pull.files.push({ path: file.path, action: "added" })
-      }
-      entry.head = changes.value.head
+      const pull = await pullEntry(call, rootDir, workspace, entry)
       const commit = await call("workspace.commit", { workspace, ref: entry.ref, ifHead: entry.head }, entry.remote)
       if (!commit.ok) throw fail(commit)
       if (!commit.value.revision) {
@@ -114,7 +132,7 @@ function lock(entry: Record<string, unknown> = {}): string {
 
 interface Workspace {
   /** What the fake app answers to `workspace.changes`. */
-  changes?: { head: string | null, files: Array<{ path: string, content: string }> }
+  changes?: { head: string | null, files: Array<{ path: string, content: string }>, conflicts?: string[] }
   /** Files inherited by a new ref, pulled after its first commit. */
   after?: Workspace["changes"]
   /** What the fake app answers to `workspace.commit`. */
@@ -124,15 +142,17 @@ interface Workspace {
 /** A fake deployed app that serves the Workspace operations, and records each request with the host calls before it. */
 function workspaceApp(hosts: Awaited<ReturnType<typeof fakeHosts>>, workspace: Workspace = {}) {
   const requests: Array<{ url: string, operation: string, hostCallsBefore: number }> = []
-  let pulls = 0
+  let committed = false
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input)
-    const body = JSON.parse(String(init?.body)) as { operation: string }
+    const body = JSON.parse(String(init?.body)) as { operation: string, input: { since?: string | null } }
     requests.push({ hostCallsBefore: (await hosts.calls()).length, operation: body.operation, url })
     if (!url.startsWith(remote)) throw new Error(`unexpected request to ${url}`)
+    const changes = (committed ? workspace.after : undefined) ?? workspace.changes ?? { files: [], head: "r1" }
     const answer = body.operation === "workspace.changes"
-      ? { ok: true, value: (pulls++ === 0 ? workspace.changes : workspace.after) ?? { files: [], head: "r1" } }
+      ? { ok: true, value: { ...changes, files: body.input.since === changes.head ? [] : changes.files } }
       : workspace.commit ?? { ok: true, value: { revision: { id: "r3" } } }
+    if (body.operation === "workspace.commit" && answer.ok) committed = true
     return Response.json(answer, { status: answer.ok ? 200 : 409 })
   }
   return { fetch, requests }
@@ -143,23 +163,32 @@ async function readLock(root: string): Promise<{ workspaces: Record<string, { he
 }
 
 describe("vitehub deploy with checkout folders in vitehub.lock", () => {
-  it("pushes every checkout to the remote of the lock after the deploy, and lists the files to commit", async () => {
+  it("builds pulled files, then pushes to the lock remote after the deploy and lists the files to commit", async () => {
     const root = await builtProject("cloudflare", { ...checkoutPackage, "content/guide.md": "# Guide\n", "vitehub.lock": lock() })
     const hosts = await fakeHosts(cloudflareEnv)
     const app = workspaceApp(hosts, { changes: { files: [{ content: "# News\n", path: "news.md" }], head: "r2" } })
-    const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", "--json"], root, hosts.env, { fetch: app.fetch })
+    const built: string[] = []
+    const spawn: ViteHubCliSpawn = async () => {
+      built.push(await readFile(join(root, "content/news.md"), "utf8"))
+      expect(await hosts.calls()).toEqual([])
+      expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes"])
+      return { exitCode: 0 }
+    }
+    const result = await runSetup<DeployJson>(["deploy", "--yes", "--json"], root, hosts.env, { fetch: app.fetch, spawn })
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(built).toEqual(["# News\n"])
     expect(result.json).toMatchObject({ host: "cloudflare", url: "https://my-app.example.workers.dev" })
     expect(result.json.checkouts).toEqual({
       changed: ["vitehub.lock", "content/news.md"],
       results: [{ pull: { files: [{ action: "added", path: "news.md" }], from: "r1", head: "r2", ref: "main", workspace: "docs" }, pushed: ["guide.md"], ref: "main", revision: "r3", workspace: "docs" }],
     })
     // The push runs after the host deploy, against the remote that the lock names.
-    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.commit"])
+    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.changes", "workspace.commit"])
+    expect(app.requests[0]!.hostCallsBefore).toBe(0)
     const deployCalls = (await hosts.calls()).length
     expect(deployCalls).toBeGreaterThan(0)
-    for (const request of app.requests) {
+    for (const request of app.requests.slice(1)) {
       expect(request.hostCallsBefore).toBe(deployCalls)
       expect(new URL(request.url).origin).toBe(remote)
     }
@@ -178,7 +207,7 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", ...(json ? ["--json"] : [])], root, hosts.env, { fetch: app.fetch })
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
-    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.commit", "workspace.changes"])
+    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.changes", "workspace.commit", "workspace.changes"])
     expect(await readFile(join(root, "content/inherited.md"), "utf8")).toBe("# Inherited\n")
     if (json) {
       expect(result.json.checkouts).toMatchObject({
@@ -236,6 +265,21 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     expect(spawned).toEqual([])
     expect(await hosts.calls()).toEqual([])
     expect(app.requests).toEqual([])
+  })
+
+  it("stops before the build when the pre-build pull creates a conflict", async () => {
+    const root = await builtProject("cloudflare", { ...checkoutPackage, "vitehub.lock": lock() })
+    const hosts = await fakeHosts(cloudflareEnv)
+    const app = workspaceApp(hosts, { changes: { conflicts: ["guide.md", "logo.png"], files: [], head: "r2" } })
+    const spawn = vi.fn<ViteHubCliSpawn>(async () => ({ exitCode: 0 }))
+    const result = await runSetup<DeployJson>(["deploy", "--yes", "--json"], root, hosts.env, { fetch: app.fetch, spawn })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_CHECKOUT_CONFLICT")
+    expect(result.json.error?.why).toContain("content/guide.md, content/logo.png")
+    expect(spawn).not.toHaveBeenCalled()
+    expect(await hosts.calls()).toEqual([])
+    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes"])
   })
 
   it("exits 1 after the deploy when the push fails, and says to run `vitehub push`", async () => {
@@ -305,7 +349,8 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     ["a syntax error", "export const = 1\n", "SyntaxError"],
     ["a missing dependency", "import \"vitehub-missing-dependency\"\nexport const localCheckoutStatus = () => undefined\n", "vitehub-missing-dependency"],
     ["an error when it loads", "throw new Error(\"checkout init failed\")\n", "checkout init failed"],
-    ["no checkout functions", "export const other = 1\n", "does not export localCheckoutStatus and pushWorkspaces"],
+    ["no checkout functions", "export const other = 1\n", "does not export localCheckoutStatus, pullWorkspaces and pushWorkspaces"],
+    ["no pull function", "export const localCheckoutStatus = () => []\nexport const pushWorkspaces = () => []\n", "does not export localCheckoutStatus, pullWorkspaces and pushWorkspaces"],
   ])("exits 1 before the build when the installed checkout module has %s", async (_name, source, message) => {
     const root = await builtProject("cloudflare", { ...checkoutPackage, "node_modules/@vite-hub/workspace/checkout.js": source, "vitehub.lock": lock() })
     const hosts = await fakeHosts(cloudflareEnv)
@@ -362,7 +407,7 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     const confirmed = await inTerminal(async () => await runSetup(["deploy", "--no-build"], root, hosts.env, { fetch: app.fetch }))
     expect(confirmed.exitCode, confirmed.stderr).toBe(0)
     expect(existsSync(importMarker(root))).toBe(true)
-    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.commit"])
+    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.changes", "workspace.commit"])
   })
 
   it("keeps --no-push in the rerun and documents it in --help", async () => {

@@ -9,7 +9,7 @@ import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { basename, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { checkoutPushError, formatDeployCheckouts, pushDeployCheckouts, readDeployCheckouts } from "./deploy/checkouts.ts"
+import { checkoutPushError, formatDeployCheckouts, prepareDeployCheckouts, pushDeployCheckouts } from "./deploy/checkouts.ts"
 import { cloudflareAdapter } from "./deploy/cloudflare.ts"
 import { denoAdapter } from "./deploy/deno.ts"
 import { createDeployRun, isRecord, optionalString, readDeployCommit } from "./deploy/host.ts"
@@ -38,9 +38,9 @@ const temporaryHosts: readonly DeployHost[] = ["cloudflare", "vercel"]
 
 const usage = "vitehub deploy [--preview] [--no-build] [--no-push] [--temporary] [--yes] [--json]"
 
-const help = `With checkout folders in vitehub.lock, a production deploy checks them for conflicts before the build, and
+const help = `With checkout folders in vitehub.lock, a production deploy pulls them and checks for conflicts before the build, and
 pushes them after the deploy, as \`vitehub push\` does. A --preview deploy does not push, so a preview never writes
-the shared Workspace ref. --no-push skips the check and the push.
+the shared Workspace ref. --no-push skips the pull, the check and the push.
 `
 
 export interface SetupDeployArgs {
@@ -277,7 +277,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
 
   // A preview must not write the shared Workspace ref, so only a production deploy pushes. This imports project code,
   // so it runs only after the confirmation.
-  const checkouts = args.push && !args.preview ? await readDeployCheckouts(project.root, context.stderr) : undefined
+  const checkouts = args.push && !args.preview ? await prepareDeployCheckouts(project.root, context) : undefined
   if (args.build) await build(project, context)
   const output = await readBuildOutput(project.root, host)
   const projectName = link?.project.name ?? output.identityName

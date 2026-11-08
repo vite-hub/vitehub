@@ -27,8 +27,9 @@ export interface CheckoutPushResult {
   /** The new head. Undefined when nothing changed locally. */
   revision?: string
   pushed: string[]
-  /** The pull that runs before the push. */
+  /** The pulls before the build and the push, in order. */
   pull: {
+    workspace: string
     ref: string
     from: string | null
     head: string | null
@@ -48,15 +49,17 @@ export interface CheckoutPushError {
 export type DeployCheckoutsOutput = { results: CheckoutPushResult[], changed: string[] } | { error: CheckoutPushError }
 
 type CheckoutCall = (operation: string, input: unknown, remote: string | undefined) => ReturnType<typeof callOperationFromCli>
+type CheckoutContext = { call: CheckoutCall, rootDir: string }
 
 /** The part of `@vite-hub/workspace/checkout` that deploy uses. */
 interface CheckoutModule {
   localCheckoutStatus: (rootDir: string) => Promise<CheckoutStatus[] | undefined>
-  pushWorkspaces: (context: { call: CheckoutCall, rootDir: string }) => Promise<CheckoutPushResult[]>
+  pullWorkspaces: (context: CheckoutContext) => Promise<Array<CheckoutPushResult["pull"]>>
+  pushWorkspaces: (context: CheckoutContext) => Promise<CheckoutPushResult[]>
 }
 
 function isCheckoutModule(value: unknown): value is CheckoutModule {
-  return Object(value) === value && typeof Reflect.get(Object(value), "localCheckoutStatus") === "function" && typeof Reflect.get(Object(value), "pushWorkspaces") === "function"
+  return Object(value) === value && typeof Reflect.get(Object(value), "localCheckoutStatus") === "function" && typeof Reflect.get(Object(value), "pullWorkspaces") === "function" && typeof Reflect.get(Object(value), "pushWorkspaces") === "function"
 }
 
 /** The checkout module of the Workspace package. */
@@ -91,7 +94,7 @@ async function importCheckoutModule(root: string): Promise<CheckoutModule | unde
     catch (error: unknown) {
       throw moduleFailure(specifier, file, error)
     }
-    if (!isCheckoutModule(module)) throw moduleFailure(specifier, file, new TypeError("It does not export localCheckoutStatus and pushWorkspaces."))
+    if (!isCheckoutModule(module)) throw moduleFailure(specifier, file, new TypeError("It does not export localCheckoutStatus, pullWorkspaces and pushWorkspaces."))
     return module
   }
   return undefined
@@ -131,51 +134,66 @@ export interface DeployCheckouts {
   root: string
   module: CheckoutModule
   statuses: CheckoutStatus[]
+  before: string | undefined
+  pulls: Map<string, CheckoutPushResult["pull"]>
 }
 
 /**
- * Reads the checkout folders of `vitehub.lock` without asking the remote. Undefined when the project has no lock file,
+ * Pulls the checkout folders of `vitehub.lock` before the build. Undefined when the project has no lock file,
  * no checkout, or no Workspace package to read them: then deploy does not push. Without a checkout, deploy does not
  * load the Workspace package. Without the package, a lock with checkouts gets one warning on `stderr`. Throws when the
- * package does not load, or when a checkout has an open conflict, because the push would refuse it after the deploy.
+ * package does not load, the pull fails, or a checkout has an open conflict before or after the pull.
  */
-export async function readDeployCheckouts(root: string, stderr: Pick<ViteHubCliContext["stderr"], "write">): Promise<DeployCheckouts | undefined> {
+export async function prepareDeployCheckouts(root: string, context: Pick<ViteHubCliContext, "env" | "fetch" | "stderr">): Promise<DeployCheckouts | undefined> {
   if (!await lockHasCheckouts(root)) return undefined
   const module = await importCheckoutModule(root)
   if (!module) {
-    stderr.write("[vitehub] vitehub.lock has checkout folders, but the deploy does not push them because the Workspace package is not installed. Install @vite-hub/workspace or vite-hub.\n")
+    context.stderr.write("[vitehub] vitehub.lock has checkout folders, but the deploy does not push them because the Workspace package is not installed. Install @vite-hub/workspace or vite-hub.\n")
     return undefined
   }
   const statuses = await module.localCheckoutStatus(root)
   if (!statuses?.length) return undefined
+  assertNoConflicts(statuses)
+  const before = await readLock(root)
+  const pulled = await module.pullWorkspaces(checkoutContext(root, context))
+  assertNoConflicts(await module.localCheckoutStatus(root) ?? [])
+  return { before, module, pulls: new Map(pulled.map(result => [result.workspace, result])), root, statuses }
+}
+
+function assertNoConflicts(statuses: CheckoutStatus[]): void {
   const conflicts = statuses.flatMap(status => status.local.conflicted.map(path => `${status.dir}/${path}`))
   if (conflicts.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_CONFLICT({ files: conflicts.join(", ") }), setupExitCodes.error)
-  return { module, root, statuses }
 }
 
 async function readLock(root: string): Promise<string | undefined> {
   return await readFile(join(root, lockFile), "utf8").catch(() => undefined)
 }
 
-/**
- * Pushes every checkout folder, as `vitehub push` does. The `remote` of each lock entry decides where it goes. Returns
- * the results and the files that the push changed: `vitehub.lock`, and the files that its pull wrote.
- */
-export async function pushDeployCheckouts(checkouts: DeployCheckouts, context: Pick<ViteHubCliContext, "env" | "fetch">): Promise<{ results: CheckoutPushResult[], changed: string[] }> {
-  const before = await readLock(checkouts.root)
+function checkoutContext(root: string, context: Pick<ViteHubCliContext, "env" | "fetch">): CheckoutContext {
   const call: CheckoutCall = async (operation, input, remote) => await callOperationFromCli({
     env: context.env,
     ...(context.fetch ? { fetch: context.fetch } : {}),
-    rootDir: checkouts.root,
+    rootDir: root,
     timeout: 120_000,
     ...(remote ? { url: remote } : {}),
   }, operation, input)
-  const results = await checkouts.module.pushWorkspaces({ call, rootDir: checkouts.root })
+  return { call, rootDir: root }
+}
+
+/**
+ * Pushes every checkout folder, as `vitehub push` does. The `remote` of each lock entry decides where it goes. Returns
+ * the results and the files changed since the pre-build pull: `vitehub.lock`, and the files that either pull wrote.
+ */
+export async function pushDeployCheckouts(checkouts: DeployCheckouts, context: Pick<ViteHubCliContext, "env" | "fetch">): Promise<{ results: CheckoutPushResult[], changed: string[] }> {
+  const results = (await checkouts.module.pushWorkspaces(checkoutContext(checkouts.root, context))).map((result) => {
+    const before = checkouts.pulls.get(result.workspace)
+    return before ? { ...result, pull: { ...result.pull, files: [...before.files, ...result.pull.files], from: before.from } } : result
+  })
   const dirs = new Map(checkouts.statuses.map(status => [status.workspace, status.dir]))
   const pulled = results.flatMap(result => [...result.pull.files, ...(result.after?.files ?? [])]
     .filter(file => file.action !== "kept")
     .map(file => `${dirs.get(result.workspace) ?? result.workspace}/${file.path}`))
-  const changed = [...(before === await readLock(checkouts.root) ? [] : [lockFile]), ...pulled]
+  const changed = [...new Set([...(checkouts.before === await readLock(checkouts.root) ? [] : [lockFile]), ...pulled])]
   return { changed, results }
 }
 
