@@ -1,6 +1,6 @@
 ---
 title: Package reference
-description: Find the ViteHub package and import path for each feature.
+description: Find the ViteHub package and public import path for each Server Primitive and feature.
 navigation.title: Package reference
 navigation.order: 50
 navigation.group: Setup

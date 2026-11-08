@@ -1,7 +1,7 @@
 ---
 title: App secret
 navigation.title: App secret
-description: Set one root secret and derive each signing secret from it.
+description: Set one root secret for your app and derive each signing secret from it.
 navigation.order: 9
 icon: i-lucide-key-square
 ---

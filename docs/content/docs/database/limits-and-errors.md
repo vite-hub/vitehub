@@ -1,6 +1,6 @@
 ---
 title: Database limits and errors
-description: Database error codes, and how to fix config and build errors.
+description: Read Database error codes and learn how to fix configuration and build errors.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

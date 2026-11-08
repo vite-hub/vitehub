@@ -1,6 +1,6 @@
 ---
 title: Database server API
-description: Query a database from server code with a typed Drizzle client.
+description: Query a database from server code with a typed Drizzle client and handle errors.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2

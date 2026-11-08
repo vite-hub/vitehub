@@ -121,7 +121,7 @@ The Capability sends one terminal `$ai_trace` event per invocation, also when pr
 
 Without `vitehub()`, call `installObservability(options)` from `@vite-hub/agent/observability/host` and pass the returned plugin the Nitro app. `posthog(options)` from `@vite-hub/agent/observability/posthog` creates the exporter.
 
-### Delivery and shutdown
+## Delivery and shutdown
 
 - Terminal events send in the background, not delaying the response. Honor the runtime's `waitUntil` tasks.
 - On shutdown, the plugin stops papercut replay, then flushes the exporter. Flush closes the exporter. Later ordinary events drop, and explicit delivery fails.

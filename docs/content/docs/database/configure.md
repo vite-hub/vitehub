@@ -1,6 +1,6 @@
 ---
 title: Database configuration
-description: Set Database options and define default and named databases.
+description: Set Database options and define default and named databases for your app.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal

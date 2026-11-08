@@ -1,6 +1,6 @@
 ---
 title: Markdown templates
-description: Render predictable Markdown from data, conditions, and fragments.
+description: Render predictable Markdown from explicit data, simple conditions, and reusable fragments.
 navigation.order: 53
 navigation.group: Application APIs
 icon: i-vscode-icons-file-type-markdown
