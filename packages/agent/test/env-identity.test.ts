@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { agentEnvAccess } from "@vite-hub/env/internal/agent"
 import { readAgentEnvIdentity } from "../src/env-identity.ts"
 import { defineAgent, runAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import type { AgentRuntimeContext } from "../src/types.ts"
 
 it("rejects caller-created Agent identities and copies through the exported mint", async () => {
@@ -12,7 +13,7 @@ it("rejects caller-created Agent identities and copies through the exported mint
     driver: { run: () => "done" },
     hooks: { "agent:finish"({ runtime }) { identity = runtime.agentIdentity } },
   })
-  expect(await runAgent(definition, {})).toEqual([null, "done"])
+  expect(await runAgent(definition, {})).toEqual([undefined, expect.objectContaining({ text: "done" })])
   expect(identity).toBeDefined()
   expect(readAgentEnvIdentity(identity!)).toBe("owner")
   expect(agentEnvAccess(identity as { name: string }).actor).toEqual({ kind: "agent", id: "owner" })
@@ -33,7 +34,7 @@ it("replaces the parent identity when a different Definition reuses its runtime"
     const child = defineAgent({ name, runtime: false, driver: { run: () => "child" },
       hooks: { "agent:finish"({ runtime }) { identity = runtime.agentIdentity } },
     })
-    await runAgent(child, parentRuntime!, {})
+    await runAgentWithContext(child, parentRuntime!, {})
     expect(identity ? readAgentEnvIdentity(identity) : undefined).toBe(name)
   }
 })
@@ -76,7 +77,7 @@ it.each([
     } },
   })
   markDiscoveredAgentName(definition, "discovered-owner")
-  await runAgent(definition, {
+  await runAgentWithContext(definition, {
     runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn(),
     capabilities: { connections: { runtime: () => ({ client }) } },
     ...(hostName ? { agentIdentity: { name: hostName } } : {}),
@@ -92,7 +93,7 @@ describe("Connection access parents from extends", () => {
       parents = envAccessAgentParents(options.access)
       return { fetch: async () => new Response("ok"), call: async () => "ok" }
     })
-    await runAgent(definition as never, {
+    await runAgentWithContext(definition as never, {
       runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn(),
       capabilities: { connections: { runtime: () => ({ client }) } },
       ...context,

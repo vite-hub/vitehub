@@ -1,11 +1,40 @@
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 
+import { adminClaimHash, adminClaimVariable, createAdminClaimCode } from "./admin-claim-code.ts"
+
 const usage = "vitehub auth events --url <auth-base-url> [--type <type>] [--user <id>] [--actor <actor>] [--from <ISO>] [--to <ISO>] [--cursor <cursor>] [--limit <1-200>] [--aggregate]"
 
 /** Read the app-owned, session-protected endpoint. No local or remote database credentials are needed. */
 export function createAuthCliContributor(options: { fetch?: typeof fetch } = {}): ViteHubCliContributor {
   return { namespaces: [{
-    name: "auth", description: "Inspect auth events.", features: [{
+    name: "auth", description: "Inspect auth events and create an admin claim code.", features: [{
+      name: "claim",
+      description: "Create a one-time code that gives the admin role to the user who enters it.",
+      usage: "vitehub auth claim [--json]",
+      async run(args, context) {
+        if (args.includes("--help") || args.includes("-h")) {
+          context.stdout.write(`vitehub auth claim [--json]\n\nPrints a new code and the ${adminClaimVariable} value to set on the host. The host stores only the SHA-256 of the code.\n`)
+          return 0
+        }
+        const code = createAdminClaimCode()
+        const value = await adminClaimHash(code)
+        if (args.includes("--json")) {
+          context.stdout.write(`${JSON.stringify({ code, variable: adminClaimVariable, value }, null, 2)}\n`)
+          return 0
+        }
+        context.stdout.write([
+          `Claim code: ${code}`,
+          "This is the only time the code is shown. Keep it private.",
+          "",
+          "Set this variable on the host, for example as a Worker secret:",
+          `${adminClaimVariable}=${value}`,
+          "",
+          "Then sign in to the app and open /_vitehub. The first signed-in user who enters the code gets the admin role, and the code stops working.",
+          "",
+        ].join("\n"))
+        return 0
+      },
+    }, {
       name: "events",
       description: "List auth events or daily aggregates as JSON.",
       usage,
