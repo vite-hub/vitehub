@@ -17,7 +17,7 @@ import type {
 /** The Channel client that `useChannel(name)` returns, or any object with the same `send()` contract. */
 export interface ChannelDeliveryClient<TOptions = never> {
   name?: string
-  send: (text: string, options: TOptions) => Promise<[error: Error, receipt: null] | [error: null, receipt: { deliveryId: string }]>
+  send: (text: string, options: TOptions) => Promise<[error: Error, receipt: undefined] | [error: undefined, receipt: { deliveryId: string }]>
 }
 
 /** What `onDelivered` receives after a successful send or a recorded dry-run send. */

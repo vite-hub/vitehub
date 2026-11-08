@@ -334,7 +334,7 @@ onBeforeUnmount(() => request?.abort());
 }
 
 .vitehub-mcp-item:focus-visible {
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--vitehub-console-focus);
   outline-offset: -2px;
 }
 </style>

@@ -140,6 +140,7 @@ describe("Vercel Blob provision status", () => {
         recorded: {},
         schemaVersion: 1,
         stateFile: ".vitehub/provision.json",
+        undeclared: [],
         warnings: [warning],
       })
       expect(stderr.write).not.toHaveBeenCalled()

@@ -69,7 +69,7 @@ A message mentions people by id, and its text names each one with `@name`. The s
 
 `users({ query, threadId?, subject? })` leaves out the people that `canMention` refuses for that thread or subject. See [Mention people](/docs/comments/configure#mention-people).
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 export default defineComments({
   authorize: ({ user }) => Boolean(user),
   onMention: async ({ users, message, link }) => {
@@ -89,6 +89,8 @@ The overlay is the `comments` page tool of [Turn comment mode on and off](/docs/
 With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on, and Comments use the default Database. When the app has no Database Definition, that is the implicit `default` Database, as for the Content cms preset. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({ comments: { database: 'main' } })
 ```
 
