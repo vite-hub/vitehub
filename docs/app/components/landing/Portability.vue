@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { motion, MotionConfig } from "motion-v";
 import { tokenize } from "./code";
 import { portabilityExamples } from "./content";
 
 const activeIndex = ref(0);
-const indicatorId = `portability-pattern-${useId()}`;
+const indicator = useSharedIndicator(useTemplateRef<HTMLElement>("choices"));
 const activeExample = computed(() => portabilityExamples[activeIndex.value] ?? portabilityExamples[0]);
 const activeLines = computed(() => activeExample.value.code.map(tokenize));
 
@@ -28,9 +27,9 @@ function select(index: number, event: MouseEvent) {
         </p>
       </div>
 
-      <MotionConfig reduced-motion="user">
         <div class="mt-10 lg:mt-14">
           <div
+            ref="choices"
             class="pattern-choices -mx-4 flex flex-nowrap gap-x-6 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0"
             role="group"
             aria-label="Server code examples"
@@ -45,11 +44,9 @@ function select(index: number, event: MouseEvent) {
               @click="select(index, $event)"
             >
               {{ example.label }}
-              <motion.span
+              <span
                 v-if="index === activeIndex"
-                :layout-id="indicatorId"
-                :initial="false"
-                :transition="{ type: 'spring', stiffness: 450, damping: 36 }"
+                :ref="indicator.track"
                 class="absolute inset-x-0 bottom-0 h-px bg-inverted"
                 aria-hidden="true"
               />
@@ -101,7 +98,6 @@ function select(index: number, event: MouseEvent) {
             </div>
           </div>
         </div>
-      </MotionConfig>
     </div>
   </section>
 </template>

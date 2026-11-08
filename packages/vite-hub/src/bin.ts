@@ -4,8 +4,6 @@ import { createSandboxCliNamespace } from "./sandbox-cli.ts"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
 import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { secretCliFeatures } from "@vite-hub/env/cli"
-import { createConnectionsCliContributor } from "@vite-hub/connections/cli"
-import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli"
 
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
@@ -17,6 +15,12 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   }],
   name: "agent",
 }
+
+// Connections and Decisions are optional peers. Their commands exist when the app installed the package.
+const [connectionsCli, decisionsCli] = await Promise.all([
+  importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/cli")),
+  importOptionalOwner("@vite-hub/decisions", () => import("@vite-hub/decisions/cli")),
+])
 
 const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
   description: "Generate and derive app secrets without loading project configuration.",
@@ -33,6 +37,6 @@ runViteHubCliEntrypoint({
   },
   // `connections` commands only call the running app. Loading the project runs every ViteHub plugin, and the server
   // files that they generate make the running dev server rebuild while the command waits for its answer.
-  runtimeFeatures: [agentRuntimeFeatures, ...createConnectionsCliContributor().namespaces],
-  runtimeNamespaces: [createDecisionsCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
+  runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? []],
+  runtimeNamespaces: [...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createSandboxCliNamespace(), secretRuntimeNamespace],
 })

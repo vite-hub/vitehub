@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
+import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
 import { viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -257,19 +258,9 @@ export function updateConsoleInvocationRootState(
   bindConsoleInvocationsIdentity(state.binding, identity, projectRoot)
 }
 
-function consoleAccessTargets(base: string | undefined, sections?: readonly ConsoleSectionId[]): Array<{ method?: string; route: string }> {
-  return [
-    { route: consoleMountPath(base, "/_vitehub/**") },
-    ...(sections?.includes("agents")
-      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") }]
-      : []),
-    ...(sections?.includes("logs")
-      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/logs") }]
-      : []),
-    ...(sections?.includes("agents") && sections.includes("usage")
-      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/usage") }]
-      : []),
-  ]
+// `/_vitehub/**` covers the Console pages, its RPC, MCP, and its API at `/_vitehub/api`.
+function consoleAccessTargets(base: string | undefined): Array<{ method?: string; route: string }> {
+  return [{ route: consoleMountPath(base, "/_vitehub/**") }]
 }
 
 function consoleMountPath(base: string | undefined, path: string): string {
@@ -336,10 +327,10 @@ function configureConsoleNitroRoutes(
       }
     }
     for (const handler of [
-      ...(sections.includes("agents") ? [{ handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/status"), method: "get" }] : []),
+      ...(sections.includes("agents") ? [{ handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/_vitehub/api/status"), method: "get" }] : []),
       // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
-      ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/logs"), method: "get" }] : []),
-      ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/usage"), method: "get" }] : []),
+      ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/_vitehub/api/logs"), method: "get" }] : []),
+      ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/_vitehub/api/usage"), method: "get" }] : []),
       ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(mount, "/_vitehub/sign-in"), method: "get" }] : []),
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub") },
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub/**") },
@@ -347,10 +338,10 @@ function configureConsoleNitroRoutes(
     kit.addHandler({
       handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
       lazy: true,
-      route: consoleMountPath(mount, "/api/_vitehub/console/client.js"),
+      route: consoleMountPath(mount, "/_vitehub/api/client.js"),
       method: "get",
     })
-    if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, lazy: true, route: consoleMountPath(mount, "/api/_vitehub/console/auth/**") })
+    if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, lazy: true, route: consoleMountPath(mount, "/_vitehub/api/auth/**") })
     if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   }
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, sections, !rpcOnly && oauth, crossOrigin)
@@ -409,8 +400,8 @@ export function resolveConsoleAuthorizeFile(root: string, authorize: unknown): s
   return file
 }
 
-function consoleAppAuthRouteIndexes(auth: ResolvedAuthViteConfig, base: string | undefined, sections?: readonly ConsoleSectionId[]): Array<{ authorize: boolean, index: number, method?: string, route: string }> {
-  const targets = consoleAccessTargets(base, sections)
+function consoleAppAuthRouteIndexes(auth: ResolvedAuthViteConfig, base: string | undefined): Array<{ authorize: boolean, index: number, method?: string, route: string }> {
+  const targets = consoleAccessTargets(base)
   return auth.access.routes.flatMap((route, index) => targets.some(target => authRouteProtects(route, target) || route.route.startsWith(target.route.replace(/\/\*\*$/, "")))
     ? [{ authorize: route.authorize === true, index, method: route.method?.toUpperCase(), route: route.route }]
     : [])
@@ -459,7 +450,7 @@ export function resolveConsoleAccessBuild(
   if (configured.auth === "token") return withAccessOptions({ mode: "token", origins: resolveConsoleOrigins(configured.origins) })
   if (configured.auth === "app") {
     return withSignInPage(withAccessOptions(options.appAuth
-      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) }, oauth: resolveConsoleOAuthBuild(configured, options.base) }
+      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base) }, oauth: resolveConsoleOAuthBuild(configured, options.base) }
       : { mode: "auth" }))
   }
   if (!options.handlers) return withAccessOptions({ mode: "open" })
@@ -489,7 +480,7 @@ export function assertConsoleAccess(
     throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: '[vitehub] console: { auth: "app" } requires a discovered ViteHub Auth Definition. Set auth: true and add server/auth.ts, or use console: { auth: false }.' })
   }
   if (configured.authorize) return
-  const accessRoutes = consoleAccessTargets(options.base, options.sections)
+  const accessRoutes = consoleAccessTargets(options.base)
   const missing = accessRoutes.filter(target => !options.auth?.access.routes.some(route => authRouteProtects(route, target)))
   if (missing.length) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0006({ message: `[vitehub] console: { auth: "app" } needs console.authorize, or app Auth access routes with an authorize callback for ${missing.map(target => target.route).join(" and ")}.` })
@@ -597,6 +588,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const plugin: Plugin & { devtools: ConsoleViteDevTools, vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
     name: "vite-hub/console",
     devtools: consoleViteDevTools,
+    // Nitro 3 runs the app in a worker that never sees the client's address. Its front process signs loopback requests.
+    nitro: {
+      setup(nitro) {
+        if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers)
+      },
+    },
     transform(code) {
       const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
       return transformed === undefined ? undefined : { code: transformed, map: null }
@@ -937,6 +934,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     },
     configureServer(server) {
       publishDevServer(server)
+      // Nitro's WebSocket upgrades skip its dev handlers. The listener signs only after the Nitro module made a key.
+      if (server.httpServer) addViteHubDevPeerUpgradeSigner(server.httpServer)
       if (fixture) server.watcher.add(fixture)
       if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
       const refresh = async (path: string) => {

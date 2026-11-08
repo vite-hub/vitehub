@@ -443,8 +443,32 @@ describe("vitehub init", () => {
     expect(await snapshot(join(parent, "site"))).toEqual(files)
   })
 
+  it.each([
+    "5", "5.x", "5.*", "5.1", "~5.1", "^5.1.2", "=5.1.2+local",
+    ">=5.0.0 <6.0.0", ">=5.1 <6", "5.1.0 - 5.3.0", "^5.1 || ~5.3",
+    "^5.1.0-beta.2", ">=5.1.0-beta.2 <5.1.0", ">=5.0.0-0 <6.0.0-0",
+    "npm:nuxt@5.x", "npm:nuxt-nightly@5.0.0-2611071848-2d8337c",
+  ])("adopts an existing Nuxt app with the supported range %s", async (nuxt) => {
+    for (const dependencyKey of ["dependencies", "devDependencies"]) {
+      const manifest = JSON.stringify({ [dependencyKey]: { nuxt }, type: "module" })
+      const root = await createProject({
+        "package.json": manifest,
+        "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+      })
+      const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+      expect(result.exitCode, result.stdout).toBe(0)
+      const config = await readFile(join(root, "nuxt.config.ts"), "utf8")
+      expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { keys: { kv: { value: true }, preset: { value: "node" } } } })
+      expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
+    }
+  })
+
   it.each(["dependencies", "devDependencies"])("rejects an existing Nuxt app without a known Nuxt 5 version in %s before any install or write", async (dependencyKey) => {
-    for (const nuxt of [undefined, "^4.6.4", "latest", "*", "npm:nuxt-nightly@latest"]) {
+    for (const nuxt of [
+      undefined, "^4.6.4", "latest", "*", "npm:nuxt-nightly@latest", "npm:other@5.0.0",
+      "6.x", ">=5.0.0", ">=5.0.0 <=6.0.0", "5.x || 6.0.0", "5.x || 6.0.0-beta.1",
+      ">=5.0.0 <6.0.0-beta.2", ">=5.0.0 <5.0.0", "<0.0.0-0", "not a range",
+    ]) {
       const root = await createProject({
         "package.json": JSON.stringify({ [dependencyKey]: { nuxt }, type: "module" }),
         "nuxt.config.ts": "export default defineNuxtConfig({})\n",

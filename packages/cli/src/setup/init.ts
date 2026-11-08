@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises"
 import { editViteHubConfig, insertViteHubConfig, locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds } from "@vite-hub/internal/features"
 import { basename, dirname, join, resolve } from "pathe"
+import { minVersion, Range, subset, validRange } from "semver"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
@@ -527,14 +528,27 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   await validateNuxtVersion(planned.plan.root, true)
 }
 
+/** Accept nonempty ranges confined to Nuxt 5, including its prereleases and nightly aliases. */
+function supportsNuxt5(nuxt: JsonValue | undefined): boolean {
+  if (typeof nuxt !== "string") return false
+  const range = validRange(nuxt.replace(/^npm:nuxt(?:-nightly)?@/u, ""))
+  if (!range || !minVersion(range)) return false
+  // Project Nuxt 5 prereleases onto their release so subset accepts every Nuxt 5 prerelease tuple.
+  // Other majors keep their prereleases and cannot fit within the supported range.
+  const releases = new Range(range).set.map(comparators => comparators.map(({ operator, semver, value }) =>
+    typeof semver !== "symbol" && semver.major === 5 && semver.prerelease.length > 0
+      ? `${operator}5.${semver.minor}.${semver.patch}`
+      : value).join(" ")).join(" || ")
+  return subset(releases, ">=5.0.0 <6.0.0")
+}
+
 /** Validate both existing apps and scaffold output before planning adoption or installing packages. */
 async function validateNuxtVersion(root: string, scaffolded = false): Promise<void> {
   const manifest: JsonValue = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
   const devDependencies = isRecord(manifest) && isRecord(manifest.devDependencies) ? manifest.devDependencies : {}
   const nuxt = dependencies.nuxt ?? devDependencies.nuxt
-  // Tags and broad ranges cannot prove that the scaffold uses the supported Nuxt major.
-  if (typeof nuxt !== "string" || !/^(?:npm:nuxt(?:-nightly)?@)?[~^]?5\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/u.test(nuxt)) {
+  if (!supportsNuxt5(nuxt)) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: root, scaffolded }), setupExitCodes.conflict)
   }
 }

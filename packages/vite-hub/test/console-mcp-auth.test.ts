@@ -21,6 +21,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
+import { requestEvent } from "./console-event.ts"
 
 const app = "https://app.example.com"
 const resource = `${app}/_vitehub/mcp`
@@ -218,10 +219,10 @@ describe("MCP sign-in against a real Better Auth", () => {
       await expect(metadata.json()).resolves.toMatchObject({ code: "CONSOLE_MCP_ORIGIN_REQUIRED" })
       installConsoleAccess({ check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource } })
       const configured = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
-      await expect(configured.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/_vitehub/console/auth`], resource })
-      const server = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/_vitehub/console/auth`))
+      await expect(configured.json()).resolves.toMatchObject({ authorization_servers: [`${app}/_vitehub/api/auth`], resource })
+      const server = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/_vitehub/api/auth`))
       expect(server.status).toBe(200)
-      await expect(server.json()).resolves.toMatchObject({ issuer: `${app}/api/_vitehub/console/auth`, scopes_supported: expect.arrayContaining(["vitehub:read", "vitehub:write"]) })
+      await expect(server.json()).resolves.toMatchObject({ issuer: `${app}/_vitehub/api/auth`, scopes_supported: expect.arrayContaining(["vitehub:read", "vitehub:write"]) })
     }
     finally {
       vi.unstubAllEnvs()
@@ -343,7 +344,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       const query = new URLSearchParams({ client_id, code_challenge: "a".repeat(43), code_challenge_method: "S256", redirect_uri: "http://localhost:53682/callback", resource, response_type: "code", scope: "vitehub:read vitehub:write", state: "built-in-page" })
       const login = new URL((await call(`/oauth2/authorize?${query}`)).headers.get("location") ?? "", app)
       expect(login.pathname).toBe("/_vitehub/sign-in")
-      const page = await pages.signIn({ req: new Request(login) })
+      const page = await pages.signIn(requestEvent(new Request(login)))
       const html = await page.text()
       expect(html).toContain("Connect an agent")
       expect(html).toContain('autocomplete="current-password"')
@@ -405,7 +406,7 @@ describe("MCP sign-in against a real Better Auth", () => {
     const page = await signedIn.text()
     expect(signedIn.headers.get("content-security-policy")).toContain("script-src 'nonce-")
     expect(page).toContain("Connect an agent")
-    expect(page).toContain('"/portal/api/_vitehub/console/auth"')
+    expect(page).toContain('"/portal/_vitehub/api/auth"')
     expect(page).toContain("/oauth2/consent")
     expect(await consoleAuthSignInPage("github", new Request(`${app}/_vitehub/sign-in`), "/portal/").text()).not.toContain("oauth2/consent")
   })

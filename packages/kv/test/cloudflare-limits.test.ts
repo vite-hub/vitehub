@@ -42,7 +42,7 @@ describe("Cloudflare KV limits", () => {
     const [setError] = await kv.set("k".repeat(513), "value")
     expect(setError).toMatchObject({
       code: "KV_KEY_TOO_LONG",
-      docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_key_too_long",
+      docs: "https://vitehub.dev/docs/kv/diagnostics/kv_key_too_long",
       why: "The key is 513 bytes in UTF-8. Cloudflare KV accepts keys of at most 512 bytes.",
     })
     expect(puts).toEqual([])
