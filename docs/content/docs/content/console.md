@@ -187,6 +187,8 @@ Two policies decide what an editor can do:
 2. [`authorize` in `defineContent()`](/docs/content/configure#access) decides what a user may do with each collection. The Console calls `content.can()` with the signed-in user before every read, save, delete, restore, and publish.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'node',
   auth: true,
@@ -206,7 +208,7 @@ export default defineConsoleAuthorize(({ user }) => {
 })
 ```
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   workspace: 'site',
   collections: { posts },

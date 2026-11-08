@@ -473,7 +473,7 @@ export function contentDocumentUrl(
   sourceLocale?: string,
 ): string | null {
   if (url === undefined) return null
-  if (String(url) === url && document.locale !== undefined && !url.includes(":locale") && document.locale !== sourceLocale) {
+  if (String(url) === url && document.locale !== undefined && ![...url.matchAll(urlToken)].some(([, name]) => name === "locale") && document.locale !== sourceLocale) {
     const resolved = contentDocumentUrl(url, { id: document.id, data: document.data })
     return resolved === null ? null : `/${document.locale}${resolved === "/" ? "" : resolved}`
   }

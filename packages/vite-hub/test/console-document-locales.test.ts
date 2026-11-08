@@ -4,13 +4,14 @@ import { defineComponent, h, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleTranslationsToDo, createConsoleDocumentsClient } from "../src/console/runtime/client/documents"
+import { setConsoleProject } from "../src/console/runtime/client/project"
 import { parseConsoleDocumentCollections } from "../src/console/runtime/definitions"
 import ConsoleDocumentEditor from "../src/console/runtime/components/console-document-editor.vue"
 
 import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/runtime/client/documents"
 
 const requestConsole = vi.hoisted(() => vi.fn<(path: string, options: { body?: unknown, query?: Record<string, unknown> }) => Promise<unknown>>(async () => null))
-const route = vi.hoisted(() => ({ query: {} as Record<string, unknown> }))
+const route = vi.hoisted(() => ({ path: "/content/docs/guide", query: {} as Record<string, unknown> }))
 
 vi.mock("../src/console/runtime/client/request", async importOriginal => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/request")>(),
@@ -49,6 +50,7 @@ vi.mock("../src/console/runtime/client/presence", async importOriginal => ({
 afterEach(() => {
   requestConsole.mockClear()
   route.query = {}
+  setConsoleProject({ origin: "", base: "" })
 })
 
 /** The body of each Console request, by action. */
@@ -184,6 +186,21 @@ describe("Editing a translation", () => {
     expect(JSON.parse(links[1]!.attributes("data-to")!)).toEqual({ query: { locale: "es" } })
     expect(wrapper.text()).not.toContain("Not translated yet")
     wrapper.unmount()
+  })
+
+  it.each(["", "https://app.example.com"])("keeps preview controls on the source locale for project origin %j", async (origin) => {
+    setConsoleProject({ origin, base: "" })
+    const original = mountEditor(source)
+    await flushPromises()
+    const label = origin ? "Preview: open in the app" : "Preview the page"
+    const preview = original.wrapper.get(`button[aria-label='${label}']`)
+    if (origin) expect(preview.attributes("to")).toBe(`${origin}/_vitehub/content/docs/guide?preview`)
+    original.wrapper.unmount()
+
+    const translated = mountEditor({ ...source, locale: "es", path: "docs/es/guide.json", translations: { es: "current" } }, "es")
+    await flushPromises()
+    expect(translated.wrapper.find("button[aria-label^='Preview']").exists()).toBe(false)
+    translated.wrapper.unmount()
   })
 
   it("opens a missing translation with the source version and saves it in its locale on the first edit", async () => {

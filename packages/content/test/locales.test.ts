@@ -290,6 +290,35 @@ describe("documents() with locales", () => {
     expect(await docs.get("guide", { ref: "draft", locale: "es" })).toMatchObject({ url: "/es/docs/guide", fallback: true })
   })
 
+  it("prefixes translations when a URL field name starts with locale", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(cleanup),
+      collections: {
+        docs: documents({
+          path: "docs/{locale}/*.md",
+          locales: ["en", "es"],
+          fields: { ...fields, localeSlug: z.string() },
+          url: "/docs/:localeSlug/:id",
+        }),
+      },
+      seo: { site: "https://example.com", sitemap: true },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const docs = content.collection("docs")
+    await docs.save("guide", { data: { title: "Guide", localeSlug: "manual" } })
+    expect(await docs.get("guide", { ref: "draft", locale: "es" })).toMatchObject({ url: "/es/docs/manual/guide", fallback: true })
+    await docs.save("guide", { data: { title: "Guía", localeSlug: "manual" } }, { locale: "es" })
+    await content.publish({ collection: "docs" })
+    expect(await docs.get("guide", { locale: "es" })).toMatchObject({ url: "/es/docs/manual/guide" })
+    expect(await content.resolve("/docs/manual/guide")).toEqual({ collection: "docs", id: "guide", locale: "en" })
+    expect(await content.resolve("/es/docs/manual/guide")).toEqual({ collection: "docs", id: "guide", locale: "es" })
+    expect((await content.sitemap()).map(({ loc, locale }) => ({ loc, locale }))).toEqual([
+      { loc: "https://example.com/docs/manual/guide", locale: "en" },
+      { loc: "https://example.com/es/docs/manual/guide", locale: "es" },
+    ])
+  })
+
   it("leaves a collection without locales as it was", async () => {
     const workspace = await historyWorkspace(cleanup)
     const content = defineContent({ workspace, collections: { posts: documents({ path: "posts/*.md", fields }) }, logger: false })

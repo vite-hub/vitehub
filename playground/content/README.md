@@ -53,6 +53,6 @@ attributes, to edit the text in place: the edit saves a draft that `/_vitehub/co
 writer edits but cannot publish, and the reviewer only comments. The Comments section of the Console lists every thread. Migrations `0002_comments` to
 `0004_comments_scope` add the tables; they are written by hand.
 Users and sessions live in the `content` Database: `authDatabase("content")` in `server/auth.ts` adds the Better Auth
-tables to it, and `0006_auth` is the migration that `vitehub db generate --name auth` wrote for them. Start the server
-with `VITEHUB_ADMIN_EMAILS=you@example.com` and create that account at `/_vitehub/sign-in` to get the admin role.
+tables to it, and `0006_auth` is the migration that `vitehub db generate --name auth` wrote for them. The accounts
+in `server/roles.ts` get their CMS role at sign-up. `admin@vitehub.dev` is the admin.
 Documents persist in `.data`.

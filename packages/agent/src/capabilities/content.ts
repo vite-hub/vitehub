@@ -269,8 +269,10 @@ function localesOf(collections: readonly ContentCollectionHandle[]): string[] {
 }
 
 /** The `locale` input of collections with locales, null for the source locale. Absent when no collection has locales. */
-function localeProperty(collections: readonly ContentCollectionHandle[], description: string): Record<string, JsonSchema> {
-  const locales = localesOf(collections)
+function localeProperty(collections: readonly ContentCollectionHandle[], description: string, sourceOnly = false): Record<string, JsonSchema> {
+  const locales = sourceOnly
+    ? [...new Set(collections.flatMap(collection => collection.locales?.slice(0, 1) ?? []))]
+    : localesOf(collections)
   if (!locales.length) return {}
   return { locale: { anyOf: [{ enum: locales, type: "string" }, { type: "null" }], description } }
 }
@@ -311,10 +313,12 @@ function nullableIdSchema(allowNull: boolean): JsonSchema {
   return allowNull ? { anyOf: [schema, { type: "null" }], description: schema.description } : schema
 }
 
-function documentsSchema(collections: readonly ContentCollectionHandle[], description: string): JsonSchema {
+function documentsSchema(collections: readonly ContentCollectionHandle[], description: string, sourceOnly = false): JsonSchema {
   const names = collections.map(collection => collection.name)
   const allSingletons = collections.every(collection => collection.kind === "singleton")
-  const locale = localeProperty(collections, "The locale of the document in a collection with locales, from content_status. Null for the source locale.")
+  const locale = localeProperty(collections, sourceOnly
+    ? "Only the source locale of the document's collection can be scheduled. Null for the source locale."
+    : "The locale of the document in a collection with locales, from content_status. Null for the source locale.", sourceOnly)
   return {
     description,
     items: {
@@ -533,7 +537,7 @@ function contentTools(
   }
   const isProblem = (value: object): value is ReturnType<typeof invalidInput> => "ok" in value
   /** Pinned entries of `content_publish` and `content_schedule`, with the id of each singleton filled in. */
-  const pinned = (documents: unknown): ScheduledDocument[] | ReturnType<typeof invalidInput> => {
+  const pinned = (documents: unknown, sourceOnly = false): ScheduledDocument[] | ReturnType<typeof invalidInput> => {
     if (!Array.isArray(documents) || !documents.length) return invalidInput("documents", "List at least one document with its reviewed draft digest.")
     const expected: ScheduledDocument[] = []
     for (const [index, entry] of documents.entries()) {
@@ -546,6 +550,9 @@ function contentTools(
       }
       const locale = localeOption(target, document.locale, `documents.${index}.locale`)
       if (isProblem(locale)) return locale
+      if (sourceOnly && locale.locale !== undefined && locale.locale !== target.locales?.[0]) {
+        return invalidInput(`documents.${index}.locale`, "Scheduling supports only the collection's source locale. Pass that locale or null.")
+      }
       expected.push({ collection: target.name, digest: document.digest, id, ...locale })
     }
     return expected
@@ -920,9 +927,9 @@ function contentTools(
       title: "Published Content",
     })
     tools.content_schedule = defineInternalTool<ScheduleInput>({
-      description: "Schedule a publish of draft documents at a later time. List each document with the draft digest from content_status. The digests must match now, and exactly those versions are published at `at`: a draft saved after scheduling makes the run publish nothing and the schedule failed.",
+      description: "Schedule a publish of draft documents at a later time. Only the source locale of each collection can be scheduled. List each document with the draft digest from content_status. The digests must match now, and exactly those versions are published at `at`: a draft saved after scheduling makes the run publish nothing and the schedule failed.",
       execute: async (input) => {
-        const expected = pinned(input?.documents)
+        const expected = pinned(input?.documents, true)
         if (!Array.isArray(expected)) return expected
         if (String(input.at) !== input.at || !input.at) return invalidInput("at", hints.scheduleAt)
         if (input.message !== undefined && String(input.message) !== input.message) return invalidInput("message", "message must be a string.")
@@ -945,7 +952,7 @@ function contentTools(
         additionalProperties: false,
         properties: {
           at: { description: "When to publish: an ISO timestamp with a time zone, such as 2026-10-20T09:00:00+02:00. It must be in the future.", minLength: 1, type: "string" },
-          documents: documentsSchema(scoped, "The reviewed drafts to publish. The approver sees these digests, and only these versions are published."),
+          documents: documentsSchema(scoped, "The reviewed drafts to publish. The approver sees these digests, and only these versions are published.", true),
           message: { description: "Message of the publish revision.", type: "string" },
         },
         required: ["at", "documents"],

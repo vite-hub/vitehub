@@ -42,6 +42,7 @@ import {
 } from "../client/schema-form";
 import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
+import { isRemoteProject, projectConsoleUrl } from "../client/project";
 import { consoleClockTime, consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
@@ -312,7 +313,9 @@ const { dialogOpen: leaseDialogOpen, holder: leaseHolder, others: sessionOthers,
  * people type, carets and focused fields show who is where, and the room saves the draft and holds the edit lease for
  * everyone in it. The page edits alone, with the lease, when the codec cannot keep the body or the room does not answer.
  */
-const liveDefinition = consoleLiveDefinition(props.setup);
+// The Realtime room opens a WebSocket on the app origin with the app session, so a Console on another origin edits alone.
+const remote = isRemoteProject();
+const liveDefinition = remote ? undefined : consoleLiveDefinition(props.setup);
 const liveFallback = ref<"document" | "unreachable">();
 const liveRoom = computed(() => {
   // The room of a document holds its source locale version.
@@ -345,6 +348,7 @@ const liveUnavailableReason = computed(() => {
   if (!hasBody.value || creating.value) return undefined;
   const live = props.setup?.live;
   if (live && "unavailable" in live) return live.unavailable;
+  if (live && remote) return "Live editing works only in the Console that the app serves. Saves still refuse to overwrite a newer version.";
   if (liveFallback.value === "unreachable") return "The live session did not answer. Saves still refuse to overwrite a newer version.";
   return undefined;
 });
@@ -2117,7 +2121,20 @@ const menuItems = computed(() => [[
           <span class="hidden sm:inline">{{ local ? "Local only" : "Collaborative" }}</span>
         </UButton>
       </UDropdownMenu>
-      <UTooltip v-if="base && !creating && !missing && !locale" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
+      <!-- The preview frame shows pages of the Console origin, so a Console on another origin opens the app's own Console. -->
+      <UTooltip v-if="remote && base && !creating && !missing && !locale" text="The preview works only in the Console that the app serves. Open in the app" :content="{ side: 'bottom' }">
+        <UButton
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-app-window"
+          trailing-icon="i-lucide-arrow-up-right"
+          aria-label="Preview: open in the app"
+          :to="projectConsoleUrl(`${route.path}?preview`)"
+          target="_blank"
+          external
+        />
+      </UTooltip>
+      <UTooltip v-else-if="base && !creating && !missing && !locale" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
         <UButton
           variant="ghost"
           size="sm"
