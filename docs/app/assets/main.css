@@ -4,10 +4,6 @@
   .vh-landing-reveal {
     animation: vh-landing-reveal 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
-
-  .vh-landing-reveal-delay {
-    animation-delay: 90ms;
-  }
 }
 
 @keyframes vh-landing-reveal {

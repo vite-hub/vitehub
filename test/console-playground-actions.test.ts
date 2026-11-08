@@ -10,7 +10,7 @@ async function invoke(body: string, id = "missing", method: "GET" | "POST" = "PO
   const configureServer = consoleMockAPI().configureServer as (server: { middlewares: { use: (handler: NonNullable<typeof middleware>) => void } }) => void
   // SAFETY: The hook reads only the middleware registration boundary in this test.
   configureServer({ middlewares: { use: (handler) => { middleware = handler } } })
-  const request = Object.assign(Readable.from([body]), { method, url: `/api/_vitehub/console/invocations/${id}` })
+  const request = Object.assign(Readable.from([body]), { method, url: `/_vitehub/api/invocations/${id}` })
   let value: unknown
   const response = {
     statusCode: 200,

@@ -1,7 +1,7 @@
 ---
 title: Vercel vs Netlify vs Cloudflare
 description: Compare Vercel, Netlify, and Cloudflare for Vite apps and Agents by queues, cron, storage, sandboxes, run time, and pricing, with what ViteHub uses on each.
-seo.title: Vercel vs Netlify vs Cloudflare for Vite apps and Agents
+seo.title: Vercel vs Netlify vs Cloudflare for Vite apps
 navigation.title: Vercel, Netlify, Cloudflare
 navigation.order: 9
 navigation.group: Hosts
