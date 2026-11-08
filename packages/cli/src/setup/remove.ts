@@ -118,7 +118,7 @@ function importsModule(specifier: string, module: string): boolean {
 
 /** Static imports, re-exports, dynamic imports, and `require` calls. Comments can match, which only makes `remove` stricter. */
 const specifierPattern = /\b(?:from|import|require)\s*\(?\s*(["'])([^"'\r\n]+)\1/gu
-const sourceFile = /\.(?:[cm]?[jt]sx?|vue)$/iu
+const sourceFile = /\.(?:[cm]?[jt]sx?|vue|svelte|astro|mdx?|html?)$/iu
 const declarationFile = /\.d\.[cm]?[jt]sx?$/iu
 
 function lineAt(content: string, index: number): number {

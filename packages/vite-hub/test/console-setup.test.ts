@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { flushPromises, shallowMount } from "@vue/test-utils"
+import type { Window } from "happy-dom"
 import type { DefineComponent } from "vue"
 import { describe, expect, it, vi } from "vitest"
 
@@ -46,6 +47,7 @@ describe("Console Setup actions", () => {
     mocks.connect.mockResolvedValue(client)
     mocks.navigation.mockResolvedValue({ setup: "/setup", readOnly: [] })
     mocks.restart.mockResolvedValue(restarted ? "new-server" : undefined)
+    const { window } = globalThis as unknown as Pick<Window, "window">
     const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {})
     const wrapper = mountSetup()
     try {

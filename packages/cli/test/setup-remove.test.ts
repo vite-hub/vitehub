@@ -202,6 +202,39 @@ describe("vitehub remove", () => {
     expect(forced.json.references).toHaveLength(2)
   })
 
+  it.each([
+    { file: "src/App.svelte", content: '<script>\nimport { connect } from "vite-hub/realtime/client"\n</script>\n' },
+    { file: "src/page.astro", content: '---\nimport { connect } from "vite-hub/realtime/client"\n---\n' },
+    { file: "src/page.mdx", content: 'import { connect } from "vite-hub/realtime/client"\n' },
+    { file: "src/page.md", content: 'import { connect } from "vite-hub/realtime/client"\n' },
+    { file: "index.html", content: '<script type="module">\nimport { connect } from "vite-hub/realtime/client"\n</script>\n' },
+  ])("preserves the feature and owner package used in $file", async ({ file, content }) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      [file]: content,
+      "vite.config.ts": viteConfig(`{ preset: "cloudflare", realtime: true }`),
+    })
+    const before = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove(["realtime", "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IN_USE")
+    expect(refused.json.references).toEqual([{ feature: "realtime", file, line: content.startsWith("import") ? 1 : 2, module: "vite-hub/realtime/client" }])
+    expect(await snapshot(root)).toEqual(before)
+    expect(pm.calls).toEqual([])
+
+    const forced = await remove(["realtime", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(forced.json.references).toEqual(refused.json.references)
+    expect(pm.calls).toEqual([])
+    expect(await readFile(join(root, file), "utf8")).toBe(content)
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/realtime": "1.0.0" } })
+  })
+
   it.each(["vite-hub/realtime", "vite-hub/realtime/client"])("keeps the owner package when only a retained facade imports it: %s", async (specifier) => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
