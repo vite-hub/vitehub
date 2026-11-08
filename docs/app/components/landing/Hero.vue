@@ -2,7 +2,8 @@
   <section class="border-b border-default bg-default">
     <div class="mx-auto max-w-[90rem] px-4 py-12 sm:px-8 sm:py-16 lg:px-12">
       <!-- Seven columns match the catalog, so the install panel starts on a tile border. -->
-      <div class="vh-landing-reveal grid gap-8 xl:grid-cols-7 xl:items-end xl:gap-0">
+      <!-- The heading is the largest paint of the page, so it shows at once. Only the grid below fades in. -->
+      <div class="grid gap-8 xl:grid-cols-7 xl:items-end xl:gap-0">
         <div class="min-w-0 xl:col-span-4 xl:pr-12">
           <h1 class="vh-hero-title max-w-[13ch] font-semibold text-highlighted text-balance">
             The server layer for Vite apps.
@@ -33,7 +34,7 @@
         </div>
       </div>
 
-      <LandingPrimitives class="vh-landing-reveal vh-landing-reveal-delay mt-10 xl:mt-12" />
+      <LandingPrimitives class="vh-landing-reveal mt-10 xl:mt-12" />
     </div>
   </section>
 </template>

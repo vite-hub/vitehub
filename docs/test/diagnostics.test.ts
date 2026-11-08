@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { docsSeoLimits } from "../../packages/docs/src/seo-audit"
 import { readDiagnosticCodes } from "../modules/diagnostics/catalog"
 import { diagnosticGroup, diagnosticPages, diagnosticPath, diagnosticSection, limitsSections, markdownText } from "../modules/diagnostics/pages"
 
@@ -103,6 +104,20 @@ describe("diagnostic pages", () => {
     expect(page).toContain("[QUEUE_MISSING_REGION](/docs/queue/diagnostics/queue_missing_region)")
     expect(page).toContain("[delivery](/docs/queue/limits-and-errors#local-delivery)")
     expect(page).toContain("https://github.com/vite-hub/vitehub/blob/main/packages/queue/src/")
+  })
+
+  it("gives every generated index a unique description within the search audit limits", () => {
+    const descriptions: string[] = []
+    for (const [file, source] of pages) {
+      if (!file.endsWith("/index.md") && file !== "docs/reference/diagnostics.md") continue
+      const description: unknown = JSON.parse(source.match(/^description: (.+)$/m)![1]!)
+      if (typeof description !== "string") throw new Error(`Missing description in ${file}`)
+      expect(description.length, file).toBeGreaterThanOrEqual(docsSeoLimits.description.min)
+      expect(description.length, file).toBeLessThanOrEqual(docsSeoLimits.description.max)
+      descriptions.push(description)
+    }
+    expect(descriptions.length).toBeGreaterThan(1)
+    expect(new Set(descriptions).size).toBe(descriptions.length)
   })
 
   it("indexes a code page with a guide and lets the guide replace generated fields", () => {

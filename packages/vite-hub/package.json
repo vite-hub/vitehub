@@ -1063,11 +1063,6 @@
       "import": "./dist/ui/multi-file-diff.js",
       "default": "./dist/ui/multi-file-diff.js"
     },
-    "./ui/nuxt": {
-      "types": "./dist/ui/nuxt.d.ts",
-      "import": "./dist/ui/nuxt.js",
-      "default": "./dist/ui/nuxt.js"
-    },
     "./ui/patch-diff": {
       "types": "./dist/ui/patch-diff.d.ts",
       "import": "./dist/ui/patch-diff.js",
@@ -1208,6 +1203,11 @@
       "types": "./dist/console/runtime/server/mcp-client-operations.d.ts",
       "import": "./dist/console/runtime/server/mcp-client-operations.js",
       "default": "./dist/console/runtime/server/mcp-client-operations.js"
+    },
+    "./console/operations": {
+      "types": "./dist/console/runtime/server/operation-contributions.d.ts",
+      "import": "./dist/console/runtime/server/operation-contributions.js",
+      "default": "./dist/console/runtime/server/operation-contributions.js"
     },
     "./console/sections": {
       "types": "./dist/console/runtime/server/sections.d.ts",

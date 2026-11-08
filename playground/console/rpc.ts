@@ -70,7 +70,7 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
     body = { ...input, action: payload.operation.split(".")[1] }
   }
   if (!route) return { code: "CONSOLE_REQUEST_INVALID", message: `The playground has no fixture for ${payload.operation}.`, ok: false, status: 404 }
-  const url = new URL(`/api/_vitehub/console/${route}`, origin)
+  const url = new URL(`/_vitehub/api/${route}`, origin)
   if (method === "GET") {
     for (const [key, value] of Object.entries(query)) {
       if (key === "id" && payload.operation !== "invocations.list") continue
