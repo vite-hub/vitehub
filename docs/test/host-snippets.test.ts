@@ -19,7 +19,7 @@ function normalize(source: string) {
 }
 
 function sourceBlocks(source: string) {
-  return [...normalize(source).matchAll(/```(ts|json) \[([^\]]+)\]\n([\s\S]*?)\n```/g)].map(match => ({
+  return [...normalize(source).matchAll(/```(ts|json) \[([^\]]+)\][^\n]*\n([\s\S]*?)\n```/g)].map(match => ({
     label: match[2]!,
     source: normalize(match[3]!),
   }))

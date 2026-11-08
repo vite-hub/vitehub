@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { Plugin } from "vite";
 import type { ObservabilityEvlogOptions } from "./observability-vite.ts";
@@ -70,8 +70,9 @@ export function logsVitePlugin(input: true | LogsOptions): Plugin {
         }
       }
       const file = resolve(root, ".vitehub/nitro/logs/plugin.mjs");
-      await mkdir(dirname(file), { recursive: true });
-      await writeFile(
+      // A `vitehub` command loads this config while the dev server runs. A rewrite of the same bytes reloads the
+      // dev server's Nitro worker, and the reloaded plugin starts a new, empty log buffer.
+      await writeFileIfChanged(
         file,
         renderLogsPlugin(
           root,
@@ -80,7 +81,6 @@ export function logsVitePlugin(input: true | LogsOptions): Plugin {
             ? {}
             : { maxEntries: options.maxEntries, maxEntryBytes: options.maxEntryBytes },
         ),
-        "utf8",
       );
       kit.addPlugin(file);
       Object.assign(config, { nitro: kit.config });
