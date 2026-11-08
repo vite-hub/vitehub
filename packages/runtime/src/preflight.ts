@@ -49,7 +49,7 @@ export type RuntimePreflightDiagnosticData = Record<string, unknown> & {
 }
 
 const preflightDiagnostics = defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#runtime-preflight",
+  docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
     RUNTIME_R0012: {
       why: ({ checkId, kind }: RuntimePreflightDiagnosticData) => `Runtime preflight could not find ${kind} capability "${checkId}".`,

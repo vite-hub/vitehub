@@ -76,6 +76,18 @@ describe("support matrix and feature catalog", () => {
     }
   });
 
+  it("supports Console without a Database prerequisite", () => {
+    const row = catalogRows().find((entry) => entry.id === "console")!;
+    expect("values" in row).toBe(true);
+    if (!("values" in row)) return;
+    for (const host of ["local", "cloudflare", "vercel", "netlify", "deno", "node"] as const) {
+      const cell = row.values[host];
+      expect(cell.status, host).toBe("available");
+      expect(cell.display, host).toBe("Nitro");
+      expect(cell.detail, host).not.toContain("database.connection");
+    }
+  });
+
   it("keeps the Markdown tables of the support page generated from the matrix", () => {
     const page = readFileSync(supportPage, "utf8");
     for (const anchor of catalogGroups) {

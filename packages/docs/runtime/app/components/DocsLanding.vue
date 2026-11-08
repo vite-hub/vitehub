@@ -15,7 +15,7 @@ const page = computed(() => props.response.page)
 
 <template>
   <UPage v-if="header" :ui="{ root: 'lg:!grid-cols-1 lg:!gap-0', center: 'lg:!col-span-1', right: 'hidden' }" :data-path="page.path">
-    <UPageHeader :title="page.sourceTitle" :description="page.tagline ?? undefined">
+    <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined">
       <template #links>
         <DocsPageHeaderLinks />
       </template>
@@ -37,7 +37,8 @@ const page = computed(() => props.response.page)
       <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
     </UPageBody>
 
-    <DocsCatalogFooter :current="section" />
+    <!-- Below the content: its links work before it hydrates. -->
+    <LazyDocsCatalogFooter hydrate-on-visible :current="section" />
   </article>
 </template>
 
