@@ -160,15 +160,15 @@ function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
 }
 
 /**
- * Fails a Cloudflare build for a SQLite Definition without `cloudflare` options. It names no D1 database, so no D1 binding
- * is written for it and the Worker has no database to query. The implicit default Database is checked only when a
- * contributed table or use needs it: an app can enable `database` and never query it.
+ * Fails a Cloudflare build for a SQLite Definition without a D1 resource, including bindings the host could not resolve.
+ * The implicit default Database is checked only when a contributed table or use needs it: an app can enable `database`
+ * and never query it. Nuxt checks incomplete bindings separately against its host resource.
  */
-export function assertDefinitionD1Resources(runtimeConfig: ResolvedDBViteConfig, contributions: CollectedDatabaseContributions) {
+export function assertDefinitionD1Resources(runtimeConfig: ResolvedDBViteConfig, contributions: CollectedDatabaseContributions, unresolvedDatabases: readonly string[] = []) {
   const implicitDefaultUsed = implicitDefaultDatabaseContributions(contributions).length > 0
   const databases = runtimeConfig.definitions.filter((definition) => {
     const database = runtimeConfig.databases[definition.name]!
-    return (implicitDefaultUsed || !isImplicitDefaultDatabase(definition)) && database.dialect === "sqlite" && !database.cloudflare && !hasRemoteDefinitionRuntime(database)
+    return (implicitDefaultUsed || !isImplicitDefaultDatabase(definition)) && database.dialect === "sqlite" && (!database.cloudflare || unresolvedDatabases.includes(definition.name)) && !hasRemoteDefinitionRuntime(database)
   }).map(definition => definition.name)
   if (!databases.length) return
   // The implicit default Database has no Definition file, so it takes its D1 resource from the module options.

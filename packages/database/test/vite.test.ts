@@ -212,10 +212,29 @@ describe("hubDb", () => {
   })
 
   it.each([
+    { cloudflare: "databaseName: 'database-name',", missing: "cloudflare.databaseId" },
+    { cloudflare: "databaseId: 'database-id',", missing: "cloudflare.databaseName" },
+    { cloudflare: "databaseId: '   ', databaseName: 'database-name',", missing: "cloudflare.databaseId" },
+    { cloudflare: "databaseId: 'database-id', databaseName: '   ',", missing: "cloudflare.databaseName" },
+  ])("rejects incomplete native D1 resources in a Cloudflare Vite build: $cloudflare", async ({ cloudflare, missing }) => {
+    for (const name of ["default", "orders"]) {
+      const rootDir = await createTempProject()
+      await writeDefinition(rootDir, name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`, "notes", { cloudflare })
+      const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
+
+      expect(buildStart).toThrow(expect.objectContaining({
+        code: "DATABASE_MISSING_D1_RESOURCE",
+        why: expect.stringContaining(missing),
+      }))
+    }
+  })
+
+  it.each([
     { name: "a D1 binding", cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", connection: undefined, provisioned: false },
     { name: "a provisioned D1 database", cloudflare: "databaseName: 'database-name',", connection: undefined, provisioned: true },
     { name: "D1 HTTP", cloudflare: "databaseId: 'database-id', http: true,", connection: undefined, provisioned: false },
     { name: "remote libSQL", cloudflare: undefined, connection: "url: 'libsql://database.example',", provisioned: false },
+    { name: "remote libSQL with incomplete D1 options", cloudflare: "databaseName: 'database-name',", connection: "url: 'libsql://database.example',", provisioned: false },
   ])("builds a Cloudflare D1 Definition with $name", async ({ cloudflare, connection, provisioned }) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare, connection })
@@ -226,6 +245,31 @@ describe("hubDb", () => {
     const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
 
     expect(buildStart).not.toThrow()
+  })
+
+  it.each([undefined, "binding: 'DB',"])("checks the resolved runtime Env URL with Cloudflare options %s", async (cloudflare) => {
+    vi.stubEnv("VITEHUB_VITE_TEST_REMOTE_URL", undefined)
+    try {
+      const rootDir = await createTempProject()
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare, connection: "url: process.env.VITEHUB_VITE_TEST_REMOTE_URL," })
+      const plugin = hubDb({ driver: "d1" })
+      const buildStart = await buildStartForCloudflare(plugin, rootDir)
+
+      expect(plugin.api.getConfig()?.databases.default?.connection?.url).toEqual({
+        kind: "env-variable",
+        source: { kind: "env", name: "VITEHUB_VITE_TEST_REMOTE_URL" },
+        default: "file:.vitehub/data/database/sqlite.db",
+      })
+      expect(supportsHostedDatabaseRuntime("cloudflare", plugin.api.getConfig()!, {})).toBe(false)
+      expect(buildStart).toThrow(expect.objectContaining({ code: "DATABASE_MISSING_D1_RESOURCE" }))
+
+      vi.stubEnv("VITEHUB_VITE_TEST_REMOTE_URL", "libsql://database.example")
+      expect(supportsHostedDatabaseRuntime("cloudflare", plugin.api.getConfig()!, {})).toBe(true)
+      expect(buildStart).not.toThrow()
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("does not check D1 resources in Vite development or on other hosts", async () => {

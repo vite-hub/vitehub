@@ -497,7 +497,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       // the module checks this in `nitro:config`, where it can see an alias that the app sets.
       const database = resolvedOptions()
       if (resolved && runtimeConfig && !(database && "nuxtHostResource" in database) && !shouldSkipViteProviderBuild(resolved.command, getViteMode()) && resolveHostedProvider(resolved) === "cloudflare") {
-        assertDefinitionD1Resources(runtimeConfig, contributions)
+        const { unresolved } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved.root) })
+        assertDefinitionD1Resources(runtimeConfig, contributions, unresolved.map(binding => binding.database))
       }
       resetProviderOutputRuntime(providerOutput)
       siblingRuntimeGenerations.capture(this, providerOutput)
