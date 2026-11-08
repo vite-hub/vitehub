@@ -118,7 +118,7 @@ describe("landing page", () => {
     // One radius system: the landing is square like the primitive grid.
     expect(source).not.toMatch(/rounded-(?:full|sm|md|lg)\b|999px/);
     expect(source).toContain('aria-label="ViteHub APIs"');
-    expect(source).toContain("MotionConfig");
+    expect(source).toContain("useSharedIndicator");
     expect(source).toContain("prefers-reduced-motion");
     expect(source).toMatch(/<pre|<code/);
     expect(source).not.toMatch(/vitehub-backplane\.webp|server-primitives\.webp|agents\.webp/);

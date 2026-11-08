@@ -51,6 +51,5 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or the Vi
 | `@vite-hub/ui/<name>`     | One component or part family, such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. |
 | `@vite-hub/ui/headless`   | Message scroller and Choices input primitives without styles or Nuxt UI.       |
 | `@vite-hub/ui/choices-input` | The headless Choices input parts of `FilterSearch`.                        |
-| `@vite-hub/ui/nuxt`       | The Nuxt module. It installs Nuxt UI, registers components, and loads the CSS. |
 | `@vite-hub/ui/vite`       | The Vite plugin for Vue applications. It configures Nuxt UI and Comark.        |
 | `@vite-hub/ui/styles.css` | The package stylesheet. Load it after Tailwind CSS and Nuxt UI.                |

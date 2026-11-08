@@ -54,9 +54,32 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   const byName = new Map(ordered.map(plugin => [plugin.name, plugin]))
   const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin)
   const parse = createMarkdownParser({ plugins })
+
+  async function examplePreviews(nodes: ComarkNode[]): Promise<ComarkNode[]> {
+    const result: ComarkNode[] = []
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null) {
+        result.push(node)
+        continue
+      }
+      const [tag, props, ...children] = node
+      const content = await examplePreviews(children)
+      // A site's plugin can still supply its own preview and source pair.
+      if (tag === "example" && !content.some(child => typeof child !== "string" && child[0] === "example-preview")) {
+        const source = content.find(child => typeof child !== "string" && child[0] === "pre" && /^(md|markdown|mdc|comark)$/.test(String(child[1].language)))
+        if (source && typeof source !== "string") {
+          const preview = await parse(textOf(source.slice(2) as ComarkNode[]))
+          content.unshift(["example-preview", {}, ...await examplePreviews(preview.nodes)])
+        }
+      }
+      result.push([tag, props, ...content])
+    }
+    return result
+  }
+
   return async (markdown) => {
     const document = await parse(markdown)
-    return { nodes: unwrapListParagraphs(document.nodes), toc: tocOf(document) }
+    return { nodes: unwrapListParagraphs(await examplePreviews(document.nodes)), toc: tocOf(document) }
   }
 }
 

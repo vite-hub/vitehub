@@ -123,10 +123,11 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           :to="link.to"
           target="_blank"
           :icon="link.icon"
+          :label="link.icon ? undefined : link.label"
           color="neutral"
           variant="ghost"
           :aria-label="link.label"
-          :class="['hidden lg:inline-flex', touchIconButton]"
+          :class="['hidden lg:inline-flex', link.icon ? touchIconButton : 'pointer-coarse:h-11']"
         />
         <ClientOnly>
           <UColorModeButton :class="touchIconButton" />

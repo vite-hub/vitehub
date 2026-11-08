@@ -18,7 +18,7 @@ Applications can use the finish extension to name a job, run, artifact, or other
 Attach `title()` to any Agent Definition that needs a generated title.
 When no generator is available, ViteHub uses a short heuristic title.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { title } from 'vite-hub/agent/capabilities'
 

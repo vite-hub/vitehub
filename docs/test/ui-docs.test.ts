@@ -23,7 +23,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/") && !page.name.startsWith("diagnostics/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -190,7 +190,7 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
-    expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
+    expect(layout).toContain('<LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel />');
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     // The aside container is a flex column. The sidebars must grow into it, or the panel collapses to its header.
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
