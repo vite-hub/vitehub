@@ -159,9 +159,9 @@ describe("Auth inline guards", () => {
     it.each([
       { message: "Plan required", plan: "pro" },
       { error: "Plan required", details: { plan: "pro" } },
-    ])("preserves custom JSON rejection fields and headers: %j", async (body) => {
+    ].flatMap(body => ["application/problem+json", "Application/Problem+JSON", "Application/JSON"].map(contentType => ({ body, contentType }))))("preserves custom JSON rejection fields and headers: %j", async ({ body, contentType }) => {
       const { app, deleted } = authorizedApp(() => Response.json(body, {
-        headers: { "content-type": "application/problem+json", "x-reason": "plan" },
+        headers: { "content-type": contentType, "x-reason": "plan" },
         status: 402,
       }))
       providerMocks.getSession.mockResolvedValue(signedIn)
@@ -169,7 +169,7 @@ describe("Auth inline guards", () => {
       const response = await app.fetch(new Request("https://example.com/photos/1"))
 
       expect(response.status).toBe(402)
-      expect(response.headers.get("content-type")).toBe("application/problem+json")
+      expect(response.headers.get("content-type")).toBe(contentType)
       expect(response.headers.get("x-reason")).toBe("plan")
       expect(await response.json()).toMatchObject({ ...body, message: "Plan required" })
       expect(deleted).not.toHaveBeenCalled()

@@ -48,13 +48,14 @@ Server code reads the Better Auth instance of a request with `useAuth(event)`.
 ```ts [server/api/session.get.ts]
 import { useAuth } from '@vite-hub/auth/server'
 import { defineHandler } from 'h3'
+import type {} from '@vite-hub/runtime/h3'
 
 export default defineHandler(event => useAuth(event).api.getSession({ headers: event.req.headers }))
 ```
 
 The instance has the endpoints of your Auth Definition's plugins, without a cast. With `admin()` in `server/auth.ts`, this type-checks:
 
-```ts [server/api/users.get.ts]
+```ts [server/api/users.get.ts] fragment
 import { requireAuthorization, useAuth } from '@vite-hub/auth/server'
 import { defineHandler } from 'h3'
 
@@ -80,6 +81,7 @@ The inline guards use H3's JSON error format. They keep the response status and 
 ```ts [server/api/me.get.ts]
 import { requireAuth } from '@vite-hub/auth/server'
 import { defineHandler } from 'h3'
+import type {} from '@vite-hub/runtime/h3'
 
 export default defineHandler(async (event) => {
   const { user } = await requireAuth(event)

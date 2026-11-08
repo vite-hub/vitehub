@@ -203,7 +203,7 @@ To check inside a handler, call `requireAuth(event)` or `requireAuthorization(ev
 
 The inline guards use H3's JSON error format. They keep the response status and headers, except `content-length`, which changes with the body. JSON object fields stay at the top level, and other JSON values become `data`. JSON media types, such as `application/problem+json`, stay unchanged. Text becomes `message` with a JSON content type. Use `withAuthorization()` when the response body must stay unchanged.
 
-```ts
+```ts fragment
 import { requireAuth, requireAuthorization } from "@vite-hub/auth/server";
 import { defineHandler } from "h3";
 
@@ -222,7 +222,7 @@ export const removePost = defineHandler(async (event) => {
 
 `useAuth(event)` returns the Better Auth instance of your Auth Definition for a request event or a Web `Request`. The Vite plugin writes the type of `server/auth.ts` to `.vitehub/types/auth.d.ts`, so the instance has the endpoints of your plugins without a cast:
 
-```ts
+```ts fragment
 import { requireAuthorization, useAuth } from "@vite-hub/auth/server";
 import { defineHandler } from "h3";
 

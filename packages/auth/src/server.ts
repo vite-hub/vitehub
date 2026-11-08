@@ -757,7 +757,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
 async function rejectionError(response: Response): Promise<HTTPError> {
   const headers = new Headers(response.headers)
   headers.delete("content-length")
-  const isJson = headers.get("content-type")?.includes("json") === true
+  const isJson = headers.get("content-type")?.toLowerCase().includes("json") === true
   if (!isJson) headers.delete("content-type")
   const text = await response.text()
   let body: unknown
