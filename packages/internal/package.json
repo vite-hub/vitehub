@@ -78,6 +78,11 @@
       "import": "./dist/dev-endpoint.js",
       "default": "./dist/dev-endpoint.js"
     },
+    "./dev-peer": {
+      "types": "./dist/dev-peer.d.ts",
+      "import": "./dist/dev-peer.js",
+      "default": "./dist/dev-peer.js"
+    },
     "./dev-token": {
       "types": "./dist/dev-token.d.ts",
       "import": "./dist/dev-token.js",
@@ -97,6 +102,11 @@
       "types": "./dist/object.d.ts",
       "import": "./dist/object.js",
       "default": "./dist/object.js"
+    },
+    "./operation-registry": {
+      "types": "./dist/operation-registry.d.ts",
+      "import": "./dist/operation-registry.js",
+      "default": "./dist/operation-registry.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",

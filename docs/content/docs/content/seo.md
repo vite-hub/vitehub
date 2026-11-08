@@ -38,6 +38,8 @@ Every read of a routable collection carries `url`: `get()`, `list()`, `save()`, 
 
 A pattern must start with `/` and may only name `:id` and defined fields; anything else throws `CONTENT_R0006` when the definition loads.
 
+In a collection with [locales](/docs/content/configure#locales), a pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale, so `/docs/:id` gives `/docs/guide` and `/es/docs/guide`. Write `:locale` in the pattern, such as `/:locale/docs/:id`, to place the locale yourself. A `url()` function receives `{ id, data, locale }`.
+
 ### Source URLs
 
 A read-only Source has no `url` until you give it one with `contentSource(input, { url })`. The id of a Source document is its path without the leading slash, so `content/guides/start.md` read by `glob({ cwd: 'content' })` has the id `guides/start`. A `:<name>` in the pattern reads a frontmatter value.
@@ -59,6 +61,7 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt). Read
 `seo()` is a field like any other. Add it to the collections whose pages need their own search and social text:
 
 ```ts [server/content.ts]
+import { z } from 'zod'
 import { documents, image, seo } from 'vite-hub/content'
 
 const posts = documents({
@@ -84,7 +87,7 @@ Values are stored as a nested YAML block in Markdown frontmatter, or nested JSON
 
 ## Head tags
 
-`contentHead(document, options)` returns `{ title, meta, link, script? }`. It reads `seo()` values first, then the document's own fields, then `defaults`. It has no framework dependency, and it runs on the server or in the browser. Import it from `vite-hub/content`, or from `vite-hub/content/client` in browser code.
+`contentHead(document, options)` returns `{ title, meta, link, script?, htmlAttrs? }`. It reads `seo()` values first, then the document's own fields, then `defaults`. It has no framework dependency, and it runs on the server or in the browser. Import it from `vite-hub/content`, or from `vite-hub/content/client` in browser code.
 
 ```vue [pages/blog/[...id].vue]
 <script setup lang="ts">
@@ -118,11 +121,25 @@ Nuxt has `useHead()` built in; in a Vue app, install `@unhead/vue`. On a plain s
 
 The result includes `description`, `robots: noindex` when set, Open Graph `og:title`, `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`, and `og:locale`, Twitter `summary_large_image` or `summary` card tags, and a `canonical` link. Tags without a value are left out.
 
+### Pages in several locales
+
+A document from a collection with [locales](/docs/content/configure#pages-in-each-locale) carries `locale`, and `get()` gives it `alternates`, the URL of each locale that has its own version. `contentHead()` reads both:
+
+- `htmlAttrs: { lang }` is the locale of the version that the page shows. `useHead()` sets it on `<html>`.
+- When the document has its own version in two or more locales, `link` has `{ rel: 'alternate', hreflang, href }` for each of them, and `hreflang: 'x-default'` for the source locale page.
+- A page that shows the source locale because its locale has no translation (`fallback: true`) has `lang` of the source locale, and its canonical link points to the source locale page. `seo.canonical` still wins.
+
+```ts fragment
+contentHead(await docs.get('guide', { locale: 'es' }), { site: { url: 'https://vitehub.dev' } })
+// htmlAttrs: { lang: 'es' }
+// link: canonical https://vitehub.dev/es/docs/guide, alternate en /docs/guide, es /es/docs/guide, x-default /docs/guide
+```
+
 ## Sitemap and robots.txt
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   workspace: 'site',
   collections: { posts, home },
@@ -136,7 +153,7 @@ export const content = defineContent({
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves `/robots.txt` that allows every crawler, or `{ disallow }` to keep paths out. It names `/sitemap.xml` when the sitemap is on. |
 
-The sitemap lists every published document of a routable collection that has a URL. It leaves out documents with `seo.noindex`, and documents whose `seo.canonical` points to another URL. `lastmod` is the document's `updatedAt` on `published`. Drafts never reach it. Then it lists every document of a Source with a [`url`](#source-urls), without `lastmod`. A read-only Source without `url` is not in the sitemap. One sitemap holds 50,000 URLs; beyond that `content.sitemap()` throws `CONTENT_R0009` instead of returning an incomplete sitemap.
+The sitemap lists every published document of a routable collection that has a URL. In a collection with locales, it lists each published translation at its own URL, and each entry has `locale`. A page that shows the source locale as a fallback is not listed, because its canonical link points to the source locale page. It leaves out documents with `seo.noindex`, and documents whose `seo.canonical` points to another URL. `lastmod` is the document's `updatedAt` on `published`. Drafts never reach it. Then it lists every document of a Source with a [`url`](#source-urls), without `lastmod`. A read-only Source without `url` is not in the sitemap. One sitemap holds 50,000 URLs; beyond that `content.sitemap()` throws `CONTENT_R0009` instead of returning an incomplete sitemap.
 
 ViteHub generates both routes the same way it generates `/api/content/**`: the `vitehub()` Vite plugin and the Nuxt module read the `defineContent()` call in `server/content.ts` without running it. The routes are generated when the call sets `seo` with `sitemap` or `robots` that is not literally `false`. They run on Nitro 3, including Nuxt apps, and on every preset. A server route of your own at `/sitemap.xml` or `/robots.txt` conflicts with them and fails the build; a file in `public/` is served first.
 

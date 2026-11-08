@@ -15,7 +15,10 @@ imports as a Vite application.
 
 Use Nuxt 5, which runs Nitro 3. Nuxt 5 is not stable yet. Until it is, install
 the nightly release `nuxt-nightly@5x` as `nuxt`. Nuxt provides its own Nitro
-integration, so add only `vite-hub`.
+integration, so install `vite-hub` and the packages of the features that you
+enable, as
+[Add feature packages](/docs/getting-started/installation#add-feature-packages)
+lists.
 
 ```bash [Terminal]
 pnpm add nuxt@npm:nuxt-nightly@5x

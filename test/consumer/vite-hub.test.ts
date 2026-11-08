@@ -34,7 +34,21 @@ const optionalPackages = [
 ]
 const storageSdkPackages = [...new Set(Object.values(filesSdkDriverPeers).flat())]
 // The consumer fixture enables these opt-in features, so it installs their owner packages next to `vite-hub`.
-const fixtureViteHubPackages = ["@vite-hub/agent", "@vite-hub/auth", "@vite-hub/database", "@vite-hub/schedule", "@vite-hub/workspace", "vite-hub"]
+const fixtureViteHubPackages = [
+  "@vite-hub/agent",
+  "@vite-hub/auth",
+  "@vite-hub/blob",
+  "@vite-hub/database",
+  "@vite-hub/email",
+  "@vite-hub/markdown-template",
+  "@vite-hub/queue",
+  "@vite-hub/rate-limit",
+  "@vite-hub/sandbox",
+  "@vite-hub/schedule",
+  "@vite-hub/workflow",
+  "@vite-hub/workspace",
+  "vite-hub",
+]
 
 interface PackageManifest {
   bin?: Record<string, string>
@@ -326,6 +340,8 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     // Use the workspace-tested pair: newer msgpackr-extract native tarballs returned 404.
     "msgpackr@^2": "2.1.0",
     "msgpackr-extract": "3.0.4",
+    // Match the exact Vue peer published by the workspace packages.
+    vue: "3.5.44",
     ...additionalOverrides,
   })
     .sort(([left], [right]) => left.localeCompare(right))
@@ -576,8 +592,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const specs = await packWorkspacePackages(packDir)
       await Promise.all([
         writeFile(join(appDir, "package.json"), JSON.stringify({
-          // ssh2 is an optional peer of @vite-hub/sandbox, so `vite-hub` does not install it.
-          dependencies: { "ssh2": "1.17.0", "vite-hub": specs["vite-hub"] },
+          // ssh2 is an optional peer of @vite-hub/sandbox, and Sandbox is an optional peer of `vite-hub`.
+          dependencies: { "@vite-hub/sandbox": specs["@vite-hub/sandbox"], "ssh2": "1.17.0", "vite-hub": specs["vite-hub"] },
           private: true,
           type: "module",
         }, null, 2), "utf8"),
@@ -650,12 +666,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           'import { blob } from "vite-hub/blob"',
           'import { defineQueue } from "vite-hub/queue"',
           "export default defineQueue<{ name: string }>(async ({ payload }) => {",
-          "  await blob.put(`welcome/${payload.name}.txt`, payload.name)",
+          "  const [error] = await blob.put(`welcome/${payload.name}.txt`, payload.name)",
+          "  if (error) throw error",
           "})",
           "",
         ].join("\n"), "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
-          dependencies: { h3: "2.0.8", nitro: "3.0.261102-rc", vite: "8.2.2", "vite-hub": specs["vite-hub"] },
+          dependencies: { "@vite-hub/blob": specs["@vite-hub/blob"], "@vite-hub/queue": specs["@vite-hub/queue"], h3: "2.0.8", nitro: "3.0.261102-rc", vite: "8.2.2", "vite-hub": specs["vite-hub"] },
           // AI SDK 7's provider declarations need app-visible types with pnpm's hoisting disabled.
           devDependencies: { "@types/json-schema": "7.0.15", "@types/node": "24.19.1", typescript: "6.0.3" },
           private: true,
@@ -777,6 +794,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
+            "@vite-hub/markdown-template": specs["@vite-hub/markdown-template"],
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -802,7 +820,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         })),
       ])
       await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
-      expect(existsSync(join(appDir, "node_modules/@vite-hub"))).toBe(false)
+      // Markdown Template is the only feature package that this app installs.
+      expect(await readdir(join(appDir, "node_modules/@vite-hub"))).toEqual(["markdown-template"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
       await mkdir(join(appDir, ".output/server/templates"), { recursive: true })
@@ -854,6 +873,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
+            "@vite-hub/kv": specs["@vite-hub/kv"],
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -981,6 +1001,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/agent": specs["@vite-hub/agent"],
+            "@vite-hub/workflow": specs["@vite-hub/workflow"],
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -1015,7 +1036,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
 
       await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
-      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "vite-hub"])
+      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/workflow", "vite-hub"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
 
@@ -1097,6 +1118,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
+            "@vite-hub/kv": specs["@vite-hub/kv"],
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -1419,11 +1441,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
 
-      // The owner packages of opt-in features come from the app. `vite-hub` installs the others out of sight.
+      // The owner packages of opt-in features come from the app. `vite-hub` installs its own packages out of sight.
       await run("node", [
         "--input-type=module",
         "--eval",
-        "let resolved = false; try { import.meta.resolve('@vite-hub/blob'); resolved = true } catch {} if (resolved) throw new Error('a bundled owner package resolved from the consumer root')",
+        "let resolved = false; try { import.meta.resolve('@vite-hub/runtime'); resolved = true } catch {} if (resolved) throw new Error('a bundled owner package resolved from the consumer root')",
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
       await assertStorageSdksNotInstalled(appDir)

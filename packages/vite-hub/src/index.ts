@@ -8,21 +8,10 @@ import frameworkPackageManifest from "../package.json" with { type: "json" }
 
 import { defaultServerConditions } from "vite"
 
-import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
-import { hubBrowser } from "@vite-hub/browser/vite"
-import { hubChannels } from "@vite-hub/channels/vite"
 import type { HubCommentsOptions } from "@vite-hub/comments/vite"
-import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
-import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
-import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig, type KVVitePluginAPI } from "@vite-hub/kv/vite"
-import { hubQueue } from "@vite-hub/queue/vite"
-import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubBundle } from "@vite-hub/bundle/vite"
-import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
 import { hubSource } from "@vite-hub/source/vite"
-import { hubWorkflow } from "@vite-hub/workflow/vite"
-import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -56,7 +45,7 @@ import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
 import { logsVitePlugin, type LogsOptions } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
-import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
+import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
@@ -70,6 +59,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
@@ -249,7 +239,7 @@ function configureProviderOptionalImportAliases(
 ) {
   const effectiveKV = configuredKV ?? options.kv
   const kv = effectiveKV
-    ? resolveKVViteConfig(effectiveKV === true ? undefined : effectiveKV).kv
+    ? requireOptionalOwner(ownerModules.kvVite, "kv").resolveKVViteConfig(effectiveKV === true ? undefined : effectiveKV).kv
     : false
   if (hasUpstashStore(kv)) delete aliases[upstashDriverSpecifier]
   else aliases[upstashDriverSpecifier] = disabledUpstashDriver
@@ -1097,6 +1087,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   assertFeatureSupported("browser", plan.preset, options)
   assertFeatureSupported("email", plan.preset, options)
+  const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
+  const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
+  const workflowEnabled = options.workflow !== false
+    && Boolean(options.workflow || (options.agent && plan.preset !== "netlify"))
   // The packages of these features are optional peers. One error lists every package that the app must add.
   const consoleAuth = consoleAuthConfig(configuredConsole)
   const consoleSignIn = consoleAuth
@@ -1105,28 +1099,39 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   assertFeaturePackages(([
     ["agent", options.agent || options.observability],
     ["auth", options.auth],
+    ["blob", blobEnabled],
+    ["browser", options.browser],
+    ["channels", options.channels],
     ["comments", options.comments],
     ["console agents", configuredConsole && options.agent],
+    ["console mcp-client", isConsoleMcpClientEnabled(configuredConsole)],
     ["console sign-in", consoleSignIn],
     ["connections", options.connections],
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],
+    ["email", options.email],
+    // `cache: { driver: "kv" }` stores the cache in KV.
+    ["kv", options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")],
+    ["queue", options.queue && plan.services.queue.supported],
+    ["rateLimit", options.rateLimit],
     ["realtime", options.realtime],
+    ["sandboxTask", sandboxTaskEnabled],
     ["schedule", options.schedule],
+    // Agents run on Workflow outside Netlify unless the app sets `workflow: false`.
+    ["workflow", workflowEnabled],
     ["workspace", options.workspace],
   ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature))
-  const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
-  const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
+  const { blobVite, browserVite, channelsVite, connectionsVite, emailVite, kvVite, markdownTemplateVite, queueVite, rateLimitVite, sandboxTaskVite, workflowVite } = ownerModules
   const configuredBlob = blobEnabled ? presetBlobOptions(plan, options.blob) : undefined
   const resolvedConsoleBlob = configuredBlob
-    ? resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
+    ? requireOptionalOwner(blobVite, "blob").resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
     : false
   const consoleBlobStores = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
-  const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandboxTask: sandboxTaskEnabled })
-  const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
+  // `.template.md` imports work when the app installed `@vite-hub/markdown-template`.
+  const plugins: unknown[] = [doctorPlugin(), ...markdownTemplateVite ? [markdownTemplateVite.hubMarkdownTemplate()] : []]
   const requestedServices: HostSelectedService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
@@ -1161,7 +1166,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
-  const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
+  const presetKV = options.kv ? requireOptionalOwner(kvVite, "kv").resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
   const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxTaskEnabled)
@@ -1203,8 +1208,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
-    email: "vite-hub/email/server",
-    kv: `${generatedImportBase}/kv`,
+    // Email and KV capabilities exist only when the app installed their packages.
+    ...emailVite ? { email: "vite-hub/email/server" } : {},
+    ...kvVite ? { kv: `${generatedImportBase}/kv` } : {},
   } satisfies Record<string, false | string>
 
   plugins.push(operationsCheckPlugin())
@@ -1233,7 +1239,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       resolveBlobStores: (blob) => {
         if (blob === false) return false
         if (blob === undefined && !options.blob) return false
-        const resolved = resolveBlobViteConfig(
+        const resolved = requireOptionalOwner(blobVite, "blob").resolveBlobViteConfig(
           // SAFETY: The Console plugin passes ViteHub's documented top-level `blob` config extension.
           (blob ?? configuredBlob) as BlobModuleOptions | undefined,
           { hosting: plan.nitroPreset },
@@ -1246,7 +1252,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         if (kvPlugin?.api?.getConfig) return Boolean(kvPlugin.api.getConfig().kv)
         if (kv === false) return false
         if (kv === undefined && !options.kv) return false
-        const resolved = resolveKVViteConfig(
+        const resolved = requireOptionalOwner(kvVite, "kv").resolveKVViteConfig(
           // SAFETY: The Console plugin passes ViteHub's documented top-level `kv` config extension.
           (kv ?? configuredKV) as KVModuleOptions | undefined,
           { hosting: plan.nitroPreset },
@@ -1276,7 +1282,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (sandboxTaskEnabled) {
     const sandboxTaskPolicy = plan.services.sandbox
-    plugins.push(afterApplicationConfig(hubSandboxTask({
+    plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask({
       ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
@@ -1310,8 +1316,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       workspaceImportBase: `${generatedImportBase}/agent/internal/workspace`,
     } as AgentModuleOptions))
   }
-  if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
-  if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
+  if (options.browser) plugins.push(requireOptionalOwner(browserVite, "browser").hubBrowser(options.browser === true ? undefined : options.browser))
+  if (options.channels) plugins.push(requireOptionalOwner(channelsVite, "channels").hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
     if (options.connections !== true && options.connections.management && !configuredConsole) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
@@ -1320,38 +1326,38 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
     // The Console actor module checks the Console or app Auth session in every management route.
     if (!connectionsOptions.actor && configuredConsole && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
-    plugins.push(hubConnections(connectionsOptions))
+    plugins.push(requireOptionalOwner(connectionsVite, "connections").hubConnections(connectionsOptions))
   }
-  else plugins.push(hubConnectionsTypesCleanup())
+  else if (connectionsVite) plugins.push(connectionsVite.hubConnectionsTypesCleanup())
   if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
   }
   if (options.email) {
     const emailOptions = options.email === true
       ? { driver: "cloudflare-email" as const }
       : options.email
-    plugins.push(hubEmail({
+    plugins.push(requireOptionalOwner(emailVite, "email").hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
     } as EmailVitePluginOptions))
   }
-  else plugins.push(hubEmailOptionalPeerResolver())
+  else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
   // The cache can enable KV through Vite's top-level config after plugin construction.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
-    plugins.push(hubKv(presetKVOptions || undefined))
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(presetKVOptions || undefined))
   }
-  else plugins.push(hubKvOptionalPeerResolver())
+  else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    plugins.push(afterApplicationConfig(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
   if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
-    plugins.push(afterApplicationConfig(hubRateLimit({
+    plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
       importBase: `${generatedImportBase}/rate-limit`,
@@ -1411,7 +1417,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     } as ScheduleVitePluginOptions))
   }
   if (workflowEnabled) {
-    plugins.push(hubWorkflow(
+    plugins.push(requireOptionalOwner(workflowVite, "workflow").hubWorkflow(
       options.workflow && options.workflow !== true ? options.workflow : {},
       {
       agentImportBase: `${generatedImportBase}/agent`,

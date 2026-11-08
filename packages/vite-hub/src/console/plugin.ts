@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
@@ -34,6 +34,8 @@ let consoleRuntimeDigest: string | undefined
 /**
  * A digest of the packaged Console runtime, client, and assets.
  * The package does not change while the process runs, so read its files once, not on each file change.
+ * The Console client build puts a content hash in the name of each file in `public/console`, so the digest reads only
+ * those names. A cold dev start does not read the 20 MB client.
  */
 function readConsoleRuntimeDigest(): string {
   if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
@@ -47,7 +49,10 @@ function readConsoleRuntimeDigest(): string {
     }
   }
   if (existsSync(consoleRuntimeRoot)) visit(consoleRuntimeRoot)
-  for (const file of files.sort()) hash.update(file.slice(consoleRuntimeRoot.length)).update("\0").update(readFileSync(file)).update("\0")
+  for (const file of files.sort()) {
+    hash.update(file.slice(consoleRuntimeRoot.length)).update("\0")
+    if (!file.startsWith(consolePublicRoot + sep)) hash.update(readFileSync(file)).update("\0")
+  }
   consoleRuntimeDigest = hash.digest("hex")
   return consoleRuntimeDigest
 }
@@ -97,19 +102,19 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "kv", name: "kv" },
 ]
 
-function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): { imports: string[], install?: string } {
-  if (!imports) return { imports: [] }
+/** The Agent capabilities of a Console invocation. They load with the first invocation, not when the server starts. */
+function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): string | undefined {
+  if (!imports) return undefined
   const capabilities = consoleRuntimeCapabilityImports.flatMap(({ exportName, name }) => {
     const module = imports[name]
     if (!module) return []
     const alias = `vitehubConsoleAgent${name[0]!.toUpperCase()}${name.slice(1)}`
     return [{ alias, exportName, module, name }]
   })
-  if (!capabilities.length) return { imports: [] }
-  return {
-    imports: capabilities.map(({ alias, exportName, module }) => `import { ${exportName} as ${alias} } from ${JSON.stringify(module)}`),
-    install: `capabilities: { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} }`,
-  }
+  if (!capabilities.length) return undefined
+  const bindings = capabilities.map(({ alias, exportName }) => `{ ${exportName}: ${alias} }`).join(", ")
+  const modules = capabilities.map(({ module }) => `import(${JSON.stringify(module)})`).join(", ")
+  return `capabilities: async () => { const [${bindings}] = await Promise.all([${modules}]); return { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} } }`
 }
 
 function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
@@ -165,7 +170,6 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
   // Install the list even when it is empty, so a reload in the same process revokes origins that were removed.
-  imports.push('import { installConsoleOrigins as vitehubInstallConsoleOrigins } from "vite-hub/console/sections"')
   afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins ?? [])})`)
   return {
     imports,
@@ -222,6 +226,7 @@ function renderConsoleNitroPlugin(
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   const runtimeImports = [
+    { bindings: "installConsoleOperations", module: "vite-hub/console/operations" },
     ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
     // The MCP client SDK loads only for apps that turn the section on.
     ...(mcpClientEnabled ? [{ bindings: "consoleMcpClientOperations: vitehubConsoleMcpClientOperations", module: "vite-hub/console/mcp-client" }] : []),
@@ -240,9 +245,8 @@ function renderConsoleNitroPlugin(
     ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
-    ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "vite-hub/_internal/agent/runtime/workflow"`]
       : []),
@@ -254,7 +258,7 @@ function renderConsoleNitroPlugin(
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
-    ...(runtimeImports.length ? [`  const [${runtimeImports.map(entry => `{ ${entry.bindings} }`).join(", ")}] = await Promise.all([${runtimeImports.map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`] : []),
+    `  const [${runtimeImports.map(entry => `{ ${entry.bindings} }`).join(", ")}] = await Promise.all([${runtimeImports.map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,
     "  return () => {",
     ...runtimeInstall.map(line => `    ${line}`),
     "  }",
@@ -268,10 +272,10 @@ function renderConsoleNitroPlugin(
       ? fixture
         ? [
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
-            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`,
+            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} })`,
           ]
         // The Console reads the journal that the Agent Invocations plugin installed before it.
-        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
+        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} })`]
       : []),
     // The Console link lives in the shared page tools pill.
     pageTools
@@ -316,7 +320,7 @@ export async function writeConsoleNitroPlugin(
   }
   if (fixture && snapshot) {
     // The invocation runtime loads Drizzle and libSQL. Load it only for a Console fixture.
-    const { installConsoleFixtureInvocations } = await import("./runtime/server/invocations.ts")
+    const { installConsoleFixtureInvocations } = await import("./runtime/server/invocations-fixture.ts")
     installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
   }
   return identity

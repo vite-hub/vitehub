@@ -66,24 +66,29 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
     handlers: expect.arrayContaining([
       {
         handler: join(buildDir, "vitehub/agent/ready-route.ts"),
+        lazy: true,
         route: "/api/_vitehub/ready",
       },
       {
         handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
+        lazy: true,
         route: "/api/_vitehub/agents/:agent/chat",
       },
       {
         handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
+        lazy: true,
         route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
       },
       {
         handler: join(buildDir, "vitehub/agent/declared-webhook-route.ts"),
+        lazy: true,
         middleware: true,
         route: "/**",
       },
       ...(dev ? [
         {
           handler: join(buildDir, "vitehub/agent/invocations-dev-handler.ts"),
+          lazy: true,
           route: "/_vitehub/agent/invocations/dev",
         },
       ] : []),

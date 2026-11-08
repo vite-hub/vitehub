@@ -4,8 +4,11 @@ import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, r
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
-import { discoverChannelDefinitions } from "./discovery.ts"
+import { discoverChannelDefinitions, receivesChannelWebhooks } from "./discovery.ts"
+import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 export { discoverChannelDefinitions } from "./discovery.ts"
+
+const agentVitePluginName = "@vite-hub/agent/vite"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { DiscoveredChannelDefinition } from "./types.ts"
@@ -152,6 +155,10 @@ export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVi
       resolved = config
       refresh()
       await refreshGeneratedFiles()
+      const inbound = definitions.find(definition => receivesChannelWebhooks(definition.handler))
+      if (inbound && !config.plugins?.some(plugin => plugin.name === agentVitePluginName)) {
+        throw channelsErrorDiagnostics.CHANNELS_B0001({ message: `[vitehub] The Channel "${inbound.name}" receives webhooks, which the Agent webhook route serves. Set \`agent: true\` next to \`channels: true\` in vitehub(), and install @vite-hub/agent.` })
+      }
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return

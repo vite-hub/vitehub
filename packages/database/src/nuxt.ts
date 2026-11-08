@@ -424,10 +424,6 @@ async function collectWatchedModuleFiles(file: string, require: NodeRequire, fil
   }
 }
 
-const nuxtModule: DatabaseNuxtModule = hubDb()
-
-export default nuxtModule
-
 async function installNitroLocalDatabaseRuntime(
   config: Record<string, unknown>,
   root: string,

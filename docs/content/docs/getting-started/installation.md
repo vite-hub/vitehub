@@ -150,39 +150,53 @@ configuration.
 
 ## Add feature packages
 
-`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels,
-Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Other
-features have their own packages, so your app installs only the features that
-it uses. Add the packages of a feature before you enable it. This applies to
-the Vite and the Nuxt path.
+`vite-hub` includes Env, Source, Logs, and the Console. Every other feature
+has its own package, so your app installs and loads only the features that it
+uses. An app without features installs no feature package. Add the packages of
+a feature before you enable it. This applies to the Vite and the Nuxt path.
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent` |
+| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
 | `auth` | `@vite-hub/auth better-auth` |
+| `blob` | `@vite-hub/blob` |
+| `browser` | `@vite-hub/browser` |
+| `channels` | `@vite-hub/channels` |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `email` | `@vite-hub/email` |
+| `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
+| `queue` | `@vite-hub/queue` |
+| `rateLimit` | `@vite-hub/rate-limit` |
 | `realtime` | `@vite-hub/realtime` |
+| `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
 | `server/comments.ts` | `@vite-hub/comments` |
+| `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
+| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
 For example, an app with Agents and a Database runs:
 
 ```bash [commands/install-features]
-pnpm add @vite-hub/agent @vite-hub/database drizzle-orm
+pnpm add @vite-hub/agent @vite-hub/workflow @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
 If a package is missing, the build stops and prints the install command:
 
 ```text [output/missing-package.txt]
-[vitehub] The agent feature needs @vite-hub/agent. Install the missing packages in your app with: pnpm add @vite-hub/agent
+[vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
 Provider SDKs stay with their guides. For example, Vercel Workflow needs

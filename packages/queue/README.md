@@ -101,6 +101,10 @@ The local provider stores each accepted job as a file in `.vitehub/data/queue`, 
 
 ```ts
 // vite.config.ts
+import { nitro } from "nitro/vite"
+import { hubQueue } from "@vite-hub/queue/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   nitro: { preset: "node-server", serverEntry: "./src/server.ts" },
   plugins: [hubQueue(), nitro()],
@@ -186,7 +190,6 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `@vite-hub/queue`                | Queue Definitions, enqueue helpers, direct clients, host adapters, and public types |
 | `@vite-hub/queue/vite`           | Vite discovery and Cloudflare, Vercel, or local Nitro configuration                 |
-| `@vite-hub/queue/nuxt`           | Nuxt module that composes Queue into Nitro                                          |
 | `@vite-hub/queue/runtime/hosted` | Advanced hosted Vercel callback adapter                                             |
 
 `@vite-hub/queue/internal/*` exists for generated framework integration. Application code should not import it.
