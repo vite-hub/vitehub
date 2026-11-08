@@ -384,6 +384,11 @@ class ImportMerger {
 /** Moves the names of `move.names` to `move.to`, and keeps the rest. */
 function splitImport(context: FileContext, statement: ImportDeclaration, move: Move, imports: ImportMerger) {
   const { block, output, style } = context
+  for (const specifier of statement.specifiers) {
+    if (specifier.type === "ImportNamespaceSpecifier") {
+      followUp(context, specifier, `\`runSchedule\` and \`RunScheduleOptions\` moved to \`${move.to}\`. Update reads through this namespace import by hand and remove the \`registry\` option from \`runSchedule()\`.`)
+    }
+  }
   const moving = statement.specifiers.filter(specifier => move.names!.has(importedName(specifier) ?? ""))
   if (!moving.length) return
   if (moving.length === statement.specifiers.length) {

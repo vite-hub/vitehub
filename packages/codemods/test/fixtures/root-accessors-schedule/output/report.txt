@@ -2,8 +2,8 @@ root-accessors: moved the accessor imports of 2 file(s) to the primitive roots
 Dry run: no files were written.
 
 Files to change (2):
-  server/api/reports/backfill.post.ts
-  server/api/reports/run.post.ts
+  server/api/schedules/backfill.post.ts
+  server/api/schedules/run.post.ts
 
 Manual follow-ups (0):
   none

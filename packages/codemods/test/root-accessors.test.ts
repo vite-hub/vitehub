@@ -90,6 +90,18 @@ describe("root-accessors edge cases", () => {
     expect(run.result.followUps).toEqual([{ file: "server/api/run.ts", line: 4, message: "`runSchedule()` no longer takes a `registry` option. Remove it from these options." }])
   })
 
+  it.each(["vite-hub/schedule/runtime", "@vite-hub/schedule/runtime"])("reports namespace imports from %s", async (source) => {
+    const { after, run } = await migrate({
+      "server/api/run.js": `import registry from '#vitehub/schedule/registry'\nimport * as schedule from '${source}'\nexport default () => schedule.runSchedule('a', { registry })\n`,
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([{
+      file: "server/api/run.js",
+      line: 2,
+      message: `\`runSchedule\` and \`RunScheduleOptions\` moved to \`${source.replace("/runtime", "")}\`. Update reads through this namespace import by hand and remove the \`registry\` option from \`runSchedule()\`.`,
+    }])
+  })
+
   it("keeps a re-export of a removed name and reports it", async () => {
     const { after, run } = await migrate({
       "server/utils/db.ts": "export { agentDb } from 'vite-hub/database/drizzle'\nexport { db } from 'vite-hub/database/drizzle'\n",

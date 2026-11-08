@@ -80,8 +80,9 @@ export const schema = deferred(() => virtualSchema) as DefaultDatabaseEntry["sch
 /** Returns the Drizzle database and schema of a Database Definition. An unknown name throws `DATABASE_NOT_FOUND`; `"default"` always resolves. */
 export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {
   const runtime = getRuntimeDatabases()
+  const databaseName: string = name
   // The default entry always exists. Its `db` throws when the app has no Default Database.
-  if (name !== "default" && !runtime.configured.has(name)) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: String(name) })
+  if (databaseName !== "default" && !runtime.configured.has(databaseName)) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: databaseName })
   // SAFETY: the generated registry types each configured name with its schema and dialect.
   return runtime.databases[name] as RuntimeDatabaseRegistry[Name]
 }
