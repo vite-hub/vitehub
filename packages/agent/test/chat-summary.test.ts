@@ -105,7 +105,8 @@ describe("chatSummary", () => {
 
   it("exposes generated summaries through finish extensions", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatSummary({ execute: () => "Summary for finish hook." })],
@@ -115,7 +116,7 @@ describe("chatSummary", () => {
       driver: { run: ({ messages }) => ({ text: getMessageText(messages.at(-1)!) }), },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [
         createMessage({ role: "user", text: "Original request" }),
         createMessage({ role: "user", text: "/summary" }),
@@ -132,7 +133,8 @@ describe("chatSummary", () => {
   it("exposes generated summaries after later input object replacement", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
     const { defineCapability } = await import("../src/capability-runtime.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const replaceInput = defineCapability({
       id: "replace-input",
@@ -149,7 +151,7 @@ describe("chatSummary", () => {
       driver: { run: ({ messages }) => ({ text: getMessageText(messages.at(-1)!) }), },
     })
 
-    await runAgent(agent, runtime(), {
+    await runAgentWithContext(agent, runtime(), {
       messages: [
         createMessage({ role: "user", text: "Original request" }),
         createMessage({ role: "user", text: "/summary" }),
@@ -163,7 +165,8 @@ describe("chatSummary", () => {
 
   it("does not expose pre-populated summary context as this capability instance result", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatSummary()],
@@ -173,7 +176,7 @@ describe("chatSummary", () => {
       driver: { run: () => ({ text: "ok" }), },
     })
 
-    await runAgent(agent, runtime(), {
+    await runAgentWithContext(agent, runtime(), {
       context: { chatSummary: { summary: "External summary." } },
       messages: [createMessage({ role: "user", text: "No command here" })],
     })
@@ -183,7 +186,8 @@ describe("chatSummary", () => {
 
   it("does not expose pre-populated scoped summary context as this run result", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatSummary()],
@@ -193,7 +197,7 @@ describe("chatSummary", () => {
       driver: { run: () => ({ text: "ok" }), },
     })
 
-    await runAgent(agent, runtime(), {
+    await runAgentWithContext(agent, runtime(), {
       context: { "chat-summary:summary": { summary: "External summary." } },
       messages: [createMessage({ role: "user", text: "No command here" })],
     })
@@ -203,7 +207,8 @@ describe("chatSummary", () => {
 
   it("does not expose a generated summary reused by a later run", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatSummary({ execute: () => "Generated summary." })],
@@ -213,13 +218,13 @@ describe("chatSummary", () => {
       driver: { run: () => ({ text: "ok" }), },
     })
 
-    await runAgent(agent, runtime(), {
+    await runAgentWithContext(agent, runtime(), {
       messages: [createMessage({ role: "user", text: "/summary" })],
     })
     const generatedSummary = finish.mock.calls[0]![0].extensions.get("chat-summary")
     expect(generatedSummary).toEqual({ summary: "Generated summary." })
 
-    await runAgent(agent, runtime(), {
+    await runAgentWithContext(agent, runtime(), {
       context: { "chat-summary:summary": generatedSummary },
       messages: [createMessage({ role: "user", text: "No command here" })],
     })

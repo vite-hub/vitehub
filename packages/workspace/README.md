@@ -174,7 +174,10 @@ await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head
 
 Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
-Workspace your package does not define.
+Workspace your package does not define. In a history commit, each hook gets
+`input.commit`: the read-only `message`, revision `metadata`, and the sorted `paths`
+that the commit changes. A hook can check all paths at once, and read the intent of
+the caller from the metadata, as Content reads `lease: "override"`.
 
 File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
 The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
@@ -222,6 +225,11 @@ A push keeps the media type and metadata of the files that it replaces, and reco
 the signed-in user as `author` of the revision. When a Store starts a new ref from
 another ref, the first push also pulls the files of that ref. Unknown flags and extra
 positional arguments to pull or push fail before any call, so `vitehub push --dry-run` commits nothing.
+A push that writes a file that someone else holds an edit lease on, such as a Content
+document open in the Console, fails and saves nothing; the error names who edits which
+documents. `vitehub push --override-lease` writes anyway and records `lease: "override"`
+in the revision metadata. An Agent or an MCP client can pass `lease: "override"` to
+`workspace.commit` only with `operations({ overrideLeases: true })`.
 Checkout folders must be separate: they cannot share a folder or contain one another.
 On Windows and macOS, folder names that differ only in case are one folder.
 Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter
@@ -251,6 +259,13 @@ validation and updates the local file if it still contains the submitted bytes.
 Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
+On the GitHub Store, revision ids are commit shas. An instance keeps a ref head for up to
+5 seconds, so a pull can miss a newer commit for that time. The revision `author` is the
+GitHub account of the token, and the signed-in user is only in the commit trailer. Files
+keep only their Git mode. The first push to a new ref starts it from the published or
+default branch and then pulls the copied files. A pull reads one blob per changed file
+(two when it also needs the old version), which counts against the GitHub rate limit.
+
 `vitehub hooks install` adds a pre-commit hook that checks the staged files and working
 tree for conflicts, and a pre-push hook
 that runs `vitehub push` when Git pushes the default branch. When that push changes
@@ -342,6 +357,11 @@ The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
 placement, materialization, sync, and access rules. Source owns retrieval.
 Content also accepts the definition with `defineContent({ source: docs })` and
 opens a new reader for each refresh.
+
+In application `server/workspaces/<name>.ts` files, local Sources read from the
+resolved project root. Flat files supplied by Nuxt layers keep their colocated
+Source root: the file's folder, or its `workspace/` folder when present.
+An explicit `sourceRootDir` overrides these defaults.
 
 Use Workspace helpers such as `file()` and `github()` when a definition only
 needs Workspace binding options. Existing bindings remain valid. For standalone

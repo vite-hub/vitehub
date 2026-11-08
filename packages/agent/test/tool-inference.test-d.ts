@@ -17,7 +17,6 @@ describe("runAgent invocation tools", () => {
   it("accepts a typed handler for a schema-backed invocation tool", () => {
     const agent = defineAgent({ driver: { run: () => "done" } })
     runAgent(agent, {}, {
-      output: "drained",
       tools: {
         send_message: {
           name: "send_message",
@@ -36,7 +35,6 @@ describe("runAgent invocation tools", () => {
     const schedule = { id: "friday", scheduledAt: new Date() }
     runAgent(agent, { prompt: "Roast" }, {
       schedule,
-      output: "drained",
       tools: {
         send_message: {
           name: "send_message",
@@ -54,7 +52,7 @@ describe("runAgent invocation tools", () => {
     const agent = defineAgent({ driver: { run: () => "done" } })
     const valibotSchema = v.object({ message: v.pipe(v.string(), v.trim(), v.minLength(1)) })
     const zodSchema = z.object({ count: z.number().int() })
-    runAgent(agent, {}, { output: "drained", tools: {
+    runAgent(agent, {}, { tools: {
       send_message: {
         name: "send_message",
         inputSchema: valibotSchema,
@@ -78,7 +76,7 @@ describe("runAgent invocation tools", () => {
     const agent = defineAgent({ driver: { run: () => "done" } })
     const valibotSchema = v.object({ message: v.string() })
     const zodSchema = z.object({ count: z.number() })
-    runAgent(agent, runtimeContext, {}, { tools: {
+    runAgent(agent, {}, { runtimeContext, tools: {
       send_message: {
         name: "send_message",
         inputSchema: valibotSchema,
@@ -97,7 +95,7 @@ describe("runAgent invocation tools", () => {
       },
     } })
     // @ts-expect-error The Valibot schema produces message, not id.
-    runAgent(agent, runtimeContext, {}, { tools: { send_message: {
+    runAgent(agent, {}, { runtimeContext, tools: { send_message: {
       name: "send_message", inputSchema: valibotSchema,
       execute(input: { id: number }) { return input.id },
     } } })
@@ -106,7 +104,7 @@ describe("runAgent invocation tools", () => {
   it("rejects handlers that contradict a standard schema", () => {
     const agent = defineAgent({ driver: { run: () => "done" } })
     // @ts-expect-error The schema produces query, not id.
-    runAgent(agent, {}, { output: "drained", tools: { search: {
+    runAgent(agent, {}, { tools: { search: {
       name: "search",
       inputSchema: sdkSchema,
       execute(input: { id: number }) { return input.id },

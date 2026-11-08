@@ -257,7 +257,7 @@ describe("createChannel", () => {
     const [error, receipt] = await channel.send("private build output", { token: "private-token" } as never)
     expect(error).toMatchObject({
       code: "CHANNEL_SEND_FAILED",
-      docs: "https://vitehub.dev/docs/channels/server-api#channel_send_failed",
+      docs: "https://vitehub.dev/docs/channels/diagnostics/channel_send_failed",
       why: 'The "telegram" adapter of Channel "alerts" failed to send the message.',
     })
     expect(error?.cause).toHaveProperty("message", "provider unavailable")

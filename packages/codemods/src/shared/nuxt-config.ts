@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { findProperty, parseProgram, walk } from "@vite-hub/internal/ast"
+import { findProperty, keyName, parseProgram, walk } from "@vite-hub/internal/ast"
 import { createJiti } from "jiti"
 
 import { CodemodError } from "../types.ts"
@@ -46,6 +46,20 @@ export function unwrapExpression(node: Node): Node {
     current = current.expression
   }
   return current
+}
+
+/** Reads an object with explicit, unique property names. Its values may still be expressions. */
+export function staticOptionsObject(node: Node): ObjectExpression | undefined {
+  const object = unwrapExpression(node)
+  if (object.type !== "ObjectExpression") return undefined
+  const keys = new Set<string>()
+  for (const property of object.properties) {
+    if (property.type !== "ObjectProperty") return undefined
+    const key = keyName(property.key, property.computed)
+    if (key === undefined || keys.has(key)) return undefined
+    keys.add(key)
+  }
+  return object
 }
 
 function findConfigObject(program: File): ObjectExpression | undefined {

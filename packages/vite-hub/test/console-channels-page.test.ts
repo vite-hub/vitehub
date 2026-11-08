@@ -84,7 +84,7 @@ async function mountPage() {
   document.body.append(host)
   const app = createApp(() => h(ConsoleChannels, { agentsBase: "/api/a", channelsBase: "/api/c/channels", definitionsBase: "/api/d", kvBase: "/api/k", searchBase: "/api/s", sectionsBase: "/api/sec" }))
   app.use(router)
-  for (const name of ["ConsoleFrame", "ConsoleSearch", "ConsolePageHeader", "UDashboardPanel", "UAlert", "UEmpty", "USkeleton", "UTooltip", "UIcon"]) app.component(name, passthrough)
+  for (const name of ["ConsoleFrame", "ConsoleSearch", "ConsolePageHeader", "UDashboardPanel", "UAlert", "UEmpty", "USkeleton", "UTooltip", "UIcon", "UInput"]) app.component(name, passthrough)
   app.component("UButton", button)
   app.mount(host)
   await vi.waitFor(() => expect(host.querySelector("[data-slot=message], li")).not.toBeNull())
@@ -98,6 +98,29 @@ afterEach(() => {
 })
 
 describe("Channels page", () => {
+  it("marks simulated Channels and links their chat pages without a provider window subtitle", async () => {
+    const simulator = "/api/_vitehub/agents/support/webhooks/slack-primary"
+    mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? {
+      channels: [
+        { agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator },
+        { agent: "support", channel: "telegram", conversations: true, provider: "telegram", retention, simulated: false },
+        { agent: "support", channel: "discord", conversations: true, provider: "discord", retention, simulated: true },
+      ],
+    } : answers[path])
+    const { host } = await mountPage()
+    const nav = host.querySelector("nav[aria-label='Channels and threads']")!
+    expect(nav.textContent).toContain("slack (simulated)")
+    expect(nav.textContent).toContain("telegram · provider window")
+    expect(nav.textContent).toContain("discord (simulated)")
+    expect(nav.textContent).not.toContain("slack · provider window")
+    expect(nav.textContent).not.toContain("discord · provider window")
+    const link = nav.querySelector("a")!
+    expect(link.getAttribute("href")).toBe(simulator)
+    expect(link.textContent).toContain("Chat page")
+    expect(link.closest("button")).toBeNull()
+    expect(nav.querySelectorAll("a")).toHaveLength(1)
+  })
+
   it("links only http(s) attachments", async () => {
     mocks.request.mockImplementation(async (path: string) => answers[path])
     const { host } = await mountPage()

@@ -9,6 +9,8 @@
     "postinstall": "vitehub types prepare"
   },
   "dependencies": {
+    "@vite-hub/decisions": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.10",
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
