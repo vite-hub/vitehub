@@ -86,7 +86,8 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
       await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: withoutAliases(manifest.dependencies), optionalDependencies: { ...withoutAliases(manifest.optionalDependencies), ...aliases } }, null, 2)}\n`)
       await rm(modules, { recursive: true, force: true })
       try {
-        await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
+        // The snapshot needs these aliases even when the app's npm configuration omits optional dependencies.
+        await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", "--include=optional", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
       }
       catch (error) {
         // EUSAGE alone also covers unrelated npm usage errors. Only its explicit sync diagnostic permits an update.
