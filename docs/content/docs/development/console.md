@@ -695,7 +695,9 @@ curl -i https://app.example.com/_vitehub/rpc/__call \
 
 ### Sign a Console in with OAuth
 
-With `console: { auth: 'app' }` and [`consoleMcpOAuth()`](/docs/development/mcp#set-up-oauth) in the app Auth, a Console on an origin in `console.origins` signs a person in with OAuth. The app's Better Auth is the authorization server. ViteHub holds no client secret and stores no tokens. Install `@better-auth/cimd` at the version of `better-auth` that ViteHub uses. `consoleMcpOAuth()` loads it when the Auth starts. Without it, the server logs a warning, MCP sign-in keeps working, and no Console client can sign in.
+With `console: { auth: 'app' }` and [`consoleMcpOAuth()`](/docs/development/mcp#set-up-oauth) in the app Auth, the Console data routes accept OAuth bearer tokens from a client on an origin in `console.origins`. The app's Better Auth is the authorization server. The client uses no client secret. Install `@better-auth/cimd` at the version of `better-auth` that ViteHub uses. `consoleMcpOAuth()` loads it when the Auth starts. Without it, the server logs a warning, MCP sign-in keeps working, and no Console client can sign in.
+
+The hosted Console and the built-in project linker do not implement this OAuth sign-in flow yet. Use `auth: 'token'` to link a remote project there. A custom OAuth client must implement the flow below and host its own client metadata document.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -710,15 +712,20 @@ export default defineAuth({
 ```
 
 ```ts [vite.config.ts]
-vitehub({
-  auth: true,
-  console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.vitehub.dev'] },
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.example.com'] },
+  })],
 })
 ```
 
 The Console resource is `<origin><base>/_vitehub`, such as `https://app.example.com/_vitehub`. It is one OAuth resource for the RPC and the other Console data routes. MCP keeps its own resource, `<origin><base>/_vitehub/mcp`. A token for one resource is rejected on the other with `401` and `error="invalid_token"`.
 
-The flow:
+The client flow:
 
 1. A signed-out call to a Console data route gets `401` with `WWW-Authenticate: Bearer realm="vitehub-console", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/_vitehub"`.
 2. The Console reads that protected resource metadata (RFC 9728) and the authorization server metadata at `/.well-known/oauth-authorization-server/api/auth`. Both answer CORS for listed origins.
@@ -726,7 +733,7 @@ The flow:
 4. The Console exchanges the code with the `code_verifier` at `/api/auth/oauth2/token`. It sends no client secret.
 5. The Console calls the data routes with `Authorization: Bearer <access token>`.
 
-The client is public. Its `client_id` is the URL of a client ID Metadata Document (CIMD), such as `https://console.vitehub.dev/oauth-client.json`. Better Auth's [`cimd()` plugin](https://www.better-auth.com/docs/plugins/cimd) reads the document and creates the client. `console.origins` is the client allow list:
+The client is public. Its `client_id` is the URL of a client ID Metadata Document (CIMD), such as `https://console.example.com/oauth-client.json`. Better Auth's [`cimd()` plugin](https://www.better-auth.com/docs/plugins/cimd) reads the document and creates the client. `console.origins` is the client allow list:
 
 - The document URL must be on an `https://` origin that `console.origins` lists. The server checks this before it reads the document, and again at each authorization, token, and revocation request. An `http://localhost` entry allows bearer calls, but not an OAuth client.
 - Each `redirect_uri` must be on the same origin as the `client_id`.
