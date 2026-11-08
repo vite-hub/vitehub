@@ -207,9 +207,17 @@ Starting Connect creates a single-use OAuth `state` in the Connections store. Th
 Set `console.mcpClient` to `true` to add the MCP client section. It runs on the server. It connects to MCP servers over Streamable HTTP as the person who signed in to the Console. It lists and calls their tools, reads their resources, and gets their prompts, and it shows each result as the server sent it.
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   console: { auth: "app", mcpClient: true },
 })
+```
+
+The section uses the MCP SDK. Install it in your app first:
+
+```sh
+pnpm add @modelcontextprotocol/sdk
 ```
 
 This section is the client side. [ViteHub MCP](/docs/development/mcp) is the server side: the MCP server that the Console itself serves at `/_vitehub/mcp`, which needs no option.
@@ -251,6 +259,8 @@ The Console keeps MCP connections on the server, separately for each person who 
 By default, connections stay in server memory, and a restart ends them. Enable the app's default [KV](/docs/kv) store with `kv: true` (or an explicit default KV configuration), then set `VITEHUB_CONSOLE_MCP_KEY` to keep connections there instead:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'cloudflare',
   console: { auth: 'app', mcpClient: true },
@@ -277,6 +287,8 @@ One Console build can open many ViteHub apps. Each app is a **project**. The Con
 Each project must use [`auth: "token"`](#use-a-console-token) and list the origin of the Console in [`console.origins`](#call-the-console-from-another-origin):
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   console: {
     auth: 'token',
@@ -302,6 +314,8 @@ printf %s "$TOKEN" | sha256sum | cut -d' ' -f1  # set this as VITEHUB_CONSOLE_TO
 ```
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   console: { auth: 'token' },
 })
@@ -448,6 +462,9 @@ ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and include
 Enable the Console with the app's existing server Auth Definition and access policy:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -476,7 +493,7 @@ export default defineAuth({
 })
 ```
 
-The `role` field comes from Better Auth's `admin()` plugin. Use the app's existing role, permission, or allowlist. To give the first account the admin role on a fresh deploy, set `VITEHUB_ADMIN_EMAILS`; see [Give the first admin role](/docs/auth/configure#give-the-first-admin-role). To keep users and sessions across restarts, use [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database). A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
+The `role` field comes from Better Auth's `admin()` plugin. Use the app's existing role, permission, or allowlist. To give your account the admin role on a fresh deploy, set `VITEHUB_ADMINS`; see [Give the first admin role](/docs/auth/configure#give-the-first-admin-role). To keep users and sessions across restarts, use [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database). A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
 
 App Auth provides a built-in page at `/_vitehub/sign-in`. It shows an email and password form when `emailAndPassword` is on, and lists the configured social providers. When email and password sign-up is open, **Create one** opens a sign-up form; `emailAndPassword.disableSignUp: true` hides it. The page signs in and signs up through the existing Auth endpoints and returns to the requested Console page. Failed attempts show the form and the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
 
@@ -484,7 +501,7 @@ ViteHub requires an authorization callback for every Console route, including `G
 
 For section-specific permissions or a separate Console policy, use an authorization file:
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 console: { auth: 'app', authorize: './server/console-authorize.ts' }
 ```
 
@@ -498,7 +515,7 @@ A relative `authorize` path resolves from the project root (the folder of `nuxt.
 
 For two-factor authentication, passkeys, or a custom sign-in UI, override the page. The built-in page does not complete two-factor challenges:
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 console: { auth: 'app', signInPage: '/sign-in' }
 ```
 
@@ -509,6 +526,9 @@ The custom page receives `redirect`, such as `/sign-in?redirect=%2F_vitehub%2Fau
 Console Auth has its own Better Auth session. It does not require the application's Primary Auth Definition. For a Node host, the inline GitHub setup accepts only verified email addresses in `allowedEmails`:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
@@ -583,6 +603,9 @@ On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a
 `auth: 'token'` protects the Console data routes with one secret. Use it for an app without sign-in, for the CLI, and for a Console on another origin.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     console: { auth: 'token' },
@@ -634,6 +657,8 @@ The Console page on the app's own origin cannot send the token yet, so with `aut
 A Console on another origin, such as the hosted Console at `https://console.vitehub.dev` or a Console that you host yourself, calls the app's Console data routes from the browser. `console.origins` lists the origins that may do this:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   console: {
     auth: 'token',
@@ -675,6 +700,9 @@ curl -i https://app.example.com/_vitehub/rpc/__call \
 Apps that use another authentication library set `auth: false` and give the Console an `authorize` function:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
@@ -684,7 +712,7 @@ export default defineConfig({
 })
 ```
 
-```ts [server/console-authorize.ts]
+```ts [server/console-authorize.ts] fragment
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
 import { readHostSession } from './session'
 
@@ -776,7 +804,7 @@ The button uses the same access check as the Console data routes, for any sectio
 
 A page that has its own bar where the pill docks, such as a review toolbar at the bottom center, can ask the pill to step aside. Set `data-vitehub-pill="mark"` on `<html>`: the pill folds to the ViteHub mark and moves to the nearer end of the bottom edge, so the bottom center stays the page's. Remove the attribute and the pill comes back as the person left it. In Nuxt, set it from the page or the component that draws the bar:
 
-```ts
+```ts fragment
 useHead({ htmlAttrs: { 'data-vitehub-pill': 'mark' } })
 ```
 
@@ -798,7 +826,7 @@ The bootstrap is an inline module script. When the page's Content Security Polic
 
 `invoke` lets the Console start Agent Invocations and run manual Schedules. It defaults to `true` on the development server and `false` in a production build. This applies to both Vite and Nuxt:
 
-```ts
+```ts fragment
 console: { auth: 'app', authorize: './server/console-authorize.ts', invoke: true }
 ```
 
@@ -808,7 +836,7 @@ Your access policy decides who can start invocations, because the invocation rou
 
 `impersonation` lets a Console administrator open the app as one of its users, to see what that user sees. It is off by default:
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 console: { auth: 'app', authorize: './server/console-authorize.ts', impersonation: true }
 ```
 
@@ -887,6 +915,8 @@ async function stop() {
 On the development server, Console users can connect [Connections](/docs/connections), set API keys, refresh tokens, and disconnect. A production build mounts the Connections section and its management routes only with `connections: { management: true }`:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   connections: { management: true },
   console: { auth: 'app', authorize: './server/console-authorize.ts' },

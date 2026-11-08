@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import type { Client } from "@libsql/client"
+
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
 
@@ -12,7 +14,8 @@ describe("libSQL runtime credentials", () => {
     const createClient = vi.fn((options: { authToken?: string, url: string }) => {
       const client = { ...options, close: vi.fn() }
       clients.push(client)
-      return client
+      // SAFETY: The adapter only closes this client; the fake `drizzle` below never queries it.
+      return client as unknown as Client
     })
     const drizzle = vi.fn(() => ({ run: vi.fn() }))
     const db = createDrizzleSqliteAdapter({

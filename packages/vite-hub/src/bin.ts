@@ -26,7 +26,11 @@ const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
 
 runViteHubCliEntrypoint({
   loadConfig: loadViteHubCliConfig,
-  runtimeFeatureGuard: async (namespace, feature, cwd) => namespace !== "agent" || feature !== "invocations" || (await import("./internal/runtime-feature-guard.ts")).isAgentCliEnabled(cwd),
+  runtimeFeatureGuard: async (namespace, feature, cwd) => {
+    if (namespace !== "agent" || feature !== "invocations") return true
+    const { isAgentCliEnabled } = await import("./internal/runtime-feature-guard.ts")
+    return isAgentCliEnabled(cwd)
+  },
   // `connections` commands only call the running app. Loading the project runs every ViteHub plugin, and the server
   // files that they generate make the running dev server rebuild while the command waits for its answer.
   runtimeFeatures: [agentRuntimeFeatures, ...createConnectionsCliContributor().namespaces],

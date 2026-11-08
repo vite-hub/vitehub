@@ -8,12 +8,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createDriver } from "../src/drivers/fs.ts"
 import { createBlobStorage } from "../src/storage.ts"
 
-import type { BlobMultipartEvent, BlobResult, BlobStorage } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode, BlobMultipartEvent, BlobStorage } from "../src/types.ts"
 
 let base: string
 let storage: BlobStorage
 
-function ok<T>(result: BlobResult<T>): T {
+function ok<T>(result: Result<T, BlobErrorCode>): T {
   const [error, value] = result
   if (error) throw error
   return value

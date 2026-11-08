@@ -16,7 +16,7 @@ It does not wrap a Server Primitive.
 
 Use model mode when the model provider supports provider-native web search.
 
-```ts [server/agents/research.ts]
+```ts [server/agents/research.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { webSearch } from 'vite-hub/agent/capabilities'
 
@@ -34,7 +34,7 @@ Use tool mode to choose the search provider. Install `@agntn/web` first.
 pnpm add @agntn/web
 ```
 
-```ts [server/agents/research.ts]
+```ts [server/agents/research.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { webSearch } from 'vite-hub/agent/capabilities'
 

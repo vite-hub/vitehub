@@ -50,6 +50,7 @@ catalogs:
     playwright-core: ^1.63.0
   chat:
     "@chat-adapter/discord": 4.44.0
+    "@chat-adapter/slack": 4.44.0
     "@chat-adapter/teams": 4.44.0
     "@chat-adapter/telegram": 4.44.0
     "@chat-adapter/web": 4.44.0
