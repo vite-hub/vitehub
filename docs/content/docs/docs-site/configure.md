@@ -1,6 +1,6 @@
 ---
 title: Configure a docs site
-description: Organize sections, pick a layout per page, turn the navigation and the outline on or off, change the theme, replace components, and add Markdown blocks.
+description: Organize sections, pick a layout per page, turn the navigation and the outline on or off, change the design, replace components, and add Markdown blocks.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -110,6 +110,37 @@ fold: true
 
 Each group with a heading starts shut, and the reader opens it with a click, Enter, or Space. The group that holds the current page opens itself, so its link stays in view. Pages without a group stay open. A [group of sections](#groups) folds the page groups of each section that sets `fold`.
 
+### Panels
+
+A long list of pages, such as one page for each error code, would bury the other pages of a section. Set `navigation.panel: true` on the `index.md` of a folder inside the section, and the folder becomes a panel:
+
+```md [content/docs/queue/diagnostics/index.md]
+---
+title: Queue diagnostics
+navigation.title: Diagnostics
+navigation.panel: true
+---
+```
+
+- The section sidebar shows one link to the panel, with the number of its pages, after the section pages.
+- On a page of the panel, the sidebar lists only the panel: a link back to the section, the panel Overview, and its pages by `navigation.group`. Each group folds. A page title that is a code, such as `QUEUE_DISABLED`, shows in monospace on one line.
+- The rail keeps the reader in the panel. On `/docs/queue/diagnostics/queue_disabled`, the KV item opens `/docs/kv/diagnostics` when that folder is a panel too, and `/docs/kv` when it is not.
+- Previous and next stay inside the panel.
+
+### Pages that search engines skip
+
+Set `seo.index: false` on a page that search engines must not index, such as one page in a long tail of generated pages:
+
+```md [content/docs/queue/diagnostics/queue_disabled.md]
+---
+title: QUEUE_DISABLED
+description: Queue is disabled.
+seo.index: false
+---
+```
+
+The page gets `<meta name="robots" content="noindex, follow">` and stays out of `sitemap.xml`, llms.txt, `llms-full.txt`, and the share images. The site search lists it by its title and description only. The build does not prerender it; the server renders it on request, so thousands of generated pages do not slow the build. Links to the page stay valid for the link checker, and its Markdown copy stays at `/raw/...`. Keep the page that lists these pages indexed.
+
 ### Moved pages
 
 When a page moves, keep its old URL with a `redirect` route rule:
@@ -118,7 +149,7 @@ When a page moves, keep its old URL with a `redirect` route rule:
 export default defineNuxtConfig({
   modules: ['@vite-hub/docs/nuxt'],
   routeRules: {
-    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', statusCode: 301 } },
+    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', status: 301 } },
   },
 })
 ```
@@ -134,12 +165,13 @@ Rules added in a module's `nitro:config` hook are also validated, but keep the l
 title: Icons
 description: Icon components for Lumen pages.
 tagline: Every Lucide icon as a Markdown block.
+eyebrow: comark-icon
 credits: Icons from [Lucide](https://lucide.dev).
 keywords: glyph, symbol, svg
 ---
 ```
 
-`tagline` replaces `description` under the heading, and `description` stays the meta description and the llms.txt entry. `credits` is one line of inline Markdown at the end of the page. `keywords` find the page in search when a reader types a word that the page does not contain. A keyword match ranks like a heading, below the page title.
+`tagline` replaces `description` under the heading, and `description` stays the meta description and the llms.txt entry. `eyebrow` is a short label above the title. `credits` is one line of inline Markdown at the end of the page. `keywords` find the page in search when a reader types a word that the page does not contain. A keyword match ranks like a heading, below the page title.
 
 ## Layouts
 
@@ -222,7 +254,7 @@ export default defineNuxtConfig({
       name: 'Lumen',
       url: 'https://lumen.example.com',
       description: 'Resize and compress images from the command line.',
-      // A one-color SVG in public/. The theme fills it with the text color.
+      // A one-color SVG in public/. The design fills it with the text color.
       logo: '/lumen-mark.svg',
       badge: { label: 'beta', tooltip: 'The CLI flags can change.' },
     },
@@ -233,13 +265,13 @@ export default defineNuxtConfig({
 })
 ```
 
-`github` adds a GitHub link to the header and the sidebar footer. `socials` adds more links to the sidebar footer. `banner` shows one line above every docs page.
+`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it, or in the header's menu on narrow screens. The header appears on every page with search and a color mode button. `banner` shows one line above every docs page.
 
-## Theme
+## Design
 
-The theme uses Geist, black, white, and zinc, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
-- `app.config.ts`: Nuxt UI `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
+- `app.config.ts`: Nuxt UI `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in a stylesheet of your app:
 
 ```css [app/assets/main.css]
@@ -251,7 +283,7 @@ The theme uses Geist, black, white, and zinc, square corners, hairline borders, 
 }
 ```
 
-`--vh-panel-width` sets the width of the page sidebar, and the Nuxt UI `--ui-*` variables set the colors.
+`--vh-panel-width` sets the width of the page sidebar, `--vh-grain: none` turns the grain off, and the Nuxt UI `--ui-*` variables set the colors.
 
 ### Icons
 
@@ -291,10 +323,10 @@ const { github } = useDocsConfig()
 
 | Component | Part of the shell |
 | --- | --- |
-| `AppHeader` | The site header. On wide screens, docs pages show the rail instead. |
+| `AppHeader` | The site header on every page, with search, GitHub, social links, and the color mode button. |
 | `AppSearch` | The search dialog. |
 | `DocsRail` | The section rail. |
-| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The page sidebar and its parts. |
+| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The page sidebar and its parts. |
 | `DocsPage` | Chooses the layout of a page. |
 | `DocsArticle`, `DocsLanding` | The `article` and `tutorial` layouts, and the `landing` layout. |
 | `DocsMarkdown`, `DocsCodePre` | The rendered Markdown and its code blocks. |

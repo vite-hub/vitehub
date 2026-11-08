@@ -6,13 +6,15 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { ensureBlob } from "./ensure.ts"
 import { getBlobRequestBodyLimit } from "./internal/host-limits.ts"
 
+import type { Result } from "@vite-hub/runtime"
+
 import type {
+  BlobErrorCode,
   BlobMultipartEvent,
   BlobMultipartHandlerOptions,
   BlobMultipartHandlerResult,
   BlobMultipartPart,
   BlobObject,
-  BlobResult,
   BlobStorage,
   BlobUploadEvent,
   BlobUploadOptions,
@@ -122,7 +124,7 @@ export async function handleBlobUpload(
   storage: UploadStorage,
   event: BlobUploadEvent,
   options: BlobUploadOptions = {},
-): Promise<BlobResult<BlobObject[]>> {
+): Promise<Result<BlobObject[], BlobErrorCode>> {
   const formKey = options.formKey ?? "files"
   const form = await readForm(getStandardContext(event).req)
   const files = form.getAll(formKey).filter((value): value is File => value instanceof File)
@@ -138,7 +140,7 @@ export async function handleBlobUpload(
     if (error) return [error, undefined]
     objects.push(object)
   }
-  return [null, objects]
+  return [undefined, objects]
 }
 
 /**
@@ -149,7 +151,7 @@ export async function handleBlobMultipartUpload(
   storage: MultipartStorage,
   event: BlobMultipartEvent,
   options: BlobMultipartHandlerOptions = {},
-): Promise<BlobResult<BlobMultipartHandlerResult>> {
+): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>> {
   const { action, pathname } = event.context.params ?? {}
   if (!isMultipartAction(action)) {
     throw badRequest(`Unknown multipart action "${action ?? ""}". Expected create, upload, complete, or abort.`)
@@ -168,7 +170,7 @@ export async function handleBlobMultipartUpload(
       contentType: options.create?.contentType ?? contentType,
     })
     if (error) return [error, undefined]
-    return [null, { action, pathname: upload.pathname, uploadId: upload.uploadId }]
+    return [undefined, { action, pathname: upload.pathname, uploadId: upload.uploadId }]
   }
 
   const url = new URL(request.url)
@@ -189,12 +191,12 @@ export async function handleBlobMultipartUpload(
     const partNumber = Number(requireQuery(url, "partNumber"))
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) throw badRequest("`partNumber` must be an integer from 1 to 10000.")
     const [error, part] = await upload.uploadPart(partNumber, partBody)
-    return error ? [error, undefined] : [null, { action, part }]
+    return error ? [error, undefined] : [undefined, { action, part }]
   }
   if (action === "complete") {
     const [error, object] = await upload.complete(completionParts ?? readParts(completionBody?.parts))
-    return error ? [error, undefined] : [null, { action, object }]
+    return error ? [error, undefined] : [undefined, { action, object }]
   }
   const [error] = await upload.abort()
-  return error ? [error, undefined] : [null, { action }]
+  return error ? [error, undefined] : [undefined, { action }]
 }
