@@ -54,7 +54,7 @@ Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to
 
 Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 
-`fs-lite` writes each key as one file in `base`. The file name is the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `signups` and `signups%3Areset-at`. Most file systems limit a file name to 255 bytes, so a longer escaped key fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder.
+`fs-lite` writes each key as one file in `base`. The file name is the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `signups` and `signups%3Areset-at`. Most file systems limit a file name to 255 bytes, so a longer escaped key fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record in `base`. Copy the whole folder, including hidden files, when you move a store.
 
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 

@@ -48,7 +48,7 @@ describe("fs-lite", () => {
     })
 
     expect(reads.filter(Boolean)).toHaveLength(1)
-    expect(await readdir(base)).toEqual(["big"])
+    expect((await readdir(base)).sort()).toEqual([".unstorage-tmp-vitehub-layout-v1", "big"])
     await storage.dispose()
   })
 

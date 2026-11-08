@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { link, mkdir, opendir, readdir, rm, rmdir, stat, writeFile } from "node:fs/promises"
+import { link, lstat, mkdir, opendir, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
+import { lock } from "proper-lockfile"
 
 import type { KVListOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -11,6 +12,8 @@ import { createKVContinuations } from "./continuations.ts"
 
 // unstorage's atomic writes and setIfAbsentItem() stage values in files with this name. They are not keys.
 const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
+// Use unstorage's reserved temporary namespace so this record cannot be a key.
+const layoutDirectory = ".unstorage-tmp-vitehub-layout-v1"
 
 // Each key is one file in the base folder, so `signups` and `signups:reset-at` can both exist.
 // The file name is the key with `%` and `:` escaped as in a URL, for example `signups%3Areset-at`.
@@ -28,47 +31,64 @@ function hasCode(error: unknown, ...codes: string[]): boolean {
   return error instanceof Error && "code" in error && typeof error.code === "string" && codes.includes(error.code)
 }
 
-// Stores written by older versions keep the key `a:b` as the file `a/b`. Move those files once, so their keys stay readable.
-// Those versions listed and cleared every file under the base folder as a key, so this moves only keys.
-async function moveNestedKeys(root: string): Promise<void> {
-  let entries
+async function exists(path: string): Promise<boolean> {
   try {
-    entries = await readdir(root, { withFileTypes: true })
+    await stat(path)
+    return true
   }
   catch (error) {
-    if (hasCode(error, "ENOENT")) return
+    if (hasCode(error, "ENOENT")) return false
     throw error
   }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const directory = join(root, entry.name)
-    const nested = await readdir(directory, { recursive: true, withFileTypes: true })
-    for (const file of nested) {
+}
+
+// Legacy root names are literal keys, even when they look encoded. Stage the whole old layout
+// before publishing any encoded names, so neither root files nor directories can claim another key's destination.
+async function migrateKeys(root: string): Promise<void> {
+  const layout = join(root, layoutDirectory)
+  const legacy = join(layout, "legacy")
+  const complete = join(layout, "complete")
+  if (await exists(complete)) return
+  await mkdir(layout, { recursive: true })
+  // Serialize initialization across stores and processes. Stale locks can be recovered after a stopped process.
+  const release = await lock(layout, { lockfilePath: join(layout, "lock"), retries: { retries: 100, minTimeout: 20, maxTimeout: 100 } })
+  try {
+    if (await exists(complete)) return
+    await mkdir(legacy, { recursive: true })
+    const staged = join(layout, "staged")
+    if (!await exists(staged)) {
+      for (const entry of await readdir(root, { withFileTypes: true })) {
+        if (entry.name === layoutDirectory || (!entry.isDirectory() && (!entry.isFile() || temporaryFile.test(entry.name)))) continue
+        await rename(join(root, entry.name), join(legacy, entry.name))
+      }
+      await writeFile(staged, "")
+    }
+    for (const file of await readdir(legacy, { recursive: true, withFileTypes: true })) {
       if (!file.isFile() || temporaryFile.test(file.name)) continue
       const path = join(file.parentPath, file.name)
+      const destination = join(root, fileName(relative(legacy, path).split(sep).join(":")))
       try {
-        await link(path, join(root, fileName(relative(root, path).split(sep).join(":"))))
+        await link(path, destination)
       }
       catch (error) {
-        // A file under the new name is newer, so the old file is stale.
+        // Only a retry after staging can have published this file already. A directory is never a migrated value.
         if (!hasCode(error, "EEXIST")) throw error
+        const source = await lstat(path)
+        const target = await lstat(destination)
+        if (!target.isFile() || target.dev !== source.dev || target.ino !== source.ino) throw error
       }
-      await rm(path, { force: true })
     }
-    // Deepest folders first, so each parent is empty when its turn comes.
-    const folders = nested.filter(file => file.isDirectory()).map(file => join(file.parentPath, file.name))
-    for (const folder of [...folders.sort((a, b) => b.length - a.length), directory]) {
-      await rmdir(folder).catch((error: unknown) => {
-        // Another process moved it first, or it keeps a file that is not a key.
-        if (!hasCode(error, "ENOENT", "ENOTEMPTY", "EEXIST")) throw error
-      })
-    }
+    await writeFile(complete, "")
+    await rm(legacy, { force: true, recursive: true })
+  }
+  finally {
+    await release()
   }
 }
 
 export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): Promise<KVRuntimeDriver> {
   const root = resolve(options.base)
-  await moveNestedKeys(root)
+  await migrateKeys(root)
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
   const { getItem, getItemRaw, getMeta, hasItem, removeItem, setItem, setItemRaw } = driver
@@ -87,6 +107,16 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
   driver.setItem = (key, value, operationOptions) => setItem?.(fileName(key), value, operationOptions)
   driver.setItemRaw = (key, value, operationOptions) => setItemRaw?.(fileName(key), value, operationOptions)
   driver.removeItem = (key, operationOptions) => removeItem?.(fileName(key), operationOptions)
+  driver.clear = async () => {
+    // Keep the layout record: a later driver must not interpret new percent escapes as legacy literal names.
+    const entries = await readdir(root).catch((error: unknown) => {
+      if (hasCode(error, "ENOENT")) return []
+      throw error
+    })
+    for (const entry of entries) {
+      if (entry !== layoutDirectory) await rm(join(root, entry), { force: true, recursive: true })
+    }
+  }
   driver.hasItem = async (key, operationOptions) => {
     // Keep the underlying driver's key validation before resolving its file path.
     if (!await hasItem(fileName(key), operationOptions)) return false
@@ -132,7 +162,9 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
       if (hasCode(error, "ENOENT")) return
       throw error
     }
-    for await (const entry of entries) yield entry.isFile() ? keyOf(entry.name) : undefined
+    for await (const entry of entries) {
+      if (entry.name !== layoutDirectory) yield entry.isFile() ? keyOf(entry.name) : undefined
+    }
   }
 
   driver.getKeys = async () => {

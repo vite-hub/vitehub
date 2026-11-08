@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -652,7 +652,8 @@ describe("kv runtime", () => {
   it("bounds and resumes fs-lite listing", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-list-"))
     try {
-      await writeFile(join(root, "a%3Ax"), "x")
+      await mkdir(join(root, "a"))
+      await writeFile(join(root, "a", "x"), "x")
       await writeFile(join(root, "a0"), "a0")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
       const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })

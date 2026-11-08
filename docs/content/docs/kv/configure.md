@@ -40,7 +40,7 @@ export default defineConfig({
 | Deno KV | `deno-kv` | Used on Deno hosting. |
 | Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
 
-`fs-lite` writes each key as one file in `base`. The file name is the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `signups` and `signups%3Areset-at`. Most file systems limit a file name to 255 bytes, so a longer escaped key fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder.
+`fs-lite` writes each key as one file in `base`. The file name is the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `signups` and `signups%3Areset-at`. Most file systems limit a file name to 255 bytes, so a longer escaped key fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record in `base`. Copy the whole folder, including hidden files, when you move a store.
 
 ## Nitro cache in KV
 
