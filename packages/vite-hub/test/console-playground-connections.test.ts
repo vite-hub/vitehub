@@ -29,6 +29,8 @@ it.each(["approve", "deny"])("runs playground Connections refresh and %s through
     responses.push(text)
     return new Response(text, { status: output.statusCode, headers: { "content-type": "application/json" } })
   }))
+  // The Console sends an API key only from a page over HTTPS or on a loopback host.
+  vi.stubGlobal("location", { href: "http://localhost:5173/_vitehub/connections" })
   const endpoint = "/_vitehub/connections"
   const keyed = await requestConnectionsManagement(endpoint, "set-key", connectionResultSchema, { key: "synthetic-key", name: "executor" })
   expect(keyed.connection).toMatchObject({ credential: "api-key", status: "connected" })

@@ -1,0 +1,11 @@
+{
+  "name": "t3-env-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@t3-oss/env-nuxt": "^0.13.8",
+    "nuxt": "npm:nuxt-nightly@5x",
+    "vite-hub": "^0.1.0",
+    "zod": "^4.1.5"
+  }
+}

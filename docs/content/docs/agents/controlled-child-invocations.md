@@ -20,7 +20,7 @@ await. It gives control and inspection.
 
 ## Start and inspect a child
 
-```ts
+```ts fragment
 import { startAgentInvocation } from 'vite-hub/agent'
 import researcher from '../agents/researcher'
 
@@ -45,7 +45,7 @@ cannot look one up by id later.
 
 ## Cancel active work
 
-```ts
+```ts fragment
 const cancellation = await child.cancel('The parent no longer needs this work.')
 
 if (cancellation.outcome === 'accepted') {
@@ -62,7 +62,7 @@ finished returns `invalid-state`.
 Check `child.support` before you send input. Then check the result, because
 support can change with the lifecycle state.
 
-```ts
+```ts fragment
 if (child.support.respond) {
   const result = await child.sendInput(
     { messages: [responseMessage] },
@@ -99,7 +99,7 @@ value. Do not assume that every runtime returns a completed result.
 A host integration that allocates input resources, such as uploaded files, can
 pass `onInputHandoff` in the fourth argument:
 
-```ts
+```ts fragment
 const child = await startAgentInvocation(researcher, runtimeContext, input, {
   onInputHandoff() {
     markUploadsAsOwnedByRuntime()

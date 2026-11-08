@@ -1,15 +1,16 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "../ast.ts"
+import { blockBindings } from "../shared/bindings.ts"
 import { pathLabel } from "./fields.ts"
 
 import type { CallExpression, File, ImportSpecifier, ObjectPattern, ObjectProperty } from "@babel/types"
-import type { CodeStyle, Node } from "../ast.ts"
+import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 import type { EnvField } from "./fields.ts"
 
@@ -175,32 +176,6 @@ function sameImport(program: File, source: string, name: string): boolean {
   return program.program.body.some(statement => statement.type === "ImportDeclaration" && statement.source.value === source && statement.importKind !== "type"
     && statement.specifiers.some(specifier => specifier.type === "ImportSpecifier" && specifier.importKind !== "type"
       && keyName(specifier.imported) === name && specifier.local.name === name))
-}
-
-/** Collect declarations conservatively across the block, including nested patterns. */
-function blockBindings(program: File): Map<string, Node[]> {
-  const bindings = new Map<string, Node[]>()
-  const add = (node: Node | null | undefined): void => {
-    if (!node) return
-    if (node.type === "Identifier") bindings.set(node.name, [...(bindings.get(node.name) ?? []), node])
-    else if (node.type === "RestElement") add(node.argument)
-    else if (node.type === "AssignmentPattern") add(node.left)
-    else if (node.type === "ArrayPattern") node.elements.forEach(add)
-    else if (node.type === "ObjectPattern") node.properties.forEach(property => add(property.type === "RestElement" ? property.argument : property.value))
-    else if (node.type === "TSParameterProperty") add(node.parameter)
-  }
-  walk(program, (node) => {
-    if (node.type === "VariableDeclarator") add(node.id)
-    else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") add(node.local)
-    else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression"
-      || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod" || node.type === "TSDeclareFunction") {
-      if ("id" in node) add(node.id)
-      node.params.forEach(add)
-    }
-    else if (node.type === "ClassDeclaration" || node.type === "ClassExpression" || node.type === "TSEnumDeclaration" || node.type === "TSImportEqualsDeclaration") add(node.id)
-    else if (node.type === "CatchClause") add(node.param)
-  })
-  return bindings
 }
 
 function bindingScope(ancestors: readonly Node[]): Node | undefined {

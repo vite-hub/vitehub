@@ -25,11 +25,16 @@ export interface RequireRateLimitOptions extends RateLimitPolicy {
   key?: string
 }
 
+/** A Web `Request`. The guard reads only its headers. */
+export type RateLimitRequest = Pick<Request, "headers">
+
 /**
- * A request event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub app. The guard reads
- * the client address, the request headers, and the Cloudflare bindings from `event["~standard"]`.
+ * The request that a guard limits: a request event with Standard Context properties, such as an H3 1 or H3 2 event
+ * in a ViteHub app, or a Web `Request`. From an event, the guard reads the client address, the request headers, and
+ * the Cloudflare bindings from `event["~standard"]`. A `Request` has no client address, so pass `key`. On Cloudflare,
+ * the guard reads `cf-connecting-ip` from its headers and the bindings of the request that runs.
  */
-export type RateLimitRequestEvent = ViteHubContext
+export type RateLimitRequestEvent = RateLimitRequest | ViteHubContext
 
 export interface ResolvedRateLimitPolicy {
   readonly enforcement: RateLimitEnforcement

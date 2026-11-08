@@ -24,8 +24,9 @@ export function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
   return isAuthRequest(input) ? input : getStandardContext(input).req
 }
 
-/** Return the request event of an Auth input, or `undefined` for a Web Request. */
+/** Return an Auth input's host context, including the Standard Context carried by a Web Request. */
 export function authRequestEvent(input: AuthRequestInput): ViteHubContext | undefined {
+  if (input instanceof Request) return { "~standard": getStandardContext(input) }
   return isAuthRequest(input) ? undefined : input
 }
 

@@ -126,7 +126,7 @@
     "drizzle-orm": "catalog:database",
     "nitro": "catalog:unjs",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "drizzle-orm": {

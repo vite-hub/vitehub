@@ -111,7 +111,8 @@ describe("KV Cloudflare provision step", () => {
   it("reads the id back when another run created the namespace first", async () => {
     let listCalls = 0
     const { context } = createContext((_url, init) => {
-      if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ message: "exists" }] }, 400)
+      // Cloudflare answers a duplicate title with 400 and code 10014 (cloudflare/workers-sdk#14284).
+      if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ code: 10014, message: "a namespace with this account ID and title already exists" }] }, 400)
       listCalls++
       return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-race", title: "app-cache" }] })
     })
@@ -131,6 +132,34 @@ describe("KV Cloudflare provision step", () => {
     await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 403 })
   })
 
+  it("reads the id back after a 409 conflict", async () => {
+    let listCalls = 0
+    const { context } = createContext((_url, init) => {
+      if (init?.method === "POST") return jsonResponse({ success: false, errors: [] }, 409)
+      listCalls++
+      return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-race", title: "app-cache" }] })
+    })
+
+    const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
+
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { kv: { default: "ns-race" } } } })
+  })
+
+  it("fails an invalid create without reusing a namespace that appeared since the plan", async () => {
+    let listCalls = 0
+    const { context, requests } = createContext((_url, init) => {
+      // A 400 without the duplicate-title code is a rejected input, not "already exists".
+      if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ message: "invalid title" }] }, 400)
+      listCalls++
+      return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-other", title: "app-cache" }] })
+    })
+
+    const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
+
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", name: "ProvisionRequestError", status: 400 })
+    expect(requests.map(request => request.method)).toEqual(["GET", "POST"])
+  })
+
   it("rethrows a duplicate-looking 400 when the namespace is still absent", async () => {
     const { context } = createContext((_url, init) => init?.method === "POST"
       ? jsonResponse({ success: false, errors: [{ message: "invalid title" }] }, 400)
@@ -141,12 +170,33 @@ describe("KV Cloudflare provision step", () => {
     await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 400 })
   })
 
-  it("skips without credentials and never calls the API", async () => {
+  it("describes the KV Store ids it records without network access", () => {
+    const step = createKVCloudflareProvisionStep(() => ({
+      stores: {
+        cache: namedStore("shared"),
+        default: { driver: "fs-lite" },
+        pinned: namedStore("pinned", { namespaceId: "configured-id" }),
+        sessions: namedStore("shared"),
+      },
+    }))
+
+    const [category] = step.recordedState?.({ env: {} }) ?? []
+    expect(category).toMatchObject({ category: "kv", declared: ["cache", "pinned", "sessions"] })
+    expect(category?.deleteHint({ id: "ns-old", key: "old" })).toBe("run `wrangler kv namespace delete --namespace-id ns-old`")
+    expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the KV namespace in the Cloudflare dashboard")
+
+    const [envCategory] = step.recordedState?.({ env: { KV_NAMESPACE_ID: "env-id" } }) ?? []
+    expect(envCategory?.declared).toEqual(["cache", "pinned", "sessions"])
+  })
+
+  it("skips without credentials, marks the plan unchecked, and never calls the API", async () => {
     const handler = vi.fn(() => jsonResponse({ success: true, result: [] }))
+    const markPlanUnchecked = vi.fn()
     const { context, warn } = createContext(handler, {})
 
-    await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).resolves.toEqual([])
+    await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan({ ...context, markPlanUnchecked })).resolves.toEqual([])
     expect(warn).toHaveBeenCalledWith("kv: skipping Cloudflare KV, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+    expect(markPlanUnchecked).toHaveBeenCalledExactlyOnceWith()
     expect(handler).not.toHaveBeenCalled()
   })
 

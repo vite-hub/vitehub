@@ -1,5 +1,5 @@
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace"
+import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
 import { H3Event, HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -8,6 +8,8 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+// Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
+import type {} from "@vite-hub/runtime/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { H3Event } from "h3";
 import { fixture } from "../../auth/test/fixtures/console.ts";
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts";
 import authManage from "../src/console/runtime/server/auth-manage.ts";
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
+import { requestEvent } from "./console-event.ts";
 
 const state = vi.hoisted(() => ({ inspect: undefined as unknown }));
 vi.mock("@vite-hub/auth/server", async (importOriginal) => ({
@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function event(body: unknown, headers: Record<string, string> = {}) {
-  return new H3Event(new Request("http://localhost:3000/_vitehub/auth/manage", {
+  return requestEvent(new Request("http://localhost:3000/_vitehub/auth/manage", {
     method: "POST",
     body: JSON.stringify(body),
     headers: {
