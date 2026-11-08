@@ -39,9 +39,9 @@ export function declarationCode(field: EnvField, envName: string, style: CodeSty
   if (field.section === "public") options.push(`mode: ${quoteString("build", style)}`)
   if (!field.required) options.push("required: false")
   if (field.secret) options.push("secret: true")
-  const names = [field.variable, ...(field.extraVariables ?? [])]
+  const names = [...new Set([field.variable, ...(field.extraVariables ?? [])])]
   const source = names.length === 1 ? quoteString(field.variable, style) : `[${names.map(name => quoteString(name, style)).join(", ")}]`
-  options.push(`source: ${envName}.source(${source})`)
+  options.push(`source: ${envName}.source(${source}${field.skipEmpty ? ", { skipEmpty: true }" : ""})`)
   const callee = field.kind === "string" ? envName : `${envName}.${field.kind}`
   const values = field.kind === "enum" ? `[${(field.values ?? []).map(value => quoteString(value, style)).join(", ")}], ` : ""
   return `${callee}(${values}{ ${options.join(", ")} })`
@@ -74,7 +74,8 @@ function renderTree(tree: Tree, indent: string, unit: string, style: CodeStyle):
   return `{\n${lines.join("\n")}\n${indent}}`
 }
 
-function envExpression(env: EnvSource, envName: string, indent: string, style: CodeStyle): string {
+/** Renders the value of `vitehub.env`. `indent` is the indentation of the `env` key line. */
+export function envExpression(env: EnvSource, envName: string, indent: string, style: CodeStyle): string {
   if (env.kind === "env-schema") {
     const file = /^\.\.?\//.test(env.file) ? env.file : `./${env.file}`
     const options = [`prefix: ${quoteString("NUXT_", style)}`]

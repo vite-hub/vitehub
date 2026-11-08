@@ -1,4 +1,5 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
+import { channelSimulationEnv } from "./internal/channel-simulation.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
@@ -547,11 +548,11 @@ async function isColocatedAgentInstructionDependency(root: string, file: string,
   return false
 }
 
-function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")]): boolean {
+function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")], standaloneChannels = discoverStandaloneChannels(root, serverDirs)): boolean {
   return discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: serverDirs,
-  }).length > 0 || discoverStandaloneChannels(serverDirs).length > 0
+  }).length > 0 || standaloneChannels.length > 0
 }
 
 function subpath(base: string, path: string): string {
@@ -838,7 +839,9 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
   const existingHandlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
   return {
     ...nitro,
-    handlers: [...existingHandlers, ...handlers],
+    // Nitro imports a lazy handler on its first request. The Agent runtime and the Agent Definitions then do not load
+    // at server startup, which is Worker startup on Cloudflare.
+    handlers: [...existingHandlers, ...handlers.map(handler => ({ ...handler, lazy: true }))],
   }
 }
 
@@ -1814,7 +1817,7 @@ function generatedHostedWorkspaceRuntimeSetup(
 async function writeAgentRuntimeRegistry(
   root: string,
   definitions: DiscoveredAgentDefinition[],
-  options: { agentImportBase: string, workspaceImportBase: string, channelsHost?: boolean },
+  options: { agentImportBase: string, workspaceImportBase: string, agentHost?: boolean },
 ): Promise<void> {
   const seen = new Set<string>()
   for (const definition of definitions) {
@@ -1854,7 +1857,7 @@ async function writeAgentRuntimeRegistry(
     "resetPublicUrlAgentNames()",
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
-    `export async function loadChannelsHost() {${options.channelsHost ? ' await import("./chat-webhook-route") ' : ""}}`,
+    `export async function loadAgentHost() {${options.agentHost ? ' await import("./chat-webhook-route") ' : ""}}`,
     "",
   ].join("\n"))
 }
@@ -1994,7 +1997,7 @@ async function generateAgentDeploymentCatalog(
         ? [
             // A standalone Channel's host Agent only serves the Channel's webhooks. Its trigger selects the Agent that runs.
             ...standaloneChannels.flatMap((channel, index) => [
-              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
+              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
               `agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
             ]),
             "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent)]))",
@@ -2135,6 +2138,7 @@ async function generateAgentWebhookRouteHandler(
           "    while (!controller.signal.aborted) {",
           "      try {",
           `        const response = await handler(new Request("http://vitehub.local/api/_vitehub/agents/" + encodeURIComponent(name) + "/discord/gateway"), { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}${gatewayStateOption}abortSignal: controller.signal, durationMs: discordGatewayDurationMs })`,
+          "        if (response.status === 204) return",
           "        if (!response.ok) throw vitehubAgentRuntimeError('AGENT_R0896', `Discord Gateway listener failed with ${response.status}.`)",
           "      }",
           "      catch (error) {",
@@ -2347,7 +2351,7 @@ async function writeAgentWebhookRouteHandler(
     mode: "server-agents",
     scanDirs: serverDirs,
   })
-  const standaloneChannels = discoverStandaloneChannels(serverDirs)
+  const standaloneChannels = options.standaloneChannels ?? discoverStandaloneChannels(root, serverDirs)
   const owner = standaloneChannels.find(channel => definitions.some(definition => definition.name === channel.agent))
   if (owner) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${owner.handler} serves its webhooks as "${owner.agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.` })
   options = { ...options, standaloneChannels, explicitWebhookAliasPaths: Object.keys(options.webhookAliases || {}), webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
@@ -2935,7 +2939,31 @@ async function cleanupNetlifyAgentProviderOutput(
   })
 }
 
+// Multiple dev servers share process.env. Restore its input only after every participating plugin releases it.
+const channelSimulationOwners = new Set<object>()
+let channelSimulationPreviousValue: string | undefined
+
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
+  const channelSimulationOwner = {}
+  function setChannelSimulation(enabled: boolean, config?: ResolvedConfig): void {
+    const env = globalThis.process.env
+    if (enabled) {
+      if (channelSimulationOwners.has(channelSimulationOwner)) return
+      if (channelSimulationOwners.size === 0) {
+        channelSimulationPreviousValue = env[channelSimulationEnv]
+        if (env[channelSimulationEnv] !== "simulate") {
+          env[channelSimulationEnv] = "simulate"
+          config?.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. POST an AI SDK chat request to /api/_vitehub/agents/<agent>/webhooks/<channel>.")
+        }
+      }
+      channelSimulationOwners.add(channelSimulationOwner)
+    }
+    else if (channelSimulationOwners.delete(channelSimulationOwner) && channelSimulationOwners.size === 0) {
+      if (env[channelSimulationEnv] !== "simulate") return
+      if (channelSimulationPreviousValue === undefined) delete env[channelSimulationEnv]
+      else env[channelSimulationEnv] = channelSimulationPreviousValue
+    }
+  }
   const frameworkOptions = getInternalAgentOptions(options)
   let agent: AgentModuleOptions | false | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
@@ -2978,11 +3006,16 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
+    // CLI stage servers resolve a serve config for discovery without starting an interactive dev server.
+    // SAFETY: Vite preserves this optional discovery flag from the inline config.
+    const cliStageServer = (config as ResolvedConfig & { vitehubCliDiscovery?: unknown }).vitehubCliDiscovery === true
+    setChannelSimulation(Boolean(normalized && agent && agent.channels?.simulate && config.command === "serve" && !cliStageServer), config)
     if (normalized) validateInspectionRoute(normalized.routes)
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
-    const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     const generatedRoot = resolveViteHubGeneratedRoot(config)
     const definitionServerDirs = serverDirs ?? [join(config.root, "server")]
+    const standaloneChannels = normalized ? discoverStandaloneChannels(viteHubProjectRoot(config), definitionServerDirs) : []
+    const hasHostedAgents = hasHostedAgentDefinitions(config.root, definitionServerDirs, standaloneChannels)
     const registryDefinitions = normalized
       ? [
           ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: config.root }),
@@ -2991,7 +3024,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       : []
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentImportBase: getAgentImportBase(agent, frameworkOptions),
-      channelsHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
+      agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
     if (normalized && config.command === "serve") {
@@ -3054,6 +3087,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       else {
         await writeAgentWebhookRouteHandler(generatedRoot, {
+          standaloneChannels,
           preparation: normalized.preparation,
           webhookAliases: normalized.routes.aliases,
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
@@ -3358,10 +3392,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       const nitroContext = hasNitroConfigContext(config)
-      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
+      const standaloneChannels = resolved ? discoverStandaloneChannels(viteHubProjectRoot(config), serverDirs ?? [join(root, "server")]) : []
+      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs, standaloneChannels))
       const hasAgentDefinitions = Boolean(resolved && discoverProjectAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
-      const standaloneChannels = resolved ? discoverStandaloneChannels(serverDirs ?? [join(root, "server")]) : []
       if (standaloneChannels.length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
         throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${standaloneChannels[0]!.handler} declares its own webhook route. Channels in server/channels with webhooks.path currently require a Nitro host.` })
       }
@@ -3696,13 +3730,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }))
         if (retainedSources && normalized) {
           const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
-          const channelsHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
+          const agentHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
           await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
             agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
-            channelsHost,
+            agentHost,
             workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
           })
-          if (channelsHost) {
+          if (agentHost) {
             const handlerPath = join(retainedGeneratedRoot, generatedAgentWebhookRouteHandler)
             await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(retainedDefinitions.filter(definition => hostedDefinitions.some(hosted => hosted.name === definition.name)), handlerPath, {
               agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
@@ -3774,6 +3808,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       async handler() {
         if (rejectedBuilds.has(buildEnvironment(this))) return
         await closeDiscoveryWatcher?.()
+        setChannelSimulation(false)
         if (providerOutputEnvironment.defers(this)) return
         const build = buildConfigs.get(buildEnvironment(this))
         const config = build?.config ?? this?.environment?.config ?? resolved
