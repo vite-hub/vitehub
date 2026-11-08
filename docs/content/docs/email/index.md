@@ -8,7 +8,7 @@ icon: i-lucide-mail
 ---
 
 ::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::product-files{feature="email"}
   ```ts [server/api/welcome.post.ts] fragment
   import renderWelcome from '#vitehub/emails/welcome'
   import { defineEventHandler } from 'h3'
@@ -45,6 +45,7 @@ icon: i-lucide-mail
   export default defineConfig({
     plugins: [vitehub({
       preset: 'node',
+      // Resend sends the email
       email: {
         driver: 'resend',
         // The server reads the key when it sends
@@ -92,7 +93,7 @@ icon: i-lucide-mail
   :::
 
   :::product-feature-item{title="See each email while you develop" icon="i-lucide-inbox" to="/docs/email/hosts#development-outbox"}
-  In `vite dev`, an outbox keeps a copy of each email. Set `deliver: false` to skip the real send.
+  In `vite dev`, each email stays in an outbox. Set `remote: true` to also send it through the provider.
   :::
 
   :::product-feature-item{title="Test without sending" icon="i-lucide-flask-conical" to="/docs/email/server-api#test-without-delivery"}

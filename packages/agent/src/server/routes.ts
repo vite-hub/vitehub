@@ -1,4 +1,5 @@
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
+import { isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
@@ -50,6 +51,7 @@ import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvok
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
   bindAgentChannelTriggerQueue,
+  bindAgentChannelWebhookState,
   bindAgentChannelTriggerState,
   agentChannelOptions,
   agentTriggerTask,
@@ -103,8 +105,9 @@ import {
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
-import { sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
+import { channelWebhookEventTarget } from "../internal/channel-webhook-events.ts"
 import {
   agentWebhookRegistrations,
   createDeclaredWebhookPathMatcher,
@@ -660,18 +663,26 @@ async function findAgentWebhookRegistration(
   webhook?: string,
 ): Promise<AgentWebhookRegistrationMatch | undefined> {
   const registrations = await agentWebhookRegistrations(agent, context)
+  const select = (matches: AgentWebhookRegistrationMatch[]) => {
+    if (matches.length === 1) return matches[0]
+    const first = matches[0]
+    if (!first) return undefined
+    const target = channelWebhookEventTarget(first.trigger.definition)
+    if (!target || !matches.every(match => match.registration.channelId === first.registration.channelId
+      && channelWebhookEventTarget(match.trigger.definition)?.webhook === target.webhook)) return undefined
+    // These targets share one adapter registration. Select the event after signature verification.
+    return first
+  }
   const pathMatches = registrations.filter((match) => webhookRegistrationPathMatches(request, match.registration))
-  if (pathMatches.length === 1) return pathMatches[0]
-  if (pathMatches.length > 1) return undefined
-  if (webhook === "" && registrations.length === 1) return registrations[0]
+  if (pathMatches.length) return select(pathMatches)
+  if (webhook === "") return select(registrations)
   if (!webhook) return undefined
   const directMatches = registrations.filter(
     ({ registration }) => registration.id === webhook || (registration.channelId === webhook && registration.id === registration.channelId),
   )
-  if (directMatches.length === 1) return directMatches[0]
-  if (directMatches.length > 1) return undefined
+  if (directMatches.length) return select(directMatches)
   const providerMatches = registrations.filter(({ registration }) => registration.provider === webhook)
-  return providerMatches.length === 1 ? providerMatches[0] : undefined
+  return select(providerMatches)
 }
 
 async function matchedWebhookRegistrationRequiresVerification(
@@ -6380,6 +6391,7 @@ async function handleChatSdkMessage(
           let timeoutEvidence: Promise<void> | undefined
           const submitted = (active.steering ?? Promise.resolve()).then(() => {
             if (!inlineKey || inlineChatTurns.get(inlineKey) !== active) return "unavailable" as const
+            if (agentInvocationInputSupport(activeRunId).steer === false) return "unavailable" as const
             return steerMessage
               ? sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
               : "unsupported" as const
@@ -7426,7 +7438,7 @@ async function handleChatSdkMessages(
     for (const queuedMessage of messages) {
       let claimedDelivery: AgentChannelDeliveryTracker | undefined
       try {
-        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
+        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
         const queuedDelivery = individualMessages
@@ -7701,6 +7713,8 @@ async function createChannelChat(
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
 ): Promise<Chat> {
+  // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
+  if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
   const resolvedState = providedState || (await resolveChatState(options, context, registration, handlerOptions))
   const lockTracker = createChatLockTracker(resolvedState.state)
   const transcripts = effectiveTranscripts(options, resolvedState.state)
@@ -9632,6 +9646,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             keyPrefix: `${channelState.keyPrefix}channel-state:`,
             state: channelState.state,
           })
+          if (webhookDeliveryState) bindAgentChannelWebhookState(request, registration.channelId)
           if (webhookDeliveryState && hasAgentWebhookQueue(webhookDeliveryState.state)) {
             bindAgentChannelTriggerQueue(
               request,
@@ -9720,13 +9735,16 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               )
             }
             const backendId = await resolveWebhookStateBackendId(webhookState.state)
-            const persistedInvocation = persistedWebhookInvocation({
-              ...(invocation.agent ? { agent: invocation.agent } : {}),
-              input: invocation.input,
-              run: invocation.run,
-              ...(invocation.task !== undefined ? { task: invocation.task } : {}),
-              ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
-            }, Boolean(invocation.webhook.rehydrate))
+            const persistedInvocation = {
+              ...persistedWebhookInvocation({
+                ...(invocation.agent ? { agent: invocation.agent } : {}),
+                input: invocation.input,
+                run: invocation.run,
+                ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+                ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
+              }, Boolean(invocation.webhook.rehydrate)),
+              ...(channelWebhookEventTarget(invocation.trigger.definition) ? { trigger: invocation.trigger.name } : {}),
+            }
             const persistable = isJsonSafe(persistedInvocation)
             // A task or `prepare` runs from the stored input, so the queue never calls `invoke` again.
             if (!persistable && (invocation.task !== undefined || invocation.trigger.prepare)) {
@@ -10508,7 +10526,12 @@ export function createDiscordGatewayRouteHandler(
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const chatOptions = getAgentChatOptions(agent)
       const adapters = await resolveChatAdapters(chatOptions, context)
-      const entries = resolveDiscordAdapters(adapters)
+      const discordAdapters = resolveDiscordAdapters(adapters)
+      const entries = discordAdapters.filter(([, adapter]) => !isSimulatedChatAdapter(adapter))
+      if (entries.length === 0 && discordAdapters.length > 0) {
+        // A simulated Discord Channel has no Gateway: there is nothing to listen to.
+        return new Response(null, { status: 204 })
+      }
       if (entries.length === 0) {
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }
