@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useIntersectionObserver } from "@vueuse/core";
-import { motion, MotionConfig } from "motion-v";
 import { landingPrimitives } from "./content";
 
 type PrimitiveId = (typeof landingPrimitives)[number]["id"];
@@ -9,7 +8,10 @@ const grid = useTemplateRef<HTMLElement>("grid");
 const visible = ref(false);
 const activeId = ref<PrimitiveId | null>(null);
 const focusedId = ref<PrimitiveId | null>(null);
-const indicatorId = `primitive-focus-${useId()}`;
+const indicator = useSharedIndicator(grid);
+watch(activeId, (id) => {
+  if (!id) indicator.reset();
+});
 
 // The last tile spans the columns that are left in its row, so the grid never ends with a hole.
 // Keep these counts in sync with the grid-cols classes below.
@@ -37,49 +39,45 @@ function blur() {
 
 <template>
   <div id="primitives">
-    <MotionConfig reduced-motion="user">
-      <ul
-        ref="grid"
-        class="primitive-grid grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7"
-        aria-label="ViteHub APIs"
-        @pointerleave="activeId = focusedId"
+    <ul
+      ref="grid"
+      class="primitive-grid grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7"
+      aria-label="ViteHub APIs"
+      @pointerleave="activeId = focusedId"
+    >
+      <li
+        v-for="(primitive, index) in landingPrimitives"
+        :key="primitive.id"
+        class="primitive-cell min-w-0"
+        :style="index === landingPrimitives.length - 1 ? lastTileSpans : undefined"
       >
-        <li
-          v-for="(primitive, index) in landingPrimitives"
-          :key="primitive.id"
-          class="primitive-cell min-w-0"
-          :style="index === landingPrimitives.length - 1 ? lastTileSpans : undefined"
+        <NuxtLink
+          :to="primitive.to"
+          class="primitive-tile group"
+          @focus="focus(primitive.id)"
+          @blur="blur"
+          @pointerenter="activeId = primitive.id"
         >
-          <NuxtLink
-            :to="primitive.to"
-            class="primitive-tile group"
-            @focus="focus(primitive.id)"
-            @blur="blur"
-            @pointerenter="activeId = primitive.id"
-          >
-            <motion.div
-              v-if="activeId === primitive.id"
-              :layout-id="indicatorId"
-              :initial="false"
-              :transition="{ type: 'spring', stiffness: 450, damping: 36 }"
-              class="primitive-focus"
-              aria-hidden="true"
-            />
-            <LandingPrimitiveLines
-              :icon="primitive.icon"
-              :active="activeId === primitive.id"
-              :play="visible"
-              :delay="240 + index * 35"
-              class="primitive-lines"
-            />
-            <div class="relative">
-              <h2 class="text-sm font-medium text-highlighted">{{ primitive.name }}</h2>
-              <p class="primitive-description mt-0.5 text-xs/5 text-muted">{{ primitive.description }}</p>
-            </div>
-          </NuxtLink>
-        </li>
-      </ul>
-    </MotionConfig>
+          <div
+            v-if="activeId === primitive.id"
+            :ref="indicator.track"
+            class="primitive-focus"
+            aria-hidden="true"
+          />
+          <LandingPrimitiveLines
+            :icon="primitive.icon"
+            :active="activeId === primitive.id"
+            :play="visible"
+            :delay="240 + index * 35"
+            class="primitive-lines"
+          />
+          <div class="relative">
+            <h2 class="text-sm font-medium text-highlighted">{{ primitive.name }}</h2>
+            <p class="primitive-description mt-0.5 text-xs/5 text-muted">{{ primitive.description }}</p>
+          </div>
+        </NuxtLink>
+      </li>
+    </ul>
   </div>
 </template>
 

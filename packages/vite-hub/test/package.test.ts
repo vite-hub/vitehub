@@ -374,7 +374,6 @@ describe("framework package contract", () => {
       "./skills",
       "./source/vite",
       "./task",
-      "./ui/nuxt",
       "./ui/vite",
     ]);
 
