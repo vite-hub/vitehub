@@ -208,6 +208,18 @@ export default makeAgent({ channels: ['hooks'], runtime: false, driver: { run: (
 })
 
 describe('discoverStandaloneChannels', () => {
+  it.each(['channelAdapter', 'discord', 'forgejo', 'github', 'gitlab', 'gmail', 'http', 'slack', 'teams', 'telegram', 'webChat'])('reads declared registrations from the %s adapter', async factory => {
+    const args = factory === 'channelAdapter' ? "'custom', options" : 'options'
+    const root = await app({ 'server/channels/hooks.ts': `import { defineChannel } from '@vite-hub/channels'
+import { ${factory} as adapter } from '@vite-hub/agent/channels'
+const options = { webhooks: [{ path: '/hooks', aliases: ['/old-hooks'] }, { path: '/hooks-two', aliases: ['/hooks'] }] }
+export default defineChannel({ adapter: adapter(${args}) })
+` })
+    expect(discoverStandaloneChannels(root)[0]).toMatchObject({
+      inbound: false, paths: ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/hooks-two'],
+    })
+  })
+
   it('names Channels by path and reads their routes without running modules', async () => {
     const root = await app({
       'server/channels/intake/index.ts': intake,

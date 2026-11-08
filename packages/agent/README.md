@@ -732,7 +732,7 @@ agentHostRoutes({
 ```
 
 The defaults are `/api/health` and
-`/api/_vitehub/console/invocations/:id/workspace`. Each option also accepts
+`/_vitehub/api/invocations/:id/workspace`. Each option also accepts
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
 `(invocationId, path?)` and return a Response; for GitHub checkouts, use
 `createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.

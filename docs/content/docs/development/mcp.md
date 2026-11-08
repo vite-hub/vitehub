@@ -1,5 +1,6 @@
 ---
 title: MCP
+seo.title: MCP server for your app operations
 description: Let an agent use your app's operations through the Model Context Protocol, as the person who signed in.
 navigation.order: 32.2
 navigation.group: Local tools

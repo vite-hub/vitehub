@@ -8,7 +8,7 @@ import { build } from "esbuild"
 import { expect, it, vi } from "vitest"
 import { hubAgent } from "../src/vite.ts"
 
-it.each(["deno", "netlify"] as const)("serves a listed webhook Channel in %s output", async (hosting) => {
+it.each(["deno", "netlify"] as const)("serves listed Channel registration paths in %s output", async (hosting) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-named-channel-host-"))
   const packageRoot = resolve(import.meta.dirname, "..")
   try {
@@ -29,9 +29,23 @@ it.each(["deno", "netlify"] as const)("serves a listed webhook Channel in %s out
       "  on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId, other: other.description }) }) },",
       "})",
     ].join("\n"))
+    await writeFile(join(root, "server/channels/custom.ts"), [
+      "import { defineChannel } from '@vite-hub/channels'",
+      "import { channelAdapter as customAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'",
+      "const registration = { path: '/custom', aliases: ['/old-custom'], secretToken: 'secret', secretHeader: 'authorization', signature: 'bearer' }",
+      "export default defineChannel({ adapter: customAdapter('custom', {",
+      "  messages: false, webhooks: [registration, { ...registration, path: '/custom-two', aliases: [] }],",
+      "  triggers: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },",
+      "}) })",
+    ].join("\n"))
+    await writeFile(join(root, "server/channels/chat.ts"), [
+      "import { defineChannel } from '@vite-hub/channels'",
+      "import * as channels from '@vite-hub/agent/channels'",
+      "export default defineChannel({ adapter: channels.teams({ webhooks: { path: '/chat', aliases: ['/old-chat'] } }) })",
+    ].join("\n"))
     await writeFile(join(root, "server/agents/support.ts"), [
       "import { defineAgent } from '@vite-hub/agent'",
-      "export default defineAgent({ channels: ['hooks'], runtime: false, driver: { run: () => 'ok' } })",
+      "export default defineAgent({ channels: ['hooks', 'custom', 'chat'], runtime: false, driver: { run: () => 'ok' } })",
     ].join("\n"))
     // A second Agent proves that aliases select the owner without an Agent route parameter.
     await writeFile(join(root, "server/agents/other.ts"), [
@@ -49,7 +63,7 @@ it.each(["deno", "netlify"] as const)("serves a listed webhook Channel in %s out
       await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
       output = join(root, ".netlify/v1/functions/vitehub-agent.mjs")
       const source = await readFile(output, "utf8")
-      for (const path of ["/api/_vitehub/channels/hooks", "/hooks", "/old-hooks"]) expect(source).toContain(JSON.stringify(path))
+      for (const path of ["/api/_vitehub/channels/hooks", "/hooks", "/old-hooks", "/custom", "/old-custom", "/custom-two", "/chat", "/old-chat"]) expect(source).toContain(JSON.stringify(path))
     }
     else {
       await rm(join(root, "server"), { recursive: true })
@@ -67,17 +81,24 @@ it.each(["deno", "netlify"] as const)("serves a listed webhook Channel in %s out
       "globalThis.Deno = { args: [], serve: callback => { handler = callback; return { finished: Promise.resolve() } } }",
       "const module = await import(process.argv[1])",
       "handler ||= module.default",
-      "for (const path of ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/api/_vitehub/agents/support/webhooks/hooks']) {",
+      "for (const path of ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/api/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two']) {",
       "  const context = { params: path.startsWith('/api/_vitehub/agents/') ? { agent: 'support', webhook: 'hooks' } : {} }",
       "  const denied = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}' }), context)",
       "  if (denied.status !== 401) throw new Error('Expected signature verification for ' + path + ', received ' + denied.status)",
       "  const response = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } }), context)",
       "  console.log('delivery:' + JSON.stringify({ path, status: response.status, body: await response.json() }))",
       "}",
+      "for (const path of ['/chat', '/old-chat']) {",
+      "  const response = await handler(new Request('https://example.com' + path, { method: 'HEAD' }), { params: {} })",
+      "  if (response.status !== 204) throw new Error('Missing chat adapter route: ' + path + ', received ' + response.status)",
+      "}",
     ].join("\n"), pathToFileURL(output).href])
     const deliveries = stdout.trim().split("\n").filter(line => line.startsWith("delivery:")).map(line => JSON.parse(line.slice("delivery:".length)))
-    expect(deliveries).toHaveLength(4)
-    for (const delivered of deliveries) expect(delivered).toMatchObject({ status: 200, body: { agent: "support", channel: "hooks", other: "Other Agent" } })
+    expect(deliveries).toHaveLength(7)
+    for (const delivered of deliveries) {
+      expect(delivered).toMatchObject({ status: 200, body: { agent: "support", channel: delivered.path.includes("custom") ? "custom" : "hooks" } })
+      if (delivered.body.channel === "hooks") expect(delivered.body.other).toBe("Other Agent")
+    }
   }
   finally {
     vi.unstubAllEnvs()

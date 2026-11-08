@@ -117,8 +117,10 @@ A self-hosted Node server, for example in a Docker image, often has only `.outpu
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/database/nuxt'],
-  database: { migrateOnStart: true },
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    database: { migrateOnStart: true },
+  },
 })
 ```
 

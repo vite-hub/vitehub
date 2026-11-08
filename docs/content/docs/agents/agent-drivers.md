@@ -1,7 +1,7 @@
 ---
 title: Agent Drivers
 description: Run an Agent with an AI SDK model, Codex, Claude Code, typed questions, or your own function. Each Driver decides how one Invocation runs.
-seo.title: Agent Drivers for Codex, Claude Code, and AI SDK models
+seo.title: "Agent Drivers: Codex, Claude Code, AI SDK"
 navigation.order: 11
 navigation.group: Define and run
 icon: i-lucide-cpu
