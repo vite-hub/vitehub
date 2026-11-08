@@ -11,10 +11,12 @@ export interface CommentUser {
   guest?: boolean
 }
 
-/** The agent that wrote a comment on behalf of a user. */
+/** The agent that wrote a comment on behalf of a user. Interfaces show it in place of the user, with the user's name beside. */
 export interface CommentActor {
   id: string
   name?: string
+  /** The agent's logo. */
+  image?: string
 }
 
 export type CommentStatus = "open" | "resolved"

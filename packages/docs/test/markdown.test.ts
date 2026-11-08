@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
 
-import type { Node as ComarkNode } from "comark"
+import type { ComarkPlugin, Node as ComarkNode } from "comark"
 
 const parse = createDocsParser()
 
@@ -78,6 +78,27 @@ describe("docs parser", () => {
 })
 
 describe("docs search sections", () => {
+  it("keeps HTML-only block text in search content and heading titles", async () => {
+    const { nodes } = await parse('## Run :suggestion[npm]{to="pnpm"}\n\n::diff\n```ts\nconst before = 1\n```\n```ts\nconst after = 2\n```\n::\n\n::question{#callback}\nWhich callback runs first?\n\n- [x] A promise\n- [ ] A timer\n::\n')
+    const sections = docsSearchSections("/docs/blocks", "Blocks", nodes)
+
+    expect(sections[1]?.title).toContain("npm")
+    expect(sections[1]?.content).toContain("const before = 1")
+    expect(sections[1]?.content).toContain("const after = 2")
+    expect(sections[1]?.content).toContain("Which callback runs first?")
+    expect(sections[1]?.content).toContain("A promise")
+    expect(sections[1]?.content).not.toContain("<style")
+  })
+
+  it("keeps preview headings from splitting page search sections", async () => {
+    const { nodes } = await parse("## Install\n\n:::example\n```md\n## Preview heading\n\nExample text.\n```\n:::\n\nPage text.\n\n## Use\n\nReal section.\n")
+    const sections = docsSearchSections("/docs/examples", "Examples", nodes)
+
+    expect(sections.map(section => section.id)).toEqual(["/docs/examples", "/docs/examples#install", "/docs/examples#use"])
+    expect(sections[1]?.content).toContain("Page text.")
+    expect(sections[2]?.content).toBe("Real section.")
+  })
+
   it("splits a page by h2 and h3 and skips agent-only blocks", async () => {
     const { nodes } = await parse(source)
     const sections = docsSearchSections("/docs/kv", "KV", nodes)
@@ -117,6 +138,35 @@ describe("comark-ui blocks", () => {
     const { nodes } = await parse("::tabs\n:::tabs-item{label=\"npm\"}\nnpm i\n:::\n:::tabs-item{label=\"pnpm\"}\npnpm add\n:::\n::\n")
 
     expect(find(nodes, "tabs")?.[1]).toMatchObject({ labels: ["npm", "pnpm"] })
+  })
+
+  it.each(["md", "markdown", "mdc", "comark"])("renders an example's %s source with the default parser", async (language) => {
+    const { nodes } = await parse(`::examples\n:::example{label="Note" play="/play"}\n\`\`\`${language}\n> [!NOTE]\n> Keep a backup.\n\`\`\`\n:::\n::\n`)
+    const example = find(nodes, "example")
+    const preview = find(nodes, "example-preview")
+
+    expect(example?.[1]).toMatchObject({ label: "Note", play: "/play" })
+    expect(example?.[2]).toBe(preview)
+    expect(find([preview!], "github-callout")?.[1]).toMatchObject({ type: "note" })
+    expect(find([preview!], "pre")).toBeUndefined()
+    const source = example?.[3] as ComarkNode
+    expect(find([source], "pre")?.[1]).toMatchObject({ language })
+    expect(JSON.stringify(source)).toContain("Keep a backup.")
+  })
+
+  it("preserves a preview supplied by the site's plugin", async () => {
+    const plugin: ComarkPlugin = {
+      name: "site-examples",
+      post({ tree }) {
+        find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {}, ["p", {}, "Site preview"]])
+      },
+    }
+    const { nodes } = await createDocsParser({ plugins: [plugin] })("::example\n```md\nSource\n```\n::\n")
+    const example = find(nodes, "example")
+
+    expect(example).toHaveLength(4)
+    expect(example?.[2]).toEqual(["example-preview", {}, ["p", {}, "Site preview"]])
+    expect(find([example?.[3] as ComarkNode], "pre")?.[1]).toMatchObject({ language: "md" })
   })
 
   it("keeps the site's plugin when it has a built-in name", async () => {
@@ -164,6 +214,23 @@ describe("examples", () => {
 })
 
 describe("HTML-only blocks", () => {
+  it("emits shared assets once per page, including example previews", async () => {
+    const diff = "::diff\n```ts\nconst a = 1\n```\n```ts\nconst a = 2\n```\n::\n"
+    const quiz = "::question{#callback}\nWhich callback runs first?\n\n- [x] A promise\n- [ ] A timer\n::\n"
+    const source = `${diff}\n:::example\n\`\`\`\`md\n${diff}\`\`\`\`\n:::\n\n${quiz}\n${quiz.replace("callback", "next-callback")}\nRun :suggestion[npm]{to="pnpm" mark="pen"} and :suggestion[yarn]{to="pnpm" mark="pen"}.\n`
+    const htmlOf = (nodes: ComarkNode[]): string => nodes.map(node => typeof node === "string" ? "" : node[0] === "comark-html" ? String(node[1].html) : htmlOf(node.slice(2) as ComarkNode[])).join("")
+
+    // Reusing the parser, also concurrently, must give each page its own complete assets.
+    for (const { nodes } of await Promise.all([parse(source), parse(source)])) {
+      const html = htmlOf(nodes)
+      for (const asset of ["diff", "quiz", "comments", "comments-font"]) {
+        expect(html.match(new RegExp(`<style data-comark-${asset}>`, "g"))).toHaveLength(1)
+      }
+      expect(html.match(/<script\b/g)).toHaveLength(1)
+      expect(html.match(/data-quiz-id=/g)).toHaveLength(2)
+    }
+  })
+
   it("draws a diff as HTML named after its block", async () => {
     const { nodes } = await parse("::diff\n```ts\nconst a = 1\n```\n```ts\nconst a = 2\n```\n::\n")
     const node = find(nodes, "comark-html")
@@ -176,7 +243,7 @@ describe("HTML-only blocks", () => {
   it("draws a block inside a paragraph inline", async () => {
     const { nodes } = await parse("Run :suggestion[npm]{to=\"pnpm\"} first.\n")
 
-    expect(find(nodes, "p")?.[3]).toMatchObject(["comark-html", { block: "suggestion", inline: true }])
+    expect(find(nodes, "p")?.[3]).toMatchObject(["comark-html", { block: "suggestion", inline: true }, "npm"])
   })
 
   it("draws the HTML-only blocks inside an example's preview", async () => {

@@ -22,7 +22,7 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
-const optionalPeers = ["@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 // ProseMirror's package has no root export; probe the entry used by the editor.
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
@@ -111,6 +111,8 @@ async function workspaceConfig(specs: Record<string, string>) {
   // select a Vue adapter before its exact virtual-core dependency is published.
   const overrides = Object.entries({
     ...specs,
+    // Keep Nuxt UI on its tested Tailwind adapter; new releases can precede their exact Oxide dependency.
+    "@tailwindcss/vite": await installedVersion(resolve(dirname(nuxtUi.resolve("@tailwindcss/vite")), "../package.json")),
     "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
     // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
     "mdast-util-gfm-table": "2.0.0",
@@ -147,11 +149,15 @@ async function requiredPeerSpecs() {
     ...chatCatalog,
     ...vercelCatalog,
     ...workflowCatalog,
+    "@comark/html": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/html/package.json")),
+    "@comark/vue": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/@nuxt/ui/package.json")),
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
+    comark: await installedVersion(join(repoRoot, "packages/docs/node_modules/comark/package.json")),
+    "comark-ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/comark-ui/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
     nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
@@ -620,9 +626,12 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
+    "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
+    "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
     ...Object.fromEntries(markdownEditorTiptapPeers.map(name => [name, tiptapVersion])),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
+    "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),

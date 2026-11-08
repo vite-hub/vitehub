@@ -1,7 +1,7 @@
 import discoveredRegistry from "#vitehub/channels/registry"
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import { createChannel, toChannelSendError } from "../client.ts"
+import { createChannel } from "../client.ts"
 
 import type { ChannelClient, ChannelConnectorMap, ChannelDefinition, ChannelDefinitionRegistry } from "../types.ts"
 import type {
@@ -10,7 +10,7 @@ import type {
   ChannelDefinitionName,
   ChannelRegistryDefinition,
 } from "../registry-types.ts"
-import { channelsErrorDiagnostics } from "../error-diagnostics.ts"
+import { channelErrors, channelsErrorDiagnostics } from "../error-diagnostics.ts"
 
 let registryOverride: ChannelDefinitionRegistry | undefined
 let channels = new Map<string, Promise<ChannelClient>>()
@@ -75,12 +75,14 @@ export function useChannel<TConnectors extends ChannelConnectorMap = ChannelConn
   return {
     name,
     async send(text, options) {
+      let channel: ChannelClient
       try {
-        return await (await resolveCachedChannel(name)).send(text, options)
+        channel = await resolveCachedChannel(name)
       }
       catch (cause) {
-        return [toChannelSendError(cause), null]
+        return [channelErrors.CHANNEL_DEFINITION_FAILED({ cause, channel: name }), undefined]
       }
+      return await channel.send(text, options)
     },
   }
 }

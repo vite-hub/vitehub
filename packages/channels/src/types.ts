@@ -1,3 +1,5 @@
+import type { Result } from "@vite-hub/runtime"
+
 export interface ChannelConnectorResult {
   id?: string
   raw?: unknown
@@ -9,7 +11,8 @@ export interface ChannelSendResult extends ChannelConnectorResult {
   deliveryId: string
 }
 
-export type ChannelSendOutcome = [error: Error, receipt: null] | [error: null, receipt: ChannelSendResult]
+/** Codes of the errors that `send()` returns. */
+export type ChannelErrorCode = "CHANNEL_DEFINITION_FAILED" | "CHANNEL_INVALID_SEND" | "CHANNEL_SEND_FAILED"
 
 export interface ChannelConnector<TOptions extends object = Record<string, unknown>, TResult extends object = ChannelConnectorResult> {
   send: (text: string, options: TOptions) => Promise<TResult> | TResult
@@ -102,5 +105,5 @@ export interface ChannelClient<
       ? TOptions & ChannelOptionsConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
       : TOptions & ChannelOptionsConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
         & ChannelOptionExcess<TOptions, ChannelSendOptions<TConnectors, TDefault>>,
-  ) => Promise<ChannelSendOutcome>
+  ) => Promise<Result<ChannelSendResult, ChannelErrorCode>>
 }

@@ -116,10 +116,10 @@ describe("Agent Invocations Nitro dev handler", () => {
       // Execute the generated callback with its real owner handler to verify the authorization boundary.
       const callback: (event: object) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
       const body = { id: "ainv_missing", operation: "cancel" }
-      expect((await callback({ req: devRequest(body) })).status).toBe(403)
+      expect((await callback({ res: { headers: new Headers() }, req: devRequest(body) })).status).toBe(403)
       const serverId = workspaceDevTokenServerId(5173)
       const token = await ensureWorkspaceDevToken(root, { serverId })
-      const response = await callback({ req: devRequest(body, {
+      const response = await callback({ res: { headers: new Headers() }, req: devRequest(body, {
         [agentInvocationsDevHeader]: "1",
         [agentInvocationsDevTokenServerHeader]: serverId,
         [workspaceDevTokenHeader]: token,

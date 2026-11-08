@@ -78,6 +78,37 @@ const isElement = (node: ComarkNode): node is ElementNode => Array.isArray(node)
 // A block such as `:suggestion` can sit in a paragraph, where a `div` would end the paragraph in the browser.
 const phrasing = /^(?:p|h[1-6]|a|span|em|strong|del|s|mark|sup|sub|small|label)$/
 
+/** Draw the page's HTML-only blocks in one context, so styles, fonts, and scripts are emitted once. */
+async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
+  const blocks = new Map<ElementNode, ElementNode>()
+  const visit = (nodes: ComarkNode[], from = 0, parent?: string) => {
+    for (let at = from; at < nodes.length; at++) {
+      const node = nodes[at]!
+      if (!isElement(node)) continue
+      const tag = node[0]
+      if (htmlOnly.has(tag)) {
+        // Keep the source children for search and heading text. ComarkHtml renders only the HTML prop.
+        const rendered: ElementNode = ["comark-html", parent && phrasing.test(parent) ? { block: tag, inline: true } : { block: tag }, ...node.slice(2) as ComarkNode[]]
+        blocks.set(rendered, node)
+        nodes[at] = rendered
+      } else {
+        visit(node as ComarkNode[], 2, tag)
+      }
+    }
+  }
+  visit(nodes)
+  if (!blocks.size) return
+  await renderHtmlFromDocument({ nodes: [...blocks.keys()] }, {
+    components: {
+      ...htmlBlocks,
+      "comark-html": async (node, state) => {
+        node[1].html = (await state.render([blocks.get(node)!])).trim()
+        return ""
+      },
+    },
+  })
+}
+
 /**
  * Parse Markdown with components (`::name`), comark-ui's blocks, GitHub alerts, task lists, highlighted code, and a
  * heading outline. The client renders the nodes with comark-ui's components.
@@ -94,19 +125,16 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   const play = options.examples?.play
 
   // An element node is [tag, attributes, ...children], so its children start at 2.
-  const visit = async (nodes: ComarkNode[], from = 0, parent?: string): Promise<void> => {
+  const visit = async (nodes: ComarkNode[], from = 0): Promise<void> => {
     for (let at = from; at < nodes.length; at++) {
       const node = nodes[at]!
       if (!isElement(node)) continue
       const tag = node[0]
-      if (htmlOnly.has(tag)) {
-        const html = await renderHtmlFromDocument({ nodes: [node] }, { components: htmlBlocks })
-        nodes[at] = ["comark-html", parent && phrasing.test(parent) ? { html, block: tag, inline: true } : { html, block: tag }]
-        continue
-      }
-      if (exampleTags.has(tag)) {
+      const children = node.slice(2) as ComarkNode[]
+      // A site's plugin can still supply its own preview and source pair.
+      if (exampleTags.has(tag) && !children.some(child => isElement(child) && child[0] === "example-preview")) {
         // An example's Markdown may be broken on purpose, such as invalid frontmatter, so it shows its source alone.
-        const pre = (node.slice(2) as ComarkNode[]).find((child): child is ElementNode => isElement(child) && child[0] === "pre")
+        const pre = children.find((child): child is ElementNode => isElement(child) && child[0] === "pre")
         const source = pre && textContent(pre)
         if (!source) continue
         const preview = await parseDocument(source).catch(() => undefined)
@@ -115,16 +143,20 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
         if (url !== undefined) node[1].play = url
         continue
       }
-      await visit(node as ComarkNode[], 2, tag)
+      await visit(node as ComarkNode[], 2)
     }
   }
 
   const parseDocument = async (markdown: string): Promise<DocsDocument> => {
     const document = await parse(markdown)
     await visit(document.nodes)
-    return { nodes: unwrapListParagraphs(document.nodes), toc: tocOf(document) }
+    return { nodes: document.nodes, toc: tocOf(document) }
   }
-  return parseDocument
+  return async (markdown) => {
+    const document = await parseDocument(markdown)
+    await renderHtmlBlocks(document.nodes)
+    return { ...document, nodes: unwrapListParagraphs(document.nodes) }
+  }
 }
 
 /**
@@ -158,7 +190,7 @@ export function docsSearchSections(path: string, title: string, nodes: ComarkNod
       return
     }
     const [tag, props, ...children] = node
-    if (tag === null || agentOnly.has(tag) || tag === "typeset-styles") return
+    if (tag === null || agentOnly.has(tag) || tag === "typeset-styles" || tag === "example-preview") return
     const level = /^h([23])$/.exec(tag)?.[1]
     if (level) {
       const depth = Number(level)

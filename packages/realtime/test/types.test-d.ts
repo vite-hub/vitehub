@@ -1,9 +1,10 @@
 import type { H3Event } from "h3"
 import { describe, expectTypeOf, it } from "vitest"
 
-import type { Result } from "@vite-hub/runtime"
+import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import type {} from "@vite-hub/runtime/h3"
 
-import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeSaved } from "../src/index.ts"
+import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeSaved } from "../src/index.ts"
 import type { RealtimeCaretUser } from "../src/vue.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
 
@@ -54,8 +55,10 @@ describe("realtime caret types", () => {
 })
 
 describe("realtime definition types", () => {
-  it("gives identify() and authorize() the H3 event of the request", () => {
-    expectTypeOf<RealtimeRequestContext["event"]>().toEqualTypeOf<H3Event>()
-    expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<H3Event>()
+  it("gives identify() and authorize() a request event with Standard Context and its H3 context", () => {
+    expectTypeOf<RealtimeRequestContext["event"]>().toEqualTypeOf<ViteHubContext<{ context: Record<string, unknown> }>>()
+    expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<RealtimeRequestEvent>()
+    expectTypeOf<RealtimeRequestEvent["~standard"]["req"]>().toEqualTypeOf<Request>()
+    expectTypeOf<H3Event>().toExtend<RealtimeRequestEvent>()
   })
 })
