@@ -90,8 +90,8 @@ function back(): void {
     :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)] sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
     <template #description>
-      <template v-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
-      <template v-else>Open a ViteHub app in this Console. The app must list this Console in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>.</template>
+      <template v-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-md bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
+      <template v-else>Open a ViteHub app in this Console. The app must list this Console in <code class="rounded-md bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>.</template>
     </template>
     <template #body>
       <div v-if="tokenStep" class="grid gap-3">
@@ -134,10 +134,6 @@ function back(): void {
 </template>
 
 <style>
-.vitehub-project-dialog :is(button, a[href]):focus-visible {
-  outline-offset: 2px;
-}
-
 @media (pointer: coarse) {
   .vitehub-project-dialog :is(button:not([role="checkbox"], [role="radio"]), input) {
     min-height: 44px;

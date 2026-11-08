@@ -54,6 +54,11 @@ const UButton = defineComponent({
   },
 })
 const Passthrough = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() })
+// UEmpty as ConsoleState uses it: the title, the description, and the body.
+const UEmpty = defineComponent({
+  props: { description: String, title: String },
+  setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.body?.(), slots.actions?.()]),
+})
 interface Column { id?: string, accessorKey?: string }
 const UTable = defineComponent({
   props: { columns: { type: Array as PropType<Column[]>, required: true }, data: { type: Array as PropType<ConnectionInspection[]>, required: true }, empty: String },
@@ -89,7 +94,7 @@ async function render(connections: ConnectionInspection[], counts: Record<string
     agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv",
     managementBase: "/_vitehub/connections", searchBase: "/search", sectionsBase: "/sections",
   })
-  app.component("UButton", UButton).component("UIcon", Passthrough)
+  app.component("UButton", UButton).component("UEmpty", UEmpty).component("UIcon", Passthrough)
     .component("UTooltip", Passthrough).component("UInput", Passthrough).component("UDashboardNavbar", Passthrough)
     .component("UDashboardPanel", UDashboardPanel).component("UTable", UTable).component("USlideover", USlideover)
   app.mount(root)

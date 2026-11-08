@@ -60,7 +60,7 @@ it("copies the session link and jumps from tool rows to calls", () => {
 it("keeps inspector links and metadata compact", () => {
   expect(sessionInspector).toContain('class="session-inspector__surface-launcher"');
   expect(sessionInspector).toContain('<template #identityActions>');
-  expect(sessionInspector).toContain('class="session-inspector__instructions-link"');
+  expect(sessionInspector).toMatch(/<UButton[^>]*?label="Instructions"[^>]*?@click="openWorkspaceInstructions"/);
   expect(sessionInspector).not.toContain("Find root AGENTS.md in Workspace");
 });
 

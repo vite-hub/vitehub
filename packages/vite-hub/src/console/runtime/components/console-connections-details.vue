@@ -123,21 +123,16 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-5">
-    <div class="flex gap-2" aria-label="Connection views">
-      <UButton
-        v-for="item in [
-          { value: 'details', label: 'Details' },
-          { value: 'activity', label: 'Activity' },
-          { value: 'approvals', label: 'Approvals' },
-        ]"
-        :key="item.value"
-        :label="item.label"
-        color="neutral"
-        :variant="tab === item.value ? 'soft' : 'ghost'"
-        :aria-pressed="tab === item.value"
-        @click="tab = item.value"
-      />
-    </div>
+    <UTabs
+      v-model="tab"
+      :items="[
+        { value: 'details', label: 'Details' },
+        { value: 'activity', label: 'Activity' },
+        { value: 'approvals', label: 'Approvals' },
+      ]"
+      :content="false"
+      aria-label="Connection views"
+    />
     <template v-if="tab === 'details'">
       <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-8 gap-y-4 text-sm">
         <dt class="text-muted">Status</dt>

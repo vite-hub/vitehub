@@ -78,9 +78,6 @@ const level = computed(() => props.depth ?? 0);
 // Date and time segments size to their digits instead of fixed cells, so `9/1/2026 00:00` reads as one value.
 const segment = "px-0.5 tabular-nums data-[segment=day]:w-auto data-[segment=month]:w-auto data-[segment=year]:w-auto data-[segment=hour]:w-auto data-[segment=minute]:w-auto data-[segment=literal]:px-0";
 
-// Ghost controls: no fill at rest, a fill on hover, and a ring on focus (Notion property values, Geist input ring).
-const ghost = "bg-transparent hover:bg-elevated/70 focus:bg-transparent disabled:bg-transparent ring-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-base md:text-sm";
-
 // Text-like fields validate when focus leaves them, then clear the message as soon as the value is valid again.
 // Choices and dates leave validation to the save, since their menus move focus while someone is still choosing.
 const blurValidated = computed(() => ["integer", "number", "string", "string-list", "text"].includes(props.field.kind));
@@ -266,15 +263,16 @@ function updateChild(name: string, value: unknown): void {
 <template>
   <div v-if="field.kind === 'object'" class="grid grid-cols-1">
     <ConsolePropertyRow :icon="icon" :label="field.label" :description="field.description" :control="inputId" :depth="level" :error="errors[path]?.join(' ')">
+      <!-- A field value, not an action: it reads in the type of the ghost fields beside it, which UButton does not. -->
       <button
         :id="inputId"
         type="button"
-        class="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-base hover:bg-elevated/70 focus-visible:ring-1 focus-visible:ring-(--ui-border-accented) focus-visible:ring-inset focus-visible:outline-none md:text-sm"
+        class="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-sm hover:bg-elevated pointer-coarse:text-base"
         :aria-expanded="expanded"
         :aria-controls="`${inputId}-fields`"
         @click="expanded = !expanded"
       >
-        <span v-if="field.image" class="vitehub-image-backdrop grid h-5 w-8 shrink-0 place-items-center overflow-hidden rounded-sm p-0.5 outline outline-black/10 -outline-offset-1 dark:outline-white/10">
+        <span v-if="field.image" class="vitehub-image-backdrop grid h-5 w-8 shrink-0 place-items-center overflow-hidden rounded-md p-0.5 outline outline-(--ui-border) -outline-offset-1">
           <img v-if="imageSource && !imageFailed" :src="imageSource" alt="" class="size-full object-contain" @error="imageFailed = true">
           <UIcon v-else name="i-lucide-image" class="size-3 text-dimmed" aria-hidden="true" />
         </span>
@@ -295,7 +293,7 @@ function updateChild(name: string, value: unknown): void {
     <div v-if="expanded" :id="`${inputId}-fields`" class="grid grid-cols-1 ms-3 border-s border-default ps-[calc(0.75rem-1px)]">
       <ConsolePropertyRow v-if="field.image && imageSource && !imageFailed" icon="i-lucide-eye" label="Preview" :depth="level + 1">
         <div class="px-2.5 py-1.5">
-          <img :src="imageSource" :alt="imageAlt" class="vitehub-image-backdrop max-h-24 max-w-full rounded-md object-contain p-2 outline outline-black/10 -outline-offset-1 dark:outline-white/10" @error="imageFailed = true">
+          <img :src="imageSource" :alt="imageAlt" class="vitehub-image-backdrop max-h-24 max-w-full rounded-md object-contain p-2 outline outline-(--ui-border) -outline-offset-1" @error="imageFailed = true">
         </div>
       </ConsolePropertyRow>
       <ConsoleSchemaField
@@ -370,7 +368,8 @@ function updateChild(name: string, value: unknown): void {
       class="w-full"
       variant="ghost"
       placeholder="Empty"
-      :ui="{ base: ghost }"
+      :highlight="Boolean(error)"
+      :color="error ? 'error' : undefined"
       :disabled="disabled"
       :maxlength="field.maxLength"
       :aria-invalid="error ? 'true' : undefined"
@@ -385,7 +384,8 @@ function updateChild(name: string, value: unknown): void {
       autoresize
       :rows="1"
       placeholder="Empty"
-      :ui="{ base: `${ghost} leading-5` }"
+      :highlight="Boolean(error)"
+      :color="error ? 'error' : undefined"
       :disabled="disabled"
       :maxlength="field.maxLength"
       :aria-invalid="error ? 'true' : undefined"
@@ -396,11 +396,12 @@ function updateChild(name: string, value: unknown): void {
       v-else-if="field.kind === 'number' || field.kind === 'integer'"
       :id="inputId"
       v-model="number"
-      class="w-full max-w-48"
+      class="group/number w-full max-w-48 tabular-nums"
       variant="ghost"
       placeholder="Empty"
       orientation="vertical"
-      :ui="{ root: 'group/number', base: `${ghost} tabular-nums` }"
+      :highlight="Boolean(error)"
+      :color="error ? 'error' : undefined"
       :disabled="disabled"
       :min="field.minimum"
       :max="field.maximum"
@@ -419,7 +420,8 @@ function updateChild(name: string, value: unknown): void {
       class="w-full max-w-64"
       variant="ghost"
       :items="enumItems"
-      :ui="{ base: `${ghost} group/select`, trailingIcon: 'opacity-0 group-hover/select:opacity-75 group-focus-visible/select:opacity-75 group-data-[state=open]/select:opacity-75' }"
+      :highlight="Boolean(error)"
+      :color="error ? 'error' : undefined"
       :disabled="disabled"
       :placeholder="field.required ? 'Choose…' : 'None'"
       :aria-invalid="error ? 'true' : undefined"
@@ -429,16 +431,18 @@ function updateChild(name: string, value: unknown): void {
         :id="inputId"
         v-model="date"
         variant="ghost"
-        :ui="{ base: `${ghost} gap-0`, segment }"
+        :ui="{ segment }"
+        :highlight="Boolean(error)"
+        :color="error ? 'error' : undefined"
         :disabled="disabled"
         :aria-label="field.kind === 'date-time' ? `${field.label} date` : field.label"
         :aria-invalid="error ? 'true' : undefined"
       >
         <template #trailing>
           <UPopover v-model:open="calendarOpen" :content="{ align: 'start' }">
-            <UButton variant="link" size="xs" icon="i-lucide-calendar" :aria-label="`Pick ${field.label.toLowerCase()} from a calendar`" class="px-0 text-dimmed hover:text-highlighted" :disabled="disabled" />
+            <UButton variant="ghost" size="xs" icon="i-lucide-calendar" :aria-label="`Pick ${field.label.toLowerCase()} from a calendar`" :disabled="disabled" />
             <template #content>
-              <UCalendar v-model="date" class="p-2" :ui="{ cellTrigger: 'tabular-nums' }" @update:model-value="calendarOpen = false" />
+              <UCalendar v-model="date" class="p-2 tabular-nums" @update:model-value="calendarOpen = false" />
             </template>
           </UPopover>
         </template>
@@ -448,7 +452,7 @@ function updateChild(name: string, value: unknown): void {
           v-model="time"
           variant="ghost"
           :hour-cycle="24"
-          :ui="{ base: `${ghost} gap-0`, segment }"
+          :ui="{ segment }"
           :disabled="disabled || !date"
           :aria-label="`${field.label} time, UTC`"
         />
@@ -461,7 +465,8 @@ function updateChild(name: string, value: unknown): void {
       v-model="list"
       class="w-full"
       variant="ghost"
-      :ui="{ base: ghost, item: 'text-xs' }"
+      :highlight="Boolean(error)"
+      :color="error ? 'error' : undefined"
       :disabled="disabled"
       :placeholder="list.length ? (disabled ? undefined : 'Add…') : 'Empty'"
       :aria-invalid="error ? 'true' : undefined"
@@ -480,9 +485,8 @@ function updateChild(name: string, value: unknown): void {
       v-else
       :id="inputId"
       :model-value="jsonText"
-      class="w-full"
+      class="w-full font-mono"
       variant="ghost"
-      :ui="{ base: `${ghost} font-mono text-xs leading-5` }"
       autoresize
       :rows="1"
       :disabled="disabled"
@@ -495,10 +499,10 @@ function updateChild(name: string, value: unknown): void {
 </template>
 
 <style>
-/* A light checkerboard behind image previews in both themes, so dark and light artwork and transparency stay visible. */
+/* A checkerboard behind image previews, so transparent areas of the artwork stay visible. */
 .vitehub-image-backdrop {
-  background-color: #fff;
-  background-image: conic-gradient(#ececec 25%, transparent 0 50%, #ececec 0 75%, transparent 0);
+  background-color: var(--ui-bg);
+  background-image: conic-gradient(var(--ui-bg-accented) 25%, transparent 0 50%, var(--ui-bg-accented) 0 75%, transparent 0);
   background-size: 12px 12px;
 }
 </style>

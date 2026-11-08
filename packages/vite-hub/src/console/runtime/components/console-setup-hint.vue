@@ -16,5 +16,5 @@ const parts = computed(() => consoleHintParts(props.hint.message));
 
 <template>
   <!-- One line of markup, so no space falls between code and the punctuation after it. -->
-  <span><template v-for="(part, index) in parts" :key="index"><code v-if="part.code" class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted">{{ part.text }}</code><template v-else>{{ part.text }}</template></template><template v-if="hint.docs">{{ " " }}<a :href="hint.docs" target="_blank" rel="noreferrer" class="whitespace-nowrap text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--ui-text-muted)">Read the docs</a></template></span>
+  <span><template v-for="(part, index) in parts" :key="index"><code v-if="part.code" class="rounded-md bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted">{{ part.text }}</code><template v-else>{{ part.text }}</template></template><template v-if="hint.docs">{{ " " }}<a :href="hint.docs" target="_blank" rel="noreferrer" class="whitespace-nowrap text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--ui-text-muted)">Read the docs</a></template></span>
 </template>

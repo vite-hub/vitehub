@@ -225,16 +225,17 @@ onBeforeUnmount(() => request?.abort());
         />
         <div class="ms-auto flex items-center gap-3 text-xs text-muted tabular-nums" aria-live="polite">
           <span v-if="statusFailed" role="alert" class="text-error">Could not check status.</span>
-          <button
+          <!-- An on and off filter, not a view switch, so it stays a pressed button. -->
+          <UButton
             v-else-if="statuses && blockingCount"
-            type="button"
-            class="rounded-sm px-1 outline-none hover:bg-elevated focus-visible:ring-1 focus-visible:ring-primary"
-            :class="attentionOnly ? 'bg-elevated' : ''"
+            variant="ghost"
+            size="xs"
+            :class="attentionOnly ? 'bg-elevated' : undefined"
             :aria-pressed="attentionOnly"
             @click="attentionOnly = !attentionOnly"
           >
             <ConsoleStatus :label="`${plural(blockingCount, 'value')} need attention`" tone="error" />
-          </button>
+          </UButton>
           <ConsoleStatus v-else-if="statuses" label="All values resolve" tone="success" />
           <span>{{ summary }}</span>
         </div>
@@ -253,9 +254,14 @@ onBeforeUnmount(() => request?.abort());
           title="No Server Env declared"
           description="Declare a value under env.server in the Vite config to inspect it here."
         />
-        <p v-else-if="!rows.length" class="my-auto py-16 text-center text-[13px] text-muted">
-          {{ attentionOnly && !search.trim() ? "No values match the filters." : `No variables match “${search.trim() || source}”.` }}
-        </p>
+        <UEmpty
+          v-else-if="!rows.length"
+          variant="naked"
+          class="my-auto"
+          icon="i-lucide-search"
+          title="No matching variables"
+          :description="attentionOnly && !search.trim() ? 'No values match the filters.' : `No variables match “${search.trim() || source}”.`"
+        />
         <main v-else class="mx-auto grid w-full max-w-4xl gap-6 p-4 sm:p-6">
           <section
             v-for="group in groups"
@@ -269,11 +275,12 @@ onBeforeUnmount(() => request?.abort());
               <span class="text-dimmed tabular-nums">{{ group.rows.length }}</span>
               <span v-if="group.name === undefined" class="text-dimmed">Their declarations do not disclose a name.</span>
             </h2>
-            <ul role="list" class="divide-y divide-default overflow-hidden rounded-md border border-default">
-              <li v-for="(row, index) in group.rows" :key="row.entry.path ?? `undisclosed-${index}`">
+            <!-- The list does not clip, so the focus ring of a row stays visible. The end rows round their own corners. -->
+            <ul role="list" class="divide-y divide-default rounded-md border border-default">
+              <li v-for="(row, index) in group.rows" :key="row.entry.path ?? `undisclosed-${index}`" class="first:*:rounded-t-md last:*:rounded-b-md">
                 <button
                   type="button"
-                  class="group grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2 text-start outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary"
+                  class="group grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2 text-start hover:bg-elevated"
                   :aria-current="selected === row.entry ? 'true' : undefined"
                   @click="selected = row.entry"
                 >

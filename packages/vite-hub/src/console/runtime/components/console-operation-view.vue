@@ -34,6 +34,7 @@ const error = ref<unknown>();
 let controller: AbortController | undefined;
 
 const filters = computed(() => view.value.filters ?? []);
+const filterItems = computed(() => filters.value.map((filter) => ({ label: filter.label, value: filter.id })));
 const activeFilter = computed(() => filters.value.find((filter) => filter.id === filterId.value) ?? filters.value[0]);
 /** Match full column values and their displayed text, such as the page, the author, or the comment. */
 const visibleItems = computed(() => {
@@ -112,20 +113,15 @@ onBeforeUnmount(() => controller?.abort());
             size="sm"
             :placeholder="`Filter ${details.label.toLowerCase()}…`"
             :aria-label="`Filter ${details.label}`"
-            :ui="{ base: 'text-base sm:text-sm' }"
           />
-          <div v-if="filters.length" class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter">
-            <UButton
-              v-for="filter in filters"
-              :key="filter.id"
-              size="xs"
-              :color="activeFilter?.id === filter.id ? 'primary' : 'neutral'"
-              :variant="activeFilter?.id === filter.id ? 'soft' : 'ghost'"
-              :aria-pressed="activeFilter?.id === filter.id"
-              :label="filter.label"
-              @click="choose(filter.id)"
-            />
-          </div>
+          <UTabs
+            v-if="filters.length"
+            :model-value="activeFilter?.id"
+            :items="filterItems"
+            :content="false"
+            aria-label="Filter"
+            @update:model-value="choose(String($event))"
+          />
         </div>
       </template>
       <template #body>
@@ -156,14 +152,14 @@ onBeforeUnmount(() => controller?.abort());
                 v-for="item in visibleItems"
                 :key="itemId(item)"
                 class="border-t border-default"
-                :class="detail ? 'relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50' : undefined"
+                :class="detail ? 'relative hover:bg-elevated' : undefined"
               >
                 <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">
-                  <!-- The button overlay makes the whole row open the item. Focus shows as the row fill. -->
+                  <!-- The button overlay makes the whole row open the item. The theme rings the button itself. -->
                   <button
                     v-if="detail && column === openColumn"
                     type="button"
-                    class="text-left outline-none after:absolute after:inset-0"
+                    class="rounded-md text-left after:absolute after:inset-0"
                     @click="selectThread(itemId(item))"
                   >{{ operationCell(item, column) }}</button>
                   <template v-else>{{ operationCell(item, column) }}</template>

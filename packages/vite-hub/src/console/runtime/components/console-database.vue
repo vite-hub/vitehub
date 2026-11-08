@@ -286,6 +286,17 @@ async function openDatabase(value: unknown): Promise<void> {
   });
 }
 
+// The view tabs follow the route: choosing one navigates, and the route sets the selected tab.
+const viewItems = computed(() => [
+  { label: "Data", value: "data", icon: "i-lucide-table", disabled: !selectedTable.value },
+  { label: "Schema", value: "schema", icon: "i-lucide-share-2" },
+]);
+
+function selectView(value: string | number): void {
+  if (value === "schema") void openSchema();
+  else if (selectedTable.value) void openTable(selectedTable.value.name);
+}
+
 async function openSchema(): Promise<void> {
   const databaseName = database.value?.database ?? routeDatabase.value;
   if (!databaseName) return;
@@ -379,7 +390,6 @@ onBeforeUnmount(() => {
             :items="databaseItems"
             class="w-full"
             aria-label="Database"
-            size="sm"
             @update:model-value="openDatabase"
           />
         </div>
@@ -422,14 +432,7 @@ onBeforeUnmount(() => {
       >
         <template #right>
           <span class="hidden text-xs text-dimmed sm:inline">Read-only</span>
-          <div class="flex rounded-md ring-1 ring-(--ui-border) ring-inset" role="group" aria-label="View">
-            <UTooltip text="Table data">
-              <UButton size="sm" variant="ghost" icon="i-lucide-table" aria-label="Table data" :aria-pressed="view === 'data'" :class="view === 'data' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="selectedTable && openTable(selectedTable.name)" />
-            </UTooltip>
-            <UTooltip text="Schema diagram">
-              <UButton size="sm" variant="ghost" icon="i-lucide-share-2" aria-label="Schema diagram" :aria-pressed="view === 'schema'" :class="view === 'schema' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="openSchema" />
-            </UTooltip>
-          </div>
+          <UTabs :model-value="view" :items="viewItems" :content="false" aria-label="View" @update:model-value="selectView" />
         </template>
       </ConsolePageHeader>
 
@@ -449,7 +452,6 @@ onBeforeUnmount(() => {
             class="w-full sm:w-64"
             @update:model-value="offset = 0"
             icon="i-lucide-search"
-            size="sm"
             :placeholder="`Filter ${selectedTable.name}…`"
             aria-label="Filter rows"
           />
@@ -459,14 +461,12 @@ onBeforeUnmount(() => {
               :items="sortItems"
               class="w-40"
               aria-label="Sort column"
-              size="sm"
               @update:model-value="setSort"
             />
             <UTooltip :text="direction === 'asc' ? 'Ascending' : 'Descending'">
               <UButton
                 :aria-label="direction === 'asc' ? 'Sort ascending' : 'Sort descending'"
                 :icon="direction === 'asc' ? 'i-lucide-arrow-up-narrow-wide' : 'i-lucide-arrow-down-wide-narrow'"
-                size="sm"
                 variant="ghost"
                 @click="toggleDirection"
               />
@@ -488,8 +488,8 @@ onBeforeUnmount(() => {
               thead: 'bg-default',
               th: 'whitespace-nowrap border-r border-default font-mono font-normal last:border-r-0',
               td: 'max-w-72 truncate whitespace-nowrap border-r border-default font-mono text-xs last:border-r-0',
-              tr: 'cursor-pointer border-b border-default outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
-              empty: 'h-40 border-r-0 text-center text-[13px] text-muted',
+              tr: 'cursor-pointer border-b border-default hover:bg-elevated',
+              empty: 'h-40 border-r-0 text-center text-muted',
             }"
           >
             <template #empty>
@@ -537,11 +537,12 @@ onBeforeUnmount(() => {
             <section
               v-for="table in database.tables"
               :key="table.name"
-              class="schema-table absolute w-[280px] overflow-hidden rounded-md border border-default bg-default shadow-xs"
+              class="schema-table absolute w-[280px] rounded-lg border border-default bg-default"
               :style="{ left: `${table.position.x}px`, top: `${table.position.y}px` }"
             >
+              <!-- The full-width header row of a diagram card, not a standalone action, so it stays a plain button. -->
               <button
-                class="flex h-10 w-full items-center gap-2 border-b border-default px-3 text-left hover:bg-elevated/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary"
+                class="flex h-10 w-full items-center gap-2 rounded-t-md border-b border-default px-3 text-left hover:bg-elevated"
                 type="button"
                 @click="openTable(table.name)"
               >
@@ -553,7 +554,7 @@ onBeforeUnmount(() => {
                 <li
                   v-for="column in table.columns"
                   :key="column.key"
-                  class="flex h-[25px] items-center gap-1.5 border-b border-default/60 px-2.5 last:border-b-0"
+                  class="flex h-[25px] items-center gap-1.5 border-b border-muted px-2.5 last:border-b-0"
                 >
                   <UIcon
                     :name="column.primary ? 'i-lucide-key-round' : column.foreignKey ? 'i-lucide-link' : 'i-lucide-dot'"
@@ -572,7 +573,7 @@ onBeforeUnmount(() => {
       v-model:open="rowOpen"
       :title="rowTitle"
       :description="selectedTable ? `${selectedTable.name} · ${database?.database}` : undefined"
-      :ui="{ content: 'sm:max-w-xl', title: 'truncate font-mono text-sm', description: 'font-mono text-xs' }"
+      :ui="{ content: 'sm:max-w-xl' }"
     >
       <template #body>
         <dl class="divide-y divide-default border-b border-default">
@@ -595,7 +596,6 @@ onBeforeUnmount(() => {
                 <UButton
                   class="-my-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                   :aria-label="`Copy ${field.column.name}`"
-                  color="neutral"
                   icon="i-lucide-copy"
                   size="xs"
                   variant="ghost"

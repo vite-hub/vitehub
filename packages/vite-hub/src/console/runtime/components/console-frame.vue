@@ -15,7 +15,7 @@ defineProps<{
   <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
     <!-- Every page has a skip target, including pages without a main landmark or heading. -->
-    <span id="vitehub-console-content" class="sr-only" tabindex="-1" data-skip-target>Page content</span>
+    <span id="vitehub-console-content" class="sr-only" tabindex="-1">Page content</span>
     <slot />
     <!-- Console toasts render here, apart from the toaster of a host app. -->
     <ConsoleToaster />
@@ -36,53 +36,9 @@ defineProps<{
   border-inline-end: 1px solid var(--ui-border);
 }
 
-/* The context panel matches the primitive rail from @vite-hub/ui: the same surface and hairline. */
-.dark .vitehub-console__nav[data-slot="root"] {
-  background: #000;
-}
-
 .vitehub-console__nav [data-slot="header"] {
   min-height: 2.75rem;
   padding-inline: 0.5rem;
-}
-
-/* The search entry is a ghost row in every sidebar, like T3 Code's search row. */
-.vitehub-console .vitehub-console__search {
-  justify-content: flex-start !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  color: var(--ui-text-muted) !important;
-  font-size: 0.8125rem !important;
-  font-weight: 500 !important;
-  height: 2rem !important;
-  min-height: 2rem !important;
-  padding-inline: 0.5rem !important;
-}
-
-.vitehub-console .vitehub-console__search:hover {
-  color: var(--ui-text) !important;
-}
-
-/* The shortcut stays visible as quiet monospace text, not as key caps. */
-.vitehub-console .vitehub-console__search [data-slot="trailing"] {
-  gap: 0;
-  opacity: 1;
-}
-
-.vitehub-console .vitehub-console__search [data-slot="trailing"] kbd {
-  background: transparent;
-  box-shadow: none;
-  color: var(--ui-text-dimmed);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  min-width: 0;
-  padding-inline: 0.0625rem;
-  transition: color 150ms ease;
-}
-
-.vitehub-console .vitehub-console__search:hover [data-slot="trailing"] kbd,
-.vitehub-console .vitehub-console__search:focus-visible [data-slot="trailing"] kbd {
-  color: var(--ui-text-muted);
 }
 
 /* A context panel opens with the section title, like the panel headers in Linear and Featurebase. */
@@ -166,11 +122,6 @@ defineProps<{
   color: var(--ui-text-highlighted);
 }
 
-.vitehub-console__section-link:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
-}
-
 .vitehub-console__section-nav.is-collapsed .vitehub-console__section-link {
   justify-content: center;
   padding-inline: 0;
@@ -193,7 +144,7 @@ defineProps<{
 .vitehub-console__collection-mark {
   align-items: center;
   border: 1px solid var(--ui-border-accented);
-  border-radius: 0.25rem;
+  border-radius: 0.375rem;
   display: inline-flex;
   flex-shrink: 0;
   font-family: var(--font-mono);

@@ -111,10 +111,6 @@ body {
   border-inline-end: 1px solid var(--ui-border);
 }
 
-.dark .vitehub-console-boot .vh-primitive-rail__surface {
-  background: #000;
-}
-
 .vitehub-console-boot__mark {
   color: var(--ui-text-highlighted);
   height: 1.125rem;

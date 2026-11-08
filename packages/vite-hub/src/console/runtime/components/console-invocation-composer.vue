@@ -114,7 +114,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
         >
           <template #footer-leading>
             <div class="console-invocation-composer__context flex min-w-0 items-center gap-0.5 text-xs text-muted">
-              <span class="flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2">
+              <span class="flex h-7 min-w-0 items-center gap-1.5 px-2">
                 <UIcon class="size-4 shrink-0 opacity-70" name="i-lucide-bot" />
                 <span class="truncate">{{ agent }}</span>
               </span>
@@ -126,7 +126,6 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
                   :items="profileItems"
                   size="xs"
                   variant="ghost"
-                  :ui="{ base: 'h-7 rounded-lg px-2 text-xs text-muted hover:text-default' }"
                 />
               </template>
               <template v-else-if="profiles[0]?.label">
@@ -138,13 +137,11 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
           <template #submit="{ canSubmit }">
             <UButton
               aria-label="Start Agent"
-              class="console-invocation-composer__submit size-8 rounded-full disabled:opacity-30"
-              color="primary"
+              class="console-invocation-composer__submit"
               icon="i-lucide-arrow-up"
               :disabled="!canSubmit"
               :loading="loading"
               square
-              size="sm"
               type="button"
               @click="submit({ text: draft, files })"
             />

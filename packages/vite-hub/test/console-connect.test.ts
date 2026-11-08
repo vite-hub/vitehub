@@ -29,6 +29,15 @@ function mountPage(sectionsBase: string) {
   app.component("UDashboardPanel", defineComponent({ setup: (_, { slots }) => () => h("div", [slots.header?.(), slots.body?.()]) }))
   app.component("UDashboardNavbar", defineComponent({ setup: (_, { slots }) => () => h("div", [slots.title?.(), slots.right?.()]) }))
   app.component("UButton", defineComponent({ setup: (_, { attrs }) => () => h("button", attrs) }))
+  // UTabs renders one tab per item. The selected panel is not part of these checks.
+  app.component("UTabs", defineComponent({
+    props: { items: { type: Array, required: true } },
+    setup: props => () => h("div", { role: "tablist" }, (props.items as Array<{ label: string }>).map(item => h("button", { role: "tab" }, item.label))),
+  }))
+  app.component("UEmpty", defineComponent({
+    props: { description: String, title: String },
+    setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.body?.()]),
+  }))
   app.component("RouterLink", defineComponent({ setup: (_, { slots }) => () => h("a", slots.default?.()) }))
   app.component("UIcon", defineComponent({ render: () => h("i") }))
   app.component("USkeleton", defineComponent({ render: () => h("div", { "data-loading": "" }) }))

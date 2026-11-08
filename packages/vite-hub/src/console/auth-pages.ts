@@ -52,9 +52,9 @@ function consoleSignInDocument(site: string, message: string, actions: string, s
     <title>${escapeHTML(heading)} · ViteHub Console</title>
     <style>${consoleStandaloneStyles}
       .stack > a.button, .stack form button { width: 100%; }
-      .password ~ form button { background: transparent; color: var(--text-highlighted); box-shadow: inset 0 0 0 1px var(--border-accented); }
-      .switch { color: var(--text-muted); font-size: .8125rem; text-align: center; }
-      .switch a { color: var(--text-highlighted); text-underline-offset: 3px; }
+      .password ~ form button { background: transparent; color: var(--ui-text-highlighted); box-shadow: inset 0 0 0 1px var(--ui-border-accented); }
+      .switch { color: var(--ui-text-muted); font-size: .8125rem; text-align: center; }
+      .switch a { color: var(--ui-text-highlighted); text-underline-offset: 3px; }
     </style>
   </head>
   <body>
@@ -139,35 +139,25 @@ export function consoleImpersonationPage(input: {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>Viewing as ${escapeHTML(name)} · ViteHub Console</title>
-    <style>
-      :root { color-scheme: light dark; font-family: system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
-      main { width: min(26rem, calc(100% - 3rem)); }
-      .state { display: inline-flex; align-items: center; gap: .375rem; margin: 0 0 1rem; padding: .125rem .5rem; border-radius: 999px; background: light-dark(#fef3c7, #422006); color: light-dark(#92400e, #fcd34d); font-size: .8125rem; font-weight: 500; }
+    <style>${consoleStandaloneStyles}
+      .state { display: inline-flex; align-items: center; gap: .375rem; justify-self: start; padding: 0 .375rem; border-radius: .375rem; background: color-mix(in oklab, var(--vh-text-warning) 10%, transparent); color: var(--vh-text-warning); font-size: .75rem; font-weight: 500; line-height: 1.25rem; }
       .state::before { content: ""; width: .375rem; height: .375rem; border-radius: 999px; background: currentColor; }
-      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; line-height: 1.25; letter-spacing: -.01em; text-wrap: balance; overflow-wrap: anywhere; }
-      p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; text-wrap: pretty; overflow-wrap: anywhere; }
-      .actions { display: flex; flex-wrap: wrap; gap: .75rem; }
-      button, a { min-height: 2.5rem; display: inline-flex; align-items: center; padding: 0 1rem; border-radius: .5rem; font: inherit; font-weight: 500; text-decoration: none; cursor: pointer; transition: transform 150ms ease-out; }
-      button { border: 1px solid transparent; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); }
-      a { border: 1px solid light-dark(#d4d4d4, #404040); background: transparent; color: inherit; }
-      button:not(:disabled):active, a:active { transform: scale(.96); }
-      button:disabled { opacity: .6; cursor: wait; }
-      button:focus-visible, a:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
-      [role=alert] { margin: 1rem 0 0; color: light-dark(#b91c1c, #fca5a5); }
-      @media (prefers-reduced-motion: reduce) { button, a { transition: none; } }
+      h1 { overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
     <main>
-      <p class="state">Impersonating</p>
+      ${consoleStandaloneHeader("")}
       <h1>Viewing the app as ${escapeHTML(name)}</h1>
       <p>This browser uses the session of ${escapeHTML(input.user.email || name)}. The Console opens again after you stop impersonating. The session ends in about ${remainingTime(input.expiresAt)}.</p>
-      <div class="actions">
-        <button type="button">Stop impersonating</button>
-        <a href="${escapeHTML(input.appPath)}">Back to the app</a>
+      <div class="stack">
+        <p class="state">Impersonating</p>
+        <div class="actions">
+          <button type="button">Stop impersonating</button>
+          <a class="button secondary" href="${escapeHTML(input.appPath)}">Back to the app</a>
+        </div>
+        <p role="alert" hidden>Could not stop impersonating. Try again.</p>
       </div>
-      <p role="alert" hidden>Could not stop impersonating. Try again.</p>
     </main>
     <script nonce="${nonce}">${script}</script>
   </body>
@@ -257,23 +247,18 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>Access denied · ViteHub Console</title>
-    <style>
-      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
-      main { width: min(24rem, calc(100% - 3rem)); }
-      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
-      p { color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
-      button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font: inherit; font-weight: 500; cursor: pointer; }
-      button:disabled { opacity: .6; cursor: wait; }
-      button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+    <style>${consoleStandaloneStyles}
     </style>
   </head>
   <body>
     <main>
+      ${consoleStandaloneHeader("")}
       <h1>Access denied</h1>
       <p>This account cannot access the ViteHub Console.</p>
-      <button type="button">Switch account</button>
-      <p role="alert" hidden>Could not sign out. Try again.</p>
+      <div class="stack">
+        <button type="button">Switch account</button>
+        <p role="alert" hidden>Could not sign out. Try again.</p>
+      </div>
     </main>
     <script nonce="${nonce}">${script}</script>
   </body>

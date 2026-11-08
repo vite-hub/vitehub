@@ -395,7 +395,7 @@ const bubbleItems = computed(() => [
     tooltip: { text: "Turn into" },
     trailingIcon: "i-lucide-chevron-down",
     // Opaque: a blurred menu inside the blurred bubble cannot blur the page behind both.
-    ui: { content: "bg-default backdrop-blur-none", label: "text-xs" },
+    ui: { content: "bg-default backdrop-blur-none" },
   }],
   [
     { "aria-label": "Bold", icon: "i-lucide-bold", kind: "mark", mark: "bold", tooltip: { kbds: ["meta", "b"], text: "Bold" } },
@@ -517,14 +517,13 @@ watch(editor, (instance) => {
             <UButton
               icon="i-lucide-link"
               variant="ghost"
-              size="sm"
               aria-label="Link"
               :active="editor.isActive('link')"
               active-variant="soft"
             />
             <template #content>
               <form class="flex w-72 items-center gap-1 p-1" @submit.prevent="applyLink">
-                <UInput v-model="linkHref" autofocus class="flex-1" variant="none" placeholder="https://vitehub.dev" aria-label="Link URL" :ui="{ base: 'text-[13px]' }" />
+                <UInput v-model="linkHref" autofocus class="flex-1" variant="none" placeholder="https://vitehub.dev" aria-label="Link URL" />
                 <UButton type="submit" size="xs" variant="ghost" icon="i-lucide-corner-down-left" aria-label="Apply link" />
                 <UButton v-if="editor.isActive('link')" size="xs" variant="ghost" icon="i-lucide-link-2-off" aria-label="Remove link" @click="linkHref = ''; applyLink()" />
               </form>
@@ -574,6 +573,7 @@ watch(editor, (instance) => {
 </template>
 
 <style>
+/* The writing surface shows focus with its caret, as a document does, not with a ring around the whole body. */
 .vitehub-markdown-editor__content {
   color: var(--ui-text);
   font-size: 0.9375rem;
@@ -616,7 +616,7 @@ watch(editor, (instance) => {
 
 .vitehub-markdown-editor__content code {
   background: var(--ui-bg-elevated);
-  border-radius: 0.25rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   font-family: var(--font-mono);
   font-size: 0.85em;
   padding: 0.1em 0.3em;
@@ -624,7 +624,7 @@ watch(editor, (instance) => {
 
 .vitehub-markdown-editor__content pre {
   background: var(--ui-bg-muted);
-  border-radius: 0.5rem;
+  border-radius: calc(var(--ui-radius) * 2);
   box-shadow: inset 0 0 0 1px var(--ui-border);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
@@ -659,16 +659,14 @@ watch(editor, (instance) => {
 }
 .vitehub-markdown-editor__content .column-resize-handle { background: var(--ui-primary); bottom: 0; position: absolute; right: -1px; top: 0; width: 2px; }
 
-.vitehub-markdown-editor__content img { border-radius: 0.375rem; display: inline-block; max-width: 100%; }
+.vitehub-markdown-editor__content img { border-radius: calc(var(--ui-radius) * 1.5); display: inline-block; max-width: 100%; }
 .vitehub-markdown-editor__content img.ProseMirror-selectednode { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
 
 /* The block that the handle selected gets a tint, as in Notion. */
 .vitehub-markdown-editor__content .ProseMirror-selectednode:not(img) {
   background: color-mix(in oklab, var(--ui-primary) 10%, transparent);
-  border-radius: 0.25rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
 }
-
-.vitehub-markdown-editor__content ::selection { background: color-mix(in oklab, var(--ui-primary) 22%, transparent); }
 
 /* Placeholder on the empty line with the cursor. */
 .vitehub-markdown-editor__content :is(p, h1, h2, h3, h4).is-empty::before {

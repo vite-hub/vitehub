@@ -152,7 +152,7 @@ onBeforeUnmount(() => request?.abort());
               :href="setupURL"
               target="_blank"
               rel="noopener"
-              class="rounded-sm text-muted underline-offset-2 outline-none hover:text-highlighted hover:underline focus-visible:ring-1 focus-visible:ring-primary"
+              class="rounded-md text-muted underline-offset-2 hover:text-highlighted hover:underline"
               >Add a Connection<span class="sr-only"> (opens in a new tab)</span></a
             >
           </template>
@@ -187,11 +187,7 @@ export default defineConnection({
             :columns="columns"
             :on-select="selectRow"
             empty="No matching Connections."
-            :ui="{
-              thead: 'bg-elevated/30',
-              th: 'h-9 py-0 text-xs font-medium text-muted',
-              tr: 'group cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
-            }"
+            :ui="{ thead: 'bg-elevated/30', tr: 'group cursor-pointer' }"
           >
             <template #name-cell="{ row }"
               ><span class="font-mono text-xs text-highlighted">{{ row.original.name }}</span
@@ -226,7 +222,7 @@ export default defineConnection({
                   :label="plural(pending.get(row.original.name) ?? 0, 'pending approval')"
                   :aria-label="`Review ${plural(pending.get(row.original.name) ?? 0, 'pending approval')} for ${row.original.name}`"
                   size="xs"
-                  variant="soft"
+                  variant="outline"
                   @click.stop="open(row.original.name, 'approvals')"
                 /></div
             ></template>

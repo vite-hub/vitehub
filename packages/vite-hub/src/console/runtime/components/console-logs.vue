@@ -66,6 +66,10 @@ const levels = [
   { label: "Error", value: "error" },
 ];
 /** The color of a level in the event list and in the event details. */
+const modeItems = [
+  { label: "Explorer", value: "explorer" },
+  { label: "Stream", value: "stream" },
+];
 function levelClass(value: string): string {
   return value === "error" ? "text-error" : value === "warn" ? "text-warning" : "text-muted";
 }
@@ -172,33 +176,17 @@ onBeforeUnmount(() => {
               @click="load()"
             />
           </UTooltip>
+          <!-- The label names the next action, so the button is not a pressed toggle. -->
           <UButton
-            size="sm"
-            :variant="following ? 'soft' : 'ghost'"
+            variant="ghost"
             :icon="following ? 'i-lucide-pause' : 'i-lucide-play'"
-            :aria-pressed="following"
             @click="following = !following"
             >{{ following ? "Pause" : "Follow" }}</UButton
           >
         </template>
       </ConsolePageHeader>
       <ConsolePageToolbar>
-        <div class="flex gap-1" aria-label="Log view">
-          <UButton
-            size="sm"
-            :variant="mode === 'explorer' ? 'soft' : 'ghost'"
-            :aria-pressed="mode === 'explorer'"
-            @click="mode = 'explorer'"
-            >Explorer</UButton
-          >
-          <UButton
-            size="sm"
-            :variant="mode === 'stream' ? 'soft' : 'ghost'"
-            :aria-pressed="mode === 'stream'"
-            @click="mode = 'stream'"
-            >Stream</UButton
-          >
-        </div>
+        <UTabs v-model="mode" :items="modeItems" :content="false" aria-label="Log view" />
         <UInput
           v-model="text"
           icon="i-lucide-search"
@@ -240,11 +228,12 @@ onBeforeUnmount(() => {
             No events match these filters.
           </p>
           <div v-bind="containerProps" class="min-h-0 flex-1 overflow-auto">
-            <div v-bind="wrapperProps">
+            <!-- The inset keeps the focus ring of a full-width row inside the scroll container. -->
+            <div v-bind="wrapperProps" class="px-1">
               <button
                 v-for="{ data: entry } in visibleEntries"
                 :key="entry.id"
-                class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-primary"
+                class="log-row w-full rounded-md text-left hover:bg-elevated"
                 :class="[{ 'bg-elevated': selected?.id === entry.id }, mode]"
                 :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"

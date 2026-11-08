@@ -52,15 +52,16 @@ function update(name: string, type: string, raw: unknown): void {
   <NodeViewWrapper
     v-if="definition.kind === 'inline'"
     as="span"
-    class="vitehub-comark-inline rounded-sm bg-elevated px-1 py-px text-[0.9em] ring-1 ring-default ring-inset"
+    class="vitehub-comark-inline rounded-md bg-elevated px-1 py-px text-[0.9em] ring-1 ring-default ring-inset"
     :data-component="definition.name"
   >
     <NodeViewContent as="span" />
     <UPopover v-if="entries.length" :content="{ align: 'start' }">
+      <!-- Inside running text, so it sizes with the text around it instead of taking a UButton size. -->
       <button
         type="button"
         contenteditable="false"
-        class="ms-1 inline-flex rounded-sm px-1 align-baseline font-mono text-[0.8em] text-muted hover:bg-elevated focus-visible:outline-2 disabled:pointer-events-none"
+        class="ms-1 inline-flex rounded-md px-1 align-baseline font-mono text-[0.8em] text-muted hover:bg-accented disabled:pointer-events-none"
         :disabled="!editable"
         :aria-label="`Edit ${definition.label} props`"
       >
@@ -86,7 +87,7 @@ function update(name: string, type: string, raw: unknown): void {
               v-else
               :model-value="entry.type === 'json' ? (entry.value === null || entry.value === undefined ? '' : JSON.stringify(entry.value)) : String(entry.value ?? '')"
               :type="entry.type === 'number' ? 'number' : 'text'"
-              :ui="{ base: entry.type === 'json' ? 'font-mono text-xs' : '' }"
+              :class="entry.type === 'json' ? 'font-mono' : undefined"
               @update:model-value="update(entry.name, entry.type, $event)"
             />
           </label>
@@ -99,14 +100,15 @@ function update(name: string, type: string, raw: unknown): void {
       <UIcon name="i-lucide-component" class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="font-mono text-highlighted">::{{ definition.name }}</span>
       <UPopover v-if="entries.length" :content="{ align: 'start' }">
-        <button
-          type="button"
-          class="flex min-w-0 items-center gap-2 rounded-sm px-1 font-mono hover:bg-elevated focus-visible:outline-2 disabled:pointer-events-none"
+        <UButton
+          variant="ghost"
+          size="xs"
+          class="min-w-0 font-mono"
           :disabled="!editable"
           :aria-label="`Edit ${definition.label} props`"
         >
           <span v-for="entry in entries" :key="entry.name" class="truncate">{{ entry.name }}=<span class="text-highlighted">{{ display(entry.value) }}</span></span>
-        </button>
+        </UButton>
         <template #content>
           <div class="grid w-64 gap-3 p-3">
             <p class="text-xs font-medium text-highlighted">{{ definition.label }}</p>
@@ -127,7 +129,7 @@ function update(name: string, type: string, raw: unknown): void {
                 v-else
                 :model-value="entry.type === 'json' ? (entry.value === null || entry.value === undefined ? '' : JSON.stringify(entry.value)) : String(entry.value ?? '')"
                 :type="entry.type === 'number' ? 'number' : 'text'"
-                :ui="{ base: entry.type === 'json' ? 'font-mono text-xs' : '' }"
+                :class="entry.type === 'json' ? 'font-mono' : undefined"
                 @update:model-value="update(entry.name, entry.type, $event)"
               />
             </label>

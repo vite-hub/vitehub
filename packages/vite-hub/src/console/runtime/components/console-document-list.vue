@@ -97,7 +97,7 @@ const stateTabs = computed(() => [
   { label: "Published", value: "published", count: states.value.published },
   ...(states.value.deleted || state.value === "deleted" ? [{ label: "Deleted", value: "deleted", count: states.value.deleted }] : []),
   ...(page.value?.scheduled || state.value === "scheduled" ? [{ label: "Scheduled", value: "scheduled", count: page.value?.scheduled ?? 0 }] : []),
-].map(({ count, ...tab }) => ({ ...tab, badge: { class: "min-w-5 justify-center rounded-full tabular-nums", color: "neutral" as const, label: page.value ? String(count) : "…", variant: "soft" as const } })));
+].map(({ count, ...tab }) => ({ ...tab, badge: { class: "min-w-5 justify-center tabular-nums", label: page.value ? String(count) : "…" } })));
 const selectedPublishable = computed<ConsoleDocumentPublishExpectation[]>(() => items.value
   .filter(item => selected.value.has(item.id) && item.state !== "published")
   .map(item => ({ digest: item.digest, id: item.id })));
@@ -336,9 +336,9 @@ onBeforeUnmount(() => {
     <template #right>
       <ConsoleStatus v-if="publishing" label="Publishing…" pending />
       <UPopover v-if="collection.access.publish && pendingChanges" v-model:open="publishOpen">
-        <UButton variant="outline" size="sm" label="Publish" :loading="publishing" :disabled="loading" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
+        <UButton variant="outline" label="Publish" :loading="publishing" :disabled="loading" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
           <template #trailing>
-            <UBadge color="neutral" variant="soft" size="sm" class="rounded-full tabular-nums" :label="String(pendingChanges)" />
+            <UBadge size="sm" class="tabular-nums" :label="String(pendingChanges)" />
           </template>
         </UButton>
         <template #content>
@@ -349,13 +349,13 @@ onBeforeUnmount(() => {
               <template v-if="blockedChanges"> {{ blockedChanges === 1 ? "1 draft with field issues stays" : `${blockedChanges} drafts with field issues stay` }} unpublished.</template>
             </p>
             <div class="flex justify-end gap-2">
-              <UButton variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
-              <UButton size="sm" label="Publish all" :loading="publishing" @click="publish(publishableChanges)" />
+              <UButton variant="ghost" label="Cancel" @click="publishOpen = false" />
+              <UButton label="Publish all" :loading="publishing" @click="publish(publishableChanges)" />
             </div>
           </div>
         </template>
       </UPopover>
-      <UButton v-if="collection.access.write" size="sm" icon="i-lucide-plus" label="New" @click="create" />
+      <UButton v-if="collection.access.write" icon="i-lucide-plus" label="New" @click="create" />
     </template>
   </ConsolePageHeader>
 
@@ -364,29 +364,26 @@ onBeforeUnmount(() => {
       v-model="search"
       class="w-full sm:w-56"
       icon="i-lucide-search"
-      size="sm"
       :placeholder="`Search ${collection.label.toLowerCase()}…`"
       aria-label="Search documents"
-      :ui="{ base: 'text-base sm:text-sm' }"
     />
-    <UTabs
-      v-model="state"
-      :items="stateTabs"
-      :content="false"
-      size="xs"
-      variant="link"
-      color="neutral"
-      class="min-w-0 max-w-full"
-      aria-label="Filter by state"
-      :aria-busy="!page && loading"
-      :ui="{ list: 'max-w-full overflow-x-auto', trigger: 'shrink-0 text-[13px]' }"
-      @focusin="revealStateTab"
-    />
+    <!-- The state tabs scroll on a phone. The 1px padding keeps the underline of the active tab inside the scroller. -->
+    <div class="min-w-0 max-w-full overflow-x-auto pb-px">
+      <UTabs
+        v-model="state"
+        :items="stateTabs"
+        :content="false"
+        class="w-max"
+        aria-label="Filter by state"
+        :aria-busy="!page && loading"
+        @focusin="revealStateTab"
+      />
+    </div>
     <div v-if="activeFilters.length" class="flex flex-wrap items-center gap-1.5">
       <UButton
         v-for="filter in activeFilters"
         :key="filter.name"
-        variant="soft"
+        variant="outline"
         size="xs"
         trailing-icon="i-lucide-x"
         :label="`${filter.label}: ${filter.value}`"
@@ -396,14 +393,13 @@ onBeforeUnmount(() => {
     </div>
     <div class="ms-auto flex items-center gap-2">
       <UPopover v-if="facetFields.length" :content="{ align: 'end' }">
-        <UButton variant="outline" size="sm" icon="i-lucide-list-filter" label="Filter" />
+        <UButton variant="outline" icon="i-lucide-list-filter" label="Filter" />
         <template #content>
           <div class="grid w-64 gap-3 p-3">
-            <UFormField v-for="field in facetFields" :key="field.name" :label="field.label" :ui="{ label: 'text-xs' }">
+            <UFormField v-for="field in facetFields" :key="field.name" :label="field.label">
               <USelectMenu
                 v-if="field.kind === 'string-list'"
                 v-model="filters[field.name]"
-                size="sm"
                 class="w-full"
                 value-key="value"
                 :items="facetItems(field.name, field.label)"
@@ -413,17 +409,16 @@ onBeforeUnmount(() => {
               <USelect
                 v-else
                 v-model="filters[field.name]"
-                size="sm"
                 class="w-full"
                 :items="facetItems(field.name, field.label)"
                 :placeholder="`Any ${field.label.toLowerCase()}`"
               />
             </UFormField>
-            <UButton v-if="activeFilters.length" class="justify-self-start" variant="link" size="xs" label="Clear filters" @click="filters = {}" />
+            <UButton v-if="activeFilters.length" class="justify-self-start" variant="ghost" size="xs" label="Clear filters" @click="filters = {}" />
           </div>
         </template>
       </UPopover>
-      <USelect v-model="sort" size="sm" class="w-40" :items="sortOptions" aria-label="Sort documents" />
+      <USelect v-model="sort" class="w-40" :items="sortOptions" aria-label="Sort documents" />
     </div>
   </ConsolePageToolbar>
 
@@ -487,26 +482,26 @@ onBeforeUnmount(() => {
       <tbody class="divide-y divide-default">
         <template v-if="loading && !items.length">
           <tr v-for="index in 9" :key="index" class="h-18 sm:h-12" aria-hidden="true">
-            <td v-if="collection.access.publish" class="ps-4"><USkeleton class="size-4 animate-none rounded" /></td>
+            <td v-if="collection.access.publish" class="ps-4"><USkeleton class="size-4 animate-none" /></td>
             <td class="px-2 py-2 sm:py-1.5">
               <div class="mb-1 h-4">
                 <span v-if="index === 1" class="text-xs text-muted">Loading documents…</span>
-                <USkeleton v-else class="h-4 w-2/3 animate-none rounded" />
+                <USkeleton v-else class="h-4 w-2/3 animate-none" />
               </div>
-              <USkeleton class="h-3 w-1/3 animate-none rounded" />
-              <USkeleton class="mt-1 h-4 w-16 animate-none rounded sm:hidden" />
+              <USkeleton class="h-3 w-1/3 animate-none" />
+              <USkeleton class="mt-1 h-4 w-16 animate-none sm:hidden" />
             </td>
-            <td class="hidden px-2 sm:table-cell"><USkeleton class="h-3 w-16 animate-none rounded" /></td>
-            <td v-if="tagField" class="hidden px-2 lg:table-cell"><USkeleton class="h-3 w-12 animate-none rounded" /></td>
-            <td v-if="dateField" class="hidden px-2 md:table-cell"><USkeleton class="h-3 w-16 animate-none rounded" /></td>
-            <td class="hidden px-4 sm:table-cell"><USkeleton class="ms-auto h-3 w-12 animate-none rounded" /></td>
+            <td class="hidden px-2 sm:table-cell"><USkeleton class="h-3 w-16 animate-none" /></td>
+            <td v-if="tagField" class="hidden px-2 lg:table-cell"><USkeleton class="h-3 w-12 animate-none" /></td>
+            <td v-if="dateField" class="hidden px-2 md:table-cell"><USkeleton class="h-3 w-16 animate-none" /></td>
+            <td class="hidden px-4 sm:table-cell"><USkeleton class="ms-auto h-3 w-12 animate-none" /></td>
           </tr>
         </template>
         <tr
           v-for="item in items"
           :key="item.id"
-          class="group h-12 cursor-pointer hover:bg-elevated/60"
-          :class="{ 'bg-elevated/40': selected.has(item.id) }"
+          class="group h-12 cursor-pointer hover:bg-elevated"
+          :class="{ 'bg-elevated': selected.has(item.id) }"
           @click="open(item)"
         >
           <td v-if="collection.access.publish" class="ps-4" @click.stop>
@@ -522,7 +517,7 @@ onBeforeUnmount(() => {
           <td class="min-w-0 py-2 sm:py-1" :class="collection.access.publish ? 'px-2' : 'px-4'">
             <a
               :href="router.resolve(documentRoute(item)).href"
-              class="block min-w-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+              class="block min-w-0"
               @click.prevent="open(item)"
             >
               <span class="flex min-w-0 items-center gap-2">
@@ -563,7 +558,7 @@ onBeforeUnmount(() => {
       </tbody>
     </table>
     <div v-if="page?.nextCursor" class="flex justify-center p-4">
-      <UButton variant="outline" size="sm" label="Load more" :loading="loadingMore" @click="load(true)" />
+      <UButton variant="outline" label="Load more" :loading="loadingMore" @click="load(true)" />
     </div>
     <p v-if="loading || items.length" class="flex flex-wrap gap-x-3 px-4 py-3 text-xs text-muted">
       <span v-if="loading">{{ items.length ? 'Updating documents…' : 'Loading documents…' }}</span>

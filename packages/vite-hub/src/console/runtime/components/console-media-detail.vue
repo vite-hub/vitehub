@@ -165,9 +165,9 @@ const facts = computed(() => [
           ]] : []),
         ]"
       >
-        <UButton variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="File actions" />
+        <UButton variant="ghost" icon="i-lucide-ellipsis" aria-label="File actions" />
       </UDropdownMenu>
-      <UButton variant="ghost" size="sm" icon="i-lucide-x" aria-label="Close details" @click="emit('close')" />
+      <UButton variant="ghost" icon="i-lucide-x" aria-label="Close details" @click="emit('close')" />
     </header>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
@@ -197,7 +197,7 @@ const facts = computed(() => [
           <h3 id="media-detail-text" class="text-xs font-medium text-highlighted">Description</h3>
           <span class="text-xs text-dimmed" aria-live="polite">{{ saving ? "Saving…" : saved ? "Saved" : "" }}</span>
         </div>
-        <UFormField label="Alt text" :description="isImage ? 'What the image shows, for people who cannot see it.' : undefined" :ui="{ label: 'text-xs', description: 'text-xs' }">
+        <UFormField label="Alt text" :description="isImage ? 'What the image shows, for people who cannot see it.' : undefined">
           <UTextarea
             v-model="alt"
             class="w-full"
@@ -210,7 +210,7 @@ const facts = computed(() => [
             @blur="flush"
           />
         </UFormField>
-        <UFormField label="Caption" :ui="{ label: 'text-xs' }">
+        <UFormField label="Caption">
           <UTextarea
             v-model="caption"
             class="w-full"
@@ -268,7 +268,7 @@ const facts = computed(() => [
           <li v-for="reference in usage" :key="`${reference.collection}/${reference.id}`">
             <RouterLink
               :to="documentRoute(reference)"
-              class="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] hover:bg-elevated focus-visible:outline-2"
+              class="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] hover:bg-elevated"
             >
               <UIcon name="i-lucide-file-text" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate text-highlighted">{{ reference.title }}</span>

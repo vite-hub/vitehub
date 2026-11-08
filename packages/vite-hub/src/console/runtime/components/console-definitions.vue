@@ -338,7 +338,6 @@ onBeforeUnmount(() => request?.abort());
               size="sm"
               :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
               :aria-label="`Filter ${sectionDetails.label}`"
-              :ui="{ base: 'text-base sm:text-sm' }"
             />
             <p v-if="!visibleEntries.length" class="px-2 py-1.5 text-xs text-muted">No match for “{{ search.trim() }}”.</p>
             <UTooltip v-for="entry in visibleEntries" :key="entry.id" :text="entry.id" :content="{ side: 'right' }" :disabled="!collapsed">
@@ -406,7 +405,6 @@ onBeforeUnmount(() => request?.abort());
           size="sm"
           :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
           :aria-label="`Filter ${sectionDetails.label}`"
-          :ui="{ base: 'text-base sm:text-sm' }"
         />
         <USelect
           v-for="column in filterColumns"
@@ -465,7 +463,7 @@ onBeforeUnmount(() => request?.abort());
                   <tr
                     v-for="row in visibleRecords"
                     :key="row.id"
-                    class="relative h-11 border-b border-default last:border-b-0 hover:bg-elevated/50"
+                    class="relative h-11 border-b border-default last:border-b-0 hover:bg-elevated"
                     :class="{ 'bg-elevated': row.id === selectedName }"
                     :aria-selected="row.id === selectedName"
                   >
@@ -474,7 +472,7 @@ onBeforeUnmount(() => request?.abort());
                       <button
                         v-if="!index"
                         type="button"
-                        class="text-start font-medium outline-none after:absolute after:inset-0 focus-visible:after:ring-1 focus-visible:after:ring-inset focus-visible:after:ring-primary"
+                        class="rounded-md text-start font-medium after:absolute after:inset-0"
                         @click="selectRecord(row.id)"
                       >
                         {{ row.cells[column.key] || row.id }}

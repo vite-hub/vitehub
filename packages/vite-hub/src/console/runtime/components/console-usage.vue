@@ -511,14 +511,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           v-model="section"
           :items="sections"
           aria-label="Usage sections"
-          color="neutral"
-          size="sm"
-          :ui="{
-            root: 'items-stretch gap-3',
-            list: 'w-fit gap-1 bg-transparent p-0',
-            indicator: 'hidden',
-            trigger: 'rounded-md px-2.5 data-[state=inactive]:text-muted data-[state=inactive]:hover:text-highlighted data-[state=active]:bg-elevated data-[state=active]:text-highlighted',
-          }"
+          class="items-stretch"
         >
           <template #overview>
             <UEmpty v-if="summary && !summary.available && summary.totals.invocationsAvailable" v-bind="emptyState" variant="naked" />
@@ -534,9 +527,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                       </span>
                     </p>
                   </div>
-                  <div class="flex gap-1" role="group" aria-label="Usage metric">
-                    <UButton v-for="option in metricOptions" :key="option.value" :label="option.label" color="neutral" size="xs" :variant="metric === option.value ? 'soft' : 'ghost'" :aria-pressed="metric === option.value" @click="metric = option.value" />
-                  </div>
+                  <UTabs v-model="metric" :items="metricOptions" :content="false" aria-label="Usage metric" />
                 </div>
                 <ConsoleUsageChart
                   :points="chartPoints"
@@ -591,18 +582,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               <section class="flex flex-col gap-3">
                 <div class="flex items-center justify-between gap-3">
                   <h2 class="text-sm font-semibold">Breakdown</h2>
-                  <div class="flex gap-1" role="group" aria-label="Usage breakdown">
-                    <UButton
-                      v-for="option in breakdownOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      color="neutral"
-                      size="xs"
-                      :variant="breakdown === option.value ? 'soft' : 'ghost'"
-                      :aria-pressed="breakdown === option.value"
-                      @click="breakdown = option.value"
-                    />
-                  </div>
+                  <UTabs v-model="breakdown" :items="breakdownOptions" :content="false" aria-label="Usage breakdown" />
                 </div>
                 <div class="overflow-x-auto rounded-md border border-default">
                   <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-xl text-xs" data-slot="usage-model-breakdown">
@@ -620,14 +600,14 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                       <tr
                         v-for="(model, index) in breakdownModels"
                         :key="model.model"
-                        class="relative border-t border-default transition-colors hover:bg-elevated/50 has-focus-visible:bg-elevated/50"
+                        class="relative border-t border-default transition-colors hover:bg-elevated"
                       >
                         <td class="py-2.5 pr-2 pl-3 text-muted tabular-nums">{{ index + 1 }}</td>
                         <td class="py-2.5 pr-3">
-                          <!-- The button overlay makes the whole row open the model. Focus shows as the row fill. -->
+                          <!-- The button overlay makes the whole row open the model. The theme rings the button itself. -->
                           <button
                             type="button"
-                            class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
+                            class="text-left font-medium text-highlighted after:absolute after:inset-0"
                             :aria-label="`${model.model} usage details`"
                             @click="selectedModelName = model.model"
                           >
@@ -753,7 +733,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   <tbody>
                     <tr v-for="session in summary.sessions" :key="session.id" class="border-t border-default hover:bg-elevated/40">
                       <td class="px-3 py-2.5 align-top">
-                        <RouterLink v-if="runRoute(session)" :to="runRoute(session)!" class="block truncate font-medium text-highlighted underline-offset-4 hover:underline focus-visible:underline" :title="session.title || session.id">{{ session.title || session.id }}</RouterLink>
+                        <RouterLink v-if="runRoute(session)" :to="runRoute(session)!" class="block truncate font-medium text-highlighted underline-offset-4 hover:underline" :title="session.title || session.id">{{ session.title || session.id }}</RouterLink>
                         <span v-else class="block truncate" :title="session.title || session.id">{{ session.title || session.id }}</span>
                       </td>
                       <td class="px-3 py-2.5 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>

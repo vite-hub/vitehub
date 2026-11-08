@@ -120,21 +120,17 @@ onMounted(load);
     This provider is read-only in Console. Manage values in the connected store.
   </p>
   <div v-else class="mt-8 space-y-4 border-t border-default pt-5">
-    <div v-if="access?.admin" class="flex gap-2" aria-label="Credential views">
-      <UButton
-        v-for="item in [
-          { value: 'credential', label: 'Credential' },
-          { value: 'activity', label: 'Activity' },
-          { value: 'access', label: 'Access' },
-        ]"
-        :key="item.value"
-        :label="item.label"
-        color="neutral"
-        :variant="tab === item.value ? 'soft' : 'ghost'"
-        :aria-pressed="tab === item.value"
-        @click="tab = item.value"
-      />
-    </div>
+    <UTabs
+      v-if="access?.admin"
+      v-model="tab"
+      :items="[
+        { value: 'credential', label: 'Credential' },
+        { value: 'activity', label: 'Activity' },
+        { value: 'access', label: 'Access' },
+      ]"
+      :content="false"
+      aria-label="Credential views"
+    />
     <ConsoleState v-if="error" compact :error="error" title="Could not complete the request" />
     <p v-if="warning" role="alert" class="text-sm text-warning">{{ warning }}</p>
     <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>

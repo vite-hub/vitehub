@@ -354,7 +354,6 @@ onBeforeUnmount(() => {
               size="sm"
               placeholder="Filter threads…"
               aria-label="Filter threads"
-              :ui="{ base: 'text-base sm:text-sm' }"
             />
             <p v-if="!selected.conversations" class="px-2 py-1.5 text-xs text-muted">This Channel has its own history collection and no per-thread conversation.</p>
             <template v-else-if="threadsLoading && !threads.length">

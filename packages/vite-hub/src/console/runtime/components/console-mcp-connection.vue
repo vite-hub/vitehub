@@ -134,11 +134,9 @@ async function disconnect(): Promise<void> {
       <template #right>
         <UButton
           v-if="needsSignIn"
-          color="neutral"
           icon="i-lucide-log-in"
           label="Sign in again"
           size="sm"
-          variant="soft"
           :loading="busy === 'reconnect'"
           @click="reconnect()"
         />
@@ -159,7 +157,7 @@ async function disconnect(): Promise<void> {
             <p class="truncate text-sm font-semibold text-highlighted">{{ account.primary }}</p>
             <p v-if="account.secondary" class="truncate text-xs text-muted">{{ account.secondary }}</p>
           </div>
-          <UBadge :color="status.color" variant="subtle" size="sm" class="shrink-0">
+          <UBadge :color="status.color" size="sm" class="shrink-0">
             <span class="size-1.5 rounded-full bg-current" aria-hidden="true" />{{ status.label }}
           </UBadge>
         </div>
@@ -177,17 +175,14 @@ async function disconnect(): Promise<void> {
       </div>
     </section>
 
+    <!-- On a narrow screen the tab list scrolls sideways. The tab list draws its line 1px below itself, so the
+         scroller makes room for it and overlaps the bottom border: the two are one line. -->
     <div class="shrink-0 border-b border-default">
-      <UTabs
-        v-model="activeTab"
-        :items="tabs"
-        :content="false"
-        aria-label="Connection views"
-        color="neutral"
-        size="sm"
-        variant="link"
-        :ui="{ root: 'mx-auto w-full max-w-6xl px-2 sm:px-4', list: 'overflow-x-auto border-0', trigger: 'shrink-0', leadingIcon: 'hidden sm:inline-flex' }"
-      />
+      <div class="-mb-px overflow-x-auto pb-px">
+        <div class="mx-auto max-w-6xl px-2 sm:px-4">
+          <UTabs v-model="activeTab" :items="tabs" :content="false" aria-label="Connection views" class="w-max min-w-full" />
+        </div>
+      </div>
     </div>
 
     <ConsoleMcpItems

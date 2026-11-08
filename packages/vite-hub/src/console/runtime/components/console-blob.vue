@@ -133,8 +133,8 @@ onMounted(async () => {
           @open="open"
         >
           <template #toolbar>
-            <USelect v-if="stores.length > 1" v-model="store" class="w-36" size="sm" :items="storeItems" aria-label="Blob store" />
-            <USwitch v-model="showVitehub" color="neutral" label="Show ViteHub files" size="xs" :ui="{ label: 'text-xs font-normal text-muted' }" />
+            <USelect v-if="stores.length > 1" v-model="store" class="w-36" :items="storeItems" aria-label="Blob store" />
+            <USwitch v-model="showVitehub" label="Show ViteHub files" size="xs" />
           </template>
         </ConsoleMediaBrowser>
         <ConsoleBlobDetail
@@ -146,11 +146,15 @@ onMounted(async () => {
           :store="store"
           @close="open(undefined)"
         />
-        <div v-else-if="activeError" class="vitehub-media-library__detail flex flex-col items-center justify-center gap-2 p-6 text-center">
-          <p class="text-sm text-highlighted">Couldn't open {{ file }}</p>
-          <p class="text-xs text-muted">{{ activeError }}</p>
-          <UButton variant="outline" size="sm" label="Close" @click="open(undefined)" />
-        </div>
+        <UEmpty
+          v-else-if="activeError"
+          variant="naked"
+          class="vitehub-media-library__detail justify-center"
+          icon="i-lucide-file-x"
+          :title="`Couldn't open ${file}`"
+          :description="activeError"
+          :actions="[{ label: 'Close', variant: 'outline', onClick: () => open(undefined) }]"
+        />
       </div>
     </UDashboardPanel>
 </template>

@@ -91,6 +91,7 @@ afterEach(() => {
 
 const stubs = {
   ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
+  UAlert: { props: ["title", "description"], template: "<div>{{ title }}<slot name='description'>{{ description }}</slot><slot name='actions' /></div>" },
   ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
   UButton,
   UModal,

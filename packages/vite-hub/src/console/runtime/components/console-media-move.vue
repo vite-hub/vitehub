@@ -110,8 +110,8 @@ defineExpose({
   <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-[440px]' }">
     <template #body>
       <form id="vitehub-media-move" class="grid gap-3" @submit.prevent="confirm">
-        <UFormField v-if="props.name !== undefined" label="Name" :ui="{ label: 'text-xs' }">
-          <UInput v-model="name" class="w-full" :ui="{ base: 'font-mono text-[13px]' }" autocomplete="off" autofocus />
+        <UFormField v-if="props.name !== undefined" label="Name">
+          <UInput v-model="name" class="w-full font-mono" autocomplete="off" autofocus />
         </UFormField>
         <div class="grid gap-1">
           <span class="text-xs text-muted">Folder</span>
@@ -129,9 +129,9 @@ defineExpose({
             >
               <UButton
                 v-if="node.path"
-                variant="link"
+                variant="ghost"
                 size="xs"
-                class="p-0.5 text-dimmed"
+                class="text-dimmed"
                 :icon="loading.has(node.path) ? 'i-lucide-loader-circle' : expanded.has(node.path) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
                 :aria-label="expanded.has(node.path) ? `Collapse ${consoleFolderName(node.path)}` : `Expand ${consoleFolderName(node.path)}`"
                 @click.stop="toggle(node.path)"

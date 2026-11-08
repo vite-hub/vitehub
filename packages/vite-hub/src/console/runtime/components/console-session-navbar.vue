@@ -79,7 +79,6 @@ onBeforeUnmount(() => {
           data-slot="mobile-session-navigation"
           class="md:hidden"
           icon="i-lucide-menu"
-          color="neutral"
           variant="ghost"
           size="xs"
           aria-label="Open sessions"
@@ -92,7 +91,6 @@ onBeforeUnmount(() => {
       <UTooltip v-if="hasSelection" :text="linkCopyLabel">
         <UButton
           :icon="linkCopy === 'copied' ? 'i-lucide-check' : 'i-lucide-link'"
-          color="neutral"
           variant="ghost"
           size="xs"
           :aria-label="linkCopyLabel"
@@ -104,7 +102,6 @@ onBeforeUnmount(() => {
           :to="externalUrl"
           target="_blank"
           :icon="externalTarget.icon"
-          color="neutral"
           variant="ghost"
           size="xs"
           :aria-label="externalTarget.label"
@@ -114,7 +111,6 @@ onBeforeUnmount(() => {
       <UTooltip v-if="refreshable" text="Refresh session">
         <UButton
           icon="i-lucide-refresh-cw"
-          color="neutral"
           variant="ghost"
           size="xs"
           :loading="loading"
@@ -126,7 +122,6 @@ onBeforeUnmount(() => {
         <UButton
           data-slot="session-details-toggle"
           icon="i-lucide-panel-right"
-          color="neutral"
           :variant="detailsOpen ? 'soft' : 'ghost'"
           size="xs"
           :disabled="!hasSelection"

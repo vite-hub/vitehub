@@ -11,5 +11,5 @@ const parts = computed(() => consoleHintParts(props.text));
 
 <template>
   <!-- One line of markup, so no space falls between code and the punctuation after it. -->
-  <template v-for="(part, index) in parts" :key="index"><code v-if="part.code" class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">{{ part.text }}</code><template v-else>{{ part.text }}</template></template>
+  <template v-for="(part, index) in parts" :key="index"><code v-if="part.code" class="rounded-md bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">{{ part.text }}</code><template v-else>{{ part.text }}</template></template>
 </template>

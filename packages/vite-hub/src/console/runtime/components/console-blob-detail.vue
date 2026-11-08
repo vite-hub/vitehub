@@ -59,7 +59,7 @@ async function copy(value: string): Promise<void> {
       <UIcon :name="consoleMediaTypeIcons[type]" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
       <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted" :title="file.pathname">{{ file.name }}</h2>
       <UTooltip text="Close" :kbds="['esc']">
-        <UButton variant="ghost" size="sm" icon="i-lucide-x" aria-label="Close details" @click="emit('close')" />
+        <UButton variant="ghost" icon="i-lucide-x" aria-label="Close details" @click="emit('close')" />
       </UTooltip>
     </header>
     <div class="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto p-4" @keydown.esc="emit('close')">

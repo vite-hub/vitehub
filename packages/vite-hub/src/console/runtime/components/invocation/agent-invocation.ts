@@ -1043,7 +1043,8 @@ function labelStyle(color: string | undefined): Record<string, string> {
   const luminance = (red * 299 + green * 587 + blue * 114) / 1_000;
   return {
     "--vh-invocation-label-bg": `#${normalized}`,
-    "--vh-invocation-label-fg": luminance > 150 ? "#1f2328" : "#ffffff",
+    // The label color is GitHub data. Its text is the darkest or lightest neutral, whichever keeps it readable.
+    "--vh-invocation-label-fg": luminance > 150 ? "var(--ui-color-neutral-900)" : "var(--ui-color-neutral-50)",
   };
 }
 

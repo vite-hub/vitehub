@@ -33,8 +33,7 @@ defineEmits<{ retry: []; openSessions: [] }>();
     <UButton
       :label="retrying ? 'Reconnecting…' : 'Reconnect'"
       icon="i-lucide-refresh-cw"
-      color="neutral"
-      variant="soft"
+      variant="outline"
       size="xs"
       :disabled="retrying"
       @click="$emit('retry')"

@@ -9,7 +9,12 @@ import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import "./console-session.css";
 
 const props = defineProps<{ file: ConsoleSkillFile; paths: readonly string[] }>();
-const raw = ref(false);
+const views = [
+  { label: "Preview", value: "preview" },
+  { label: "Source", value: "source" },
+];
+const view = ref<string | number>("preview");
+const raw = computed(() => view.value === "source");
 const markdown = computed(() => /\.md$/i.test(props.file.path));
 // A final newline ends the last line. It does not start another one.
 const lines = computed(() => props.file.content ? props.file.content.split("\n").length - (props.file.content.endsWith("\n") ? 1 : 0) : 0);
@@ -60,11 +65,8 @@ const SkillLink = defineComponent({
         <UIcon name="i-lucide-file-text" class="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
         <span class="min-w-0 [overflow-wrap:anywhere]">{{ file.path }}</span>
       </p>
-      <div v-if="markdown" role="group" aria-label="File view" class="flex items-center gap-1">
-        <UButton label="Preview" :aria-pressed="!raw" size="xs" color="neutral" :variant="raw ? 'ghost' : 'soft'" @click="raw = false" />
-        <UButton label="Source" :aria-pressed="raw" size="xs" color="neutral" :variant="raw ? 'soft' : 'ghost'" @click="raw = true" />
-      </div>
-      <UButton :label="copied ? 'Copied' : 'Copy'" :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'" aria-label="Copy file contents" size="xs" color="neutral" variant="ghost" @click="copy" />
+      <UTabs v-if="markdown" v-model="view" :items="views" :content="false" aria-label="File view" />
+      <UButton :label="copied ? 'Copied' : 'Copy'" :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'" aria-label="Copy file contents" size="xs" variant="ghost" @click="copy" />
     </header>
     <span role="status" class="sr-only">{{ copied ? 'File contents copied' : '' }}</span>
     <p v-if="copyError" role="alert" class="px-4 pt-2 text-xs text-error">Could not copy. Select the file text to copy it.</p>

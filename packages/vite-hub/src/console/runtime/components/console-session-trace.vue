@@ -562,9 +562,7 @@ async function copyAttributes() {
             v-model="spanQuery"
             icon="i-lucide-search"
             placeholder="Search spans"
-            size="sm"
-            variant="outline"
-            :ui="{ base: 'w-full' }"
+            class="w-full"
           />
           <span>{{ filteredSpans.length }} spans</span>
         </div>
@@ -619,9 +617,7 @@ async function copyAttributes() {
                   >
                 </span>
               </button>
-              <div v-if="filteredSpans.length === 0" class="session-trace__empty">
-                No spans match this search.
-              </div>
+              <UEmpty v-if="filteredSpans.length === 0" variant="naked" icon="i-lucide-search" title="No spans match this search" />
             </div>
           </div>
         </div>
@@ -630,7 +626,7 @@ async function copyAttributes() {
 
     <template #resize-handle>
       <span
-        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-(--ui-border-accented)"
       />
     </template>
 
@@ -640,12 +636,14 @@ async function copyAttributes() {
           <strong
             ><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong
           >
-          <UButton icon="i-lucide-wrap-text" label="Wrap" color="neutral" :variant="wordWrap ? 'soft' : 'ghost'" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
-          <button type="button" @click="copyAttributes">
-            <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-copy'" />{{
-              copied ? "Copied" : "Copy attributes"
-            }}
-          </button>
+          <UButton icon="i-lucide-wrap-text" label="Wrap" variant="ghost" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
+          <UButton
+            :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+            :label="copied ? 'Copied' : 'Copy attributes'"
+            variant="ghost"
+            size="xs"
+            @click="copyAttributes"
+          />
         </header>
         <section class="session-trace__summary">
           <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
@@ -674,8 +672,6 @@ async function copyAttributes() {
             v-model="fieldQuery"
             icon="i-lucide-search"
             placeholder="Search fields…"
-            size="sm"
-            variant="outline"
           />
         </div>
         <div class="session-trace__fields">
@@ -683,9 +679,7 @@ async function copyAttributes() {
             <span>{{ key }}</span>
             <pre>{{ displayValue(value) }}</pre>
           </section>
-          <div v-if="filteredAttributes.length === 0" class="session-trace__empty">
-            No fields match this search.
-          </div>
+          <UEmpty v-if="filteredAttributes.length === 0" variant="naked" icon="i-lucide-search" title="No fields match this search" />
         </div>
       </aside>
     </template>

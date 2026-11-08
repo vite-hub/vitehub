@@ -250,7 +250,7 @@ onBeforeUnmount(() => request?.abort());
           <UButton class="-ms-2 w-fit lg:hidden" color="neutral" icon="i-lucide-arrow-left" size="xs" variant="ghost" :label="`All ${nouns[kind]}`" @click="selected = undefined" />
           <div class="flex flex-wrap items-center gap-2">
             <h3 class="min-w-0 break-all font-mono text-sm font-semibold text-highlighted">{{ text(current.name) || text(current.uriTemplate) }}</h3>
-            <UBadge v-for="hint in consoleMcpToolHints(current)" :key="hint.label" :color="hint.tone" variant="outline" size="sm" :label="hint.label" />
+            <UBadge v-for="hint in consoleMcpToolHints(current)" :key="hint.label" :color="hint.tone" size="sm" :label="hint.label" />
             <span v-if="text(current.mimeType)" class="font-mono text-xs text-dimmed">{{ text(current.mimeType) }}</span>
           </div>
           <p v-if="text(current.title) && text(current.title) !== text(current.name)" class="text-[13px] font-medium text-default">{{ text(current.title) }}</p>
@@ -276,9 +276,8 @@ onBeforeUnmount(() => request?.abort());
               v-for="peer in peers"
               :key="peer.id"
               size="xs"
-              color="neutral"
-              :variant="runAs.includes(peer.id) ? 'soft' : 'ghost'"
-              :class="runAs.includes(peer.id) ? 'text-highlighted' : 'text-muted'"
+              variant="ghost"
+              :class="runAs.includes(peer.id) ? 'bg-elevated text-highlighted' : 'text-muted'"
               :aria-pressed="runAs.includes(peer.id)"
               @click="toggleRunAs(peer.id)"
             >
@@ -316,7 +315,7 @@ onBeforeUnmount(() => request?.abort());
 <style>
 /* One row of the item list: the name and one quiet line under it, like the detailed rows of the section sidebar. */
 .vitehub-mcp-item {
-  border-radius: 0.375rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   display: grid;
   gap: 0.125rem;
   min-height: 2.75rem;
@@ -331,10 +330,5 @@ onBeforeUnmount(() => request?.abort());
 
 .vitehub-mcp-item[aria-current="true"] {
   background: var(--ui-bg-accented);
-}
-
-.vitehub-mcp-item:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
 }
 </style>

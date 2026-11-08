@@ -229,7 +229,7 @@ async function publishAll(): Promise<void> {
   </ConsolePageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
-    <div class="mx-auto grid max-w-5xl gap-8 px-4 py-6 sm:px-6">
+    <div class="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-4 py-6 sm:px-6">
       <UAlert
         v-if="error && !overview"
         color="error"
@@ -237,34 +237,34 @@ async function publishAll(): Promise<void> {
         icon="i-lucide-cloud-off"
         title="Couldn't load the dashboard"
         :description="consoleErrorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => emit('reload') }]"
+        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: () => emit('reload') }]"
       />
 
-      <!-- Counts: one hairline strip, the numbers lead and the labels follow quietly. -->
-      <section aria-label="Documents by state" class="grid grid-cols-2 overflow-hidden rounded-lg border border-default sm:grid-cols-4">
-        <div
-          v-for="(stat, index) in stats"
-          :key="stat.state"
-          class="grid gap-1 px-4 py-3"
-          :class="[index % 2 ? 'border-s border-default' : '', index > 1 ? 'border-t border-default sm:border-t-0' : '', index === 2 ? 'sm:border-s' : '']"
-        >
-          <ConsoleStatus :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" />
-          <!-- The height of the text-2xl count, so the cards keep their height when the counts arrive. -->
-          <USkeleton v-if="firstLoad" class="my-1 h-6 w-10 rounded" />
-          <span v-else class="text-2xl font-semibold tracking-tight tabular-nums" :class="stat.count ? 'text-highlighted' : 'text-dimmed'">{{ stat.count }}</span>
-        </div>
-      </section>
+      <!-- Counts: the numbers lead and the labels follow quietly. -->
+      <UCard as="section" aria-label="Documents by state">
+        <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div v-for="stat in stats" :key="stat.state" class="grid gap-1">
+            <dt><ConsoleStatus :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" /></dt>
+            <dd>
+              <!-- The height of the text-2xl count, so the card keeps its height when the counts arrive. -->
+              <USkeleton v-if="firstLoad" class="my-1 h-6 w-10" />
+              <span v-else class="text-2xl font-semibold tracking-[-0.015em] tabular-nums" :class="stat.count ? 'text-highlighted' : 'text-dimmed'">{{ stat.count }}</span>
+            </dd>
+          </div>
+        </dl>
+      </UCard>
 
-      <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <div class="grid gap-8">
+      <div class="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+        <div class="grid grid-cols-1 gap-8">
           <section v-if="openNow.length" aria-labelledby="open-now" class="grid gap-2">
             <h2 id="open-now" class="text-[13px] font-medium text-highlighted">
               Open now
               <span class="ms-1 font-normal text-dimmed tabular-nums">{{ openNow.length }}</span>
             </h2>
-            <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <li v-for="entry in openNow.slice(0, 12)" :key="`${entry.collection.name}/${entry.id}`">
-                <RouterLink :to="documentRoute(entry.collection.name, entry.id)" class="flex h-11 items-center gap-3 px-3 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2">
+            <!-- These lists do not clip their rows, so the focus ring around a row stays visible. The end rows take the corners. -->
+            <ul class="divide-y divide-default rounded-lg border border-default">
+              <li v-for="entry in openNow.slice(0, 12)" :key="`${entry.collection.name}/${entry.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
+                <RouterLink :to="documentRoute(entry.collection.name, entry.id)" class="flex h-11 items-center gap-3 px-3 hover:bg-elevated">
                   <span class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ entry.title }}</span>
                   <span class="hidden truncate text-xs text-dimmed sm:inline">{{ entry.collection.label }}</span>
                   <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.id)" :user="sessionUser" />
@@ -282,17 +282,18 @@ async function publishAll(): Promise<void> {
               <p v-if="pending.length && !canPublishAny" class="text-xs text-dimmed">An editor publishes these.</p>
             </header>
             <!-- One line, the height of "Everything is published": most visits find nothing to publish. -->
-            <USkeleton v-if="firstLoad" class="my-1 h-5 w-3/4 rounded" />
-            <div v-else-if="!pending.length && noAccess" class="grid gap-0.5 py-1">
-              <p class="text-[13px] text-highlighted">No one can read documents yet</p>
-              <p class="text-xs text-muted"><ConsoleSetupHint :hint="noAccess" /></p>
-            </div>
-            <p v-else-if="!pending.length" class="flex items-center gap-2 py-1 text-[13px] text-muted">
-              <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-success" aria-hidden="true" />
-              Everything is published. Drafts and edits show here until someone publishes them.
-            </p>
-            <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <li v-for="entry in pending.slice(0, 12)" :key="`${entry.collection.name}/${entry.change.id}`">
+            <USkeleton v-if="firstLoad" class="h-24" />
+            <UEmpty v-else-if="!pending.length && noAccess" icon="i-lucide-lock" title="No one can read documents yet">
+              <template #description><ConsoleSetupHint :hint="noAccess" /></template>
+            </UEmpty>
+            <UEmpty
+              v-else-if="!pending.length"
+              icon="i-lucide-circle-check"
+              title="Everything is published"
+              description="Drafts and edits show here until someone publishes them."
+            />
+            <ul v-else class="divide-y divide-default rounded-lg border border-default">
+              <li v-for="entry in pending.slice(0, 12)" :key="`${entry.collection.name}/${entry.change.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
                 <RouterLink
                   :to="entry.change.state === 'deleted' ? collectionRoute(entry.collection.name) : documentRoute(entry.collection.name, entry.change.id)"
                   class="vitehub-dashboard-row"
@@ -324,8 +325,8 @@ async function publishAll(): Promise<void> {
               <span class="ms-1 font-normal text-dimmed tabular-nums">{{ scheduled.length }}</span>
             </h2>
             <p v-if="setup?.schedule" class="text-xs text-muted"><ConsoleSetupHint :hint="setup.schedule" /></p>
-            <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`">
+            <ul class="divide-y divide-default rounded-lg border border-default">
+              <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
                 <RouterLink
                   :to="documentRoute(entry.collection.name, entry.item.id)"
                   class="vitehub-dashboard-row"
@@ -347,12 +348,17 @@ async function publishAll(): Promise<void> {
           <section aria-labelledby="collections" class="grid gap-2">
             <h2 id="collections" class="text-[13px] font-medium text-highlighted">Collections</h2>
             <div v-if="firstLoad && !listed.length" class="grid gap-px">
-              <USkeleton v-for="index in 2" :key="index" class="h-11 rounded-md" />
+              <USkeleton v-for="index in 2" :key="index" class="h-11" />
             </div>
-            <p v-else-if="!listed.length && !singletons.length" class="text-xs text-muted">No collections you can read.</p>
-            <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
+            <UEmpty
+              v-else-if="!listed.length && !singletons.length"
+              icon="i-lucide-folder-lock"
+              title="No collections you can read"
+              description="Ask an admin for read access to a collection."
+            />
+            <ul v-else class="divide-y divide-default rounded-lg border border-default">
               <li v-for="collection in listed" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
-                <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2">
+                <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 hover:text-highlighted">
                   <span class="truncate text-sm font-medium text-highlighted">{{ collection.label }}</span>
                   <span class="hidden truncate font-mono text-xs text-dimmed sm:inline">{{ collection.path }}</span>
                 </RouterLink>
@@ -371,7 +377,7 @@ async function publishAll(): Promise<void> {
                 />
               </li>
               <li v-if="singletons.length && settingsRoute" class="flex h-11 items-center gap-3 px-3">
-                <RouterLink :to="settingsRoute" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2">
+                <RouterLink :to="settingsRoute" class="flex min-w-0 flex-1 items-baseline gap-2">
                   <span class="truncate text-sm font-medium text-highlighted">Settings</span>
                   <span class="hidden truncate text-xs text-dimmed sm:inline">{{ singletons.length === 1 ? "1 singleton" : `${singletons.length} singletons` }}</span>
                 </RouterLink>
@@ -388,9 +394,9 @@ async function publishAll(): Promise<void> {
         <section aria-labelledby="recent-activity" class="grid gap-2">
           <h2 id="recent-activity" class="text-[13px] font-medium text-highlighted">Recent activity</h2>
           <div v-if="firstLoad" class="grid gap-3">
-            <USkeleton v-for="index in 5" :key="index" class="h-9 rounded-md" />
+            <USkeleton v-for="index in 5" :key="index" class="h-9" />
           </div>
-          <p v-else-if="!overview?.activity.length" class="text-xs text-muted">Saves and publishes show here.</p>
+          <UEmpty v-else-if="!overview?.activity.length" icon="i-lucide-history" title="No activity yet" description="Saves and publishes show here." />
           <ol v-else class="grid">
             <li v-for="entry in activity" :key="entry.id" class="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1">
               <p class="min-w-0 truncate text-[13px] text-muted" :title="entry.documents.length === 1 ? collectionLabel(entry.documents[0]!.collection) : entry.documents.map(document => document.title).join(', ')">
@@ -409,15 +415,15 @@ async function publishAll(): Promise<void> {
               <span class="text-xs whitespace-nowrap text-dimmed tabular-nums"><ConsoleRelativeTime :value="entry.createdAt" /></span>
             </li>
           </ol>
-          <button
+          <UButton
             v-if="(overview?.activity.length ?? 0) > activityLimit"
-            type="button"
-            class="w-fit rounded-sm text-xs text-dimmed hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2"
+            variant="ghost"
+            size="xs"
+            class="w-fit"
+            :label="showAllActivity ? 'Show less' : `Show all ${overview?.activity.length}`"
             :aria-expanded="showAllActivity"
             @click="showAllActivity = !showAllActivity"
-          >
-            {{ showAllActivity ? "Show less" : `Show all ${overview?.activity.length}` }}
-          </button>
+          />
         </section>
       </div>
     </div>
@@ -442,12 +448,7 @@ async function publishAll(): Promise<void> {
 }
 
 .vitehub-dashboard-row:hover {
-  background: color-mix(in oklab, var(--ui-bg-elevated) 60%, transparent);
-}
-
-.vitehub-dashboard-row:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
+  background: var(--ui-bg-elevated);
 }
 
 .vitehub-dashboard-row__status { grid-area: status; }

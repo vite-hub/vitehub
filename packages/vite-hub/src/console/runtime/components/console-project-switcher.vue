@@ -140,7 +140,7 @@ function forget(): void {
 .vitehub-project-switcher__mark {
   align-items: center;
   border: 1px solid var(--ui-border-accented);
-  border-radius: 0.3125rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   color: var(--ui-text-highlighted);
   display: inline-flex;
   font-size: 0.6875rem;

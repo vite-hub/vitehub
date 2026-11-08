@@ -67,21 +67,22 @@ function editorRoute(name: string) {
         icon="i-lucide-cloud-off"
         title="Couldn't load singletons"
         :description="consoleErrorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => emit('reload') }]"
+        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', variant: 'outline', onClick: () => emit('reload') }]"
       />
       <div v-else-if="firstLoad" class="grid gap-px">
-        <USkeleton v-for="index in 2" :key="index" class="h-14 rounded-md" />
+        <USkeleton v-for="index in 2" :key="index" class="h-14" />
       </div>
       <template v-else>
         <h2 class="text-[13px] font-medium text-highlighted">
           Singletons
           <span class="ms-1 font-normal text-dimmed tabular-nums">{{ singletons.length }}</span>
         </h2>
-        <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default" aria-label="Settings">
-          <li v-for="singleton in singletons" :key="singleton.name">
+        <!-- The list does not clip its rows, so the focus ring around a row stays visible. The end rows take its corners. -->
+        <ul class="divide-y divide-default rounded-lg border border-default" aria-label="Settings">
+          <li v-for="singleton in singletons" :key="singleton.name" class="first:*:rounded-t-md last:*:rounded-b-md">
             <RouterLink
               :to="editorRoute(singleton.name)"
-              class="flex min-h-14 items-center gap-3 px-3 py-2 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2"
+              class="flex min-h-14 items-center gap-3 px-3 py-2 hover:bg-elevated"
             >
               <span class="grid min-w-0 flex-1">
                 <span class="truncate text-sm font-medium text-highlighted">{{ singleton.label }}</span>

@@ -1477,17 +1477,15 @@ async function changeMode(next: "rich" | "source"): Promise<void> {
   mode.value = next;
 }
 
+// The Rich and Source tabs. Source commits the rich editor first, so the tab change goes through changeMode.
+const modeItems = [{ label: "Rich", value: "rich" }, { label: "Source", value: "source" }];
+const modeTab = computed({
+  get: () => mode.value,
+  set: (next: string | number) => void changeMode(next === "source" ? "source" : "rich"),
+});
+
 function toggleMode(): void {
   void changeMode(mode.value === "rich" ? "source" : "rich");
-}
-
-async function onModeKeydown(event: KeyboardEvent): Promise<void> {
-  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-  event.preventDefault();
-  const group = event.currentTarget instanceof Element ? event.currentTarget.closest('[role="radiogroup"]') : null;
-  await changeMode(event.key === "Home" ? "rich" : event.key === "End" ? "source" : mode.value === "rich" ? "source" : "rich");
-  await nextTick();
-  group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -1833,6 +1831,11 @@ function setPanel(next: "history" | "outline" | undefined): void {
   else delete query.panel;
   void router.replace({ query });
 }
+const panelItems = computed(() => [...(hasBody.value ? [{ label: "Outline", value: "outline" }] : []), { label: "History", value: "history" }]);
+const panelTab = computed({
+  get: () => panel.value,
+  set: (next: string | number | undefined) => setPanel(next === "outline" ? "outline" : "history"),
+});
 function openHistory(): void {
   if (window.matchMedia("(min-width: 1024px)").matches) setPanel("history");
   else historyOpen.value = true;
@@ -1938,14 +1941,14 @@ const menuItems = computed(() => [[
         <span class="me-1 hidden lg:inline-flex"><ConsoleStatus label="Can't check who else is editing" /></span>
       </UTooltip>
       <span class="me-1 inline-flex" role="status" aria-live="polite">
-        <button
+        <UButton
           v-if="headerStatus?.action && !savingVisible"
-          type="button"
-          class="rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+          variant="ghost"
+          size="xs"
           @click="onHeaderAction(headerStatus.action)"
         >
-          <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" class="underline decoration-dotted underline-offset-4 hover:text-highlighted" />
-        </button>
+          <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" class="underline decoration-dotted underline-offset-4" />
+        </UButton>
         <UTooltip v-else-if="headerStatus" :text="creating ? 'Create saves the first draft' : 'Drafts save as you type. ⌘S saves now.'" :content="{ side: 'bottom' }">
           <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" :pending="headerStatus.pending">
             {{ headerStatus.label }}<template v-if="headerStatus.savedAt">
@@ -1961,9 +1964,7 @@ const menuItems = computed(() => [[
         :ui="{ content: 'w-72', itemDescription: 'whitespace-normal!' }"
       >
         <UButton
-          size="sm"
           variant="ghost"
-          :color="local ? 'warning' : 'neutral'"
           :icon="local ? 'i-lucide-laptop' : 'i-lucide-users'"
           trailing-icon="i-lucide-chevron-down"
           :aria-label="`Editing: ${local ? 'Local only' : 'Collaborative'}`"
@@ -1976,7 +1977,6 @@ const menuItems = computed(() => [[
       <UTooltip v-if="remote && base && !creating && !missing" text="The preview works only in the Console that the app serves. Open in the app" :content="{ side: 'bottom' }">
         <UButton
           variant="ghost"
-          size="sm"
           icon="i-lucide-app-window"
           trailing-icon="i-lucide-arrow-up-right"
           aria-label="Preview: open in the app"
@@ -1988,41 +1988,32 @@ const menuItems = computed(() => [[
       <UTooltip v-else-if="base && !creating && !missing" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
         <UButton
           variant="ghost"
-          size="sm"
+          class="aria-pressed:bg-accented aria-pressed:text-highlighted"
           icon="i-lucide-app-window"
           aria-label="Preview the page"
           :aria-pressed="previewOpen"
           :disabled="!previewUrl"
-          :active="previewOpen"
-          active-variant="soft"
           @click="setPreview(!previewOpen)"
         />
       </UTooltip>
-      <div
+      <UTooltip
         v-if="hasBody && !creating && !loading && !missing && !deleted && !loadError"
-        class="hidden items-center rounded-md p-0.5 ring-1 ring-default ring-inset"
-        :class="previewOpen ? '' : 'md:flex'"
-        role="radiogroup"
-        aria-label="Editing mode"
+        text="Rich edits the page. Source shows the stored Markdown file."
+        :kbds="['meta', '/']"
+        :content="{ side: 'bottom' }"
       >
-        <UTooltip v-for="option in [{ label: 'Rich', value: 'rich' }, { label: 'Source', value: 'source' }] as const" :key="option.value" :text="option.value === 'rich' ? 'Edit as a page' : 'The stored Markdown file'" :kbds="['meta', '/']">
-          <button
-            type="button"
-            role="radio"
-            class="h-6 rounded-[4px] px-2 text-xs focus-visible:outline-2"
-            :class="mode === option.value ? 'bg-elevated text-highlighted' : 'text-muted hover:text-highlighted'"
-            :aria-checked="mode === option.value"
-            :tabindex="mode === option.value ? 0 : -1"
-            @click="changeMode(option.value)"
-            @keydown="onModeKeydown"
-          >
-            {{ option.label }}
-          </button>
-        </UTooltip>
-      </div>
-      <UButton v-if="creating && canWrite" size="sm" label="Create" :loading="saving" @click="save()" />
+        <UTabs
+          v-model="modeTab"
+          :items="modeItems"
+          :content="false"
+          class="hidden"
+          :class="previewOpen ? '' : 'md:flex'"
+          aria-label="Editing mode"
+        />
+      </UTooltip>
+      <UButton v-if="creating && canWrite" label="Create" :loading="saving" @click="save()" />
       <!-- A split button: Publish now, or Schedule… from the arrow. A deleted document publishes its deletion now only. -->
-      <UFieldGroup v-else-if="publishable" size="sm">
+      <UFieldGroup v-else-if="publishable">
         <UTooltip :text="errorCount ? consoleFixFieldsLabel(errorCount) : undefined" :disabled="!errorCount" :content="{ side: 'bottom' }">
           <UButton
             :label="state === 'deleted' ? 'Publish deletion' : local ? 'Publish shared draft' : 'Publish'"
@@ -2043,18 +2034,16 @@ const menuItems = computed(() => [[
       </UFieldGroup>
       <UTooltip v-if="!creating && !missing" text="Outline and history" :content="{ side: 'bottom' }">
         <UButton
-          class="hidden lg:inline-flex"
+          class="hidden aria-pressed:bg-accented aria-pressed:text-highlighted lg:inline-flex"
           variant="ghost"
-          size="sm"
           icon="i-lucide-panel-right"
           aria-label="Toggle the side panel"
-          :active="Boolean(panel)"
-          active-variant="soft"
+          :aria-pressed="Boolean(panel)"
           @click="setPanel(panel ? undefined : hasBody ? 'outline' : 'history')"
         />
       </UTooltip>
       <UDropdownMenu v-if="!missing" :items="menuItems" :content="{ align: 'end' }">
-        <UButton variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="More actions" />
+        <UButton variant="ghost" icon="i-lucide-ellipsis" aria-label="More actions" />
       </UDropdownMenu>
     </template>
   </ConsolePageHeader>
@@ -2086,50 +2075,67 @@ const menuItems = computed(() => [[
         icon="i-lucide-file-x"
         title="Deleted from the draft"
         description="It stays on the published site until you publish the deletion. Open History to restore an earlier version."
-        :actions="[{ label: 'History', icon: 'i-lucide-history', color: 'neutral', variant: 'outline', onClick: () => (historyOpen = true) }]"
+        :actions="[{ label: 'History', icon: 'i-lucide-history', variant: 'outline', onClick: () => (historyOpen = true) }]"
       />
       <article v-else class="mx-auto w-full max-w-[52rem] px-6 pt-10 pb-8 sm:px-16 sm:pt-14">
-        <div v-if="local" class="mb-6 grid gap-1.5 rounded-md bg-warning/5 px-3 py-2 text-[13px] ring-1 ring-warning/30 ring-inset" role="status" aria-live="polite">
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <UIcon name="i-lucide-laptop" class="size-4 shrink-0 text-warning" aria-hidden="true" />
-            <span class="min-w-0 flex-1 text-default">Local only · Your edits stay in this tab. Nobody sees them, and nothing saves until you apply them.</span>
-            <UButton v-if="sharedGone" size="xs" color="neutral" variant="ghost" label="Copy" icon="i-lucide-copy" aria-label="Copy your local edits" @click="copyLocal" />
-            <UButton size="xs" color="neutral" variant="ghost" label="Discard…" :disabled="(!localChanged && !sharedGone) || applyingLocal" @click="localExitOpen = true" />
-            <UButton size="xs" color="neutral" variant="outline" label="Apply to shared draft" :disabled="!localChanged && !sharedGone" :loading="applyingLocal" @click="applyLocal()" />
-          </div>
-          <p v-if="sharedGone" class="ps-7 text-default">
-            The shared draft was deleted after your local edits started. They are still here. Copy them, apply them to create the {{ single ? "page" : noun.toLowerCase() }} again after a comparison, or discard them.
-          </p>
-          <p v-if="localLeaseHolder" class="ps-7 text-muted">{{ localLeaseHolder }} Apply when they stop.</p>
-          <p v-if="sharedMoved" class="ps-7 text-muted">Someone saved the shared draft after your local edits started. Apply compares them before it saves.</p>
-          <p v-if="localStorageFailed" class="ps-7 text-error">This tab can't keep your local edits after a reload. Apply or copy them before you leave.</p>
-        </div>
-        <div v-if="leaseBanner" class="mb-6 grid gap-1.5 rounded-md px-3 py-2 text-[13px] ring-1 ring-default ring-inset" role="status" aria-live="polite">
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <UIcon :name="leaseBanner.icon" class="size-4 shrink-0 text-muted" aria-hidden="true" />
-            <span class="min-w-0 flex-1 text-default">{{ leaseBanner.text }}</span>
+        <UAlert
+          v-if="local"
+          class="mb-6"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-laptop"
+          title="Local only"
+          role="status"
+          aria-live="polite"
+        >
+          <template #description>
+            <p>Your edits stay in this tab. Nobody sees them, and nothing saves until you apply them.</p>
+            <p v-if="sharedGone" class="mt-1">
+              The shared draft was deleted after your local edits started. They are still here. Copy them, apply them to create the {{ single ? "page" : noun.toLowerCase() }} again after a comparison, or discard them.
+            </p>
+            <p v-if="localLeaseHolder" class="mt-1">{{ localLeaseHolder }} Apply when they stop.</p>
+            <p v-if="sharedMoved" class="mt-1">Someone saved the shared draft after your local edits started. Apply compares them before it saves.</p>
+            <p v-if="localStorageFailed" class="mt-1 text-error">This tab can't keep your local edits after a reload. Apply or copy them before you leave.</p>
+          </template>
+          <template #actions>
+            <UButton v-if="sharedGone" size="xs" variant="ghost" label="Copy" icon="i-lucide-copy" aria-label="Copy your local edits" @click="copyLocal" />
+            <UButton size="xs" variant="ghost" label="Discard…" :disabled="(!localChanged && !sharedGone) || applyingLocal" @click="localExitOpen = true" />
+            <UButton size="xs" variant="outline" label="Apply to shared draft" :disabled="!localChanged && !sharedGone" :loading="applyingLocal" @click="applyLocal()" />
+          </template>
+        </UAlert>
+        <UAlert
+          v-if="leaseBanner"
+          class="mb-6"
+          color="neutral"
+          variant="outline"
+          :icon="leaseBanner.icon"
+          role="status"
+          aria-live="polite"
+        >
+          <template #description>
+            <p>{{ leaseBanner.text }}</p>
+            <p v-if="leaseMode === 'taken' && refusedEdits" class="mt-1 text-muted">{{ refusedEdits === 1 ? "1 edit wasn't saved." : `${refusedEdits} edits weren't saved.` }}</p>
+          </template>
+          <template v-if="leaseMode === 'blocked' || leaseMode === 'taken' || leaseMode === 'left'" #actions>
             <template v-if="leaseMode === 'blocked'">
-              <UButton v-if="holderLive && liveDefinition" size="xs" color="neutral" variant="outline" label="Join" @click="joinLive" />
-              <UButton v-else-if="!holderLive" size="xs" color="neutral" variant="outline" label="Take over" @click="takeOver" />
+              <UButton v-if="holderLive && liveDefinition" size="xs" variant="outline" label="Join" @click="joinLive" />
+              <UButton v-else-if="!holderLive" size="xs" variant="outline" label="Take over" @click="takeOver" />
             </template>
             <template v-else-if="leaseMode === 'taken'">
-              <UButton size="xs" color="neutral" variant="ghost" label="Compare" @click="compareWithHolder" />
-              <UButton size="xs" color="neutral" variant="outline" label="Take back" @click="takeOver" />
+              <UButton v-if="refusedEdits" size="xs" variant="ghost" icon="i-lucide-copy" label="Copy unsaved edits" @click="copyUnsaved" />
+              <UButton size="xs" variant="ghost" label="Compare" @click="compareWithHolder" />
+              <UButton size="xs" variant="outline" label="Take back" @click="takeOver" />
             </template>
-            <UButton v-else-if="leaseMode === 'left'" size="xs" color="neutral" variant="outline" label="Reload and edit" @click="reloadAndEdit" />
-          </div>
-          <div v-if="leaseMode === 'taken' && refusedEdits" class="flex items-center gap-3 ps-7 text-muted">
-            <span class="flex-1">{{ refusedEdits === 1 ? "1 edit wasn't saved" : `${refusedEdits} edits weren't saved` }}</span>
-            <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-copy" label="Copy" @click="copyUnsaved" />
-          </div>
-        </div>
+            <UButton v-else size="xs" variant="outline" label="Reload and edit" @click="reloadAndEdit" />
+          </template>
+        </UAlert>
         <p v-if="!canWrite" class="mb-6 flex items-center gap-2 text-[13px] text-muted">
           <UIcon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
           Read-only. You can read drafts of this collection but not change them.
         </p>
 
         <template v-if="mode === 'rich'">
-          <h1 v-if="single" class="mb-4 text-[32px]/[40px] font-semibold tracking-[-0.04rem] text-highlighted">{{ collection.label }}</h1>
+          <h1 v-if="single" class="mb-4 text-[32px]/[40px] font-semibold tracking-[-0.015em] text-highlighted">{{ collection.label }}</h1>
           <div v-else-if="titleField" class="mb-4">
             <label :for="`field-${titleField.name}`" class="sr-only">{{ titleField.label }}</label>
             <textarea
@@ -2137,7 +2143,7 @@ const menuItems = computed(() => [[
               ref="titleInput"
               :value="String(draft.data[titleField.name] ?? '')"
               rows="1"
-              class="block w-full resize-none overflow-hidden rounded-sm bg-transparent text-[32px]/[40px] font-semibold tracking-[-0.04rem] text-highlighted outline-none placeholder:text-dimmed focus-visible:outline-none disabled:cursor-default"
+              class="block w-full resize-none overflow-hidden bg-transparent text-[32px]/[40px] font-semibold tracking-[-0.015em] text-highlighted placeholder:text-dimmed disabled:cursor-default"
               :placeholder="`${noun} title`"
               :disabled="!editable"
               :aria-invalid="fieldErrors[titleField.name] ? 'true' : undefined"
@@ -2168,20 +2174,18 @@ const menuItems = computed(() => [[
               <USelect
                 id="field-folder"
                 v-model="folderIndex"
-                class="w-full"
+                class="w-full font-mono"
                 variant="ghost"
                 :items="folders.map((entry, index) => ({ label: entry.folder || '/', value: index }))"
-                :ui="{ base: 'font-mono text-xs' }"
               />
             </ConsolePropertyRow>
             <ConsolePropertyRow v-if="creating" icon="i-lucide-file" label="Id" control="field-id" :error="idError" :missing="!newId.trim() && !idError">
               <UInput
                 id="field-id"
                 v-model="newId"
-                class="w-full"
+                class="w-full font-mono"
                 variant="ghost"
                 placeholder="hello-world"
-                :ui="{ base: 'bg-transparent hover:bg-transparent focus:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) font-mono text-xs', trailing: 'pe-2' }"
                 :aria-invalid="idError ? 'true' : undefined"
                 :aria-describedby="idError ? 'field-id-error' : 'field-id-hint'"
                 @update:model-value="idEdited = true"
@@ -2221,7 +2225,7 @@ const menuItems = computed(() => [[
           </div>
           <pre
             v-if="sourceParts?.frontmatter"
-            class="overflow-x-auto rounded-md bg-elevated/50 px-4 py-3 font-mono text-[13px]/6 text-muted select-text"
+            class="overflow-x-auto rounded-lg bg-muted px-4 py-3 font-mono text-[13px]/6 text-muted select-text"
             aria-label="Frontmatter, read-only"
           >{{ sourceParts.frontmatter.trimEnd() }}</pre>
         </section>
@@ -2272,41 +2276,30 @@ const menuItems = computed(() => [[
           autoresize
           :rows="16"
           variant="none"
-          class="w-full"
-          :ui="{ base: 'min-h-80 p-0 font-mono text-[13px] leading-6' }"
+          class="w-full font-mono"
           aria-label="Markdown body"
         />
       </article>
     </div>
 
     <aside v-if="panel && !creating && !missing" class="hidden w-72 shrink-0 flex-col border-s border-default lg:flex" aria-label="Side panel">
-      <div class="flex h-11 shrink-0 items-center gap-1 border-b border-default px-2">
-        <UButton
-          v-for="option in (hasBody ? [{ label: 'Outline', value: 'outline' }, { label: 'History', value: 'history' }] as const : [{ label: 'History', value: 'history' }] as const)"
-          :key="option.value"
-          size="xs"
-          variant="ghost"
-          :label="option.label"
-          :active="panel === option.value"
-          active-variant="soft"
-          :aria-pressed="panel === option.value"
-          @click="setPanel(option.value)"
-        />
-        <UButton class="ms-auto" size="xs" variant="ghost" icon="i-lucide-x" aria-label="Close the side panel" @click="setPanel(undefined)" />
+      <div class="flex h-11 shrink-0 items-end gap-1 border-b border-default px-2">
+        <UTabs v-model="panelTab" :items="panelItems" :content="false" class="min-w-0" aria-label="Side panel" />
+        <UButton class="ms-auto self-center" size="xs" variant="ghost" icon="i-lucide-x" aria-label="Close the side panel" @click="setPanel(undefined)" />
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-2">
         <nav v-if="panel === 'outline'" aria-label="Outline">
-          <p v-if="!outline.length" class="px-2 py-1.5 text-xs text-muted">Headings in the body show here.</p>
+          <UEmpty v-if="!outline.length" variant="naked" size="sm" icon="i-lucide-list-tree" title="No headings yet" description="Headings in the body show here." />
           <ol v-else class="grid">
             <li v-for="heading in outline" :key="`${heading.pos}`">
-              <button
-                type="button"
-                class="block w-full truncate rounded-md py-1 pe-2 text-left text-[13px] text-muted hover:bg-elevated/60 hover:text-highlighted focus-visible:outline-2"
+              <UButton
+                variant="ghost"
+                size="xs"
+                class="w-full"
                 :style="{ paddingInlineStart: `${0.5 + (heading.level - 1) * 0.75}rem` }"
+                :label="heading.text"
                 @click="bodyEditor?.scrollTo(heading.pos)"
-              >
-                {{ heading.text }}
-              </button>
+              />
             </li>
           </ol>
         </nav>
@@ -2329,7 +2322,7 @@ const menuItems = computed(() => [[
   <template v-if="previewOpen && previewUrl && base">
     <div
       v-if="wide"
-      class="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize touch-none focus-visible:outline-none"
+      class="relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize touch-none"
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize the preview"
@@ -2341,7 +2334,7 @@ const menuItems = computed(() => [[
       @pointerdown="onSplitterPointerDown"
       @keydown="onSplitterKeydown"
     >
-      <div class="mx-auto h-full w-px bg-(--ui-border) transition-colors group-hover:bg-(--ui-border-accented) group-focus-visible:w-0.5 group-focus-visible:bg-primary" :class="resizing ? 'w-0.5 bg-primary' : ''" />
+      <div class="mx-auto h-full w-px bg-(--ui-border) transition-colors hover:bg-(--ui-border-accented)" :class="resizing ? 'w-0.5 bg-primary' : ''" />
     </div>
     <ConsoleDocumentPreview
       id="vitehub-document-preview"
@@ -2528,9 +2521,9 @@ const menuItems = computed(() => [[
     </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="outline" label="Open read-only" @click="openReadOnly" />
-        <UButton v-if="canWrite && holderLive && liveDefinition" color="neutral" label="Join" @click="joinLive" />
-        <UButton v-else-if="canWrite && !holderLive" color="neutral" label="Take over" @click="takeOver" />
+        <UButton variant="outline" label="Open read-only" @click="openReadOnly" />
+        <UButton v-if="canWrite && holderLive && liveDefinition" label="Join" @click="joinLive" />
+        <UButton v-else-if="canWrite && !holderLive" label="Take over" @click="takeOver" />
       </div>
     </template>
   </UModal>
@@ -2547,8 +2540,8 @@ const menuItems = computed(() => [[
     </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="ghost" label="Close" @click="leaseCompareOpen = false" />
-        <UButton color="neutral" variant="outline" icon="i-lucide-copy" label="Copy mine" @click="copyUnsaved" />
+        <UButton variant="ghost" label="Close" @click="leaseCompareOpen = false" />
+        <UButton variant="outline" icon="i-lucide-copy" label="Copy mine" @click="copyUnsaved" />
       </div>
     </template>
   </UModal>
@@ -2560,10 +2553,10 @@ const menuItems = computed(() => [[
   >
     <template #body>
       <div class="flex flex-wrap items-end gap-3">
-        <UFormField label="Date" :ui="{ label: 'text-xs' }">
+        <UFormField label="Date">
           <UInputDate v-model="scheduleDate" :min-value="scheduleMinDate" class="w-40" aria-label="Publish date" />
         </UFormField>
-        <UFormField label="Time" :ui="{ label: 'text-xs' }">
+        <UFormField label="Time">
           <UInputTime v-model="scheduleTime" :hour-cycle="24" class="w-24" aria-label="Publish time" />
         </UFormField>
         <span class="pb-2 text-xs text-dimmed">{{ timeZone }}</span>

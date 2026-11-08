@@ -59,18 +59,19 @@ function initials(name: string): string {
   <div class="grid gap-4">
     <UAlert v-if="error" color="error" variant="subtle" title="Couldn't load history" :description="consoleErrorMessage(error)" />
     <div v-else-if="loading && !revisions.length" class="grid gap-1">
-      <USkeleton v-for="index in 4" :key="index" class="h-10 rounded-md" />
+      <USkeleton v-for="index in 4" :key="index" class="h-10" />
     </div>
-    <p v-else-if="!revisions.length" class="px-2 text-xs text-muted">No versions yet.</p>
+    <UEmpty v-else-if="!revisions.length" variant="naked" size="sm" icon="i-lucide-history" title="No versions yet" description="Saves and publishes show here." />
     <template v-else>
       <section v-for="day in days" :key="day.label" :aria-label="day.label">
         <h3 class="px-2 pb-1 text-xs font-medium text-muted">{{ day.label }}</h3>
         <ol class="grid">
           <li v-for="run in day.runs" :key="key(run.revisions[0]!)">
-            <div class="group flex items-center rounded-md" :class="selected === run.revisions[0]!.id ? 'bg-elevated' : 'hover:bg-elevated/60'">
+            <div class="group flex items-center rounded-md hover:bg-elevated" :class="{ 'bg-elevated': selected === run.revisions[0]!.id }">
+              <!-- A row with a status, an author, and a time. It stays a plain button: the row around it draws the hover. -->
               <button
                 type="button"
-                class="grid min-h-10 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 rounded-md px-2 py-1.5 text-left focus-visible:outline-2"
+                class="grid min-h-10 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 rounded-md px-2 py-1.5 text-left"
                 @click="emit('open', run.revisions[0]!)"
               >
                 <span class="grid min-w-0 gap-0.5">
@@ -98,15 +99,17 @@ function initials(name: string): string {
             </div>
             <ol v-if="expanded.has(key(run.revisions[0]!))" class="ms-4 grid border-s border-default ps-2">
               <li v-for="revision in run.revisions" :key="key(revision)">
-                <button
-                  type="button"
-                  class="flex h-8 w-full items-center justify-between gap-3 rounded-md px-2 text-left text-xs text-muted hover:bg-elevated/60 focus-visible:outline-2"
-                  :class="selected === revision.id ? 'bg-elevated text-highlighted' : ''"
+                <UButton
+                  variant="ghost"
+                  size="xs"
+                  class="w-full justify-between"
+                  :class="{ 'bg-elevated text-highlighted': selected === revision.id }"
+                  :aria-current="selected === revision.id ? 'true' : undefined"
                   @click="emit('open', revision)"
                 >
                   <span class="font-mono">{{ revision.id.slice(0, 7) }}</span>
                   <ConsoleRelativeTime :value="revision.createdAt" />
-                </button>
+                </UButton>
               </li>
             </ol>
           </li>

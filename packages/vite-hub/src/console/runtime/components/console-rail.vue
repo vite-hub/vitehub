@@ -388,10 +388,6 @@ onBeforeUnmount(() => {
   width: 0.375rem;
 }
 
-.dark .vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: #000;
-}
-
 @media (hover: hover) {
   .vh-primitive-rail .vitehub-console__rail-update:hover .vh-primitive-rail__icon::after {
     --vitehub-console-rail-update-ring: var(--vh-bg-elevated);

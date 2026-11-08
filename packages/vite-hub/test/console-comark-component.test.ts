@@ -30,7 +30,7 @@ function mountNote(attrs: Record<string, unknown>) {
     props: { definition: fieldNote, editor: { isEditable: true }, node: { attrs: { name: "field-note", props: attrs } }, updateAttributes } as never,
     global: {
       stubs: {
-        UButton: { inheritAttrs: false, props: ["icon"], template: "<button type=\"button\" :aria-label=\"$attrs['aria-label']\" @click=\"$attrs.onClick\" />" },
+        UButton: { inheritAttrs: false, props: ["icon"], template: "<button type=\"button\" :aria-label=\"$attrs['aria-label']\" @click=\"$attrs.onClick\"><slot /></button>" },
         UIcon: true,
         UInput: { props: ["modelValue"], template: "<input :value=\"modelValue\">" },
         UPopover: { template: "<div><slot /><slot name=\"content\" /></div>" },

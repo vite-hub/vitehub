@@ -44,6 +44,10 @@ const stubs: Record<string, Component> = {
       : h("button", { "data-button": props.label, "data-loading": props.loading, onClick: props.onClick }, props.label),
   }),
   UDashboardNavbar: defineComponent({ props: { title: String }, setup: props => () => h("h1", props.title) }),
+  UEmpty: defineComponent({
+    props: { description: String, title: String },
+    setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.body?.()]),
+  }),
   UDashboardPanel: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.header?.(), slots.body?.()]) }),
   UDashboardSearchButton: slot,
   UDropdownMenu: defineComponent({
