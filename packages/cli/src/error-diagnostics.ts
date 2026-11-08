@@ -29,6 +29,47 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run the command in the folder of your Vite or Nuxt app, where its package.json is.",
       why: ({ root }: { root?: unknown }) => `${String(root)} has no package.json, vite.config, or nuxt.config file.`,
     },
+    SETUP_CONFIG_MANUAL: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_config_manual",
+      fix: ({ snippet }: { snippet?: unknown }) => `Add these keys to the vitehub() options by hand:\n${String(snippet)}`,
+      why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `ViteHub cannot edit the vitehub() options in ${String(file)} without running the config (${String(reason)}).`,
+    },
+    SETUP_FEATURE_UNSUPPORTED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_feature_unsupported",
+      fix: "Remove the feature from the command, or set `preset` to a host that supports it. Run `vitehub catalog` to compare hosts.",
+      why: ({ detail, feature, host }: { detail?: unknown, feature?: unknown, host?: unknown }) => `${String(feature)} is not supported on the ${String(host)} preset. ${String(detail)}`,
+    },
+    SETUP_FILE_EXISTS: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_file_exists",
+      fix: "Choose another --name, or edit the file by hand.",
+      why: ({ definition, file, starter }: { definition?: unknown, file?: unknown, starter?: unknown }) => starter === undefined
+        ? `${String(file)} exists and is not the starter Definition. ViteHub never overwrites a file.`
+        : `${String(file)} already defines a ${String(definition)} Definition that conflicts with ${String(starter)}, so the build would reject both.`,
+    },
+    SETUP_SERVER_DIR_MANUAL: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_server_dir_manual",
+      fix: "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+      why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
+    },
+    SETUP_INPUT_NEEDED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_input_needed",
+      fix: "Run the `rerun` command, or pass the missing values with --option.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    SETUP_INSTALL_FAILED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_install_failed",
+      fix: ({ filesWritten }: { filesWritten?: unknown }) => `Run the install command by hand to see the error, then run the command again. ${filesWritten === "possible"
+        ? "Scaffolding may have left new app files on disk; inspect the target folder before retrying."
+        : filesWritten
+          ? "The new app files were written before installation failed; keep them when retrying."
+          : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}`,
+      why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
+    },
+    SETUP_STALE_PLAN: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_stale_plan",
+      fix: "Run the command again to plan from the current file.",
+      why: ({ file }: { file?: unknown }) => `${String(file)} changed after ViteHub planned the change.`,
+    },
     SETUP_LINK_HOST_UNSUPPORTED: {
       docs: "https://vitehub.dev/docs/development/cli#setup_link_host_unsupported",
       fix: "Pass --host cloudflare, vercel, netlify, or deno, or set `preset` in vitehub().",
@@ -55,6 +96,31 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       docs: "https://vitehub.dev/docs/development/cli#setup_link_project_not_found",
       fix: ({ rerun }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `Run \`${String(rerun)}\` to create it, or pass --project with the name of a project that exists.`,
       why: ({ host, project, account }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `The ${String(host)} project ${JSON.stringify(String(project))} does not exist${account ? ` in account ${String(account)}` : ""}.`,
+    },
+    SETUP_INIT_DIR_NOT_EMPTY: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_dir_not_empty",
+      fix: "Choose a new or empty folder, or run `vitehub init` on the folder of a Vite or Nuxt app.",
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} is not empty and holds no Vite or Nuxt app. ViteHub never overwrites a file.`,
+    },
+    SETUP_INIT_FRAMEWORK_MISMATCH: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_framework_mismatch",
+      fix: ({ found }: { dir?: unknown, found?: unknown, framework?: unknown }) => `Pass --framework ${String(found)}, or choose another folder.`,
+      why: ({ dir, found, framework }: { dir?: unknown, found?: unknown, framework?: unknown }) => `${String(dir)} holds a ${String(found)} app, not a ${String(framework)} app.`,
+    },
+    SETUP_INIT_HOST_MIGRATION: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_host_migration",
+      fix: "Use the app's current host, or migrate its enabled features, providers and Definitions in the config before running init again.",
+      why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} preset.`,
+    },
+    SETUP_INIT_NUXT_VERSION: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_nuxt_version",
+      fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
+    },
+    SETUP_CONSOLE_INVALID: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_console_invalid",
+      fix: "Copy the command from the Console \"New project\" page again. Never pass the Console token itself.",
+      why: () => "--console must be `<pendingId>:sha256:<64 hex characters>`. The value is not printed, because it can hold a secret.",
     },
     CLI_R0004: {
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",

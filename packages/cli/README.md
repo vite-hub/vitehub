@@ -50,18 +50,19 @@ The CLI owns the `inspect` namespace. Plugin command contributions with that nam
 Usage: vitehub <namespace> <feature> [args...]
 
 Available namespaces:
-  inspect      Inspect discovered Definitions and generated Provider Output.
+  inspect      Inspect discovered Definitions, host resources, and generated Provider Output.
   provision    Idempotently create missing provider resources.
 ```
 
 ## Inspect the project
 
-`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect provider-output` lists generated Provider Output files and shows which exist. It resolves Vite configuration for build with production mode and loads Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
+`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect provider-output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. Both commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
 
 ```sh
 pnpm vitehub inspect definitions --kind queue
 pnpm vitehub inspect definitions --json
 pnpm vitehub inspect provider-output --json
+pnpm vitehub inspect resources --json
 ```
 
 Human output is the default. `--json` prints a stable object. Both forms redact secret-like keys, Worker `vars` values, and URLs with embedded credentials.
@@ -110,6 +111,8 @@ CLI-owned argument and execution defects use stable `CLI_R####` Nostics codes. C
 - Help loads and executes the local Vite or Nuxt config. A missing dependency or config error can stop help before it prints.
 - Command effects come from the package that contributes the command. Review command-specific help before applying Database migrations, Channel registration changes, or Provider provisioning.
 - `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass a provider explicitly.
-- `provision status` shows recorded ids from `.vitehub/provision.json` and pending plan actions. It never applies actions. Add `--json` to `provision run` or `provision status` for one JSON document on stdout.
+- `provision status` shows recorded ids from `.vitehub/provision.json` and pending plan actions. It marks a recorded id as `not declared` when no current Definition uses it, for example after a rename, and prints a `fix:` line that says how to delete the resource on the host. It never applies actions, deletes resources, or edits `.vitehub/provision.json`. Add `--json` to `provision run` or `provision status` for one JSON document on stdout.
+
+Status also marks an R2 or Queue entry when its key is still declared but its recorded bucket name, jurisdiction, or Queue name differs from current config. After a rename, status defers deletion guidance if a current declaration's resource cannot be verified against config, including when the new key already has a stale id. Verify D1 and KV ids against provider resource names and bindings before deleting anything. `provision run` refreshes R2 and Queue identities for comparison with config. R2 resource identities include jurisdiction; older entries with only a bucket name require checking the jurisdiction manually and receive no deletion guidance while an R2 Store remains declared.
 
 Read the [CLI guide](https://vitehub.dev/docs/development/cli) for every public command, examples, and troubleshooting.

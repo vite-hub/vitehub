@@ -124,7 +124,7 @@ The integration writes Channel registry types to `.vitehub/types/channels.d.ts` 
 
 Channels is an outbound delivery interface. It does not include Slack, Telegram, or other provider adapters. Write each connector in the application or in a separate provider package.
 
-`send()` waits for the selected connector and returns `[null, receipt]` or `[error, null]`. Invalid input, discovery failures, and connector failures return an `Error` in the first slot. Check it before using the receipt. Channels does not persist messages, retry delivery, impose a timeout, deduplicate sends, or recover work after the process exits. Add those behaviors before `send()` or inside the connector when the delivery contract requires them.
+`send()` waits for the selected connector and returns a `Result` from `@vite-hub/runtime`: `[undefined, receipt]` or `[error, undefined]`. `error.code` is `CHANNEL_INVALID_SEND` for invalid input, `CHANNEL_DEFINITION_FAILED` when the Channel Definition is missing or fails to load, and `CHANNEL_SEND_FAILED` when the connector fails. `error.cause` keeps the connector error. Check the error before using the receipt. Channels does not persist messages, retry delivery, impose a timeout, deduplicate sends, or recover work after the process exits. Add those behaviors before `send()` or inside the connector when the delivery contract requires them.
 
 Only connectors declared as own properties of the definition can receive messages. An omitted `connector` uses `defaultConnector`; an empty or invalid selector returns an error. Named clients share one definition load for the active registry. A failed definition load can be retried by a later `send()` call. Replacing the runtime registry invalidates that load for existing clients.
 

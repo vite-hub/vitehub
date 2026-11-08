@@ -138,6 +138,24 @@ describe("vitehub link", () => {
     expect(json.link.account).toEqual({ id: cloudflareAccount, name: "Demo Account" })
   })
 
+  it("creates a Worker in the env token's account when Wrangler uses another account", async () => {
+    const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
+    const api = hostApi({
+      [cloudflare.accounts]: { fixture: "cloudflare-accounts-one.json" },
+      [cloudflare.create]: { fixture: "cloudflare-worker-created.json" },
+      [cloudflare.worker]: { fixture: "cloudflare-not-found.json", status: 404 },
+    })
+    const wrangler = wranglerLogin([{ id: "unrelated-account", name: "Wrangler Account" }])
+
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--create", "--json"], root, { CLOUDFLARE_API_TOKEN: TOKEN }, { fetch: api.fetch, runHostCli: wrangler.run })
+
+    expect(exitCode).toBe(0)
+    expect(json).toMatchObject({ created: true, link: { account: { id: cloudflareAccount, name: "Demo Account" } } })
+    expect(api.requests.map(request => `${request.method} ${request.url.split("?")[0]}`)).toEqual([cloudflare.accounts, cloudflare.worker, cloudflare.create])
+    expect(api.requests.every(request => request.authorization === `Bearer ${TOKEN}`)).toBe(true)
+    expect(wrangler.calls).toEqual([])
+  })
+
   it("exits 3 for a missing project and creates it with --create", async () => {
     const root = await cloudflareProject({ "vite.config.ts": viteConfig(`{ preset: "cloudflare", name: "my-app" }`) })
     const env = { CLOUDFLARE_ACCOUNT_ID: cloudflareAccount, CLOUDFLARE_API_TOKEN: TOKEN }
@@ -238,10 +256,10 @@ describe("vitehub link", () => {
     expect(requests).toEqual(["GET 1", "GET 2", "POST "])
   })
 
-  it("stores an unverified Deno link without calling an API", async () => {
+  it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "deno", name: "my-app" }`) })
 
-    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root)
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, env)
 
     expect(exitCode).toBe(0)
     expect(json).toMatchObject({ credentials: null, link: { host: "deno", project: { name: "my-app" }, verified: false } })
@@ -254,7 +272,7 @@ describe("vitehub link", () => {
     const { exitCode, json, stdout } = await runSetup<{ error: SetupError, missing: SetupMissing[] }>(["link", "--json"], root)
 
     expect(exitCode).toBe(2)
-    expect(json.error).toMatchObject({ code: "SETUP_LINK_CREDENTIALS_MISSING", fix: "Run `wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." })
+    expect(json.error).toMatchObject({ code: "SETUP_LINK_CREDENTIALS_MISSING", fix: "Install Wrangler in the project and run `npx wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." })
     expect(json.missing).toEqual([{ field: "CLOUDFLARE_API_TOKEN" }])
     expect(stdout.trim().split("\n")).toHaveLength(1)
   })

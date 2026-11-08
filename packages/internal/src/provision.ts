@@ -41,10 +41,32 @@ export interface ProvisionAction {
   apply: () => Promise<ProvisionResult>
 }
 
+/** One Provision State category that a step records, with the keys that current Definitions use. */
+export interface ProvisionStateCategory {
+  category: string
+  declared: readonly string[]
+  /** Provider resource identity for shared-resource checks. Return undefined when the recorded id lacks enough information. Defaults to the recorded id. */
+  resourceIdentity?: (entry: { id: string, key: string }) => string | undefined
+  /** Identity expected by current config for a declared key. Omit when it cannot be established without provider access. */
+  declaredResourceIdentity?: (key: string) => string | undefined
+  /** Tells a developer how to delete the resource of a recorded entry that no Definition declares. ViteHub never runs it. */
+  deleteHint: (entry: { id: string, key: string }) => string
+}
+
+/**
+ * Whether a value from Provision State can appear in a copyable shell command as is.
+ * The file is editable, so a hint shows a command only for plain names and ids.
+ */
+export function isShellSafeProvisionValue(value: string): boolean {
+  return /^[A-Za-z0-9][\w.-]*$/.test(value)
+}
+
 export interface ProvisionStep {
   id: string
   provider: ProvisionProvider
   plan: (context: ProvisionContext) => Promise<ProvisionAction[]>
+  /** Describes the Provision State this step records. Runs without network access, also without credentials. */
+  recordedState?: (context: Pick<ProvisionContext, "env">) => ProvisionStateCategory[]
 }
 
 export interface PlannedProvisionAction {
@@ -203,12 +225,7 @@ export function createCloudflareApiClient(token: string, fetchImpl: typeof globa
 }
 
 function createCloudflareClient(baseURL: string, token: string, fetchImpl: typeof globalThis.fetch): CloudflareProvisionRequest {
-  const client = createJsonClient(
-    path => ({ host: "cloudflare", product: cloudflareProductOfPath(path) }),
-    baseURL,
-    { authorization: `Bearer ${token}` },
-    fetchImpl,
-  )
+  const client = createJsonClient(path => ({ host: "cloudflare", product: cloudflareProductOfPath(path) }), baseURL, { authorization: `Bearer ${token}` }, fetchImpl)
   return async <T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}) => {
     // SAFETY: Without a parser, Cloudflare result data retains the request's unknown response contract.
     const parse = ownParser(options) ?? ((value: unknown) => value as T)
@@ -271,10 +288,5 @@ export function createVercelProvisionClient(config: VercelProvisionConfig, fetch
 
 /** A Netlify REST client for `https://api.netlify.com/api/v1`. */
 export function createNetlifyApiClient(token: string, fetchImpl: typeof globalThis.fetch = globalThis.fetch): ProvisionRequest {
-  return createJsonClient(
-    () => ({ host: "netlify" }),
-    "https://api.netlify.com/api/v1",
-    { authorization: `Bearer ${token}` },
-    fetchImpl,
-  )
+  return createJsonClient(() => ({ host: "netlify" }), "https://api.netlify.com/api/v1", { authorization: `Bearer ${token}` }, fetchImpl)
 }
