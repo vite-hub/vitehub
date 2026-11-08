@@ -212,6 +212,12 @@ vitehub({
 })
 ```
 
+The section uses the MCP SDK. Install it in your app first:
+
+```sh
+pnpm add @modelcontextprotocol/sdk
+```
+
 This section is the client side. [ViteHub MCP](/docs/development/mcp) is the server side: the MCP server that the Console itself serves at `/_vitehub/mcp`, which needs no option.
 
 The section lists the MCP server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected resource metadata at `/.well-known/oauth-protected-resource`, such as its own `/mcp`, and ViteHub MCP. **Connect** also accepts the URL of another server or a path on this app. A URL must use HTTPS. Plain HTTP works only for this app and for `localhost`. This policy also applies to OAuth endpoints and every redirect.
