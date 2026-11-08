@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs"
-import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { cp, lstat, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { intersects, validRange } from "semver"
 
 import { codemods } from "./registry.ts"
+import { applyEdit, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
 import { readNuxtConfig } from "./shared/nuxt-config.ts"
 import { CodemodError } from "./types.ts"
@@ -127,9 +128,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
         // Reject the full batch before writing: copied symlinks can still point at the original files.
         for (const edit of result.edits) await checkScratchEdit(scratch, edit.path)
         for (const edit of result.edits) {
-          const path = join(scratch, edit.path)
-          await mkdir(dirname(path), { recursive: true })
-          await writeFile(path, edit.after)
+          await applyEdit(scratch, edit)
           touched.add(edit.path)
         }
         steps.push({ codemod, detection, result })
@@ -142,16 +141,10 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
     const edits: FileEdit[] = []
     for (const path of [...touched].sort()) {
       const before = await readOptional(join(cwd, path))
-      const after = await readFile(join(scratch, path), "utf8")
-      if (after !== before) edits.push({ path, before, after })
+      const after = (await readOptional(join(scratch, path))) ?? null
+      if (after !== (before ?? null)) edits.push({ path, before, after })
     }
-    if (!dryRun) {
-      for (const edit of edits) {
-        const path = join(cwd, edit.path)
-        await mkdir(dirname(path), { recursive: true })
-        await writeFile(path, edit.after)
-      }
-    }
+    if (!dryRun) for (const edit of edits) await applyEdit(cwd, edit)
     return { cwd, dryRun, steps, edits, warnings }
   }
   finally {
@@ -187,7 +180,7 @@ export function formatMigrationReport(migration: Migration): string {
   }
   if (steps.length) {
     lines.push("", `${dryRun ? "Files to change" : "Files changed"} (${edits.length}):`)
-    for (const edit of edits) lines.push(`  ${edit.path}${edit.before === undefined ? " (new)" : ""}`)
+    for (const edit of edits) lines.push(`  ${edit.path}${editLabel(edit)}`)
     if (!edits.length) lines.push("  none")
   }
   const followUps = steps.flatMap(step => (step.result?.followUps ?? []).map(followUp => ({ name: step.codemod.name, followUp })))
