@@ -132,7 +132,7 @@ describe("runtime", () => {
       spanish.resolve({ messages: { greeting: "Hola" } })
       const [error, locale] = await earlier
       expect(locale).toBeUndefined()
-      expect(error).toMatchObject({ code: "I18N_LOCALE_SUPERSEDED", docs: "https://vitehub.dev/docs/i18n/limits-and-errors/i18n_locale_superseded" })
+      expect(error).toMatchObject({ code: "I18N_LOCALE_SUPERSEDED", docs: "https://vitehub.dev/docs/i18n/diagnostics/i18n_locale_superseded" })
       expect(getLocale()).toBe("pt-BR")
       expect(translate({ id: "greeting" })).toBe("Olá")
       expect(page.cookie).toBe(cookie)
@@ -146,7 +146,7 @@ describe("runtime", () => {
   it("returns an error result for a locale that the app does not configure", async () => {
     const [error, locale] = await setLocale("fr")
     expect(locale).toBeUndefined()
-    expect(error).toMatchObject({ code: "I18N_UNKNOWN_LOCALE", docs: "https://vitehub.dev/docs/i18n/limits-and-errors/i18n_unknown_locale" })
+    expect(error).toMatchObject({ code: "I18N_UNKNOWN_LOCALE", docs: "https://vitehub.dev/docs/i18n/diagnostics/i18n_unknown_locale" })
   })
 
   it("throws a clear error when a macro runs without the build", () => {

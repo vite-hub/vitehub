@@ -2,7 +2,7 @@ import { defineErrors } from "@vite-hub/runtime"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/i18n/limits-and-errors",
+  docs: "https://vitehub.dev/docs/i18n/diagnostics",
   codes: {
     // Config errors. ViteHub throws them when the build starts.
     I18N_INVALID_LOCALES: {
