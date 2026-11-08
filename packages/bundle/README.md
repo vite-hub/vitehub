@@ -41,6 +41,8 @@ Each Vite build command starts a fresh report. All environments of a Vite builde
 
 `vite-hub/nuxt` reads the pages and layouts that Nuxt resolves (`app.pages`, `app.layouts`) and passes them to `hubBundle().api.setRoutes()`. The client report stores each route with its component modules, the static imports of each output file, and the CSS files, so reading the report needs no Nuxt. A layout is known when `definePageMeta` sets a static `layout`; otherwise the route uses `default`.
 
+Static route aliases share the canonical route's files and bytes. Lookup uses Vue Router's matcher and Nuxt's `router.options.sensitive` and `strict` settings. Nuxt 5 defaults to case-sensitive matching. A custom `app/router.options.ts` file, including one from a layer or module, can replace routes or matching settings at runtime. In that case route estimates are unavailable: the CLI says why, and `client.routesUnavailable` stores the reason in JSON. This also applies to custom router options files that only change other settings. Bundle totals and module explanations remain available.
+
 Read the report in code:
 
 ```ts

@@ -67,6 +67,32 @@ function clientReport() {
 }
 
 describe("Nuxt pages", () => {
+  it("preserves string and array aliases, including children of aliased parents", () => {
+    const routes = nuxtPageRoutes([
+      { path: "/docs", alias: "/guide", file: "docs.vue", children: [
+        { path: ":slug()", alias: ["topic/:slug()", "/topics/:slug()"], file: "slug.vue" },
+      ] },
+      { path: "/about", alias: ["/company", "/info"], file: "about.vue" },
+    ])
+    for (const path of ["/docs/kv", "/guide/kv", "/docs/topic/kv", "/guide/topic/kv", "/topics/kv"]) {
+      expect(matchRoute(routes, path)?.files).toEqual(["docs.vue", "slug.vue"])
+    }
+    for (const path of ["/about", "/company", "/info"]) expect(matchRoute(routes, path)?.files).toEqual(["about.vue"])
+  })
+
+  it("uses router sensitivity, strict slashes, regex syntax, and ranking", () => {
+    const options = { sensitive: true, strict: true }
+    expect(matchRoute([{ path: "/Docs" }], "/docs", options)).toBeUndefined()
+    expect(matchRoute([{ path: "/Docs" }], "/Docs/", options)).toBeUndefined()
+    expect(matchRoute([{ path: "/Docs/" }], "/Docs/", options)?.path).toBe("/Docs/")
+    expect(matchRoute([{ path: "/Docs" }], "/docs/", { sensitive: false, strict: false })?.path).toBe("/Docs")
+    const custom = String.raw`/:custom(something-(nested|other\))`
+    expect(matchRoute([{ path: custom }], "/something-nested")?.path).toBe(custom)
+    expect(matchRoute([{ path: custom }], "/something-other")?.path).toBe(custom)
+    expect(matchRoute([{ path: custom }], "/something-else")).toBeUndefined()
+    expect(matchRoute([{ path: "/:id" }, { path: String.raw`/:id(\d+)` }], "/42")?.path).toBe(String.raw`/:id(\d+)`)
+  })
+
   it("joins nested paths, renders parents, and picks the layout from static page meta", () => {
     const routes = nuxtPageRoutes([
       { path: "/", file: "/app/pages/index.vue" },
@@ -110,6 +136,39 @@ describe("Nuxt pages", () => {
 })
 
 describe("route report", () => {
+  it("gives aliases the same files and bytes as the canonical route", () => {
+    const report = clientReport()
+    const canonical = report.routes!.find(route => route.path === "/docs/:slug()")!
+    report.routes = nuxtPageRoutes([{ path: "/docs", alias: "/guide", children: [
+      { path: ":slug()", alias: ["topic/:slug()", "/topics/:slug()"], file: "slug.vue" },
+    ] }]).map(route => ({ path: route.path, components: canonical.components }))
+    const expected = explainBundleRoute([report], "/docs/kv")!.route
+    for (const path of ["/guide/kv", "/docs/topic/kv", "/guide/topic/kv", "/topics/kv"]) {
+      const actual = explainBundleRoute([report], path)!.route
+      expect({ ...actual, path: expected.path }).toEqual(expected)
+    }
+  })
+
+  it("persists matching options and suppresses routes when runtime options can replace them", () => {
+    const entry = `${root}/entry.js`
+    const collect = (routeOptions: { sensitive?: boolean, strict?: boolean, unavailable?: string }) => collectEnvironmentReport({
+      "entry.js": chunk("entry.js", "entry", [entry], { entry: true }),
+    }, {
+      build: "b", environment: "client", side: "client", root, outDir: `${root}/dist`, getModuleInfo: noGraph(entry),
+      routes: [{ path: "/Docs", files: [entry] }], routeOptions,
+    })
+    const report = collect({ sensitive: true, strict: true })
+    expect(report.routeOptions).toEqual({ sensitive: true, strict: true })
+    expect(explainBundleRoute([report], "/Docs")).toBeDefined()
+    expect(explainBundleRoute([report], "/docs")).toBeUndefined()
+    expect(explainBundleRoute([report], "/Docs/")).toBeUndefined()
+    const unavailable = "Custom router options can replace routes."
+    const suppressed = collect({ unavailable })
+    expect(suppressed.routes).toBeUndefined()
+    expect(createBundleReport([suppressed])?.client).toMatchObject({ routesUnavailable: unavailable })
+    expect(explainBundleRoute([suppressed], "/Docs")).toBeUndefined()
+  })
+
   it("stores the routes with module ids and the CSS files of the client", () => {
     const report = clientReport()
     expect(report.routes).toEqual([
@@ -174,6 +233,13 @@ describe("route report", () => {
     expect(json.route.bytes).toBe(2150)
     const missing = await run("why", ["/nowhere/else"])
     expect(missing.stdout).toContain("No page route of the last build renders /nowhere/else.")
+    writeEnvironmentReport(dir, { ...clientReport(), routeOptions: { unavailable: "Custom router options can replace routes." } })
+    expect((await run("report", [])).stdout).toContain("Routes unavailable: Custom router options can replace routes.")
+    const unavailable = await run("why", ["/runtime-only"])
+    expect(unavailable.code).toBe(1)
+    expect(unavailable.stdout).toContain("Routes unavailable:")
+    expect(unavailable.stdout).not.toContain("No page route")
+    expect(JSON.parse((await run("why", ["/runtime-only", "--json"])).stdout)).toEqual({ target: "/runtime-only", unavailable: "Custom router options can replace routes." })
   })
 })
 

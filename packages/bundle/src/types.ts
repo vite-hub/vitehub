@@ -46,6 +46,15 @@ export interface BundleEnvironmentReport {
   css?: BundleFile[]
   /** The page routes of the app and the components that render them. Client of a Nuxt app only. */
   routes?: BundleRouteSource[]
+  routeOptions?: BundleRouteOptions
+}
+
+/** Matching options captured by the framework, without loading the app when reading a report. */
+export interface BundleRouteOptions {
+  sensitive?: boolean
+  strict?: boolean
+  /** Why static route reporting is unavailable for this build. */
+  unavailable?: string
 }
 
 export interface BundleGroup {
@@ -69,6 +78,8 @@ export interface BundleSide {
   groups: BundleGroup[]
   /** What a first visit to each page route loads, largest first. Client of a Nuxt app only. */
   routes?: BundleRoute[]
+  /** Why the build cannot provide static route estimates. */
+  routesUnavailable?: string
 }
 
 /** The output of one build, for the whole app. `vitehub bundle --json` prints it. */

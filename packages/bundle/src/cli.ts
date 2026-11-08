@@ -44,6 +44,7 @@ function sideLines(label: string, side: BundleSide, startupMeaning: string): str
     lines.push(`    ${formatBytes(group.bytes).padStart(width)}  ${formatBytes(group.startupBytes).padStart(width)}  ${group.name} (${group.kind})`)
   }
   if (side.groups.length > 10) lines.push(`    ${side.groups.length - 10} more groups in --json`)
+  if (side.routesUnavailable) lines.push(`  Routes unavailable: ${side.routesUnavailable}`)
   if (side.routes?.length) {
     const routes = side.routes.slice(0, 5)
     const routeWidth = Math.max(...routes.map(route => formatBytes(route.bytes).length))
@@ -149,6 +150,11 @@ function runWhy(args: string[], context: ViteHubCliContext): number {
   const reports = readEnvironmentReports(projectRoot(context))
   if (!reports.length) {
     context.stderr.write(missingReport)
+    return 1
+  }
+  const unavailable = target.startsWith("/") ? createBundleReport(reports)?.client?.routesUnavailable : undefined
+  if (unavailable) {
+    context.stdout.write(parsed.json ? `${JSON.stringify({ target, unavailable }, null, 2)}\n` : `Routes unavailable: ${unavailable}\n`)
     return 1
   }
   const route = target.startsWith("/") ? explainBundleRoute(reports, target) : undefined

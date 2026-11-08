@@ -1,4 +1,6 @@
-import type { BundleEnvironmentReport, BundleRoute, BundleRouteExplanation, BundleRouteFile, BundleRouteModule, BundleRouteSource } from "./types.ts"
+import { createRouterMatcher } from "vue-router"
+
+import type { BundleEnvironmentReport, BundleRoute, BundleRouteExplanation, BundleRouteFile, BundleRouteModule, BundleRouteOptions, BundleRouteSource } from "./types.ts"
 
 /** A page route with the absolute files of the components that render it, outermost first. */
 export interface PageRoute {
@@ -9,6 +11,7 @@ export interface PageRoute {
 /** The parts of a Nuxt page that the report reads. */
 export interface NuxtPageLike {
   path: string
+  alias?: string | string[]
   file?: string
   /** Named views, including `default`. */
   components?: Record<string, string>
@@ -29,21 +32,22 @@ function joinPath(parent: string, path: string): string {
  */
 export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly<Record<string, { file: string }>> = {}): PageRoute[] {
   const routes = new Map<string, PageRoute>()
-  const walk = (list: readonly NuxtPageLike[], parentPath: string, parentFiles: string[], parentLayout: unknown) => {
+  const walk = (list: readonly NuxtPageLike[], parentPaths: string[], parentFiles: string[], parentLayout: unknown) => {
     for (const page of list) {
-      const path = joinPath(parentPath, page.path)
+      const aliases = typeof page.alias === "string" ? [page.alias] : page.alias ?? []
+      const paths = [...new Set(parentPaths.flatMap(parent => [page.path, ...aliases].map(path => joinPath(parent, path))))]
       const own = page.components ? Object.values(page.components) : page.file ? [page.file] : []
       const files = [...parentFiles, ...own]
       const layout = typeof page.meta?.layout === "string" || page.meta?.layout === false ? page.meta.layout : parentLayout
       if (own.length) {
         const layoutFile = typeof layout === "string" ? layouts[layout]?.file : undefined
         // A child with the same path, such as `index.vue` in a folder, renders instead of its parent alone.
-        routes.set(path, { path, files: layoutFile ? [layoutFile, ...files] : files })
+        for (const path of paths) routes.set(path, { path, files: layoutFile ? [layoutFile, ...files] : files })
       }
-      if (page.children?.length) walk(page.children, path, files, layout)
+      if (page.children?.length) walk(page.children, paths, files, layout)
     }
   }
-  walk(pages, "", [], "default")
+  walk(pages, [""], [], "default")
   return [...routes.values()].sort((left, right) => left.path < right.path ? -1 : 1)
 }
 
@@ -104,57 +108,24 @@ function routeOf(graph: RouteGraph, source: BundleRouteSource): BundleRoute {
 
 /** What a first visit to each route of a client report loads, largest first. */
 export function routesOf(report: BundleEnvironmentReport): BundleRoute[] {
-  if (!report.routes?.length) return []
+  if (report.routeOptions?.unavailable || !report.routes?.length) return []
   const graph = graphOf(report)
   return report.routes.map(source => routeOf(graph, source))
     .sort((left, right) => right.bytes - left.bytes || left.path.localeCompare(right.path))
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-/** Reads a Vue Router path, such as `/docs/:slug()` or `/:all(.*)*`, as a regular expression. */
-function routeMatcher(path: string): { test: (target: string) => boolean, params: number, rest: boolean } {
-  let source = ""
-  let last = 0
-  let params = 0
-  let rest = false
-  for (const match of path.matchAll(/:(\w+)(?:\(([^)]*)\))?([?*+])?/g)) {
-    let prefix = escapeRegExp(path.slice(last, match.index))
-    const inner = match[2] || "[^/]+"
-    const modifier = match[3]
-    const repeat = modifier === "*" || modifier === "+"
-    const value = repeat ? `(?:${inner})(?:/(?:${inner}))*` : `(?:${inner})`
-    params++
-    rest ||= repeat || inner.includes(".*")
-    if ((modifier === "?" || modifier === "*") && prefix.endsWith("/")) {
-      prefix = prefix.slice(0, -1)
-      source += `${prefix}(?:/${value})?`
-    }
-    else source += `${prefix}${value}${modifier === "?" || modifier === "*" ? "?" : ""}`
-    last = match.index + match[0].length
-  }
-  source += escapeRegExp(path.slice(last))
-  // Vue Router ignores case and a trailing slash by default.
-  const regexp = new RegExp(`^${source}/?$`, "i")
-  return { test: target => regexp.test(target), params, rest }
-}
-
-/** The route that renders `target`: a route with that exact path, or else the most specific pattern that matches. */
-export function matchRoute<T extends { path: string }>(routes: readonly T[], target: string): T | undefined {
-  const path = target.replace(/[?#].*$/, "").replace(/(.)\/$/, "$1")
-  const exact = routes.find(route => route.path === path || route.path.toLowerCase() === path.toLowerCase())
-  if (exact) return exact
-  return routes
-    .map(route => ({ route, matcher: routeMatcher(route.path) }))
-    .filter(({ matcher }) => matcher.test(path))
-    .sort((left, right) => Number(left.matcher.rest) - Number(right.matcher.rest) || left.matcher.params - right.matcher.params || right.route.path.length - left.route.path.length)[0]?.route
+/** The route that renders `target`, using Vue Router's path grammar and ranking. */
+export function matchRoute<T extends { path: string }>(routes: readonly T[], target: string, options: BundleRouteOptions = {}): T | undefined {
+  if (options.unavailable) return undefined
+  const path = target.replace(/[?#].*$/, "")
+  const matcher = createRouterMatcher(routes.map((route, index) => ({ path: route.path, name: String(index) })), options)
+  const match = matcher.getRoutes().find(route => route.re.test(path))
+  return match ? routes[Number(match.record.name)] : undefined
 }
 
 /** What a first visit to the route that renders `target` loads, and the modules of its page files. */
 export function explainRoute(report: BundleEnvironmentReport, target: string): BundleRouteExplanation | undefined {
-  const source = matchRoute(report.routes ?? [], target)
+  const source = matchRoute(report.routes ?? [], target, report.routeOptions)
   if (!source) return undefined
   const graph = graphOf(report)
   const route = routeOf(graph, source)

@@ -11,6 +11,7 @@ import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 import type { ModuleInfoLike } from "./collect.ts"
 import type { PageRoute } from "./routes.ts"
+import type { BundleRouteOptions } from "./types.ts"
 
 interface BundlerConfig { plugins?: unknown }
 
@@ -28,7 +29,7 @@ interface BundleNitroModule {
 export type BundleVitePlugin = Plugin & {
   api: {
     /** The page routes of the app. The client report keeps them, so `vitehub bundle` can say what each route loads. */
-    setRoutes: (routes: PageRoute[]) => void
+    setRoutes: (routes: PageRoute[], options?: BundleRouteOptions) => void
     /** Frameworks such as Nuxt start one session before running their Vite and Nitro phases. */
     startBuild: () => string
   }
@@ -58,7 +59,7 @@ function newBuildId(): string {
   return `${new Date().toISOString()}-${randomUUID()}`
 }
 
-function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { build: string, environment: string, outDir: string, root: string, routes?: PageRoute[], side: "client" | "server" }): void {
+function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { build: string, environment: string, outDir: string, root: string, routes?: PageRoute[], routeOptions?: BundleRouteOptions, side: "client" | "server" }): void {
   // Nitro's rootDir can end with a slash, and Vite's root can be Nuxt's srcDir. Both must name the same build.
   const root = resolve(options.root)
   const outDir = resolve(options.outDir)
@@ -109,6 +110,7 @@ export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
   let coordinatedBuild = options.buildId
   const builds = new WeakMap<object, string>()
   let routes: PageRoute[] = []
+  let routeOptions: BundleRouteOptions | undefined
   return {
     name: "@vite-hub/bundle/vite",
     enforce: "post",
@@ -131,14 +133,16 @@ export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
         build: coordinatedBuild ?? builds.get(environment)!,
         environment: environment.name,
         routes,
+        routeOptions,
         outDir: output.dir ?? resolve(config.root, config.build.outDir),
         root: resolveViteHubProjectRoot(config.root),
         side: config.consumer === "server" ? "server" : "client",
       })
     },
     api: {
-      setRoutes(next) {
+      setRoutes(next, options) {
         routes = next
+        routeOptions = options
       },
       startBuild() {
         coordinatedBuild = newBuildId()

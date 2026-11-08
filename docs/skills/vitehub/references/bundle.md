@@ -19,6 +19,8 @@ Use this when a task asks how big the app is, why the server starts slowly or hi
 
 ## Routes
 
+Static aliases load the same files as their canonical route. Lookup follows Nuxt's case and trailing-slash settings. When a custom `app/router.options.ts` file is present (also from a layer or module), route estimates are unavailable because that file can change routes at runtime. The CLI explains this and JSON includes `client.routesUnavailable`; bundle totals and module explanations still work.
+
 In a Nuxt app, `vitehub bundle` also lists the largest page routes. For each route it gives the JavaScript of a first visit and the part of it that only page files add. `vitehub bundle why /docs/kv` takes a URL path, finds the route that renders it, such as `/docs/:slug()`, and prints:
 
 - the files that the browser loads on a first visit: the startup files, and the files of the layout and the pages with every file that they import statically,

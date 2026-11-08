@@ -89,7 +89,7 @@ export default defineConfig({
 
 Then export a definition from `server/schedules/<name>.ts` or `src/<name>.schedule.ts`.
 
-```ts
+```ts fragment
 // server/schedules/daily-report.ts
 import { defineSchedule } from "@vite-hub/schedule";
 
@@ -108,7 +108,7 @@ The integration can generate host-specific output for Cloudflare Cron Triggers, 
 
 Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
 
-Direct Nuxt projects can register `@vite-hub/schedule/nuxt` instead of `hubSchedule()`. The module installs the Vite integration and merges Schedule output into Nitro config.
+Nuxt projects enable Schedule with `vite-hub/nuxt` and `vitehub: { schedule: true }`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
 ## Understand time zones
 

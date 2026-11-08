@@ -4,7 +4,7 @@ import { allocateBytes } from "./bytes.ts"
 import { moduleId } from "./groups.ts"
 
 import type { PageRoute } from "./routes.ts"
-import type { BundleChunk, BundleEnvironmentReport, BundleFile, BundleModule } from "./types.ts"
+import type { BundleChunk, BundleEnvironmentReport, BundleFile, BundleModule, BundleRouteOptions } from "./types.ts"
 
 /** The parts of a Rolldown output chunk that the report reads. */
 export interface OutputChunkLike {
@@ -42,6 +42,7 @@ export interface CollectOptions {
   getModuleInfo: (id: string) => ModuleInfoLike | null | undefined
   /** The page routes of the app, with absolute component files. Only the client report keeps them. */
   routes?: readonly PageRoute[]
+  routeOptions?: BundleRouteOptions
 }
 
 function isChunk(output: unknown): output is OutputChunkLike {
@@ -166,7 +167,7 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     }
   }).sort((left, right) => right.bytes - left.bytes || left.file.localeCompare(right.file))
   const css = client ? cssFiles(bundle) : []
-  const routes = client ? options.routes?.map(route => ({ path: route.path, components: route.files.map(file => moduleId(file, options.root, packages)) })) : undefined
+  const routes = client && !options.routeOptions?.unavailable ? options.routes?.map(route => ({ path: route.path, components: route.files.map(file => moduleId(file, options.root, packages)) })) : undefined
 
   return {
     schemaVersion: 1,
@@ -177,5 +178,6 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     chunks: rows,
     ...(css.length ? { css } : {}),
     ...(routes?.length ? { routes } : {}),
+    ...(client && options.routeOptions ? { routeOptions: options.routeOptions } : {}),
   }
 }

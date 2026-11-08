@@ -98,7 +98,9 @@ function sideOf(side: "client" | "server", reports: readonly BundleEnvironmentRe
   }
 }
 
-function routesField(reports: readonly BundleEnvironmentReport[]): Pick<BundleSide, "routes"> {
+function routesField(reports: readonly BundleEnvironmentReport[]): Pick<BundleSide, "routes" | "routesUnavailable"> {
+  const unavailable = reports.find(report => report.routeOptions?.unavailable)?.routeOptions?.unavailable
+  if (unavailable) return { routesUnavailable: unavailable }
   const routes = reports.flatMap(routesOf).sort((left, right) => right.bytes - left.bytes || left.path.localeCompare(right.path))
   return routes.length ? { routes } : {}
 }
