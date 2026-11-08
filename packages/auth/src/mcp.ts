@@ -313,9 +313,9 @@ function banned(user: Record<string, unknown>): boolean {
  * session, that session must still exist and be unexpired, unless the person granted `offline_access`: that grant is for
  * use while they are signed out, and Better Auth's refresh grant copies the session of the first sign-in into every
  * access token it mints. Sender-constrained tokens, including DPoP-bound tokens, are rejected even when presented as
- * bearer tokens. It reads only the URL and the headers, so pass H3's `event.req` or any value with `url` and `headers`,
- * and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
- * `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
+ * bearer tokens. It reads only the URL and the headers, so pass the Request of a Fetchable route, H3's `event.req`, or
+ * any value with `url` and `headers`, and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a
+ * bearer token and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
 export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]

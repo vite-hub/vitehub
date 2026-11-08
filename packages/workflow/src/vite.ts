@@ -14,7 +14,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { normalizeWorkflowOptions } from "./config.ts"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
-import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
+import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
@@ -311,6 +311,12 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addPlugin(plugin, "start")
         Reflect.set(config, "nitro", kit.config)
+        if (process.env.VITEST) {
+          const testConfig: UserConfig & { test: { setupFiles: string[] } } = {
+            test: { setupFiles: [resolve(devRootDir, workflowDevGeneratedDir, workflowTestSetupFile)] },
+          }
+          return testConfig
+        }
       },
     },
     configureServer(server) {
