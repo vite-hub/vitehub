@@ -2,7 +2,7 @@ import { defineErrors, type ErrorCatalog } from "@vite-hub/runtime"
 
 const connect = (connection: string): string => `Run \`vitehub connections connect ${connection}\`.`
 
-const docs = "https://vitehub.dev/docs/connections/limits-and-errors"
+const docs = "https://vitehub.dev/docs/connections/diagnostics"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 const codes = {
@@ -259,5 +259,5 @@ export const connectionsErrorDiagnostics: ErrorCatalog<typeof codes> = /*#__PURE
 export function connectionsErrorGuidance(code: string): { docs: string, fix: string } | undefined {
   if (!Object.hasOwn(codes, code)) return undefined
   // SAFETY: `Object.hasOwn` confirms that `code` is a key of the catalog.
-  return { docs: `${docs}#${code.toLowerCase()}`, fix: codes[code as keyof typeof codes].fix }
+  return { docs: `${docs}/${code.toLowerCase()}`, fix: codes[code as keyof typeof codes].fix }
 }

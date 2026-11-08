@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -571,9 +571,10 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   const providerRegistryFile = resolve(root, generatedNitroProviderRegistry)
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   const startedRegistryFile = options.startableDefinitions.length ? resolve(root, generatedNitroStartedRegistry) : undefined
-  await mkdir(dirname(pluginFile), { recursive: true })
+  // A CLI command that loads the project renders the same files while the dev server watches them. A rewrite of the
+  // same bytes would reload the dev server's Nitro worker, which can read the file while it is empty.
   const writes: Array<Promise<void>> = [
-    writeFile(pluginFile, renderNitroSchedulePlugin({
+    writeFileIfChanged(pluginFile, renderNitroSchedulePlugin({
       cronOverrides: options.cronOverrides,
       importBase: options.importBase,
       pluginFile,
@@ -583,21 +584,20 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
       providerRegistryFile,
       staticRegistryFile,
       runtimeImport: options.runtimeImport,
-    }), "utf8"),
+    })),
   ]
   if (startedRegistryFile) {
-    writes.push(writeFile(startedRegistryFile, createRuntimeRegistryContents(startedRegistryFile, options.startableDefinitions), "utf8"))
-    writes.push(writeFile(startedRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase), "utf8"))
+    writes.push(writeFileIfChanged(startedRegistryFile, createRuntimeRegistryContents(startedRegistryFile, options.startableDefinitions)))
+    writes.push(writeFileIfChanged(startedRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase)))
   }
   if (options.processRuntime) {
-    writes.push(writeFile(staticRegistryFile, createRuntimeRegistryContents(staticRegistryFile, options.staticDefinitions), "utf8"))
-    writes.push(writeFile(staticRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase), "utf8"))
+    writes.push(writeFileIfChanged(staticRegistryFile, createRuntimeRegistryContents(staticRegistryFile, options.staticDefinitions)))
+    writes.push(writeFileIfChanged(staticRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase)))
   }
   if (options.providerDefinitions.length > 0) {
-    await mkdir(dirname(providerRegistryFile), { recursive: true })
-    writes.push(writeFile(providerRegistryFile, createRuntimeRegistryContents(providerRegistryFile, options.providerDefinitions), "utf8"))
-    writes.push(writeFile(providerRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase), "utf8"))
-    writes.push(writeFile(moduleFile, renderNitroScheduleModule({
+    writes.push(writeFileIfChanged(providerRegistryFile, createRuntimeRegistryContents(providerRegistryFile, options.providerDefinitions)))
+    writes.push(writeFileIfChanged(providerRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase)))
+    writes.push(writeFileIfChanged(moduleFile, renderNitroScheduleModule({
       crons: options.crons,
       netlify: {
         entryFile: resolve(root, generatedNitroNetlifyEntry),
@@ -605,7 +605,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
         runtimeImport: options.runtimeImport ?? `${options.importBase ?? schedulePackageName}/runtime/static`,
         schedules: options.netlifySchedules,
       },
-    }), "utf8"))
+    })))
   }
   await Promise.all(writes)
   return generatedNitroSchedulePlugin

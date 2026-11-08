@@ -97,6 +97,52 @@ describe("startSchedule()", () => {
     expect((await listSchedules())[1]).toEqual([])
   })
 
+  it.each([
+    { value: undefined }, { value: NaN }, { value: Infinity },
+    { value: () => {} }, { value: Symbol("value") },
+    [undefined], Array(1), new Date(), new Map(), new Set(), 1n, NaN, Infinity,
+  ].map(payload => ({ payload })))("rejects non-JSON payload %# without storing it", async ({ payload }) => {
+    installReminder()
+    const [error] = await startSchedule("reminder", { at: new Date(), payload })
+    expect(error?.code).toBe("SCHEDULE_INVALID_OPTIONS")
+    expect((await listSchedules())[1]).toEqual([])
+  })
+
+  it("accepts nested JSON and shared values, but rejects cycles", async () => {
+    installReminder()
+    const shared = { value: [null, true, false, 1, "text"] }
+    const payload = { left: shared, right: shared }
+    const [error, schedule] = await startSchedule("reminder", { at: new Date(), payload })
+    expect(error).toBeUndefined()
+    expect(schedule?.payload).toEqual(payload)
+    expect(schedule?.payload).not.toBe(payload)
+    const cycle: Record<string, unknown> = {}
+    cycle.self = cycle
+    expect((await startSchedule("reminder", { at: new Date(), payload: cycle }))[0]?.code).toBe("SCHEDULE_INVALID_OPTIONS")
+  })
+
+  it.each(["list", "load"] as const)("catches up a minute after a transient %s failure without repeating successful runs", async (failure) => {
+    const calls: string[] = []
+    const store = createMemoryStartedScheduleStore()
+    const reminder = defineSchedule({ handler: ({ scheduledAt }) => { calls.push(scheduledAt.toISOString()) } })
+    const load = vi.fn(async () => reminder)
+    installStartedSchedules({ catchUpMs: 3_600_000, registry: { reminder: load }, store })
+    vi.useFakeTimers({ now: new Date("2026-11-08T08:58:00Z"), toFake: ["Date"] })
+    await startSchedule("reminder", { cron: "0 9 * * *" })
+    vi.useRealTimers()
+    await tick(new Date("2026-11-08T08:59:00Z"))
+    const error = new Error("temporary failure")
+    if (failure === "list") vi.spyOn(store, "list").mockRejectedValueOnce(error)
+    else load.mockRejectedValueOnce(error)
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const failed = tick(new Date("2026-11-08T09:00:00Z"))
+    if (failure === "list") await expect(failed).rejects.toThrow("temporary failure")
+    else await failed
+    await tick(new Date("2026-11-08T09:01:00Z"))
+    await tick(new Date("2026-11-08T09:02:00Z"))
+    expect(calls).toEqual(["2026-11-08T09:00:00.000Z"])
+  })
+
   it("runs a one-time Schedule once at `at` with its payload, then removes it", async () => {
     const calls = installReminder()
     const [error, schedule] = await startSchedule("reminder", { at: "2026-11-08T09:00:00Z", payload: { text: "Call Ana" } })

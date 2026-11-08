@@ -1,4 +1,5 @@
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
+import { isChannelSimulated, isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
@@ -50,6 +51,7 @@ import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvok
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
   bindAgentChannelTriggerQueue,
+  bindAgentChannelWebhookState,
   bindAgentChannelTriggerState,
   agentChannelOptions,
   agentTriggerTask,
@@ -80,7 +82,7 @@ import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHead
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
-import { agentChatInvocationIdHeader } from "../internal/routes.ts"
+import { agentChatInvocationIdHeader, defaultAgentWebhookRoute, resolveAgentRoutePath } from "../internal/routes.ts"
 import { interruptedChatRetrySuffix, isChatReplyTargetId } from "../internal/chat-reply.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
@@ -105,6 +107,7 @@ import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tas
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
+import { channelWebhookEventTarget } from "../internal/channel-webhook-events.ts"
 import {
   agentWebhookRegistrations,
   createDeclaredWebhookPathMatcher,
@@ -660,18 +663,26 @@ async function findAgentWebhookRegistration(
   webhook?: string,
 ): Promise<AgentWebhookRegistrationMatch | undefined> {
   const registrations = await agentWebhookRegistrations(agent, context)
+  const select = (matches: AgentWebhookRegistrationMatch[]) => {
+    if (matches.length === 1) return matches[0]
+    const first = matches[0]
+    if (!first) return undefined
+    const target = channelWebhookEventTarget(first.trigger.definition)
+    if (!target || !matches.every(match => match.registration.channelId === first.registration.channelId
+      && channelWebhookEventTarget(match.trigger.definition)?.webhook === target.webhook)) return undefined
+    // These targets share one adapter registration. Select the event after signature verification.
+    return first
+  }
   const pathMatches = registrations.filter((match) => webhookRegistrationPathMatches(request, match.registration))
-  if (pathMatches.length === 1) return pathMatches[0]
-  if (pathMatches.length > 1) return undefined
-  if (webhook === "" && registrations.length === 1) return registrations[0]
+  if (pathMatches.length) return select(pathMatches)
+  if (webhook === "") return select(registrations)
   if (!webhook) return undefined
   const directMatches = registrations.filter(
     ({ registration }) => registration.id === webhook || (registration.channelId === webhook && registration.id === registration.channelId),
   )
-  if (directMatches.length === 1) return directMatches[0]
-  if (directMatches.length > 1) return undefined
+  if (directMatches.length) return select(directMatches)
   const providerMatches = registrations.filter(({ registration }) => registration.provider === webhook)
-  return providerMatches.length === 1 ? providerMatches[0] : undefined
+  return select(providerMatches)
 }
 
 async function matchedWebhookRegistrationRequiresVerification(
@@ -7427,7 +7438,7 @@ async function handleChatSdkMessages(
     for (const queuedMessage of messages) {
       let claimedDelivery: AgentChannelDeliveryTracker | undefined
       try {
-        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
+        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
         const queuedDelivery = individualMessages
@@ -7702,6 +7713,8 @@ async function createChannelChat(
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
 ): Promise<Chat> {
+  // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
+  if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
   const resolvedState = providedState || (await resolveChatState(options, context, registration, handlerOptions))
   const lockTracker = createChatLockTracker(resolvedState.state)
   const transcripts = effectiveTranscripts(options, resolvedState.state)
@@ -8292,6 +8305,10 @@ export interface AgentChannelInfo {
   origin: string
   provider: string
   retention: AgentChannelRetention
+  /** True when the Channel runs on the simulated chat of `agent.channels.simulate`, not on its provider. */
+  simulated: boolean
+  /** The path of the chat page of a simulated Channel, which is its webhook route. Only when the Channel is simulated. */
+  simulator?: string
 }
 
 /** A thread that the Invocation journal knows. */
@@ -8313,6 +8330,8 @@ export interface AgentChannelConversation {
   participants: string[]
   provider: string
   retention: AgentChannelRetention
+  /** True when the Channel runs on the simulated chat of `agent.channels.simulate`, not on its provider. */
+  simulated: boolean
   threadId: string
   /** True when the transcript limit cut the oldest messages. */
   truncated: boolean
@@ -8605,6 +8624,7 @@ async function readChannelConversation(
     participants: [...participants],
     provider: registration.provider,
     retention,
+    simulated: isSimulatedChatAdapter(adapter),
     threadId: input.threadId,
     truncated: transcripts.truncated,
   }
@@ -9471,6 +9491,59 @@ function createQueuedChannelDispatch(
   }
 }
 
+/** The Channels of the Agent that run on the simulated chat, in definition order. */
+function simulatedChannels(agent: unknown): Array<{ id: string, kind: string }> {
+  if (!isRecord(agent) || !isRecord(agent.channels)) return []
+  return Object.entries(agent.channels).flatMap(([id, channel]) =>
+    isRuntimeRecord(channel) && hasRuntimeType(channel.kind, "string") && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
+}
+
+/**
+ * A browser GET on the webhook route of a simulated chat Channel opens a chat page in the look of its platform. The page
+ * POSTs to the same route, so opening the webhook URL is the way to chat with the Agent as that Channel.
+ */
+async function simulatedChannelPageResponse(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  request: Request,
+  webhook: string | undefined,
+  options: AgentChannelWebhookRouteOptions,
+): Promise<Response | undefined> {
+  const channels = agentChannelOptions(agent)
+  if (!Object.values(channels).some(channel => isChannelSimulated(channel.kind))) return undefined
+  const context = createRuntimeContext(
+    request,
+    undefined,
+    await resolveRuntimeWaitUntil(options.waitUntil),
+    options.cloudflare,
+    options.runtime,
+    options.capabilities,
+    routeAgentIdentity(options),
+  )
+  const webhookId = webhook ?? fallbackWebhookFromRequest(request)
+  const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, webhookId))
+  const channelId = match?.registration.channelId
+  const channel = channelId ? channels[channelId] : undefined
+  if (!match || !channelId || !isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
+  const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
+  const route = new URL(request.url).pathname
+  // The other Channels share the route and differ in the webhook selector. Declared paths and aliases need not share
+  // that shape, so they link only themselves.
+  const segments = route.split("/")
+  const selector = match.registration.id || match.registration.provider
+  const index = webhookRegistrationPathMatches(request, match.registration) ? -1 : segments.lastIndexOf(encodeURIComponent(selector))
+  const registrations = index < 0 ? [] : await runWithRuntimeCloudflareEnv(context, () => agentWebhookRegistrations(agent, context))
+  const links = index < 0
+    ? []
+    : simulatedChannels(agent).flatMap(channel => {
+        const registration = registrations.find(match => match.registration.channelId === channel.id)?.registration
+        return registration ? [{ ...channel, route: [...segments.slice(0, index), encodeURIComponent(registration.id || registration.provider), ...segments.slice(index + 1)].join("/") }] : []
+      })
+  const page = renderChannelSimulatorPage(channel.kind, { agent: routeAgentIdentity(options)?.name || "agent", channel: channelId, channels: links, route })
+  return page === undefined
+    ? undefined
+    : new Response(page, { headers: { "cache-control": "no-store", "content-type": "text/html; charset=utf-8" } })
+}
+
 export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRouteRuntimeContext>): AgentChannelWebhookRouteHandler {
   const activeInvocationScope: WebhookActiveInvocationScope = { owner: "webhook" }
   const webhookQueue = createAgentWebhookQueue<AgentChannelWebhookRouteOptions>({
@@ -9489,6 +9562,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     const webhookStartedAt = Date.now()
     // A replayed inbox request keeps its first arrival time for signature timestamps and retention.
     const webhookReceivedAt = (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxReceivedAt]?: number })[webhookInboxReceivedAt] ?? webhookStartedAt
+    if (request.method === "GET") {
+      const page = await simulatedChannelPageResponse(agent, request, webhook, handlerOptions)
+      if (page) return page
+    }
     if (request.method !== "HEAD" && request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
@@ -9633,6 +9710,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             keyPrefix: `${channelState.keyPrefix}channel-state:`,
             state: channelState.state,
           })
+          if (webhookDeliveryState) bindAgentChannelWebhookState(request, registration.channelId)
           if (webhookDeliveryState && hasAgentWebhookQueue(webhookDeliveryState.state)) {
             bindAgentChannelTriggerQueue(
               request,
@@ -9721,13 +9799,16 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               )
             }
             const backendId = await resolveWebhookStateBackendId(webhookState.state)
-            const persistedInvocation = persistedWebhookInvocation({
-              ...(invocation.agent ? { agent: invocation.agent } : {}),
-              input: invocation.input,
-              run: invocation.run,
-              ...(invocation.task !== undefined ? { task: invocation.task } : {}),
-              ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
-            }, Boolean(invocation.webhook.rehydrate))
+            const persistedInvocation = {
+              ...persistedWebhookInvocation({
+                ...(invocation.agent ? { agent: invocation.agent } : {}),
+                input: invocation.input,
+                run: invocation.run,
+                ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+                ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
+              }, Boolean(invocation.webhook.rehydrate)),
+              ...(channelWebhookEventTarget(invocation.trigger.definition) ? { trigger: invocation.trigger.name } : {}),
+            }
             const persistable = isJsonSafe(persistedInvocation)
             // A task or `prepare` runs from the stored input, so the queue never calls `invoke` again.
             if (!persistable && (invocation.task !== undefined || invocation.trigger.prepare)) {
@@ -10143,18 +10224,25 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const channels = new Map<string, AgentChannelInfo>()
+      const simulatedIds = new Set(simulatedChannels(agent).map(channel => channel.id))
+      const agentName = routeAgentIdentity(handlerOptions)?.name
       for (const { registration, trigger } of await agentWebhookRegistrations(agent, context)) {
         const id = registration.channelId || registration.id || registration.provider
         if (channels.has(id)) continue
         const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
         const state = await resolveChatState(chatOptions, context, registration, handlerOptions)
         const custom = Boolean(agentChannelOptions(agent)[id]?.history)
+        const simulated = simulatedIds.has(id)
+        // The page posts to this registration's route; a Channel key need not select a registration.
+        const simulator = simulated && agentName ? resolveAgentRoutePath(defaultAgentWebhookRoute, { agent: agentName, webhook: registration.id || registration.provider }) : undefined
         channels.set(id, {
           conversations: !custom && trigger.id === "chat.message",
           id,
           origin: chatRegistrationOrigin(registration),
           provider: registration.provider,
           retention: channelRetention(chatOptions, state.state),
+          simulated,
+          ...(simulator ? { simulator } : {}),
         })
       }
       return [...channels.values()]
@@ -10509,7 +10597,12 @@ export function createDiscordGatewayRouteHandler(
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const chatOptions = getAgentChatOptions(agent)
       const adapters = await resolveChatAdapters(chatOptions, context)
-      const entries = resolveDiscordAdapters(adapters)
+      const discordAdapters = resolveDiscordAdapters(adapters)
+      const entries = discordAdapters.filter(([, adapter]) => !isSimulatedChatAdapter(adapter))
+      if (entries.length === 0 && discordAdapters.length > 0) {
+        // A simulated Discord Channel has no Gateway: there is nothing to listen to.
+        return new Response(null, { status: 204 })
+      }
       if (entries.length === 0) {
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }

@@ -21,6 +21,36 @@ function isString(value: unknown): value is string {
   return String(value) === value
 }
 
+function isJsonValue(value: unknown, ancestors = new Set<object>()): boolean {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON validation must distinguish primitive values without coercion.
+  switch (typeof value) {
+    case "string":
+    case "boolean": return true
+    case "number": return Number.isFinite(value)
+    case "object": {
+      if (value === null) return true
+      if (ancestors.has(value)) return false
+      const prototype = Object.getPrototypeOf(value)
+      if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false
+      if (Object.getOwnPropertySymbols(value).length) return false
+      ancestors.add(value)
+      try {
+        if (Array.isArray(value)) {
+          for (let index = 0; index < value.length; index++) {
+            if (!Object.hasOwn(value, index) || !isJsonValue(value[index], ancestors)) return false
+          }
+          return true
+        }
+        return Object.values(value).every(entry => isJsonValue(entry, ancestors))
+      }
+      finally {
+        ancestors.delete(value)
+      }
+    }
+    default: return false
+  }
+}
+
 function invalid(problem: string): Result<never, StartedScheduleErrorCode> {
   return [startedScheduleErrors.SCHEDULE_INVALID_OPTIONS({ problem }), undefined]
 }
@@ -66,6 +96,7 @@ function parseOptions(name: string, options: unknown): Result<StartedSchedule, S
   if (payload !== undefined) {
     let text: string | undefined
     try {
+      if (!isJsonValue(payload)) return invalid("`payload` must be a JSON value.")
       text = JSON.stringify(payload)
     }
     catch {

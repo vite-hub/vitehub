@@ -46,7 +46,7 @@ function summarizeScheduleDefinition(
   if (definition.startable) {
     fields.push({ label: "Starts", value: "When code calls startSchedule(), once or on a cron" })
   }
-  if (definition.manual) {
+  if (definition.manual && !definition.startable) {
     fields.push({ label: "Manual", value: "Enabled" })
   }
   if (definition.contributor) {
@@ -143,6 +143,6 @@ export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<Sch
       { key: "manual", label: "Manual" },
     ],
     kind: "record-table",
-    notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). A Definition without cron runs when code starts it with `startSchedule()`; each started Schedule has its own row. Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
+    notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). A Definition without cron runs when code starts it with `startSchedule()`; each started Schedule has its own row. Static Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
   },
 }

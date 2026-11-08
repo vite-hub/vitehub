@@ -192,7 +192,6 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
   const first = runtime.checkedThrough === undefined
     ? minute - runtime.catchUpMs
     : Math.min(minute, runtime.checkedThrough + minuteMs)
-  runtime.checkedThrough = Math.max(runtime.checkedThrough ?? minute, minute)
   const occurrences = (await runtime.store.list()).flatMap(schedule => dueMinutes(schedule, first, minute).map(scheduledAt => ({ schedule, scheduledAt })))
   const results = await Promise.allSettled(occurrences.map(({ schedule, scheduledAt }) => runOccurrence(runtime, schedule, scheduledAt, context.waitUntil)))
   results.forEach((result, index) => {
@@ -200,4 +199,7 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
     const { schedule } = occurrences[index]!
     console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
   })
+  if (results.every(result => result.status === "fulfilled")) {
+    runtime.checkedThrough = Math.max(runtime.checkedThrough ?? minute, minute)
+  }
 }

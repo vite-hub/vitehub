@@ -16,7 +16,7 @@ export type ScheduleHandler<TResult = unknown> = {
 }["bivarianceHack"]
 
 export interface ScheduleDefinitionInput<TResult = unknown> {
-  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
+  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start a Definition with `cron` outside its cron. */
   manual?: boolean
   /**
    * Five-field cron expression, evaluated in `timeZone`. Leave it out for a Schedule that runs only when code starts it
@@ -32,7 +32,7 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
 }
 
 export interface ScheduleDefinitionOptions {
-  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
+  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start a Definition with `cron` outside its cron. */
   manual?: boolean
   /** IANA time zone of the cron, such as `"Europe/Madrid"`. Defaults to `"UTC"`. */
   timeZone?: string

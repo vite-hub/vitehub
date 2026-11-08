@@ -14,7 +14,11 @@ function isReport(value: unknown): value is BundleEnvironmentReport {
 
 /** Reads every environment report in `.vitehub/bundle/`. A file that is not a report is skipped. */
 export function readEnvironmentReports(root: string): BundleEnvironmentReport[] {
-  const dir = join(root, bundleReportDir)
+  return readEnvironmentReportFolder(join(root, bundleReportDir))
+}
+
+/** Reads every environment report in `dir`, such as a copy of `.vitehub/bundle/`. */
+export function readEnvironmentReportFolder(dir: string): BundleEnvironmentReport[] {
   let files: string[]
   try {
     files = readdirSync(dir).filter(file => file.endsWith(".json"))
