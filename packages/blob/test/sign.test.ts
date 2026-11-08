@@ -82,7 +82,7 @@ describe("signed Blob requests", () => {
       method: "GET",
     })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(signed).toEqual({
       headers: {},
       method: "GET",
@@ -107,7 +107,7 @@ describe("signed Blob requests", () => {
       method: "PUT",
     })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(signed).toEqual({
       headers: {
         "Content-Type": "audio/mpeg",
@@ -138,7 +138,7 @@ describe("signed Blob requests", () => {
   it("signs on the default R2 host without a jurisdiction", async () => {
     const [error] = await createR2Storage().sign("source.mp3", { expiresIn: 60, method: "GET" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const client = awsMock.getSignedUrl.mock.calls.at(-1)?.[0] as { config: Record<string, unknown> }
     expect(client.config.endpoint).toBe("https://account.r2.cloudflarestorage.com")
   })
@@ -156,7 +156,7 @@ describe("signed Blob requests", () => {
 
     const [error] = await storage.sign("source.mp3", { expiresIn: 60, method: "GET" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const client = awsMock.getSignedUrl.mock.calls.at(-1)?.[0] as { config: Record<string, unknown> }
     expect(client.config.endpoint).toBe("https://account.eu.r2.cloudflarestorage.com")
   })
@@ -174,7 +174,7 @@ describe("signed Blob requests", () => {
 
     const [error, signed] = await storage.sign("source.mp3", { expiresIn: 60, method: "GET" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const url = new URL(signed!.url)
     expect(url.hostname).toBe("account.eu.r2.cloudflarestorage.com")
     expect(url.pathname).toBe("/private-audio/source.mp3")
@@ -195,7 +195,7 @@ describe("signed Blob requests", () => {
     expect(signed).toBeUndefined()
     expect(error).toMatchObject({
       code: "BLOB_OPERATION_FAILED",
-      details: { operation: "sign", store: "cloudflare-r2" },
+      why: "The Blob sign operation failed on the \"cloudflare-r2\" store.",
     })
     expect(error?.cause).toMatchObject({
       message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials.",

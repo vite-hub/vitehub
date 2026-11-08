@@ -412,7 +412,14 @@ export const validViteHubOptions: DoctorRule = createRule({
 })
 
 
-const nuxtHubImport = /^(?:hub:(?:db|kv|blob)|@nuxthub\/.+)$/
+const nuxtHubImport = /^(?:hub:(?:db(?::schema)?|kv|blob)|@nuxthub\/.+)$/
+/** Server helpers that NuxtHub auto-imports. ViteHub registers none of them. */
+const nuxtHubHelpers = new Map([
+  ["hubAI", "ViteHub has no AI binding helper. Call the AI SDK from a route or an Agent."],
+  ["hubBlob", "Use `blob` from `vite-hub/blob`. Its methods return `[error, value]` tuples."],
+  ["hubDatabase", "Use the Drizzle `db` from `vite-hub/database/drizzle`."],
+  ["hubKV", "Use `kv` from `vite-hub/kv`. Its methods return `[error, value]` tuples."],
+])
 
 export const noNuxtHubLeftovers: DoctorRule = createRule({
   meta: {
@@ -443,8 +450,28 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
         }), { range: ctx.range(hub) })
       }
     }
+    const r = resolver(ctx)
     return {
       ScriptNode(node) {
+        if (isNodeType(node, "CallExpression")) {
+          const callee = unwrap(node.callee)
+          const name = isIdentifier(callee) && !r.binding(callee) ? callee.name : undefined
+          const helper = name ? nuxtHubHelpers.get(name) : undefined
+          if (helper) {
+            ctx.report(diagnostics.VHUB0032({
+              why: `\`${name}()\` is a NuxtHub auto-import. ViteHub does not register it, so the call fails at runtime.`,
+              fix: helper,
+            }), { range: ctx.range(node) })
+          }
+          const reference = r.callee(node)
+          if (reference?.module === "blob" && reference.name === "blob" && reference.path.length === 1 && reference.path[0] === "delete") {
+            ctx.report(diagnostics.VHUB0032({
+              why: "`blob.delete()` is the NuxtHub name. ViteHub Blob has no `delete` method, so the call fails at runtime.",
+              fix: "Call `blob.del()`. It returns an `[error]` tuple: `const [error] = await blob.del(pathname)`.",
+            }), { range: ctx.range(node) })
+          }
+          return
+        }
         const source = moduleSpecifier(node)
         if (!source || !nuxtHubImport.test(source.specifier)) return
         ctx.report(diagnostics.VHUB0032({
