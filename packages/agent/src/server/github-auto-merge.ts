@@ -1,5 +1,6 @@
 import { parseMarkdown } from "comark"
 import html from "comark/plugins/html"
+import linkify from "comark/plugins/linkify"
 import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
@@ -164,7 +165,8 @@ async function githubMentionTokens(body: string): Promise<string[]> {
   // code spans. Only rendered text can notify; code examples must stay usable.
   const document = await parseMarkdown(body, {
     registerDefaultPlugins: false,
-    plugins: [html(), {
+    // GitHub autolinks URLs without a scheme, such as www.example.com.
+    plugins: [linkify({ fuzzyLink: true, urlAuth: true }), html(), {
       name: "github-mention-comments",
       markdownItPlugins: [((md) => {
         // Remove actual inline comments before Comark falls back to raw text.
@@ -190,7 +192,6 @@ async function githubMentionTokens(body: string): Promise<string[]> {
     } satisfies ComarkPlugin],
     autoClose: false,
     autoUnwrap: false,
-    linkify: true,
   })
   const mentions: string[] = []
   function collectMentions(node: MarkdownNode): void {
