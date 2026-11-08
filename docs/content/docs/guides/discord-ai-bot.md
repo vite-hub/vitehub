@@ -1,6 +1,6 @@
 ---
 title: Build an AI Discord bot with ViteHub
-description: Build an AI Discord bot with a ViteHub Agent. Create the app in the Discord Developer Portal, add discord() to defineAgent, and run it on a Node server that keeps the Gateway connection open.
+description: "Build an AI Discord bot with a ViteHub Agent. Create the Discord app, add discord() to defineAgent, and run it on a Node server that keeps the Gateway open."
 navigation.title: Discord AI bot
 navigation.order: 5
 navigation.group: Chat bots

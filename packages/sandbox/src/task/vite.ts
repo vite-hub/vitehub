@@ -1,8 +1,9 @@
+import { ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
-import { basename, normalize, relative } from 'pathe'
+import { basename, normalize, relative, resolve } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
 import {
@@ -14,9 +15,10 @@ import {
 } from './feature'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxTaskRuntime } from './internal/runtime-preparation'
+import { readSandboxTaskRuntimeGeneration } from './internal/runtime-generation'
 import { inspectSandboxTaskDefinitions } from './inspect'
 import type { ViteHubInspectionPluginMetadata } from '@vite-hub/internal/inspect'
-import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
+import type { Alias, ConfigEnv, DevEnvironment, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import type { AgentSandboxTaskConfig } from './module-types'
 
@@ -180,6 +182,33 @@ function invalidateGeneratedSandboxTaskModules(files: string[], moduleGraph: { g
     if (module) {
       // SAFETY: Vite returned this value from the same module graph that accepts it for invalidation.
       moduleGraph.invalidateModule(module as never)
+    }
+  }
+}
+
+// Vite resolves the `runtime` link to a generation folder, and importers keep that path in
+// their transformed code. Move server environments to the current generation before it is pruned.
+async function reloadStaleSandboxTaskGenerations(
+  environments: Record<string, DevEnvironment> | undefined,
+  rootDir: string,
+  facadeFile: string,
+) {
+  // Vite keys modules by real path.
+  const generationsDir = await realpath(resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), '.runtime-generations')).then(normalize).catch(() => undefined)
+  const currentGeneration = generationsDir && await readSandboxTaskRuntimeGeneration(facadeFile, generationsDir)
+  if (!generationsDir || !currentGeneration)
+    return
+  for (const environment of Object.values(environments ?? {})) {
+    if (environment.config.consumer !== 'server')
+      continue
+    for (const module of environment.moduleGraph.idToModuleMap.values()) {
+      const id = module.id
+      if (!id?.startsWith(`${generationsDir}/`) || id.startsWith(`${currentGeneration}/`))
+        continue
+      environment.moduleGraph.invalidateModule(module)
+      for (const importer of module.importers)
+        environment.moduleGraph.invalidateModule(importer)
+      environment.hot.send({ type: 'full-reload', triggeredBy: id })
     }
   }
 }
@@ -402,6 +431,9 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
         const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]
         const currentResolvedFiles = await resolveGeneratedSandboxTaskModuleIds(currentFiles)
         invalidateGeneratedSandboxTaskModules([...previousFiles, ...previousResolvedFiles, ...currentFiles, ...currentResolvedFiles], context.server.moduleGraph)
+        const facadeFile = generatedAliases[SANDBOX_PACKAGE_ID]
+        if (facadeFile)
+          await reloadStaleSandboxTaskGenerations(context.server.environments, prepared.rootDir, facadeFile)
         return prepared
       })
     },

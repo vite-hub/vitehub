@@ -79,7 +79,7 @@ Some rules read the whole project, not only one file:
 | [`VHUB0020`](#vhub0020) | `vitehub/workflow-step-names` | Error |
 | [`VHUB0021`](#vhub0021) | `vitehub/valid-schedule-cron` | Error |
 | [`VHUB0022`](#vhub0022) | `vitehub/manual-schedule-run` | Error |
-| [`VHUB0023`](#vhub0023) | `vitehub/valid-outbound-channel` | Error |
+| [`VHUB0023`](#vhub0023) | `vitehub/valid-channel` | Error |
 | [`VHUB0024`](#vhub0024) | `vitehub/realtime-carets` | Warning |
 | [`VHUB0025`](#vhub0025) | `vitehub/realtime-persistence` | Error |
 | [`VHUB0026`](#vhub0026) | `vitehub/forge-error-imports` | Warning |
@@ -542,7 +542,7 @@ export default defineQueue(async ({ payload }) => {})
 
 **Put each Definition where ViteHub discovers it.** Rule `vitehub/definition-location`.
 
-A file default-exports `defineQueue()`, `defineWorkflow()`, `defineSchedule()`, `defineBrowser()`, `defineRealtime()`, `defineOutboundChannel()`, `defineAgent()`, `defineConnection()`, or `defineSandboxTask()`, but ViteHub does not discover the file. The Definition is never registered: a Schedule never runs, and calls by name fail.
+A file default-exports `defineQueue()`, `defineWorkflow()`, `defineSchedule()`, `defineBrowser()`, `defineRealtime()`, `defineChannel()`, `defineAgent()`, `defineConnection()`, or `defineSandboxTask()`, but ViteHub does not discover the file. The Definition is never registered: a Schedule never runs, and calls by name fail.
 
 A discovered file can re-export a Definition from another module, as in `export { default } from '../utils/email-queue'`. The rule does not report that module.
 
@@ -712,31 +712,30 @@ export default defineSchedule({ cron: '0 8 * * *', manual: true, handler })
 
 ## VHUB0023
 
-**Configure each outbound Channel connector.** Rule `vitehub/valid-outbound-channel`.
+**Give each Channel an adapter that fits its targets.** Rule `vitehub/valid-channel`.
 
-`defineOutboundChannel()` throws when its module loads if `connectors` is empty (`CHANNELS_C0003`), a connector has no `send` function (`CHANNELS_C0004`), or `defaultConnector` is not a connector name (`CHANNELS_C0005`). The registry loads the module on the first `send()`, so the error appears as a returned error at that moment. The rule reports these mistakes in object literals.
+`defineChannel()` throws when its module loads if it has no `adapter` or the adapter has no `kind` (`CHANNELS_C0007`), or if an `on` handler sits on an adapter that does not receive webhooks (`CHANNELS_C0010`). Handlers need `webhook()` or `stripe()`. A chat adapter such as `slack()` sends its messages to the Agent that lists the Channel. The registry loads the module on the first `send()`, so the error appears as a returned error at that moment. The rule reports these mistakes in object literals.
 
-```ts [server/channels/alerts.ts]
-import { defineOutboundChannel } from 'vite-hub/channels'
+```ts [server/channels/alerts.ts] fragment
+import { defineChannel } from 'vite-hub/channels'
 
 // Invalid
-export default defineOutboundChannel({
-  connectors: { slack: { url: 'https://hooks.slack.com/...' } },
-  defaultConnector: 'email',
+export default defineChannel({
+  adapter: { send: async text => sendToSlack(text) },
+  on: { webhook: event => console.log(event) },
 })
 ```
 
 ```ts [server/channels/alerts.ts] fragment
-import { defineOutboundChannel } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
 
 // Valid
-export default defineOutboundChannel({
-  connectors: { slack: { send: async text => sendToSlack(text) } },
-  defaultConnector: 'slack',
+export default defineChannel({
+  adapter: { kind: 'slack', send: async text => sendToSlack(text) },
 })
 ```
 
-The rule does not check connectors that a call or a spread creates.
+The rule does not check adapters that a variable or a spread creates.
 
 ## VHUB0024
 
@@ -908,7 +907,7 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `queue: { ... }` ignores its fields. The host selects the Queue provider.
 - In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 // Invalid
 export default defineConfig({
   plugins: [vitehub({ host: 'vercel', env: { server: { token: env({ secret: true }) } } })],
@@ -935,7 +934,7 @@ An app that uses ViteHub still has NuxtHub parts:
 - Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
 - `blob.delete()`. ViteHub Blob names this method `blob.del()`.
 
-```ts [nuxt.config.ts]
+```ts [nuxt.config.ts] fragment
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],

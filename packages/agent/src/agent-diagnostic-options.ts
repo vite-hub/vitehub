@@ -1,5 +1,5 @@
 export const agentDiagnosticOptions = {
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+  docsBase: "https://vitehub.dev/docs/agents/diagnostics",
 }
 
 export const dynamicAgentError = {

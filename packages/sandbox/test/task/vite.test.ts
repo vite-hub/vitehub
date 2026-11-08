@@ -12,12 +12,26 @@ import { build as viteBuild, type AliasOptions } from "vite"
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
 
 const tempDirs: string[] = []
+const realpathMock = vi.hoisted(() => ({ windowsSeparators: false }))
 const runtimePreparationMock = vi.hoisted(() => ({
   // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
   afterPrepare: undefined as (() => Promise<void>) | undefined,
   // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
   beforePrepare: undefined as (() => Promise<void>) | undefined,
 }))
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...original,
+    async realpath(...args: Parameters<typeof original.realpath>) {
+      const path = await original.realpath(...args)
+      if (realpathMock.windowsSeparators && typeof path === "string" && basename(path) === ".runtime-generations")
+        return path.replaceAll("/", "\\")
+      return path
+    },
+  }
+})
 
 vi.mock("../../src/task/internal/runtime-preparation.ts", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../src/task/internal/runtime-preparation.ts")>()
@@ -113,6 +127,7 @@ async function createViteRoot(parentDir = tmpdir()) {
 }
 
 afterEach(async () => {
+  realpathMock.windowsSeparators = false
   runtimePreparationMock.afterPrepare = undefined
   runtimePreparationMock.beforePrepare = undefined
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -1549,6 +1564,65 @@ describe("hubSandboxTask", () => {
     expect(invalidated).toContain(firstGenerationSandbox)
     await Promise.all([firstUpdate, secondUpdate])
     await expect(readFile(sandboxTaskAlias, "utf8")).resolves.toContain("setSandboxTaskRuntimeConfig")
+  })
+
+  it.each(["native", "Windows"])("reloads server environments that still import a previous runtime generation with %s realpath separators", async (separators) => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const sandboxTaskAlias = readAlias((configEnvironment("nitro", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox/task")!
+    const staleFacade = await realpath(sandboxTaskAlias)
+    type TestModule = { id: string, importers: Set<TestModule> }
+    const importer: TestModule = { id: join(rootDir, "server/api/image.post.ts"), importers: new Set() }
+    const facadeModule: TestModule = { id: staleFacade, importers: new Set([importer]) }
+    const createEnvironment = (consumer: "client" | "server") => {
+      const invalidated: unknown[][] = []
+      const sent: unknown[] = []
+      return {
+        invalidated,
+        sent,
+        environment: {
+          config: { consumer },
+          hot: { send: (payload: unknown) => sent.push(payload) },
+          moduleGraph: {
+            idToModuleMap: new Map([[importer.id, importer], [facadeModule.id, facadeModule]]),
+            invalidateModule: (module: TestModule, ...args: unknown[]) => invalidated.push([module.id, ...args]),
+          },
+        },
+      }
+    }
+    const nitro = createEnvironment("server")
+    const client = createEnvironment("client")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        environments: Record<string, ReturnType<typeof createEnvironment>["environment"]>
+        moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void }
+      }
+    }) => Promise<void>
+
+    const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
+    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    realpathMock.windowsSeparators = separators === "Windows"
+    await handleHotUpdate({
+      file: definition,
+      server: {
+        environments: { client: client.environment, nitro: nitro.environment },
+        moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} },
+      },
+    })
+
+    expect(await realpath(sandboxTaskAlias)).not.toBe(staleFacade)
+    expect(nitro.invalidated).toEqual([[staleFacade], [importer.id]])
+    expect(nitro.sent).toEqual([{ type: "full-reload", triggeredBy: staleFacade }])
+    expect(client.invalidated).toEqual([])
+    expect(client.sent).toEqual([])
   })
 
   it.each(["cloudflare", "vercel"] as const)("bundles the generated %s runtime through stable paths with provider aliases", async (provider) => {

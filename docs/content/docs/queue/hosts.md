@@ -25,7 +25,7 @@ With `host: 'node'`, the built server uses the local provider too. This also wor
 For Cloudflare or Vercel, use a build to check that ViteHub generates the right Nitro output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub @vite-hub/queue
 pnpm vite build
 pnpm vitehub inspect definitions --kind queue
 ```

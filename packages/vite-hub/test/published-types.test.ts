@@ -100,7 +100,7 @@ it("keeps the installed Database runtime facade declaration self-contained", asy
   }
 }, 10_000)
 
-it("keeps installed framework declarations independent of optional evlog", async () => {
+it.each(["evlog", "ai"])("keeps installed framework declarations independent of optional %s", async (optionalPeer) => {
   const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-root-types-"))
   const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
   try {
@@ -113,7 +113,7 @@ it("keeps installed framework declarations independent of optional evlog", async
       peerDependencies: Record<string, string>
     }
     for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
-      if (name === "evlog") continue
+      if (name === optionalPeer) continue
       const target = resolve(consumerRoot, "node_modules", name)
       await mkdir(dirname(target), { recursive: true })
       await symlink(resolve(packageRoot, "node_modules", name), target, "dir")

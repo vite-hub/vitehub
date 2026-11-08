@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { createTwoFilesPatch } from "diff"
@@ -6,7 +6,7 @@ import { createTwoFilesPatch } from "diff"
 import { codemods } from "./registry.ts"
 import { CodemodError } from "./types.ts"
 
-import type { Codemod, CodemodResult } from "./types.ts"
+import type { Codemod, CodemodResult, FileEdit } from "./types.ts"
 
 export interface RunCodemodOptions {
   /** Project directory. Defaults to `process.cwd()`. */
@@ -20,6 +20,17 @@ export interface CodemodRun {
   cwd: string
   dryRun: boolean
   result: CodemodResult
+}
+
+/** Writes one planned edit below `root`, or deletes the file when `after` is `null`. */
+export async function applyEdit(root: string, edit: FileEdit): Promise<void> {
+  const path = resolve(root, edit.path)
+  if (edit.after === null) {
+    await rm(path, { force: true })
+    return
+  }
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, edit.after)
 }
 
 export function findCodemod(name: string): Codemod | undefined {
@@ -36,13 +47,15 @@ export async function runCodemod(name: string, options: RunCodemodOptions = {}):
   const dryRun = options.dryRun ?? false
   const result = await codemod.run({ cwd })
   if (!dryRun) {
-    for (const edit of result.edits) {
-      const path = resolve(cwd, edit.path)
-      await mkdir(dirname(path), { recursive: true })
-      await writeFile(path, edit.after)
-    }
+    for (const edit of result.edits) await applyEdit(cwd, edit)
   }
   return { codemod, cwd, dryRun, result }
+}
+
+/** Marks a new or deleted file in a file list. */
+export function editLabel(edit: FileEdit): string {
+  if (edit.after === null) return " (deleted)"
+  return edit.before === undefined ? " (new)" : ""
 }
 
 function formatLocation(file: string | undefined, line: number | undefined): string {
@@ -53,7 +66,7 @@ function formatLocation(file: string | undefined, line: number | undefined): str
 /** Formats the planned edits as unified diffs. */
 export function formatDiff(result: Pick<CodemodResult, "edits">): string {
   return result.edits
-    .map(edit => createTwoFilesPatch(`a/${edit.path}`, `b/${edit.path}`, edit.before ?? "", edit.after, undefined, undefined, { context: 3 }))
+    .map(edit => createTwoFilesPatch(edit.before === undefined ? "/dev/null" : `a/${edit.path}`, edit.after === null ? "/dev/null" : `b/${edit.path}`, edit.before ?? "", edit.after ?? "", undefined, undefined, { context: 3 }))
     .join("\n")
 }
 
@@ -63,7 +76,7 @@ export function formatReport(run: CodemodRun): string {
   const lines = [`${codemod.name}: ${result.summary}`]
   if (dryRun) lines.push("Dry run: no files were written.")
   lines.push("", `${dryRun ? "Files to change" : "Files changed"} (${result.edits.length}):`)
-  for (const edit of result.edits) lines.push(`  ${edit.path}${edit.before === undefined ? " (new)" : ""}`)
+  for (const edit of result.edits) lines.push(`  ${edit.path}${editLabel(edit)}`)
   if (!result.edits.length) lines.push("  none")
   lines.push("", `Manual follow-ups (${result.followUps.length}):`)
   result.followUps.forEach((followUp, index) => {

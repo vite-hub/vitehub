@@ -147,6 +147,18 @@ async function verify(request: Request, key: string, now: number): Promise<boole
   return true
 }
 
+/**
+ * Whether a development request came from this machine. Headers can be forged, so only the socket decides.
+ * - A dev server whose front process signs loopback requests gives its worker a key. The worker then trusts only
+ *   that evidence, because its own peer is the proxy of the front process.
+ * - Without a key, `remoteAddress`, the peer address that the host adapter reports, decides. An unknown peer is refused.
+ */
+export async function isViteHubLoopbackPeer(request: Request, remoteAddress: string | undefined): Promise<boolean> {
+  if (remoteAddress && !isViteHubLoopbackAddress(remoteAddress)) return false
+  const key = readViteHubDevPeerKey()
+  return key ? verifyViteHubDevPeer(request, key) : isViteHubLoopbackAddress(remoteAddress)
+}
+
 /** The parts of an H3 1 (Nitro 2) or H3 2 (Nitro 3) event that the dev handler reads. */
 interface DevPeerEvent {
   node?: { req?: DevPeerNodeRequest }

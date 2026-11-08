@@ -516,7 +516,7 @@ describe("vitehub add", () => {
 
     expect(exitCode).toBe(0)
     expect(json.implied).toEqual(["workflow"])
-    expect(json.install).toMatchObject({ command: "npm install @vite-hub/agent", packages: ["@vite-hub/agent"] })
+    expect(json.install).toMatchObject({ command: "npm install @vite-hub/agent @vite-hub/workflow", packages: ["@vite-hub/agent", "@vite-hub/workflow"] })
     const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
     expect(config.ok && Object.keys(config.site.keys)).toEqual(["host", "kv", "agent"])
   })
@@ -890,11 +890,11 @@ describe("vitehub add", () => {
 
     const inline = await add(["workflow", "--dry-run"], root)
     expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
-    expect(inline.json.install.packages).toEqual([])
+    expect(inline.json.install.packages).toEqual(["@vite-hub/workflow"])
 
     const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
     expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
-    expect(durable.json.install.packages).toEqual(["openworkflow"])
+    expect(durable.json.install.packages).toEqual(["@vite-hub/workflow", "openworkflow"])
   })
 
   it.each([
@@ -907,7 +907,7 @@ describe("vitehub add", () => {
     const { exitCode, json } = await add(["workflow", "--option", option, "--dry-run"], root)
 
     expect(exitCode).toBe(0)
-    expect(json.install.packages).toEqual([])
+    expect(json.install.packages).toEqual(["@vite-hub/workflow"])
     expect(json.nextSteps.join("\n")).toContain("inline in the request process")
   })
 
@@ -920,7 +920,7 @@ describe("vitehub add", () => {
 
     const { json } = await add(["workflow", ...options.flatMap(option => ["--option", option]), "--dry-run"], root)
 
-    expect(json.install.packages).toEqual(["openworkflow"])
+    expect(json.install.packages).toEqual(["@vite-hub/workflow", "openworkflow"])
     expect(json.nextSteps.join("\n")).not.toContain("inline")
   })
 
@@ -951,7 +951,7 @@ describe("vitehub add", () => {
     const { exitCode, json } = await add(["blob", "--option", `${option}.driver=s3`, "--option", `${option}.bucket=app-assets`, "--dry-run"], root)
 
     expect(exitCode).toBe(0)
-    expect(json.install.packages).toEqual(["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"])
+    expect(json.install.packages).toEqual(["@vite-hub/blob", "@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"])
   })
 
   it.each([

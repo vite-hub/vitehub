@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands 
 Install ViteHub and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/rate-limit nitro h3
 pnpm add -D vite
 ```
 

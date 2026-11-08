@@ -74,7 +74,7 @@ The checkout already contains the finished files. Read and edit them as you foll
 }
 ```
 
-The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node host once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before the ViteHub UI module so Nuxt installs its Icon and color-mode dependencies. The ViteHub UI module registers the chat components. Disable font downloads so the offline app does not need a font service.
+The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node host once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
 Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project. The pinned Nitro version skips TypeScript transforms under `node_modules`, where this Nuxt version puts its default build directory.
 
@@ -83,7 +83,7 @@ import viteHub from "vite-hub/nuxt";
 
 export default defineNuxtConfig({
   buildDir: ".nuxt",
-  modules: ["@nuxt/ui", "@vite-hub/ui/nuxt", [viteHub, {
+  modules: ["@nuxt/ui", [viteHub, {
     host: "node",
     agent: true,
     workflow: false,
@@ -104,6 +104,7 @@ export default defineNuxtConfig({
 ```css [app/assets/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "@vite-hub/ui/styles.css";
 
 body { margin: 0; font-family: system-ui, sans-serif; }
 ```

@@ -1,8 +1,8 @@
 ---
-title: Get started
+title: Capture your first log event
 navigation.title: Get started
 navigation.order: 2
-description: Get started for ViteHub Logs, powered by Evlog.
+description: "Install Evlog, turn on local capture in vitehub(), add fields to one request event, and inspect the event in the Console."
 layout: tutorial
 icon: i-lucide-logs
 ---
@@ -28,7 +28,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', logs: true, console: { auth: false, local: true } }),
+    vitehub({ host: 'node', logs: true, console: { auth: false } }),
     nitro(),
   ],
 })

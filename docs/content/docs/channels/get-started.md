@@ -1,80 +1,73 @@
 ---
 
-title: Send through your first Channel
-description: Define a named Channel, send a local build notification from server code, and inspect the connector receipt.
+title: Send and receive through your first Channel
+description: Define a named Channel, send a local build notification from server code, and receive a signed webhook.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Send a build notification through a Channel named `alerts`. Your first connector writes to the server terminal and returns a receipt. This lets you check the delivery code before connecting a messaging service.
+Define a Channel named `alerts`. First it sends a build notification through an adapter that writes to the server terminal. Then it receives a signed webhook and runs a handler once per delivery. No message leaves your machine and no provider key is needed.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. Nitro serves the API route. No message leaves your machine and no provider key is needed.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. Nitro serves the routes.
 
-::tutorial-step{title="Install and enable discovery"}
-## Install and enable discovery
+::tutorial-step{title="Install and enable Channels"}
+## Install and enable Channels
 
 Install ViteHub and Nitro. Add the plugins below to your existing Vite config, keeping its other plugins.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3 vite
+pnpm add vite-hub @vite-hub/channels @vite-hub/agent @vite-hub/workflow nitro h3 vite
 ```
 
-Add the Channels integration to your Vite config. ViteHub then discovers files below `server/channels` and files that end in `.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers that the Channel imports. Discovery reads each module without running it and skips modules that cannot be outbound Channels: a default export that is a function, a class, a primitive value, an array, a call to the Agent `defineChannel()`, or a statically known object literal without `connectors`, and modules with neither a default nor a `connectors` export. Agent Channels can live in `server/channels` next to outbound Channels. An Agent `defineChannel()` with a `webhooks.path` there [serves its own webhook route](/docs/agents/channels#give-a-channel-its-own-route).
+`channels: true` discovers the files below `server/channels`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers. Inbound webhooks run on the Agent webhook route, so a Channel that receives webhooks also needs `agent: true`.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', channels: true })],
+  plugins: [vitehub({ host: 'node', agent: true, channels: true })],
 })
 ```
-
-The local connector does not need Server Env. Add a secret declaration only
-when a connector calls a provider API.
 
 ::
 
 ::tutorial-step{title="Define a named Channel"}
 ## Define a named Channel
 
-Create `server/channels/alerts.ts` with `defineOutboundChannel()`. The `log`
-connector returns a receipt that we can inspect without sending a real message.
+Create `server/channels/alerts.ts` with `defineChannel()`. The adapter is the connection. This one has a `send` function that prints the text and returns a receipt, so we can check the code without a real service.
 
 ```ts [server/channels/alerts.ts]
-import { defineOutboundChannel } from 'vite-hub/channels'
-export default defineOutboundChannel({
-  connectors: {
-    log: {
-      send(text: string, { label }: { label: string }) {
-        console.log(`[${label}] ${text}`)
-        return { id: `log-${label}` }
-      },
+import { defineChannel } from 'vite-hub/channels'
+
+export default defineChannel({
+  adapter: {
+    kind: 'log',
+    send(text: string, { label }: { label: string }) {
+      console.log(`[${label}] ${text}`)
+      return { id: `log-${label}` }
     },
   },
 })
 ```
 
-The file name becomes the Channel name. For a Vite suffix definition, use `src/alerts.channel.ts` instead; both forms discover the same `alerts` Channel.
+The file name becomes the Channel name.
 
 ::
 
-::tutorial-step{title="Send and verify one delivery"}
-## Send and verify one delivery
+::tutorial-step{title="Send one message"}
+## Send one message
 
-`useChannel('alerts')` selects the Definition; `connector: 'log'` selects its send function. That function receives the label and text. Check the tuple's error before returning its receipt.
+`useChannel('alerts')` selects the Channel. `send()` passes the text and the options to the adapter. Check the error before you return the receipt.
 
-```ts [server/api/build-finished.post.ts]
+```ts [server/api/build-finished.post.ts] fragment
 import { defineEventHandler } from 'h3'
 import { useChannel } from 'vite-hub/channels/server'
 
 export default defineEventHandler(async () => {
-  const [error, receipt] = await useChannel('alerts').send('Build finished.', {
-    connector: 'log',
-    label: 'release',
-  })
+  const [error, receipt] = await useChannel('alerts').send('Build finished.', { label: 'release' })
   if (error) throw error
   return receipt
 })
@@ -92,20 +85,41 @@ Keep the server running. In another terminal, run:
 curl -X POST http://localhost:5173/api/build-finished
 ```
 
-The response includes a generated delivery id and the connector id:
-
-The terminal running Vite also prints `[release] Build finished.`. This confirms that the connector ran, while the HTTP response confirms that the caller received its receipt.
+The terminal running Vite prints `[release] Build finished.`, and the response has the receipt:
 
 ```json [output/response.json]
 {
   "channel": "alerts",
-  "connector": "log",
   "deliveryId": "...",
   "id": "log-release"
 }
 ```
 
-Channels does not bundle provider adapters or retry deliveries. For a real
-connector, read typed Server Env inside `send()` and keep credentials out of
-client code. Continue with [Send from an H3 or Nitro handler](/docs/channels/server-api#send-from-an-h3-or-nitro-handler).
+::
+
+::tutorial-step{title="Receive a signed webhook"}
+## Receive a signed webhook
+
+Create `server/channels/builds.ts`. The `webhook()` adapter checks `Authorization: Bearer <secret>`, and `on` runs a handler for each delivery. The default event name is `webhook`.
+
+```ts [server/channels/builds.ts]
+import { defineChannel, webhook } from 'vite-hub/channels'
+
+export default defineChannel({
+  adapter: webhook<{ id: string }>({ signature: 'bearer', secret: 'local-secret' }),
+  on: {
+    webhook: event => console.log(`build ${event.data.id} finished (delivery ${event.id})`),
+  },
+})
+```
+
+Every Channel that receives webhooks has the route `/api/_vitehub/channels/<name>`. Send the same body twice:
+
+```bash [commands/webhook]
+curl -X POST http://localhost:5173/api/_vitehub/channels/builds \
+  -H 'authorization: Bearer local-secret' -H 'content-type: application/json' \
+  -d '{"id":"build-42"}'
+```
+
+The handler runs once. The second request answers `{ "duplicate": true }`, because the delivery ID, the SHA-256 of the body here, is the same. A request without the secret answers 401. Read secrets from Server Env in a real app, and continue with [Receive webhooks](/docs/channels/server-api#receive-webhooks).
 ::

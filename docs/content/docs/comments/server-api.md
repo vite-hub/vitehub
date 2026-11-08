@@ -1,6 +1,6 @@
 ---
 title: Comments server API
-description: The comments() plugin, defineComments() options, the runtime methods and their error codes, thread and anchor types, the HTTP routes, and Content field addresses.
+description: "The comments() plugin, defineComments() options, runtime methods and error codes, thread and anchor types, HTTP routes, and Content field addresses."
 navigation.title: Server API
 navigation.order: 5
 icon: i-lucide-code-2

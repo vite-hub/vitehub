@@ -15,6 +15,12 @@ Start with the working app from [Installation](/docs/getting-started/installatio
 ::tutorial-step{title="Enable Blob"}
 ## Enable Blob
 
+Install the Blob package in the app:
+
+```bash [commands/install-blob]
+pnpm add @vite-hub/blob
+```
+
 Add `blob: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
 
 ```ts [vite.config.ts]

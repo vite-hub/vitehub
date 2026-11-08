@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 `useDatabase()` returns a Drizzle client. Queries use the Drizzle API, so a failed query rejects, as it does in Drizzle. ViteHub does not change that API to `[error, data]`.
 
-ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` links to the code on this page. Each one means that the code or the deployment must change, so ViteHub throws it:
+ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` links to the page of the code in [Database diagnostics](/docs/database/diagnostics). Each one means that the code or the deployment must change, so ViteHub throws it:
 
 - A Definition error throws from `defineDatabase()`.
 - A build error throws when ViteHub discovers Database Definitions or builds the app.
