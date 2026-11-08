@@ -45,6 +45,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/files/[...path].get.ts]
+import { createError, defineEventHandler, getRouterParam } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -73,6 +74,7 @@ export const reports = blob.store('reports')
 Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, so calling them is a type error, and they are absent at runtime. The Default Blob Store is `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
+import { createError, defineEventHandler, getRouterParam } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 const reports = blob.store('reports', { mode: 'read' })
@@ -95,7 +97,7 @@ The mode limits this API, not the host. The R2 binding, the Vercel token, and ot
 
 `blob` implements `BlobStorage`.
 
-Every async method returns `[error, value]`. Expected provider and storage failures are `ViteHubError` values with `BLOB_*` codes, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()` and pass its error to H3.
+Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefined]` on failure, `[undefined, value]` on success. Expected provider and storage failures are errors with a `BLOB_*` code, `why`, `fix`, and `docs`, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Read [Blob limits and errors](/docs/blob/limits-and-errors) for each code. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()`, answer `BLOB_NOT_FOUND` with `404`, and throw other errors to the host.
 
 | Method | Description |
 | --- | --- |
@@ -105,7 +107,7 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
-| `blob.serve(event, pathname, options?)` | Serves an object stream through a request event, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
+| `blob.serve(event, pathname, options?)` | Serves an object stream through a request event or a Fetchable `Request`, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
@@ -122,7 +124,7 @@ With a partial prefix such as `docs/re`, a native page can be empty while `hasMo
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub app. It reads the request from `event['~standard'].req`, writes the status and content headers to `event['~standard'].res`, and handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` sets more response headers. When it does not serve the object, `serve()` removes these headers and restores any values the response had before the call.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub app, and the `Request` of a Fetchable route. It reads the request from `event['~standard'].req`, writes the status and content headers to `event['~standard'].res`, and handles conditional GET and HEAD requests. A Fetchable route must move that status and those headers to the `Response` that it returns: copy them, then delete them from `res.headers`, so Nitro does not add them a second time. The generated serve route does this for you. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` sets more response headers. When it does not serve the object, `serve()` removes these headers and restores any values the response had before the call.
 
 `blob.serve()` also answers byte-range requests, so a `<video>` or `<audio>` element can seek, and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`. A GET or HEAD request with one `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` gets `206` with `Content-Range` and only those bytes. A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body. Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file. Transformed responses ignore `Range`.
 
@@ -136,7 +138,7 @@ Filesystem cache keys normalize repeated slashes. Use consistent filename casing
 
 Configure a private store when originals and derived objects must be accessible only through your application. The transform does not change provider access settings. The original remains unchanged. Deleting it prevents serving the cached result, including a conditional `304`. An in-flight transform does not recreate its cache after the source is removed.
 
-```ts [server/api/photos/[id].get.ts]
+```ts [server/api/photos/[id].get.ts] fragment
 import { blob } from '@vite-hub/blob'
 import { createPreview, resolvePhotoPath } from '../../utils/photos'
 
@@ -182,6 +184,7 @@ with a file that fails `ensure` throws an H3 400 error before anything is
 stored.
 
 ```ts [server/api/files.post.ts]
+import { defineEventHandler } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -235,6 +238,7 @@ drivers support it. Other drivers throw `BLOB_R0030`.
 Create one route with `action` and `pathname` params:
 
 ```ts [server/api/files/multipart/[action]/[...pathname].ts]
+import { defineEventHandler } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -286,7 +290,7 @@ request; `completed` then resolves with `undefined`.
 
 Server code can also drive an upload directly:
 
-```ts [server/utils/copy-large-file.ts]
+```ts [server/utils/copy-large-file.ts] fragment
 import { blob } from '@vite-hub/blob'
 
 const [createError, upload] = await blob.createMultipartUpload('exports/report.csv')
@@ -352,7 +356,7 @@ interface BlobReference {
 
 `image()` and `file()` from `@vite-hub/blob` return validators for that shape. [Content](/docs/content/configure#fields) re-exports the same functions from `vite-hub/content`, next to its other field helpers. A reference has no URL, because signed and served URLs expire or depend on routes. It has no alt text or dimensions either: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)` when you render. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
 
-```ts [server/api/profile/avatar.put.ts]
+```ts [server/api/profile/avatar.put.ts] fragment
 import { image } from '@vite-hub/blob'
 
 const avatar = image({ maxSize: '2MB' })

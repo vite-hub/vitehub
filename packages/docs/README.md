@@ -89,8 +89,8 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `toc` | `true`, `false` on `landing` | `false` hides the "On this page" outline. |
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
-| `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind }`. |
-| `seo` | None | `{ title, description, image }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. |
+| `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind, panel }`. See [Panels](#panels). |
+| `seo` | None | `{ title, description, image, index }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. `index: false` asks search engines not to index the page. See [Pages that search engines skip](#pages-that-search-engines-skip). |
 
 Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DocsContentError`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
 
@@ -105,6 +105,27 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 | `group` | Title of the group of the section. See `groups`. |
 | `fold` | `true` folds each page group of the sidebar. The group of the current page opens itself. |
 | `related` | Section ids listed under Related in the sidebar. |
+
+### Panels
+
+A long list of pages, such as one page for each error code, would bury the other pages of a section. Set `navigation.panel: true` on the `index.md` of a folder inside the section, and the folder becomes a panel:
+
+- The section sidebar shows one link to the panel, with the number of its pages, after the section pages.
+- On a page of the panel, the sidebar lists only the panel: a link back to the section, the panel Overview, and its pages by `navigation.group`. Each group folds. A page title that is a code, such as `QUEUE_DISABLED`, shows in monospace on one line. Search finds the panel pages by title, so the panel has no filter of its own.
+- The rail keeps the reader in the panel. On `/docs/queue/diagnostics/queue_disabled`, the KV item opens `/docs/kv/diagnostics` when that folder is a panel too, and `/docs/kv` when it is not.
+- Previous and next stay inside the panel.
+
+```md [content/docs/queue/diagnostics/index.md]
+---
+title: Queue diagnostics
+navigation.title: Diagnostics
+navigation.panel: true
+---
+```
+
+### Pages that search engines skip
+
+`seo.index: false` adds `<meta name="robots" content="noindex, follow">` and leaves the page out of `sitemap.xml`, llms.txt, `llms-full.txt`, and the share images. The site search lists it by its title and description only. The build does not prerender the page: the server renders it on request, so a site with thousands of generated pages builds as fast as before. Links to the page stay valid for the link checker, and its raw Markdown copy stays at `/raw/...`. Use it for long tails of thin pages, such as one page for each error code, and keep the page that lists them indexed.
 
 ## Layouts and rails
 
