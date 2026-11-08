@@ -110,8 +110,7 @@ export default defineAgent({
 })
 ```
 
-- **Inline:** `runAgent()` returns the validated result. Output that fails the schema fails the Invocation, so you never get unchecked model output.
-- **Workflow:** `runAgent()` returns an `AgentWorkflowRun` when the Workflow starts. Poll `getWorkflowRun(workflowName, run.id)` until `completed`, then read `result`. Also stop at the final states `failed`, `cancelled`, and `unknown`; do not wait forever.
+`runAgent()` returns the validated structured result as `result.output`. A schema failure fails the invocation instead of returning unchecked model output. A Workflow run that the Agent routes start keeps the validated Agent value in the `result` of its Workflow Run.
 
 An AI SDK model Driver retries invalid native structured output:
 
@@ -123,7 +122,7 @@ Provider Drivers (`codex`, `claude-code`) and custom-run Drivers validate output
 
 ## Accept structured data
 
-Set `data` to a Standard Schema when callers pass structured values, with or without model text. ViteHub validates `input.data` before Capabilities, hooks, `intercept`, and the Driver. Invalid data fails the Invocation: `runAgent()` returns `[Error, null]` and the Driver does not run.
+Set `data` to a Standard Schema when callers pass structured values instead of, or in addition to, model text. ViteHub validates `input.data` before Capabilities, hooks, `intercept`, and the Driver run. Invalid data fails the Invocation: `runAgent()` returns `AGENT_RUN_FAILED` with the validation error as `error.cause`, and the Driver does not run.
 
 `data` does not replace `prompt` or `messages`. Model and provider Drivers do not read `data`, so pass their text in `prompt` or `messages`. A `prompt` also names Console sessions and gives the `title()` Capability its source text. Hooks, `intercept`, and custom-run Drivers get the parsed value.
 
@@ -163,20 +162,21 @@ export default defineAgent({
 })
 ```
 
-```ts [server/lib/sync.ts]
+```ts [server/lib/sync.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import labeller from '../agents/labeller'
 
-const [error, output] = await runAgent(labeller, {
+const [error, result] = await runAgent(labeller, {
   data: { from: email.from, subject: email.subject },
   prompt: `${email.from}: ${email.subject}`,
 })
 if (error) throw error
-if (output instanceof Response || !('source' in output)) throw new Error('Expected inline labeller output')
+const output = result.output
+if (!output) throw new Error('Expected labeller output')
 // output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
 ```
 
-The `runAgent()` output type is the awaited `intercept` return type (without `undefined`, which only means "continue") or the `driver.output` schema output. Callers tell them apart by their fields without parsing again. As for any Agent, exclude `Response` and `AgentWorkflowRun` first.
+The type of `result.output` is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again.
 
 When `intercept` finishes an Invocation, the Driver, tools, and start Capabilities do not run. `agent:finish` hooks get the value as `result`, and the `agent.invocation.finish` trace event sets `agent.intercepted: true` with `result.output`. Traces record `input.data` and `result.output` only with the `content` policy; `metadata` keeps only `input.hasData`.
 
@@ -188,7 +188,7 @@ A child Agent's `data` or `intercept` replaces the parent's; schemas and interce
 
 A discovered Agent runs through the active host's Workflow integration by default. `runtime: false` finishes inline, and `runtime: workflow('support')` selects a named Workflow identity.
 
-`runAgent(agent, input)` cannot find the host Workflow by itself. Set `runtime: false`, give an explicit `workflow('support')` binding, or pass a host Runtime Context. See [Run without a host context](/docs/agents/invocations#run-without-a-host-context).
+`runAgent()` and `streamAgent()` run the Agent inline in the calling process, whatever its `runtime`. See [Run an Agent](/docs/agents/invocations#run-an-agent).
 
 ## Definition options
 

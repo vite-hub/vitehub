@@ -26,9 +26,9 @@ app runs.
 
 ## Test application-owned logic
 
-Use a custom `run` Driver when your app owns the work. `runAgent()` with two
-arguments returns `[error, result]`, so the test needs no Vite server or model
-credentials.
+Use a custom `run` Driver when the application owns the operation.
+`runAgent()` returns `[error, result]`, which makes a small unit test
+independent of a Vite server and model credentials.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -53,24 +53,23 @@ describe('greeting Agent', () => {
   it('returns the name from the prompt', async () => {
     const [error, result] = await runAgent(greeting, { prompt: 'Ada' })
 
-    expect(error).toBeNull()
-    expect(result).toEqual({ text: 'Hello, Ada!' })
+    expect(error).toBeUndefined()
+    expect(result?.text).toBe('Hello, Ada!')
   })
 })
 ```
 
-For an input schema or an `intercept` handler, test valid input and rejected
-input. A schema failure returns an error tuple, and the Driver does not run.
-An interception result ends the Invocation before the Driver runs. See
-[Accept structured data](/docs/agents/agent-definitions#accept-structured-data)
+For an input schema or an `intercept` handler, add one test for valid input
+and one for rejection. A schema failure returns `AGENT_RUN_FAILED` with the
+validation error as `error.cause`, and the Driver does not run. An interception result finishes the Invocation before the
+Driver runs. See [Accept structured data](/docs/agents/agent-definitions#accept-structured-data)
 and [Finish before the Driver](/docs/agents/agent-definitions#finish-before-the-driver).
 
-Use three arguments when the behavior depends on a host `RuntimeContext`,
-request metadata, or a stream's background lifetime. This form throws on
-failure and returns the result directly:
+Pass `runtimeContext` when the behavior depends on a host Runtime Context,
+request metadata, or a stream's background lifetime:
 
 ```ts fragment
-const result = await runAgent(agent, runtimeContext, { prompt: 'Ada' })
+const [error, result] = await runAgent(agent, { prompt: 'Ada' }, { runtimeContext })
 ```
 
 Pass a test Runtime Context with the parts the Agent uses. Fake network and

@@ -177,9 +177,9 @@ Cron uses UTC unless you set `timeZone`. The file name is the schedule name.
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `cron` | `string` | Yes | Five-field cron expression, evaluated in `timeZone`. |
-| `handler` | `ScheduleHandler` | Yes | Called with the run context. |
-| `manual` | `boolean` | No | Lets `vitehub schedule run` and the Console run it outside its cron. |
-| `timeZone` | `string` | No | IANA time zone of `cron`, such as `Europe/Madrid`. Default `UTC`. Needs the process driver. |
+| `handler` | `ScheduleHandler` | Yes | Function called with Schedule Run Context. |
+| `manual` | `boolean` | No | Allows `vitehub schedule run` and Console invocation to run this definition outside its cron. |
+| `timeZone` | `string` | No | IANA time zone of `cron`, such as `Europe/Madrid`. Defaults to `UTC`. Works on every host. |
 
 Set `manual: true` to allow runs on demand:
 
@@ -207,13 +207,29 @@ export default defineSchedule({
 })
 ```
 
-This runs at 08:00 in Madrid: 06:00 UTC in summer, 07:00 UTC in winter. `timeZone` can be any expression, such as a shared constant, but its value must be an IANA name. `PST` and numeric offsets are rejected.
+This runs at 08:00 in Madrid: 06:00 UTC in summer and 07:00 UTC in winter. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets are rejected.
 
-::warning
-Only the process driver (`runtime: { driver: 'process' }`) reads `timeZone`. Cloudflare, Vercel, Netlify, and Deno cron support only UTC. A build that writes provider output fails when a schedule sets `timeZone` to anything but the literal `'UTC'`. Write the cron in UTC, or use the process driver.
-::
+Cloudflare, Vercel, Netlify, and Deno read cron in UTC only. The build gives the host a UTC cron that covers both offsets, `0 6,7 * * 1-5` here, and the Schedule runs only at the wake that is 08:00 in Madrid. On those hosts, write `timeZone` as a string literal, because the build reads it from the source file. The process driver (`runtime: { driver: 'process' }`) also accepts an expression, such as a shared constant. A `cron` override in the build config runs in UTC and replaces the time zone.
 
-On daylight saving changes, a local time that does not exist is skipped that day. For example, `30 2 * * *` in `Europe/Madrid` skips the spring-forward day. A local time that occurs twice runs once, the first time, when the cron fixes the minute and hour. A cron with `*` in the minute or hour runs on elapsed time, so it also runs in the repeated hour.
+On daylight saving time changes, every host behaves the same. A local time that the clock skips runs once, shifted by the length of the gap: `30 2 * * *` in `Europe/Madrid` runs at 03:30 on the spring-forward day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
+
+## Run the work once per occurrence
+
+A host can deliver one cron wake twice. Each run gets `idempotencyKey`, `schedule:<name>:<scheduledAt ISO>`. Cloudflare supplies the scheduled timestamp, and the Process Runtime records each occurrence, so their repeated deliveries keep the same key. Pass it to Email, a Channel `send()`, or a Queue on Vercel or the local driver to dedupe work with the same key:
+
+```ts [server/schedules/daily-lesson.ts] fragment
+export default defineSchedule({
+  cron: '0 7 * * *',
+  timeZone: 'Europe/Stockholm',
+  async handler({ idempotencyKey }) {
+    await email.send({ from, to, subject: "Today's lesson", text, idempotencyKey })
+  },
+})
+```
+
+The process driver also stores one run per occurrence and does not run a repeated wake again.
+
+Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. They estimate `scheduledAt` as the latest host UTC cron match within the previous day, or the current minute when none matches. A late delivery or retry after another host cron match can get a different key. Time-zone filtering uses that estimate too: a summer Madrid 06:00 wake delivered after the extra 07:00 wake can be skipped. These hosts cannot guarantee occurrence identity or dedupe across that boundary. Use an application business key for side effects that must dedupe across delays and retries.
 
 Start a manual run in one of these ways:
 

@@ -53,7 +53,7 @@ A chain of redirects counts where it ends.
 
 ### DocsSeoError
 
-A prerendered page fails a search check. A production build stops on it when `seoAudit` is `true`. The limits are those of common site audits: a title of 10 to 60 characters with the site name, a description of 70 to 160, one `h1`, headings that go down one level at a time, at least 150 words, and a link from another page. Each sitemap URL must be a prerendered page that does not redirect. The message lists each page with its fix:
+A prerendered page fails a search check. A production build logs it by default and stops on it when `seoAudit` is `"error"` or `true`. The limits are those of common site audits: a title of 10 to 60 characters with the site name, a description of 70 to 160, one `h1`, headings that go down one level at a time, at least 150 words, and a link from another page. Each sitemap URL must be a prerendered page that does not redirect. The message lists each page with its fix:
 
 ```txt [output/docs-seo-error.txt]
 Docs pages fail the search checks:

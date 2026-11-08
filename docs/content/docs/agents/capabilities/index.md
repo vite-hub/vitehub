@@ -95,7 +95,7 @@ For data read after a run by evals, finish hooks, or Channel delivery, use `defi
 
 ## Finish without the Driver
 
-When app code can answer without the model (the Driver), such as a mail rule that labels an email, skip it. A Capability `input` phase can only end a run with a `Response`. For a typed value, use `defineAgent({ data, intercept })`: its return value becomes the output, and `runAgent()` types the output as that value or the Driver output.
+A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types `result.output` as the union of that value and the Driver output.
 
 ```ts [server/agents/labeller.ts] fragment
 export default defineAgent({

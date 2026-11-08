@@ -41,7 +41,7 @@ With the Process Runtime on Node, leave `providerOutput` unset, `'auto'`, or `fa
 Each build writes one host's output and removes output that an earlier build wrote for another host. With Nitro, the host is Nitro's preset. Without Nitro, it comes from `nitro.preset` in the Vite config, then `NITRO_PRESET`, `SERVER_PRESET`, and `VITEHUB_HOSTING`. With no known host, it writes output for every host above.
 
 ::warning
-Provider output needs a fixed five-field UTC cron string. A `timeZone` other than `UTC` fails a build that writes provider output.
+Provider Wake output requires a static five-field cron string compatible with generated provider output. A Static Schedule with a `timeZone` gets a UTC cron that covers each offset of the time zone, and the runtime checks the local time on each wake. Write that `timeZone` as a string literal.
 ::
 
 ## Run and inspect Schedules during development
@@ -74,4 +74,6 @@ Memory stores lose runs on restart. Use a KV store to keep them.
 
 ## Production checks
 
-Schedule owns runs, run attempts, and the retry, overlap, and dedupe policies. Not every named policy is configurable in the first version. Provider output is UTC; only the process driver allows `timeZone`.
+Schedule Runs, Schedule Run Attempts, retry policy, overlap policy, and dedupe policy belong to Schedule. Naming a policy does not imply every policy is configurable in the first version.
+
+Provider Wake output is UTC. A Static Schedule Definition with a `timeZone` wakes on a wider UTC cron and runs only at its local times, on every host. Each run gets an `idempotencyKey` for its occurrence; host cron output does not store runs, so pass the key to the work that must happen once.

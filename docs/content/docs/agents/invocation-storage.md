@@ -348,15 +348,16 @@ The SQLite, D1, and memory stores support both operations. Custom stores need `s
 To run a finished Invocation again, read its recorded prompt:
 
 ```ts fragment
-import { agentInvocationRerunInput } from 'vite-hub/agent'
+import { agentInvocationRerunInput, runAgent } from 'vite-hub/agent'
 
 const record = await invocations.get(invocationId)
 const input = record ? agentInvocationRerunInput(record) : undefined
 if (input?.available) {
-  await runAgent(agent, context, {
+  const [error] = await runAgent(agent, {
     prompt: input.prompt,
     ...(input.invokerProfileId ? { context: { invokerProfileId: input.invokerProfileId } } : {}),
-  })
+  }, { runtimeContext })
+  if (error) throw error
 }
 ```
 

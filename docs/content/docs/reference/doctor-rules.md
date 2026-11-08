@@ -164,7 +164,7 @@ The rule checks these calls:
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
-- `runAgent(agent, input)` from `vite-hub/agent`, and `runAgent(agent, input, { output: 'drained' })`
+- `runAgent()` and `streamAgent()` from `vite-hub/agent`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and Nuxt auto-imports in `server/`. It reports a result that code:
 
@@ -218,7 +218,7 @@ export async function dispatchSync(connectionId: string) {
 }
 ```
 
-To ignore a failure on purpose, such as a best-effort cache write, write `void await kv.set(key, value)`. The rule accepts `void`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. It does not check tuples inside `Promise.all()`. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
+To ignore a failure on purpose, such as a best-effort cache write, write `void await kv.set(key, value)`. The rule accepts `void`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. It does not check tuples inside `Promise.all()`. It also checks `runAgent()` and `streamAgent()`, including calls with `runtimeContext`. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
 
 ## VHUB0004
 
@@ -634,7 +634,7 @@ const [error, run] = await runWorkflow('onboard-user', body)
 const run = await runWorkflow('onboard-user', body)
 ```
 
-The rule skips `runAgent()`: its tuple forms are tuples, and `runAgent(agent, context, input)` returns the Agent's output, which can be an array.
+The rule skips `runAgent()` and `streamAgent()`, because they return error/result tuples.
 
 ## VHUB0019
 

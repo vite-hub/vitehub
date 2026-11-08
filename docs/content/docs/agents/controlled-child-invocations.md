@@ -12,9 +12,11 @@ it, trusted code (a parent Agent, a Capability tool, or host code) can inspect
 the child, cancel it, or send it input while it runs. The controller gives no
 final result to await.
 
-If you only need the result, use [`runAgent()`](/docs/agents/invocations). An
-inline runtime returns the Agent output, and a Workflow runtime returns a
-Workflow Run.
+Use [`runAgent()`](/docs/agents/invocations) when you only need the result.
+`runAgent()` runs the child inline and returns `[error, result]` when it
+finishes. The controller
+from `startAgentInvocation()` does not return a final result that you can
+await. It gives control and inspection.
 
 ## Start and inspect a child
 
@@ -89,8 +91,8 @@ the same order and lifecycle guarantees.
 The model can call a named app tool. Trusted code picks the Agent Definition,
 and ViteHub gives the child id. Do not let model input choose which Agent runs.
 
-If a tool uses `runAgent()`, handle its runtime-specific return value. Not
-every runtime returns a completed result.
+When a tool uses `runAgent()` instead, check `error` before it reads
+`result.text` or `result.output`.
 
 ## Hand off input resources
 

@@ -59,7 +59,7 @@ In the input phase, before the Driver:
 
 ### Rejection errors
 
-`runAgent()` callers get a `ViteHubError`:
+A rejected run throws a `ViteHubError` inside the Agent. `runAgent()` returns `AGENT_RUN_FAILED` with that error as `error.cause`. The cause has:
 
 - Message: the `message` option, or `[vitehub] <id> rejected the request.`.
 - `details`: `capabilityId`, `category`, `confidence`, and `reason` (up to 16,384 characters).
@@ -102,9 +102,9 @@ It sends the user text, category descriptions, and optional history to the model
 
 ## Verify the gate
 
-1. Allow a run and check the `llm-gate` (or `id`) finish extension or context value for `allowed: true` and the expected `category`.
-2. Reject one with `runAgent()`: code `LLM_GATE_REJECTED`, and the Driver did not run.
-3. Over HTTP: status `403` and the public body, without `message` or `reason`.
+1. Run one allowed invocation. Read the finish extension or context value for `llm-gate` (or your `id`) and confirm `allowed: true` and the expected `category`.
+2. Run one rejected invocation with `runAgent()`. Confirm that `error.cause` has code `LLM_GATE_REJECTED` and that the Agent Driver did not run.
+3. Send the rejected request over HTTP. Confirm status `403` and the public body without the `message` text or `reason`.
 
 ## Options
 

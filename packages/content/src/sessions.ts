@@ -347,11 +347,41 @@ export function createContentSessions(options: {
   }
 }
 
+function holderDetails(holder: ContentSession) {
+  return { kind: holder.kind, user: { ...holder.user }, since: holder.since, expiresAt: holder.expiresAt }
+}
+
+/** The holder of a lease in a sentence: the person, or a live room with the people in it. */
+function holderName(holder: ContentSession, article: "A" | "a"): string {
+  const name = holder.user.name ?? holder.user.id
+  return holder.kind === "live" ? `${article} live session (${name})` : name
+}
+
 /** The `CONTENT_LEASE_HELD` error of a write that another session's lease blocks. */
 export function contentLeaseHeld(collection: string, id: string, holder: ContentSession): ViteHubError {
-  const name = holder.user.name ?? holder.user.id
-  const who = holder.kind === "live" ? `A live session (${name})` : name
-  return new ViteHubError("CONTENT_LEASE_HELD", `[vitehub] ${who} is editing Content document ${JSON.stringify(`${collection}/${id}`)}. Wait for the lease to end, or pass lease: 'override' to write anyway.`, {
-    details: { collection, id, holder: { kind: holder.kind, user: { ...holder.user }, since: holder.since, expiresAt: holder.expiresAt } },
+  return new ViteHubError("CONTENT_LEASE_HELD", `[vitehub] ${holderName(holder, "A")} is editing Content document ${JSON.stringify(`${collection}/${id}`)}. Wait for the lease to end, or pass lease: 'override' to write anyway.`, {
+    details: { collection, id, holder: holderDetails(holder) },
+  })
+}
+
+interface HeldDocument {
+  collection: string
+  id: string
+  holder: ContentSession
+}
+
+/**
+ * The `CONTENT_LEASE_HELD` error of a Workspace commit, such as `vitehub push`, that writes documents that other sessions
+ * hold. It names every held document. `details` has the first one, as a Content save reports it, and `documents`.
+ */
+export function contentLeasesHeld(held: readonly [HeldDocument, ...HeldDocument[]]): ViteHubError {
+  const [first] = held
+  const documents = held.map(({ collection, id, holder }) => ({ collection, id, holder: holderDetails(holder) }))
+  const message = held.length === 1
+    ? `[vitehub] ${holderName(first.holder, "A")} is editing Content document ${JSON.stringify(`${first.collection}/${first.id}`)}. Nothing was saved.`
+    : `[vitehub] Other sessions are editing ${held.length} Content documents: ${held.map(({ collection, id, holder }) => `${JSON.stringify(`${collection}/${id}`)} (${holderName(holder, "a")})`).join(", ")}. Nothing was saved.`
+  return Object.assign(new ViteHubError("CONTENT_LEASE_HELD", message, { details: { ...documents[0], documents } }), {
+    status: 409,
+    fix: "Wait for them to finish, or write anyway with lease: \"override\" in the revision metadata, such as `vitehub push --override-lease`.",
   })
 }

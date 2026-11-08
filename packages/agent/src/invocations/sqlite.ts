@@ -686,9 +686,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         WHERE agent_name IS NULL OR agent_name = ''`)
       // Tables from older versions store summary and capability_ids after the large record column.
       // Reading those values from the row walks every overflow page of record, so filter lists read them from these indexes.
-      // Invocation list queries cannot use either index: one is partial, and the other starts with the label.
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
         ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
+        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
         ON ${table} (${triggeredByProjection()}, agent_name)`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
@@ -1068,6 +1069,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const capabilityId = listOptions.capabilityId?.trim()
       if (capabilityId) {
+        // The sequence index skips payloads from records that cannot match, in page order.
+        // The full predicate still checks original values, since cached IDs are trimmed.
+        filters.push(`(capability_ids IS NULL OR EXISTS (
+          SELECT 1 FROM json_each(capability_ids) AS capability WHERE capability.value = ?
+        ))`)
+        args.push(capabilityId)
         filters.push(`(EXISTS (SELECT 1
           FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
           WHERE capability.value = ?)
@@ -1091,13 +1098,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       args.push(limit + 1)
       const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : ""
+      const selectedTable = capabilityId && updatedSince === undefined ? `${table} INDEXED BY ${table}_sequence_capability_ids` : table
       const result = await client.execute({
         args,
         // An updated_at range is sorted by sequence after the index search. Sorting only sequences keeps
         // that sort from reading the summary of every match, which sits behind the large search column.
         sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
           THEN json_remove(record, '$.observations') END) AS summary
-          FROM ${table}${updatedSince === undefined
+          FROM ${selectedTable}${updatedSince === undefined
             ? `${where} ORDER BY sequence DESC LIMIT ?`
             : ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?) ORDER BY sequence DESC`}`,
       })

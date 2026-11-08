@@ -232,7 +232,7 @@ Unauthenticated calls from the same origin share one counter. `auto` does not sp
 
 For a per-user limit, pass the signed-in user's identity as the Invoker. Use `identity: 'run'` for thread or channel metadata, or `identity: 'ip'` with `trustedIpHeaders` for IP limits. See [Choose identity](/docs/rate-limit/agent-capability#choose-identity).
 
-A rejected run fails with `RATE_LIMIT_REJECTED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
+A rejected Invocation fails with the code `RATE_LIMIT_REJECTED`. `runAgent()` returns it as `error.cause` of `AGENT_RUN_FAILED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
 
 ```ts [server/api/support.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
@@ -243,11 +243,11 @@ import support from '../agents/support'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ question?: string }>(event)
   const [error, result] = await runAgent(support, { prompt: body?.question ?? '' })
-  if (getViteHubErrorShape(error)?.code === 'RATE_LIMIT_REJECTED') {
+  if (getViteHubErrorShape(error?.cause)?.code === 'RATE_LIMIT_REJECTED') {
     throw createError({ statusCode: 429, message: 'Too many questions. Try again in a minute.' })
   }
   if (error) throw error
-  return result
+  return { text: result.text }
 })
 ```
 

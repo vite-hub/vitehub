@@ -141,13 +141,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Send a non-empty prompt.' })
   }
 
-  const [error, text] = await runAgent(reviewer, { prompt: body.prompt }, { output: 'drained' })
+  const [error, result] = await runAgent(reviewer, { prompt: body.prompt })
   if (error) throw error
-  return { text }
+  return { text: result.text }
 })
 ```
 
-`{ output: 'drained' }` waits for the run to end and returns `[error, text]`. To stream events instead, see [Invocations](/docs/agents/invocations).
+`runAgent()` waits for the run to end and returns `[error, result]`. Read [Invocations](/docs/agents/invocations) to stream the events instead.
 
 ::warning
 This route has no sign-in. Each request starts Codex on your server with your API key. Add [Auth](/docs/auth) before you deploy it.
