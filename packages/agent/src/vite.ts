@@ -1639,34 +1639,14 @@ async function resolveEveExtensionPackage(
 function generatedRuntimeHelpers(): string[] {
   return [
     "type ViteHubGeneratedCloudflare = { context?: unknown, env?: Record<string, unknown> }",
-    "type ViteHubGeneratedEvent = H3Event & {",
-    "  context: H3Event['context'] & {",
-    "    _platform?: { cloudflare?: ViteHubGeneratedCloudflare }",
-    "    cloudflare?: ViteHubGeneratedCloudflare",
-    "  }",
-    "  env?: Record<string, unknown>",
-    "  node?: { req?: { runtime?: { cloudflare?: ViteHubGeneratedCloudflare } } }",
-    "}",
     "",
-    "function waitUntilFromValue(value: unknown): AgentWaitUntil | undefined {",
-    "  const candidate = value as { waitUntil?: AgentWaitUntil } | undefined",
-    "  return value && typeof value === 'object' && typeof candidate?.waitUntil === 'function' ? candidate.waitUntil.bind(value) : undefined",
-    "}",
-    "",
-    "export function waitUntilFromEvent(event: H3Event) {",
-    "  const runtimeEvent = event as ViteHubGeneratedEvent",
-    "  return waitUntilFromValue(runtimeEvent)",
-    "    || waitUntilFromValue(runtimeEvent.context)",
-    "    || waitUntilFromValue(runtimeEvent.context?.cloudflare?.context)",
-    "    || waitUntilFromValue(runtimeEvent.context?._platform?.cloudflare?.context)",
-    "    || waitUntilFromValue(runtimeEvent.node?.req?.runtime?.cloudflare?.context)",
+    // ViteHub sets Standard Context on every request event, with the host lifetime and the Cloudflare bindings.
+    "export function waitUntilFromEvent(event: H3Event): AgentWaitUntil | undefined {",
+    "  return getStandardContext(event).waitUntil",
     "}",
     "",
     "function cloudflareFromEvent(event: H3Event): ViteHubGeneratedCloudflare | undefined {",
-    "  const runtimeEvent = event as ViteHubGeneratedEvent",
-    "  const env = runtimeEvent.env || runtimeEvent.context?.cloudflare?.env || runtimeEvent.context?._platform?.cloudflare?.env || runtimeEvent.node?.req?.runtime?.cloudflare?.env",
-    "  const context = runtimeEvent.context?.cloudflare?.context || runtimeEvent.context?._platform?.cloudflare?.context || runtimeEvent.node?.req?.runtime?.cloudflare?.context",
-    "  return env && typeof env === 'object' ? { env, ...(context ? { context } : {}) } : undefined",
+    "  return getStandardContext(event).runtime?.cloudflare",
     "}",
     "",
     "function runtimeFromEvent(event: H3Event) {",
@@ -1814,11 +1794,12 @@ function generatedHostedWorkspaceRuntimeSetup(
       "  return store && typeof store === 'object' && 'provider' in store && typeof store.provider === 'string' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
       "}",
       "",
+      // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
       `function hasHostedVercelBlobWorkspaceStore(module${typescript ? ": AgentRegistryModule" : ""}) {`,
       `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
-      "  if (workspace && !store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
+      "  if (workspace && !store && typeof process === 'object' && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true",
       "  return store && typeof store === 'object' && 'provider' in store && store.provider === 'vercel-blob'",
       "}",
       "",
@@ -1909,7 +1890,6 @@ async function generateAgentDeploymentCatalog(
     inspection?: false | string
     typescript?: boolean
     workspaceImportBase: string
-    workspaceRuntimeImport?: string
     workspaceRegistry?: false
     resetPublicUrlAgentNames?: boolean
     /** Channels from `server/channels` that own their webhook routes. Each one gets a host Agent for its webhook handler. */
@@ -1932,15 +1912,12 @@ async function generateAgentDeploymentCatalog(
       agentEntry: `[${JSON.stringify(definition.name)}]: ${agentExpression}`,
       import: `import * as ${moduleName} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`,
       workspaceEntry: options.workspaceRegistry !== false && definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
+        ? `agentWorkspaceEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
         : undefined,
     }
   }))
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, options.workspaceImportBase, typescript)
   const workspaceEntries = entries.flatMap(entry => entry.workspaceEntry ? [entry.workspaceEntry] : []).join(",\n  ")
-  if (workspaceEntries && !options.workspaceRuntimeImport) {
-    throw agentDiagnostics.AGENT_B0017({ message: "[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents." })
-  }
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const registeredAgentWorkspaceEntries = definitions.flatMap(definition => options.workspaceRegistry !== false && definition.workspace
     ? [`markDiscoveredWorkspaceAgentDefinitionRegistered(agents[${JSON.stringify(definition.name)}], ${JSON.stringify({ name: definition.name, workspace: definition.workspace })})`]
@@ -1963,7 +1940,9 @@ async function generateAgentDeploymentCatalog(
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
       `import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
-      ...(options.workspaceRuntimeImport ? [`import { registerWorkspace, setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
+      ...(options.workspaceRegistry !== false
+        ? [`import { setAgentWorkspaceDefinitions } from ${JSON.stringify(subpath(options.agentImportBase, "server/workspace"))}`]
+        : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
       ...standaloneChannels.map((channel, index) => `import standaloneChannel${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, channel.handler))}`),
@@ -1989,21 +1968,20 @@ async function generateAgentDeploymentCatalog(
       "",
       ...(workspaceEntries
         ? [
-            `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
+            `function agentWorkspaceEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
             "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
             "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
             "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
             `  const workspaceDefinition = workspaceDefinitionFromOptions(${typescript ? "(agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions" : "agent.__vitehubWorkspaceAgentOptions"})`,
-            "  registerWorkspace(workspaceName, workspaceDefinition)",
-            `  return [workspaceName, async () => ({ ...module, default: agent })]${typescript ? " as const" : ""}`,
+            `  return [workspaceName, workspaceDefinition]${typescript ? " as const" : ""}`,
             "}",
             "",
           ]
         : []),
       ...hostedWorkspaceRuntime.setup,
-      ...(options.workspaceRuntimeImport
+      ...(options.workspaceRegistry !== false
         ? [
-            `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].flatMap(entry => entry ? [entry] : []))${typescript ? " as Parameters<typeof setWorkspaceRuntimeRegistry>[0]" : ""})`,
+            `setAgentWorkspaceDefinitions(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].flatMap(entry => entry ? [entry] : [])))`,
             "",
           ]
         : []),
@@ -2068,7 +2046,6 @@ async function generateAgentWebhookRouteHandler(
     standaloneChannels: options.standaloneChannels,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: subpath(workspaceImportBase, "runtime"),
   })
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
@@ -2095,21 +2072,22 @@ async function generateAgentWebhookRouteHandler(
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    // Nitro 2, which Nuxt 4 runs, passes H3 1 events to these routes. toEventRequest reads both H3 1 and H3 2 events.
-    `import { toEventRequest } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    // Both H3 1 and H3 2 events carry Standard Context.
+    `import { getStandardContext } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
     ...deploymentCatalog.setup,
     "async function toRequest(event: H3Event) {",
-    "  const request = toEventRequest(event)",
+    "  const request = getStandardContext(event).req",
     "  return createAgentWebhookRequest({",
     "    body: request.body ?? undefined,",
     "    headers: request.headers,",
     "    method: request.method,",
+    // Standard Context has no disconnect signal on H3 1, so the Node request and response report it.
     "    node: event.node,",
-    "    signal: event.req?.signal,",
+    "    signal: request.signal,",
     "    url: request.url,",
     "  })",
     "}",
@@ -2188,7 +2166,8 @@ async function generateAgentWebhookRouteHandler(
     "async function resolveDeclaredWebhookMatchers(event: H3Event, url: URL, optionsForAgent: (agent: string) => AgentChannelWebhookRouteOptions) {",
     "  if (declaredWebhookMatchers) return declaredWebhookMatchers",
     // Resolve before acquiring the body stream, so unrelated application routes can still read it.
-    "  const request = new Request(url, { headers: toEventRequest(event).headers, method: event.method || 'GET', signal: event.req?.signal })",
+    "  const { req } = getStandardContext(event)",
+    "  const request = new Request(url, { headers: req.headers, method: req.method, signal: req.signal })",
     "  const matchers: DeclaredWebhookMatcher[] = []",
     "  for (const [agent, handler] of Object.entries(webhookHandlers)) {",
     "    matchers.push({ agent, matches: await handler.declaredPathMatcher(request, optionsForAgent(agent)) })",
@@ -2197,7 +2176,7 @@ async function generateAgentWebhookRouteHandler(
     "}",
     "",
     "export const declaredWebhookHandler = defineEventHandler(async (event) => {",
-    "  const url = new URL(toEventRequest(event).url)",
+    "  const url = new URL(getStandardContext(event).req.url)",
     "  const pathname = url.pathname.replace(/\\/+$/, '') || '/'",
     "  const alias = webhookAliases[pathname]",
     "  if (!alias && declaredWebhookMatchers?.every(({ matches }) => !matches(url.pathname))) return",
@@ -2227,7 +2206,7 @@ async function generateAgentWebhookRouteHandler(
     "})",
     "",
     "export default defineEventHandler(async (event) => {",
-    "  const pathname = new URL(toEventRequest(event).url).pathname",
+    "  const pathname = new URL(getStandardContext(event).req.url).pathname",
     "  const alias = webhookAliases[pathname.replace(/\\/+$/, '') || '/']",
     "  const isWebhookRoute = Boolean(alias) || webhookRoutePattern.test(pathname)",
     ...(options.inspectionRoute ? ["  const isInspectionRoute = inspectionRoutePattern.test(pathname)"] : []),
@@ -2237,8 +2216,8 @@ async function generateAgentWebhookRouteHandler(
       ? [
           "  if (isInspectionRoute) {",
           "    const cloudflare = cloudflareFromEvent(event)",
-          "    const { headers, method, url } = toEventRequest(event)",
-          "    const request = createAgentWebhookRequest({ headers, method, node: event.node, signal: event.req?.signal, url })",
+          "    const { headers, method, signal, url } = getStandardContext(event).req",
+          "    const request = createAgentWebhookRequest({ headers, method, node: event.node, signal, url })",
           `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption || ", runtime: runtimeFromEvent(event)"}, waitUntil: waitUntilFromEvent(event) })`,
           "  }",
         ]
@@ -2275,7 +2254,6 @@ async function generateAgentNetlifyFunctionRouteHandler(
     agentImportBase,
     inspection: options.inspectionRoute,
     workspaceImportBase,
-    workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
   const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, " : ""
@@ -2580,15 +2558,12 @@ async function generateAgentDiscordGatewayRouteHandler(
     channelHandlers: false,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
-      ? subpath(workspaceImportBase, "runtime")
-      : undefined,
   })
 
   return [
     ...deploymentCatalog.imports,
     `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
-    `import { isViteHubBearerSecretEqual, toEventRequest } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { getStandardContext, isViteHubBearerSecretEqual } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -2621,7 +2596,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     "  if (!secret && !localDevelopment) {",
     "    throw createError({ statusCode: 500, statusMessage: 'Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.' })",
     "  }",
-    "  const request = toEventRequest(event)",
+    "  const request = getStandardContext(event).req",
     "  if (secret && !isViteHubBearerSecretEqual(request.headers.get('authorization'), secret)) {",
     "    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })",
     "  }",
@@ -2671,9 +2646,6 @@ async function generateAgentDenoServer(
     inspection: options.inspectionRoute,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
-      ? subpath(workspaceImportBase, "runtime")
-      : undefined,
   })
 
   return [

@@ -25,6 +25,9 @@ export default defineConfig({
 You can also pass the same options to `hubQueue()`. A `queue` key in `vite.config.ts` takes precedence.
 
 ```ts [vite.config.ts]
+import { hubQueue } from '@vite-hub/queue/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubQueue({ provider: 'vercel', region: 'iad1' })],
 })
@@ -49,7 +52,7 @@ Disables runtime queue dispatch and skips generated Vercel queue consumer functi
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses request-scoped queue bindings. Supports `contentType` and `delaySeconds`. |
 | Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
-| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs the stored jobs in the server process. | The default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. The jobs stay on one host. |
+| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs the stored jobs in the server process. | The default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. The jobs stay on one host. `pnpm dev` uses it for every provider, with the rules of the provider of the build. |
 
 ViteHub has no Queue Provider for Deno. The local provider keeps the jobs on one host: see [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a deployment target.
 
@@ -67,7 +70,7 @@ Vercel topic names are generated as `topic--<hex-name>`. Application code must n
 
 Create a Queue Definition in `server/queues/<name>.ts` or `src/<name>.queue.ts`.
 
-```ts [server/queues/welcome-email.ts]
+```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
@@ -81,7 +84,7 @@ The queue name comes from discovery. Runtime Helpers address this file as `welco
 
 Pass Definition Options as the second argument to `defineQueue()`.
 
-```ts [server/queues/report.ts]
+```ts [server/queues/report.ts] fragment
 import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ reportId: string }>(async (job) => {

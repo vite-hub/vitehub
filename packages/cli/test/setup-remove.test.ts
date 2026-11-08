@@ -216,13 +216,56 @@ describe("vitehub remove", () => {
     expect(await enabled(root, "workflow")).toBe("off")
   })
 
-  it("names the root feature of a chained implication", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", console: true }`) })
+  it("names the feature that implies Database", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", comments: true }`) })
 
     const { exitCode, json } = await remove(["database", "--dry-run"], root)
 
     expect(exitCode).toBe(3)
-    expect(json.impliedBy).toEqual(["console"])
+    expect(json.impliedBy).toEqual(["comments"])
+  })
+
+  it.each([
+    {
+      config: '{ preset: "netlify", agent: true, console: { auth: false } }',
+      feature: "console",
+      packages: ["@vite-hub/agent", "@libsql/client", "drizzle-orm"],
+      uninstall: ["@libsql/client", "drizzle-orm"],
+    },
+    {
+      config: '{ preset: "netlify", agent: true, console: { auth: false } }',
+      feature: "agent",
+      packages: ["@vite-hub/agent", "@libsql/client", "drizzle-orm"],
+      uninstall: ["@libsql/client", "@vite-hub/agent", "drizzle-orm"],
+    },
+    {
+      config: '{ preset: "node", auth: true, console: { auth: { provider: "github", org: "vite-hub" } } }',
+      feature: "console",
+      packages: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+      uninstall: ["@better-auth/oauth-provider"],
+    },
+    {
+      config: '{ preset: "node", database: true, agent: true, console: { auth: false } }',
+      feature: "database",
+      packages: ["@vite-hub/database", "@libsql/client", "drizzle-orm"],
+      uninstall: ["@vite-hub/database"],
+    },
+    {
+      config: '{ preset: "node", observability: { service: "app", posthog: true } }',
+      feature: "observability",
+      packages: ["posthog-node"],
+      uninstall: ["posthog-node"],
+    },
+  ])("uninstalls only unused optional packages when removing $feature from $config", async ({ config, feature, packages, uninstall }) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: Object.fromEntries(packages.map(name => [name, "1.0.0"])), name: "app" }),
+      "vite.config.ts": viteConfig(config),
+    })
+
+    const { exitCode, json } = await remove([feature, "--dry-run"], root)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect([...json.uninstall.packages].sort()).toEqual([...uninstall].sort())
   })
 
   it("refuses while app code imports the feature, with file and line", async () => {

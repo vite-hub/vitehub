@@ -127,7 +127,10 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(runtime).toContain(`import schemaSource_0_1 from ${JSON.stringify(pathToFileURL(app.layerDefinition("accounts")).href)}`)
     expect(runtime).toContain("const schema_0 = { ...schemaSource_0_0.schema, ...schemaSource_0_1.schema }")
     expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0 }, definitionDefaults),")
-    expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs") })
+    expect(nitroConfig.alias).toEqual({
+      "#vitehub/database/definition-defaults": join(app.appDir, ".nuxt/vitehub/database/definition-defaults.mjs"),
+      "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"),
+    })
   })
 
   it.each([

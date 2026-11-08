@@ -10,10 +10,12 @@ import { createDriver } from "../src/drivers/fs.ts"
 import { createSharpImageTransformer } from "../src/media/transformers.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobImageOperation, BlobImageTransformer } from "../src/media/types.ts"
-import type { BlobResult, BlobStorage } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+import type { BlobErrorCode, BlobStorage } from "../src/types.ts"
+
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 
@@ -95,12 +97,22 @@ describe("media records on the fs driver", () => {
     expect(copy).toMatchObject({ hash: first.hash, pathname: "b/two.jpg" })
   })
 
+  it("stores uploads from a host Standard Context request", async () => {
+    const form = new FormData()
+    form.append("files", new File([await photo(16, 16)], "photo.jpg", { type: "image/jpeg" }))
+    const event = { "~standard": { vendor: "test", req: new Request("https://example.test/upload", { body: form, method: "POST" }), res: {} } }
+
+    const [record] = ok(await storage.media.handleUpload(event, { folder: "uploads" }))
+
+    expect(record).toMatchObject({ height: 16, pathname: "uploads/photo.jpg", width: 16 })
+  })
+
   it("dedupes multipart uploads into a folder by default", async () => {
     const bytes = await photo(32, 32)
     const upload = async () => {
       const form = new FormData()
       form.append("files", new File([bytes], "../photo.jpg", { type: "image/jpeg" }))
-      return ok(await storage.media.handleUpload({ req: new Request("https://example.test/upload", { body: form, method: "POST" }) }, { folder: "uploads/2026" }))
+      return ok(await storage.media.handleUpload(new H3Event(new Request("https://example.test/upload", { body: form, method: "POST" })), { folder: "uploads/2026" }))
     }
     const [first] = await upload()
     const [second] = await upload()
@@ -227,14 +239,14 @@ describe("image variants on the fs driver", () => {
   it("serves a resized WebP, caches it, and answers revalidation without transforming", async () => {
     const first = request()
     const [error, body] = await storage.serve(first, "photo.jpg", { variant: { width: 640 } })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const bytes = new Uint8Array(await new Response(body).arrayBuffer())
     expect(first.res.headers.get("content-type")).toBe("image/webp")
     expect(await sharp(bytes).metadata()).toMatchObject({ format: "webp", height: 320, width: 640 })
     await storage.serve(request(), "photo.jpg", { variant: { width: 640 } })
     expect(transformer.operations).toHaveLength(1)
     const conditional = request(undefined, { "if-none-match": first.res.headers.get("etag")! })
-    expect(await storage.serve(conditional, "photo.jpg", { variant: { width: 640 } })).toEqual([null, null])
+    expect(await storage.serve(conditional, "photo.jpg", { variant: { width: 640 } })).toEqual([undefined, null])
     const [variant] = ok(await storage.media.variants("photo.jpg"))
     expect(variant).toMatchObject({ contentType: "image/webp", key: "image:v1;src=original;out=640x320;fmt=webp;q=75;engine=recording", size: bytes.byteLength, source: "photo.jpg" })
   })
@@ -292,7 +304,7 @@ describe("image variants on the fs driver", () => {
     for (const pathname of ["icon.svg", "notes.txt"]) {
       const event = request()
       const [error, body] = await storage.serve(event, pathname, { variant: { width: 64 } })
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(event.res.headers.get("content-type")).not.toBe("image/webp")
       await new Response(body).arrayBuffer()
     }

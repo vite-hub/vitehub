@@ -64,7 +64,7 @@ The keys are Schedule names. The cron replaces the declared one in the generated
 
 Use a Static Schedule Definition when the host needs build-time Provider Output such as cron entries or provider wake configuration.
 
-```ts [server/schedules/daily-report.ts]
+```ts [server/schedules/daily-report.ts] fragment
 import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
@@ -88,7 +88,7 @@ Cron expressions use UTC unless the definition sets `timeZone`. The discovered f
 
 Set `manual: true` to enable on-demand runs for a Static Schedule Definition:
 
-```ts [server/schedules/daily-report.ts]
+```ts [server/schedules/daily-report.ts] fragment
 export default defineSchedule({
   cron: '0 8 * * *',
   manual: true,
@@ -102,7 +102,7 @@ export default defineSchedule({
 
 Set `timeZone` when the cron must follow local clock time:
 
-```ts [server/schedules/morning-brief.ts]
+```ts [server/schedules/morning-brief.ts] fragment
 export default defineSchedule({
   cron: '0 8 * * 1-5',
   timeZone: 'Europe/Madrid',
@@ -118,7 +118,7 @@ Only the process driver (`runtime: { driver: 'process' }`) evaluates `timeZone`.
 
 On daylight saving time changes, a local time that does not exist does not run that day. For example, `30 2 * * *` in `Europe/Madrid` does not run on the spring-forward day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
 
-Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`. Run it on a deployment with `vitehub schedule run daily-report --url https://app.example.com`, from a CI job with a [signed dispatch](/docs/development/cli#signed-dispatch) (`vitehub schedule run --url` signs with `VITEHUB_DISPATCH_KEY` when it is set), or from the Console.
+Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`. Add `--at 2026-01-31T23:59:00Z` to run it as if the cron fired at that time; the handler gets that time as `scheduledAt`. Manual runs do not advance the Process Runtime's catch-up cursor, even when their scheduled time is in the future. Run it on a deployment with `vitehub schedule run daily-report --url https://app.example.com`, from a CI job with a [signed dispatch](/docs/development/cli#signed-dispatch) (`vitehub schedule run --url` signs with `VITEHUB_DISPATCH_KEY` when it is set), or from the Console.
 
 Write `manual` as a literal `true` or `false` value in the directly exported definition. Use an identifier key or a quoted key without escape sequences. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting manual runs.
 

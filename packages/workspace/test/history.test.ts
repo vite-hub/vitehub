@@ -15,11 +15,11 @@ import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createBlobStorage } from "../../blob/src/storage.ts"
+import { blobError } from "../../blob/src/errors.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createDriver as createR2Driver } from "../../blob/src/drivers/cloudflare-native.ts"
 import { setActiveCloudflareEnv } from "../../blob/src/runtime/state.ts"
 import { createCloudflareD1HttpResolver } from "../../database/src/runtime/d1-http.ts"
-import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { sha256 } from "../src/core/path.ts"
@@ -229,7 +229,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await (await other.history.open(otherRevision.id)).readFile("a.txt")).toBe("same")
     await store.delete()
     const [error, remaining] = await blob.list()
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(remaining?.blobs).toHaveLength(1)
   })
 
@@ -296,7 +296,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     await expect(fresh().history.commit({ ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
     // Simulate an upload accepted by Blob whose client stopped before its final deletion check.
     const [catalog] = await blob.list()
-    expect(catalog).toBeNull()
+    expect(catalog).toBeUndefined()
     const key = vi.mocked(blob.put).mock.calls[0]![0]
     await originalPut(key, "abandoned late upload", { addRandomSuffix: false })
     await fresh().delete()
@@ -305,13 +305,14 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
 
   it("retries cleanup after a Blob outage and removes failed-publication objects", async () => {
     const { store, blob } = await setup(driver)
+    const cause = new Error("injected Blob failure")
     const first = await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "base" }) })
     await store.setMeta!("source-state", { private: true })
-    vi.spyOn(blob, "put").mockResolvedValueOnce([new ViteHubBlobFailure(), undefined])
-    await expect(store.history.commit({ ifHead: first.id, files: rawFiles({ "a.txt": "next" }) })).rejects.toThrow("injected")
+    vi.spyOn(blob, "put").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "put", "test", { cause }), undefined])
+    await expect(store.history.commit({ ifHead: first.id, files: rawFiles({ "a.txt": "next" }) })).rejects.toMatchObject({ cause, code: "BLOB_OPERATION_FAILED" })
     const originalDelete = blob.del.bind(blob)
-    vi.spyOn(blob, "del").mockResolvedValueOnce([new ViteHubBlobFailure(), undefined])
-    await expect(store.delete()).rejects.toThrow("injected")
+    vi.spyOn(blob, "del").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "del", "test", { cause }), undefined])
+    await expect(store.delete()).rejects.toMatchObject({ cause, code: "BLOB_OPERATION_FAILED" })
     expect(await store.history.head()).toBeNull()
     expect(await store.getMeta!("source-state")).toBeUndefined()
     blob.del = originalDelete
@@ -513,11 +514,6 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await workspace.history.usage()).toEqual({ bytes: 200 * 20 * 1024, objects: 200 })
   }, 30_000)
 })
-
-// Match Blob's stable result contract when injecting an operational outage.
-class ViteHubBlobFailure extends ViteHubError<"BLOB_OPERATION_FAILED", { operation: "put", store: string }> {
-  constructor() { super("BLOB_OPERATION_FAILED", "injected Blob failure", { details: { operation: "put", store: "test" } }) }
-}
 
 describe("history policy and capabilities", () => {
   it("runs resolved history validators and hooks once with the same base Definition", async () => {
@@ -828,7 +824,7 @@ describe("retained history Blob prefix", () => {
     expect(keys).toHaveLength(1)
     expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}$/)
     const [error, listed] = await blob.list()
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(listed?.blobs.map(object => object.pathname)).toEqual(keys)
   })
 

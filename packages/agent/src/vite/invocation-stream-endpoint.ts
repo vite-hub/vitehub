@@ -259,7 +259,8 @@ function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeCon
   const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
   const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
   if (!workspace) return false
-  if (!store && typeof process === "object" && process?.env?.BLOB_READ_WRITE_TOKEN) return true
+  // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
+  if (!store && typeof process === "object" && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true
   return store?.provider === "vercel-blob"
 }
 

@@ -78,6 +78,11 @@
       "import": "./dist/dev-endpoint.js",
       "default": "./dist/dev-endpoint.js"
     },
+    "./dev-peer": {
+      "types": "./dist/dev-peer.d.ts",
+      "import": "./dist/dev-peer.js",
+      "default": "./dist/dev-peer.js"
+    },
     "./dev-token": {
       "types": "./dist/dev-token.d.ts",
       "import": "./dist/dev-token.js",
@@ -98,6 +103,11 @@
       "import": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./operation-registry": {
+      "types": "./dist/operation-registry.d.ts",
+      "import": "./dist/operation-registry.js",
+      "default": "./dist/operation-registry.js"
+    },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
@@ -112,6 +122,11 @@
       "types": "./dist/host-credentials.d.ts",
       "import": "./dist/host-credentials.js",
       "default": "./dist/host-credentials.js"
+    },
+    "./provider-failure": {
+      "types": "./dist/provider-failure.d.ts",
+      "import": "./dist/provider-failure.js",
+      "default": "./dist/provider-failure.js"
     },
     "./provision": {
       "types": "./dist/provision.d.ts",

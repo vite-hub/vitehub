@@ -8,7 +8,7 @@ import { featureIds, featurePackages, features, featureSupport, impliedFeatures 
 import { dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { confirm, diffOf, readFeatureId } from "./add.ts"
+import { confirmSetupChange, readFeatureId, setupDiff } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus, uninstallArgs } from "./status.ts"
@@ -200,15 +200,16 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     throw new SetupFailure(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL({ command: "remove" }), setupExitCodes.conflict)
   }
   const remaining = featureIds.filter(id => enabled(after.status, id).enabled !== "off")
+  const wasEnabled = featureIds.filter(id => enabled(status, id).enabled !== "off")
   const afterKeys = after.code && project.configFile ? locateViteHubConfig(project.configFile, after.code) : project.config
   const valueOf = (source: typeof project.config, id: FeatureId): JsonValue | undefined => {
     const key = source?.ok ? source.site.keys[id] : undefined
     return key?.kind === "literal" ? key.value : undefined
   }
-  const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset) => {
-    return [...featurePackages(id, value, preset), ...features[id].devPackages]
+  const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset, active = wasEnabled) => {
+    return [...featurePackages(id, value, preset, active), ...features[id].devPackages]
   }
-  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host)))
+  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host, remaining)))
 
   // Starter Definitions go; other files in a Definition folder are uses of the feature.
   const starters = new Map<string, string>()
@@ -266,8 +267,8 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
 
   const prod: string[] = []
   const dev: string[] = []
-  for (const id of turnedOff) {
-    const packages = featurePackages(id, valueOf(project.config, id), host)
+  for (const id of wasEnabled) {
+    const packages = featurePackages(id, valueOf(project.config, id), host, wasEnabled)
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
     for (const name of packages) if (removable(name) && project.declared(name, false)) prod.push(name)
     for (const name of features[id].devPackages) if (removable(name) && project.declared(name, true)) dev.push(name)
@@ -277,7 +278,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
 
   const changes: SetupChange[] = []
   if (after.code !== undefined && after.code !== before) {
-    changes.push({ after: after.code, before, diff: diffOf(project.configFile!, before, after.code), kind: "patch", path: project.configFile! })
+    changes.push({ after: after.code, before, diff: setupDiff(project.configFile!, before, after.code), kind: "patch", path: project.configFile! })
   }
   const deletes: PlannedRemove["deletes"] = []
   const kept: SetupRemovePlan["kept"][number][] = []
@@ -287,7 +288,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
       continue
     }
     deletes.push({ content, path })
-    changes.push({ after: "", before: content, diff: diffOf(path, content, ""), kind: "delete", path })
+    changes.push({ after: "", before: content, diff: setupDiff(path, content, ""), kind: "delete", path })
   }
   for (const path of edited) kept.push({ path, reason: "edited" })
 
@@ -399,7 +400,7 @@ async function runRemove(args: string[], context: ViteHubCliContext): Promise<nu
         })
       }
       writePlan(plan, context)
-      if (!await confirm()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
+      if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
     await applyRemove(project, planned, parsed, context)
     const applied: SetupRemovePlan = { ...plan, status: "applied" }

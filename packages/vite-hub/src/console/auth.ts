@@ -1,5 +1,6 @@
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "./auth-types.ts"
+import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { consoleOAuthPlugins } from "./auth-oauth.ts"
 import { consoleAuthBasePath } from "./auth-pages.ts"
@@ -7,9 +8,9 @@ import { consoleAuthPath } from "./auth-path.ts"
 
 export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
 export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
-export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
+export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
 export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
-export type { ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleUser } from "./auth-types.ts"
+export type { ConsoleAgentAuthorizeContext, ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleSessionAuthorizeContext, ConsoleTokenAuthorizeContext, ConsoleUser } from "./auth-types.ts"
 
 export interface ConsoleAuthDefinition {
   auth: AuthDefinition
@@ -28,7 +29,7 @@ export async function prepareConsoleAuth(
   input: ConsoleAuthDefinition,
   definition: AuthDefinition,
   request: Request,
-  event?: unknown,
+  event?: ConsoleRequestEvent,
 ): Promise<void> {
   if (input.migrate === false) return
   let migration = migrations.get(definition)

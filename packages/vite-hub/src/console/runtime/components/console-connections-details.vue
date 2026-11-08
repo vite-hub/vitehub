@@ -3,7 +3,8 @@ import type { ConnectionInspection } from "@vite-hub/connections";
 import { onMounted, ref, watch } from "vue";
 
 import {
-  canSendConnectionKey,
+  canSendConnectionKeyTo,
+  connectionKeyTransportMessage,
   connectionConnectURL,
   connectionCredentialLabel,
   connectionResultSchema,
@@ -14,6 +15,7 @@ import {
 import ConsoleConnectionsActivity from "./console-connections-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
 import { consoleDateTime } from "../client/time";
+import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -25,6 +27,9 @@ const props = defineProps<{
   /** The Console page that the provider flow returns to. */
   returnTo?: string;
 }>();
+
+// The connect flow needs the app session, so a Console on another origin sends it to the app's own Console.
+const remote = isRemoteProject();
 const emit = defineEmits<{ changed: [] }>();
 const current = ref<ConnectionInspection>(props.connection);
 watch(
@@ -71,13 +76,19 @@ function reload() {
 }
 function openKeyForm() {
   error.value = undefined;
-  keyBlocked.value = !canSendConnectionKey(window.location);
+  keyBlocked.value = !canSendConnectionKeyTo(props.endpoint, window.location.href);
   if (keyBlocked.value) return;
   settingKey.value = !settingKey.value;
 }
 function setKey() {
   const value = key.value.trim();
   if (!value) return;
+  // The project can change while the form is open, so check the destination again before the key leaves.
+  if (!canSendConnectionKeyTo(props.endpoint, window.location.href)) {
+    keyBlocked.value = true;
+    settingKey.value = false;
+    return;
+  }
   return run(async () => {
     const result = await requestConnectionsManagement(props.endpoint, "set-key", connectionResultSchema, {
       key: value,
@@ -202,9 +213,11 @@ onMounted(async () => {
         <UButton
           v-else-if="current.credential !== 'chatgpt'"
           :label="
-            current.status === 'disconnected' || current.status === 'revoked'
-              ? 'Connect'
-              : 'Reconnect'
+            remote
+              ? 'Connect in the app'
+              : current.status === 'disconnected' || current.status === 'revoked'
+                ? 'Connect'
+                : 'Reconnect'
           "
           :to="connectionConnectURL(endpoint, current.name, returnTo)"
           external
@@ -224,7 +237,7 @@ onMounted(async () => {
         <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="reload" />
       </div>
       <ConsoleState v-if="error" compact :error="error" title="Could not complete the request" />
-      <p v-if="keyBlocked" role="alert" class="text-sm text-error">Open the Console over HTTPS to set an API key.</p>
+      <p v-if="keyBlocked" role="alert" class="text-sm text-error">{{ connectionKeyTransportMessage }}</p>
       <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
       <form v-if="settingKey" class="space-y-3" @submit.prevent="setKey">
         <UFormField

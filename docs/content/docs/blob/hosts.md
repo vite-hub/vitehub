@@ -14,6 +14,8 @@ Application code keeps importing `blob` from `@vite-hub/blob` when you switch pr
 
 ## Read and write blobs during development
 
+`vite dev` uses a local store unless the store sets `remote: true` or an explicit `driver`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+
 `hubBlob()` contributes the `vitehub blob` CLI namespace. Start the Vite Development Server, then read and write blobs from another terminal.
 
 ```bash [Terminal]
@@ -33,6 +35,8 @@ pnpm vitehub blob variants avatars/ada.png
 Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub add the matching Cloudflare R2 bucket binding to Nitro's generated `wrangler.json`.
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 'cloudflare-r2',
@@ -47,6 +51,8 @@ export default defineConfig({
 Set `jurisdiction` when the bucket uses a [Cloudflare R2 jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions). The values are `eu`, `fedramp`, and `us`.
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 'cloudflare-r2',
@@ -96,6 +102,8 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 ```
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 's3',
@@ -120,6 +128,8 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 ```
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 'minio',
@@ -135,6 +145,14 @@ BLOB_BUCKET_NAME=vitehub-blob
 ```
 
 ViteHub reads MinIO credentials from runtime env and masks them in generated provider output. It accepts the Files SDK names `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY`, plus Docker Compose aliases such as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket. For production Docker deployments, use managed `s3` or a production S3-compatible store instead of a single-host Compose MinIO service.
+
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production objects ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `bucket_name` share objects ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview bucket in `previews.r2_buckets` of the project Wrangler config, because ViteHub does not write that block.
+
+For a preview Worker of its own, set `BLOB_BUCKET_NAME` in its build with `bucketName` unset, or configure `bucketName` with the preview bucket name. A configured `bucketName` takes precedence over `BLOB_BUCKET_NAME`.
+
+On Vercel, a preview deployment uses the Blob store that is connected to the project in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --provider vercel` connects one store to Production, Preview, and Development, so previews share production blobs. To isolate them, connect a second store in the Preview environment in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Related guides
 

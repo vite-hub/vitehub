@@ -28,6 +28,7 @@ instead of one root barrel.
 | `@vite-hub/auth` | Auth Definitions, Better Auth server wiring, generated Auth route behavior | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, Default Blob Store behavior, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
 | `@vite-hub/browser` | Browser Definitions, invocation-scoped sessions, controllers and providers, live handoff, and Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
+| `@vite-hub/bundle` | Bundle reports of production builds: client and server size, startup size, groups, and import chains, for Vite and Nuxt 5 with Nitro 3. The `vitehub bundle` commands. | `@vite-hub/bundle`, `@vite-hub/bundle/cli`, `@vite-hub/bundle/vite` |
 | `@vite-hub/decisions` | [Decisions](/docs/decisions): `defineChoices()` turns text into choices over options that you declare, for filters, search facets, and command palettes. Asks a gateway that has `ask()`. No Vite or Nitro code. | `@vite-hub/decisions`, `@vite-hub/decisions/vue` |
 | `@vite-hub/sandbox` | Sandbox Definitions, provider-neutral execution sessions, and Sandbox Tasks | `@vite-hub/sandbox`, `@vite-hub/sandbox/ssh`, `@vite-hub/sandbox/task`, `@vite-hub/sandbox/task/vite` |
 | `@vite-hub/channels` | Provider-neutral outbound Channel Definitions (`defineOutboundChannel()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
@@ -49,7 +50,7 @@ instead of one root barrel.
 | `@vite-hub/schedule` | Static schedules, manual runs, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell-shaped runtime execution providers and Workspace shell integration helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/*` |
-| `@vite-hub/ui` | AI SDK-native Vue and Nuxt components, headless message scrolling, shadcn/ui parts, and Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/<name>`, `@vite-hub/ui/headless`, `@vite-hub/ui/nuxt`, `@vite-hub/ui/vite` |
+| `@vite-hub/ui` | AI SDK-native Vue and Nuxt components, headless message scrolling, shadcn/ui parts, and Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/<name>`, `@vite-hub/ui/headless`, `@vite-hub/ui/vite` |
 | `@vite-hub/web-container` | Browser WebContainer lifecycle, app commands, preview readiness, snapshots, scoped isolation headers, and connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, step execution, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
 | `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, history contracts, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |

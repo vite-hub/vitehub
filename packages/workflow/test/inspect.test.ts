@@ -5,9 +5,10 @@ import { tmpdir } from "node:os"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { expect, it } from "vitest"
-import type { ResolvedConfig } from "vite"
+import { resolveConfig } from "vite"
 
 import { hubWorkflow } from "../src/vite.ts"
+import { nitroOrderPlugins } from "../../vite-hub/src/nitro-order.ts"
 
 it("inspects the published Cloudflare worker bundle", async () => {
   const plugin = hubWorkflow({ provider: "cloudflare" })
@@ -25,12 +26,12 @@ it("inspects Nitro's Wrangler config when it owns the Cloudflare Workflows", asy
     await mkdir(resolve(root, "server", "workflows"), { recursive: true })
     await writeFile(resolve(root, "server", "workflows", "welcome.ts"), "export default defineWorkflow(async () => 'ok')\n")
     const plugin = hubWorkflow({}, { hosting: "cloudflare-module" })
-    const hook = plugin.config
-    if (!hook || typeof hook === "function") throw new TypeError("Expected a config object hook")
-    await hook.handler.call({} as never, { root }, { command: "build", mode: "production" })
-    if (typeof plugin.configResolved !== "function") throw new TypeError("Expected a configResolved function hook")
-    // SAFETY: This fixture provides the resolved fields read by the Workflow plugin.
-    await plugin.configResolved.call({} as never, { root, build: {}, environments: {} } as ResolvedConfig)
+    await resolveConfig({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [plugin, { name: "nitro:init", config() {} }, nitroOrderPlugins()],
+    }, "build")
 
     expect(await collectViteHubProviderOutputEntries([plugin])).toEqual([{
       description: "Cloudflare Workflow bindings in Nitro's Wrangler config",

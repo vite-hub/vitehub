@@ -1,9 +1,14 @@
-import { addCommand } from "./add.ts"
+import { existsSync } from "node:fs"
+import { createRequire } from "node:module"
+import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
+import { addCommand } from "./add.ts"
 import { setupCatalog } from "./catalog.ts"
 import { readSetupArgs, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { initCommandDefinition, readSetupStack } from "./init.ts"
 import { linkSetupProject, readSetupLinkStatus, SETUP_LINK_FILE, unlinkSetupProject } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 import { removeCommand } from "./remove.ts"
@@ -77,7 +82,7 @@ function credentialsLabel(credentials: SetupLinkStatus["credentials"]): string {
   return credentials.ok ? `${credentials.host} (${credentials.source})` : `missing: ${credentials.fix}`
 }
 
-function writeStatus(status: SetupStatus & SetupLinkStatus, context: ViteHubCliContext): void {
+function writeStatus(status: SetupStatus & SetupLinkStatus & { stack: { command: string } | null }, context: ViteHubCliContext): void {
   const shown = status.features.filter(feature => feature.enabled !== "off")
   const off = status.features.length - shown.length
   context.stdout.write(`${table([
@@ -88,6 +93,8 @@ function writeStatus(status: SetupStatus & SetupLinkStatus, context: ViteHubCliC
     ["packages", status.packageManager],
     ["link", linkLabel(status.link)],
     ["credentials", credentialsLabel(status.credentials)],
+    ...(status.console ? [["console", `pending link ${status.console.pendingId}`]] : []),
+    ...(status.stack ? [["stack", status.stack.command]] : []),
   ])}\n\n`)
   if (shown.length) {
     context.stdout.write(`${table([
@@ -98,15 +105,56 @@ function writeStatus(status: SetupStatus & SetupLinkStatus, context: ViteHubCliC
   context.stdout.write(`${off} features are off. Run \`vitehub catalog\` to list them.\n`)
 }
 
+interface CheckoutStatusModule {
+  formatWorkspaceStatus: (status: unknown) => string
+  localCheckoutStatus: (rootDir: string) => Promise<unknown[] | undefined>
+}
+
+function isCheckoutStatusModule(value: unknown): value is CheckoutStatusModule {
+  return Object(value) === value && typeof Reflect.get(Object(value), "formatWorkspaceStatus") === "function" && typeof Reflect.get(Object(value), "localCheckoutStatus") === "function"
+}
+
+/**
+ * The checkout folders of `vitehub.lock`, read by the Workspace package that the project installs. Undefined without a
+ * lock file. The Workspace package reads only local files here; it never calls the app.
+ */
+async function readCheckouts(root: string): Promise<{ statuses: unknown[], text: string } | { error: string } | undefined> {
+  if (!existsSync(join(root, "vitehub.lock"))) return undefined
+  const require = createRequire(join(root, "package.json"))
+  for (const specifier of ["@vite-hub/workspace/checkout", "vite-hub/workspace/checkout"]) {
+    let module: unknown
+    try {
+      module = await import(pathToFileURL(require.resolve(specifier)).href)
+    }
+    catch {
+      continue
+    }
+    if (!isCheckoutStatusModule(module)) continue
+    try {
+      const statuses = await module.localCheckoutStatus(root) ?? []
+      return { statuses, text: statuses.map(status => module.formatWorkspaceStatus(status)).join("") }
+    }
+    catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+  return { error: "vitehub.lock lists checkout folders, but the project does not install vite-hub or @vite-hub/workspace to read them." }
+}
+
 const statusCommand: ViteHubCliCommand = {
-  description: "Show the host, the enabled features, and what each one still needs. Reads the config without running it.",
+  description: "Show the host, the enabled features, what each one still needs, and the checkout folders of vitehub.lock. Reads the config without running it.",
   name: "status",
   run: (args, context) => runSetupCommand(statusCommand, args, context, async (json) => {
     const project = await readSetupProject(context.rootDir, context.env)
     const features = setupStatus(project, context.env)
-    const status = { ...features, ...await readSetupLinkStatus(project, features.host.name, context) }
-    if (json) writeSetupJson(context, status)
-    else writeStatus(status, context)
+    const status = { ...features, ...await readSetupLinkStatus(project, features.host.name, context), stack: await readSetupStack(project.root) }
+    const checkouts = await readCheckouts(status.root)
+    if (json) {
+      writeSetupJson(context, checkouts === undefined ? status : { ...status, checkouts: "error" in checkouts ? { error: checkouts.error } : checkouts.statuses })
+      return setupExitCodes.done
+    }
+    writeStatus(status, context)
+    if (checkouts) context.stdout.write(`\nCheckouts (vitehub.lock):\n${"error" in checkouts ? `${checkouts.error}\n` : checkouts.text}`)
     return setupExitCodes.done
   }),
   usage: "vitehub status [--json]",
@@ -179,4 +227,4 @@ const unlinkCommand: ViteHubCliCommand = {
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [addCommand, removeCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, removeCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]

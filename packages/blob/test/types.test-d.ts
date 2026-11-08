@@ -3,7 +3,8 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { blob, file, image, type BlobModuleOptions, type BlobReference, type BlobReferenceInput, type BlobObject, type BlobResult, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import type { Result } from "@vite-hub/runtime"
+import { blob, file, image, type BlobModuleOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -97,22 +98,22 @@ describe("types", () => {
   })
 
   it("exposes the intended Blob runtime surface", () => {
-    expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<BlobResult<Blob | null>>>()
-    expectTypeOf(blob.head).returns.toEqualTypeOf<Promise<BlobResult<BlobObject | null>>>()
+    expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<Result<Blob | null, BlobErrorCode>>>()
+    expectTypeOf(blob.head).returns.toEqualTypeOf<Promise<Result<BlobObject | null, BlobErrorCode>>>()
     expectTypeOf(blob.list).toBeFunction()
     expectTypeOf(blob.put).toBeFunction()
-    expectTypeOf(blob.serve).returns.toEqualTypeOf<Promise<BlobResult<ReadableStream | null>>>()
-    expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toEqualTypeOf<Promise<BlobResult<{
+    expectTypeOf(blob.serve).returns.toEqualTypeOf<Promise<Result<ReadableStream | null, BlobErrorCode>>>()
+    expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toEqualTypeOf<Promise<Result<{
       headers: Record<string, string>
       method: "GET" | "PUT"
       url: string
-    }>>>()
+    }, BlobErrorCode>>>()
     expectTypeOf(blob.sign("private/audio.mp3", {
       contentType: "audio/mpeg",
       createOnly: true,
       expiresIn: 900,
       method: "PUT",
-    })).toMatchTypeOf<Promise<BlobResult<{ url: string }>>>()
+    })).toMatchTypeOf<Promise<Result<{ url: string }, BlobErrorCode>>>()
   })
 
   it("narrows Blob results by the error element", async () => {
@@ -122,7 +123,7 @@ describe("types", () => {
       expectTypeOf(value).toEqualTypeOf<undefined>()
       return
     }
-    expectTypeOf(error).toEqualTypeOf<null>()
+    expectTypeOf(error).toEqualTypeOf<undefined>()
     expectTypeOf(value.pathname).toEqualTypeOf<string>()
   })
 
@@ -168,5 +169,36 @@ describe("types", () => {
 
     // @ts-expect-error maxSize uses the same BlobSize values as ensureBlob().
     image({ maxSize: "5MB" })
+  })
+  it("returns a read-only handle without write methods", () => {
+    const reader = blob.store("default", { mode: "read" })
+    expectTypeOf(reader).toEqualTypeOf<ReadonlyBlobStorage>()
+    expectTypeOf(blob.store("assets")).toEqualTypeOf<BlobStorage>()
+    expectTypeOf(blob.store("assets", { mode: "write" })).toEqualTypeOf<BlobStorage>()
+    expectTypeOf(reader.get).toEqualTypeOf<BlobStorage["get"]>()
+    expectTypeOf(reader.head).toEqualTypeOf<BlobStorage["head"]>()
+    expectTypeOf(reader.list).toEqualTypeOf<BlobStorage["list"]>()
+    expectTypeOf(reader.serve).toEqualTypeOf<BlobStorage["serve"]>()
+    expectTypeOf(reader.media.get).toEqualTypeOf<BlobStorage["media"]["get"]>()
+    void reader.sign("report.pdf", { expiresIn: 60, method: "GET" })
+
+    // @ts-expect-error A read-only handle has no put().
+    void reader.put("report.pdf", "text")
+    // @ts-expect-error A read-only handle has no del().
+    void reader.del("report.pdf")
+    // @ts-expect-error A read-only handle has no handleUpload().
+    void reader.handleUpload
+    // @ts-expect-error A read-only handle has no createMultipartUpload().
+    void reader.createMultipartUpload
+    // @ts-expect-error A read-only handle has no media.put().
+    void reader.media.put
+    // @ts-expect-error A read-only handle has no media.remove().
+    void reader.media.remove
+    // @ts-expect-error A read-only handle signs GET requests only.
+    void reader.sign("report.pdf", { expiresIn: 60, method: "PUT" })
+    // @ts-expect-error A read-only handle cannot select a writable store.
+    void reader.store
+    // @ts-expect-error mode is "read" or "write".
+    void blob.store("default", { mode: "readonly" })
   })
 })
