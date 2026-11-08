@@ -1,3 +1,4 @@
+import { formatMigrationReport, runMigration } from "./migrate.ts"
 import { codemods } from "./registry.ts"
 import { formatDiff, formatReport, runCodemod } from "./runner.ts"
 import { CodemodError } from "./types.ts"
@@ -15,7 +16,10 @@ const defaultOutput: CliOutput = {
 function helpText(): string {
   const width = Math.max(...codemods.map(codemod => codemod.name.length))
   return [
-    "Usage: npx @vite-hub/codemods <codemod> [dir] [--dry-run]",
+    "Usage: npx @vite-hub/codemods [dir] [--dry-run]",
+    "       npx @vite-hub/codemods <codemod> [dir] [--dry-run]",
+    "",
+    "Without a codemod name, it detects every supported module in the app and migrates them all.",
     "",
     "Codemods:",
     ...codemods.map(codemod => `  ${codemod.name.padEnd(width)}  ${codemod.description}`),
@@ -36,20 +40,29 @@ export async function runCli(argv: readonly string[], output: CliOutput = defaul
     output.stderr(`Unknown option ${unknownFlag}.\n\n${helpText()}`)
     return 1
   }
-  const [name, dir, ...extra] = positionals
-  if (!name || flags.includes("--help") || flags.includes("-h")) {
+  if (flags.includes("--help") || flags.includes("-h")) {
     output.stdout(helpText())
     return 0
   }
+  const dryRun = flags.includes("--dry-run")
+  const [first, ...rest] = positionals
+  const single = first !== undefined && codemods.some(codemod => codemod.name === first)
+  const extra = single ? rest.slice(1) : rest
   if (extra.length) {
     output.stderr(`Too many arguments: ${extra.join(" ")}.\n\n${helpText()}`)
     return 1
   }
   try {
-    const run = await runCodemod(name, { cwd: dir, dryRun: flags.includes("--dry-run") })
-    if (run.dryRun && run.result.edits.length) output.stdout(`${formatDiff(run.result)}\n`)
-    output.stdout(formatReport(run))
-    return 0
+    if (single) {
+      const run = await runCodemod(first, { cwd: rest[0], dryRun })
+      if (run.dryRun && run.result.edits.length) output.stdout(`${formatDiff(run.result)}\n`)
+      output.stdout(formatReport(run))
+      return 0
+    }
+    const migration = await runMigration({ cwd: first, dryRun })
+    if (migration.dryRun && migration.edits.length) output.stdout(`${formatDiff({ edits: migration.edits })}\n`)
+    output.stdout(formatMigrationReport(migration))
+    return migration.steps.some(step => step.error) ? 1 : 0
   }
   catch (error) {
     if (error instanceof CodemodError) {
