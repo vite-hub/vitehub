@@ -652,7 +652,7 @@ describe("vitehub", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const implicit = dependencyPluginByName(
-        vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
+        vitehub({ agent: { invocations: false }, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
         "vite-hub/console",
       )
       const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
@@ -668,7 +668,7 @@ describe("vitehub", () => {
 
       const explicit = dependencyPluginByName(
         vitehub({
-          agent: true,
+          agent: { invocations: false },
           console: { auth: false, authorize: hostManagedAuthorize },
           preset: "netlify",
           workflow: { provider: "vercel" },
@@ -972,6 +972,13 @@ describe("vitehub", () => {
   it("checks the Database packages of Connections as the connections feature", () => {
     vitehub({ preset: "node", connections: true })
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"])
+  })
+
+  it("checks the MCP SDK only when the Console MCP client is on", () => {
+    vitehub({ preset: "node", console: { auth: false } })
+    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).not.toContain("console mcp-client")
+    vitehub({ preset: "node", console: { auth: false, mcpClient: true } })
+    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).toContain("console mcp-client")
   })
 
   it("requires the Agent package for observability without Agents", () => {

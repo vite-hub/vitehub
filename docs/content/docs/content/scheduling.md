@@ -24,7 +24,7 @@ const schedule = await content.schedule({
 
 Add one Schedule Definition that calls `content.publishDue()`, and enable Schedule:
 
-```ts [server/schedules/content-publish.ts]
+```ts [server/schedules/content-publish.ts] fragment
 import { defineSchedule } from 'vite-hub/schedule'
 import { content } from '../content'
 
@@ -36,6 +36,8 @@ export default defineSchedule({
 ```
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({ preset: 'cloudflare', schedule: true })
 ```
 

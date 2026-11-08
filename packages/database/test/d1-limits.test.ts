@@ -1,15 +1,14 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { createClient } from "@libsql/client"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { inArray, sql } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createCloudflareD1HttpResolver } from "../src/runtime/d1-http.ts"
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
+import { localLibsql } from "../src/runtime/local-client.ts"
 import { hubDb } from "../src/vite.ts"
 
 import type { RuntimeDrizzleDatabaseConfig } from "../src/types.ts"
@@ -25,7 +24,7 @@ const ids = (count: number) => Array.from({ length: count }, (_, index) => index
 
 function localDb(config: Partial<RuntimeDrizzleDatabaseConfig>) {
   return createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, drizzle: {}, name: "default", ...config }, schema, {
-    libsql: { createClient, drizzle: drizzle as never },
+    libsql: localLibsql,
     missingConnection: "a Cloudflare D1 binding or `connection.url`",
     requireRemoteUrl: false,
   })

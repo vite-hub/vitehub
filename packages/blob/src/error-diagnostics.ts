@@ -1,10 +1,44 @@
+import { defineErrors } from "@vite-hub/runtime"
 import { defineDiagnostics } from "nostics"
+
+import type { BlobOperation } from "./types.ts"
+
+interface BlobErrorParams {
+  /** A more precise reason, such as the pathname that already exists. */
+  detail?: string
+  operation: BlobOperation
+  store: string
+}
+
+// Runtime errors. Blob operations return them as `[error, undefined]`. Each code has a heading on the docs page.
+export const blobErrors = /*#__PURE__*/ defineErrors({
+  docs: "https://vitehub.dev/docs/blob/diagnostics",
+  codes: {
+    BLOB_CONFLICT: {
+      why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
+      fix: "Use a free pathname or an empty folder. `media.move()` replaces an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
+    },
+    BLOB_NOT_FOUND: {
+      why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation found no object in the "${store}" store.`,
+      fix: "Check the pathname and the store. A route that throws this error answers 404.",
+    },
+    BLOB_OPERATION_FAILED: {
+      why: ({ operation, store }: BlobErrorParams) => `The Blob ${operation} operation failed on the "${store}" store.`,
+      fix: "Read `error.cause` for the provider error. Retry when the provider is available again.",
+    },
+    BLOB_PATHNAME_TOO_LONG: {
+      why: ({ detail, store }: BlobErrorParams) => detail ?? `The pathname is longer than the "${store}" store accepts.`,
+      fix: "Use a shorter pathname. Cloudflare R2 accepts object keys of at most 1,024 bytes in UTF-8, after `prefix` and `addRandomSuffix`.",
+    },
+  },
+})
+
 
 const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
+// Thrown errors. Each code identifies one ViteHub failure site. Keep published codes stable.
 export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/blob/diagnostics",
   codes: {

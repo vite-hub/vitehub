@@ -16,8 +16,9 @@ describe("createChannel", () => {
       })
 
       const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
-      expect(error).toBe(failure)
-      expect(receipt).toBeNull()
+      expect(error?.code).toBe("CHANNEL_SEND_FAILED")
+      expect(error?.cause).toBe(failure)
+      expect(receipt).toBeUndefined()
       expect(info).toHaveBeenLastCalledWith(expect.stringContaining('"error":"provider unavailable"'))
     }
     finally {
@@ -34,9 +35,9 @@ describe("createChannel", () => {
       })
 
       const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
-      expect(error).toBeInstanceOf(Error)
-      expect(error).not.toBe(failure)
-      expect(receipt).toBeNull()
+      expect(error?.cause).toBeInstanceOf(Error)
+      expect(error?.cause).not.toBe(failure)
+      expect(receipt).toBeUndefined()
     }
     finally {
       info.mockRestore()
@@ -58,9 +59,9 @@ describe("createChannel", () => {
       })
 
       const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
-      expect(error).toBeInstanceOf(Error)
-      expect(error).not.toBe(failure)
-      expect(receipt).toBeNull()
+      expect(error?.cause).toBeInstanceOf(Error)
+      expect(error?.cause).not.toBe(failure)
+      expect(receipt).toBeUndefined()
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -73,7 +74,7 @@ describe("createChannel", () => {
     const send = vi.fn((_text: string, _options: { destination: string, length: number } | readonly string[]) => ({ id: "accepted" }))
     const channel = createChannel("union", { connectors: { configured: { send } }, defaultConnector: "configured" })
     const options = { destination: "room", length: 1 }
-    await expect(channel.send("message", options)).resolves.toMatchObject([null, { id: "accepted" }])
+    await expect(channel.send("message", options)).resolves.toMatchObject([undefined, { id: "accepted" }])
     expect(send).toHaveBeenCalledWith("message", options)
   })
 
@@ -89,7 +90,7 @@ describe("createChannel", () => {
     const send = vi.fn((_text: string, options: Destination) => ({ id: options.getId() }))
     const channel = createChannel("instances", { connectors: { configured: { send } } })
 
-    await expect(channel.send("message", options)).resolves.toMatchObject([null, { id: "room-1" }])
+    await expect(channel.send("message", options)).resolves.toMatchObject([undefined, { id: "room-1" }])
     expect(send.mock.calls[0]?.[1]).toBe(options)
   })
 
@@ -98,7 +99,7 @@ describe("createChannel", () => {
     const send = vi.fn(async (text: string, options: { chatId: string }) => ({ id: `${text}:${options.chatId}` }))
     const channel = createChannel("alerts", defineOutboundChannel({ connectors: { telegram: { send } } }))
 
-    await expect(channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })).resolves.toEqual([null, {
+    await expect(channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })).resolves.toEqual([undefined, {
       channel: "alerts",
       connector: "telegram",
       deliveryId: expect.any(String),
@@ -117,7 +118,7 @@ describe("createChannel", () => {
     }))
 
     const [error, receipt] = await channel.send("Build finished.", {} as never)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(receipt).toMatchObject({
       channel: "alerts",
       connector: "telegram",
@@ -133,7 +134,7 @@ describe("createChannel", () => {
 
     const [error, receipt] = await channel.send("Build finished.", { connector: "inherited" } as never)
     expect(error?.message).toContain('does not define connector "inherited"')
-    expect(receipt).toBeNull()
+    expect(receipt).toBeUndefined()
     expect(inheritedSend).not.toHaveBeenCalled()
   })
 
@@ -145,8 +146,8 @@ describe("createChannel", () => {
     })
 
     const [error, receipt] = await channel.send("Build finished.", { connector } as never)
-    expect(error).toBeInstanceOf(Error)
-    expect(receipt).toBeNull()
+    expect(error?.code).toBe("CHANNEL_INVALID_SEND")
+    expect(receipt).toBeUndefined()
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -156,7 +157,7 @@ describe("createChannel", () => {
     const send = vi.fn(() => ({ id: "delivered" }))
     try {
       const channel = createChannel("alerts", { connectors: { configured: { send } } })
-      await expect(channel.send("Build finished.", { connector: "configured" })).resolves.toMatchObject([null, { id: "delivered" }])
+      await expect(channel.send("Build finished.", { connector: "configured" })).resolves.toMatchObject([undefined, { id: "delivered" }])
       expect(send).toHaveBeenCalledOnce()
     }
     finally {
@@ -180,7 +181,7 @@ describe("createChannel", () => {
       const channel = createChannel("alerts", { connectors: { configured: { send } } })
       const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
 
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(receipt).toMatchObject({
         [extension]: "preserved",
         channel: "alerts",
@@ -210,7 +211,7 @@ describe("createChannel", () => {
       const channel = createChannel("alerts", { connectors: { configured: { send: () => result } } })
       const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
 
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(receipt).toMatchObject({ id: "delivered", raw: { accepted: true } })
       expect(readId).toHaveBeenCalledOnce()
       expect(info.mock.calls.flat().join("\n")).toContain('"messageId":"delivered"')
@@ -242,7 +243,7 @@ describe("createChannel", () => {
       const channel = createChannel("alerts", { connectors: { configured: { send } } })
       const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
 
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(receipt).toMatchObject({ id: "delivered", channel: "alerts", connector: "configured" })
       if (failure !== "enumeration") expect(receipt).toHaveProperty("providerStatus", "accepted")
       expect(receipt).not.toHaveProperty("raw")
@@ -260,7 +261,7 @@ describe("createChannel", () => {
 
     const [error, receipt] = await channel.send("Build finished.", { connector: "webhook" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(receipt).toMatchObject({ channel: "alerts", connector: "webhook", status: "accepted" })
     expect(receipt).not.toHaveProperty("id")
     expect(send).toHaveBeenCalledOnce()
@@ -273,7 +274,7 @@ describe("createChannel", () => {
     const channel = createChannel("alerts", { connectors: { telegram: { send: async () => ({ id: "delivery-1" }) } } })
     const [error, receipt] = await channel.send(text, {} as never)
     expect(error?.message).toContain(message)
-    expect(receipt).toBeNull()
+    expect(receipt).toBeUndefined()
   })
 
   it("rejects array send options even when a default connector is configured", async () => {
@@ -286,7 +287,7 @@ describe("createChannel", () => {
     const [error, receipt] = await channel.send("Build finished.", [] as never)
 
     expect(error?.message).toContain("send options must select a connector")
-    expect(receipt).toBeNull()
+    expect(receipt).toBeUndefined()
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -297,8 +298,13 @@ describe("createChannel", () => {
     }))
 
     const [error, receipt] = await channel.send("private build output", { connector: "telegram", token: "private-token" } as never)
-    expect(error?.message).toBe("provider unavailable")
-    expect(receipt).toBeNull()
+    expect(error).toMatchObject({
+      code: "CHANNEL_SEND_FAILED",
+      docs: "https://vitehub.dev/docs/channels/diagnostics/channel_send_failed",
+      why: 'Connector "telegram" of Channel "alerts" failed to send the message.',
+    })
+    expect(error?.cause).toHaveProperty("message", "provider unavailable")
+    expect(receipt).toBeUndefined()
     const logs = info.mock.calls.map(([entry]) => String(entry)).join("\n")
     expect(logs).toContain('"event":"outbound.failed"')
     expect(logs).toContain('"error":"provider unavailable"')
@@ -318,8 +324,9 @@ describe("createChannel", () => {
         connectors: { telegram: { send: async () => { throw failure } } },
       }))
       const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })
-      expect(error).toBe(failure)
-      expect(receipt).toBeNull()
+      expect(error?.code).toBe("CHANNEL_SEND_FAILED")
+      expect(error?.cause).toBe(failure)
+      expect(receipt).toBeUndefined()
       expect(info).toHaveBeenLastCalledWith(expect.stringContaining('"error":"Channel send failed with an uninspectable value."'))
     }
     finally {
@@ -331,8 +338,9 @@ describe("createChannel", () => {
     setChannelRuntimeRegistry({})
     try {
       const [error, receipt] = await useChannel("missing" as string).send("Build finished.", { connector: "telegram" })
-      expect(error?.message).toContain('No Channel Definition was discovered for "missing"')
-      expect(receipt).toBeNull()
+      expect(error?.code).toBe("CHANNEL_DEFINITION_FAILED")
+      expect(error?.cause).toHaveProperty("message", expect.stringContaining('No Channel Definition was discovered for "missing"'))
+      expect(receipt).toBeUndefined()
     }
     finally {
       setChannelRuntimeRegistry(undefined)
@@ -346,8 +354,9 @@ describe("createChannel", () => {
     setChannelRuntimeRegistry(registry)
     try {
       const [error, receipt] = await useChannel("inherited" as string).send("Build finished.", { connector: "configured" })
-      expect(error?.message).toContain('No Channel Definition was discovered for "inherited"')
-      expect(receipt).toBeNull()
+      expect(error?.code).toBe("CHANNEL_DEFINITION_FAILED")
+      expect(error?.cause).toHaveProperty("message", expect.stringContaining('No Channel Definition was discovered for "inherited"'))
+      expect(receipt).toBeUndefined()
       expect(load).not.toHaveBeenCalled()
     }
     finally {
@@ -365,8 +374,9 @@ describe("createChannel", () => {
     })
     try {
       const [error, receipt] = await useChannel("inherited" as string).send("Build finished.", { connector: "configured" })
-      expect(error?.message).toContain('No Channel Definition was discovered for "inherited"')
-      expect(receipt).toBeNull()
+      expect(error?.code).toBe("CHANNEL_DEFINITION_FAILED")
+      expect(error?.cause).toHaveProperty("message", expect.stringContaining('No Channel Definition was discovered for "inherited"'))
+      expect(receipt).toBeUndefined()
       expect(send).not.toHaveBeenCalled()
     }
     finally {
@@ -383,8 +393,8 @@ describe("createChannel", () => {
     setChannelRuntimeRegistry({ alerts: load })
     try {
       const channel = useChannel("alerts" as string)
-      await expect(channel.send("Build finished.", { connector: "configured" })).resolves.toMatchObject([expect.any(Error), null])
-      await expect(channel.send("Build finished.", { connector: "configured" })).resolves.toMatchObject([null, { id: "delivered" }])
+      await expect(channel.send("Build finished.", { connector: "configured" })).resolves.toMatchObject([expect.objectContaining({ code: "CHANNEL_DEFINITION_FAILED" }), undefined])
+      await expect(channel.send("Build finished.", { connector: "configured" })).resolves.toMatchObject([undefined, { id: "delivered" }])
       expect(load).toHaveBeenCalledTimes(2)
       expect(send).toHaveBeenCalledOnce()
     }
@@ -403,7 +413,7 @@ describe("createChannel", () => {
       const first = useChannel("alerts" as string);
       const second = useChannel("alerts" as string);
       const results = await Promise.all([first.send("First", { connector: "configured" }), second.send("Second", { connector: "configured" })]);
-      expect(results.every(([error]) => error === null)).toBe(true);
+      expect(results.every(([error]) => error === undefined)).toBe(true);
       expect(load).toHaveBeenCalledOnce();
       expect(send).toHaveBeenCalledTimes(2);
     } finally {
@@ -419,9 +429,9 @@ describe("createChannel", () => {
     setChannelRuntimeRegistry({ alerts: async () => ({ connectors: { configured: { send: first } } }) });
     const channel = useChannel("alerts" as string);
     try {
-      await expect(channel.send("First", { connector: "configured" })).resolves.toMatchObject([null, { id: "old" }]);
+      await expect(channel.send("First", { connector: "configured" })).resolves.toMatchObject([undefined, { id: "old" }]);
       setChannelRuntimeRegistry({ alerts: async () => ({ connectors: { configured: { send: second } } }) });
-      await expect(channel.send("Second", { connector: "configured" })).resolves.toMatchObject([null, { id: "new" }]);
+      await expect(channel.send("Second", { connector: "configured" })).resolves.toMatchObject([undefined, { id: "new" }]);
       expect(first).toHaveBeenCalledOnce();
       expect(second).toHaveBeenCalledOnce();
     } finally {
@@ -440,10 +450,10 @@ describe("createChannel", () => {
     const load = vi.fn(async () => ({ connectors: { configured: { send: () => ({ id: "new" }) } } }));
     setChannelRuntimeRegistry({ alerts: load });
     try {
-      await expect(channel.send("Second", { connector: "configured" })).resolves.toMatchObject([null, { id: "new" }]);
+      await expect(channel.send("Second", { connector: "configured" })).resolves.toMatchObject([undefined, { id: "new" }]);
       fail(new Error("old registry failed"));
-      await expect(pending).resolves.toMatchObject([expect.any(Error), null]);
-      await expect(channel.send("Third", { connector: "configured" })).resolves.toMatchObject([null, { id: "new" }]);
+      await expect(pending).resolves.toMatchObject([expect.objectContaining({ code: "CHANNEL_DEFINITION_FAILED" }), undefined]);
+      await expect(channel.send("Third", { connector: "configured" })).resolves.toMatchObject([undefined, { id: "new" }]);
       expect(load).toHaveBeenCalledOnce();
     } finally {
       setChannelRuntimeRegistry(undefined);
@@ -458,9 +468,9 @@ describe("createChannel", () => {
         connectors: { telegram: { send: async () => { throw "provider unavailable" } } },
       }))
       const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })
-      expect(error).toBeInstanceOf(Error)
-      expect(error?.message).toBe("provider unavailable")
-      expect(receipt).toBeNull()
+      expect(error?.cause).toBeInstanceOf(Error)
+      expect(error?.cause).toHaveProperty("message", "provider unavailable")
+      expect(receipt).toBeUndefined()
     }
     finally {
       info.mockRestore()
@@ -476,8 +486,8 @@ describe("createChannel", () => {
         connectors: { telegram: { send: async () => { throw proxy } } },
       }))
       const [error, receipt] = await channel.send("Build finished.", { connector: "telegram" })
-      expect(error?.message).toBe("Channel send failed with an uninspectable value.")
-      expect(receipt).toBeNull()
+      expect(error?.cause).toHaveProperty("message", "Channel send failed with an uninspectable value.")
+      expect(receipt).toBeUndefined()
     }
     finally {
       info.mockRestore()

@@ -34,5 +34,9 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     /** `languageModel()` needs the optional AI SDK provider package of its model API. */
     GATEWAYS_R0010: dynamicError,
+    /** `askWithModel()` needs the optional `ai` package. */
+    GATEWAYS_R0011: dynamicError,
+    /** The model answered a question with a value that is not one of its options. */
+    GATEWAYS_R0012: dynamicError,
   },
 })
