@@ -543,7 +543,7 @@ An authenticated replay uses the saved item, so it needs no provider signature. 
 
 `replayChannel()` validates `query` with the Collection's schema and reads pages until `limit` or the end. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`, which you pass as `cursor` to continue, `null` at the end.
 
-#### How replay avoids duplicate runs
+### How replay avoids duplicate runs
 
 Each item gets the run ID `channel:<channel>:<key>`, with percent signs and colons escaped. A live message [dispatched](#start-several-invocations-from-one-webhook) with the same key gets the same ID. This needs an Invocation journal: configure `invocations` or turn on the [Console](/docs/development/console).
 
