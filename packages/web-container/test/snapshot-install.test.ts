@@ -19,7 +19,7 @@ beforeEach(async () => {
   npm.mockReset()
   npm.mockImplementation(async () => {
     const installed = JSON.parse(await readFile(join(dir, "package.json"), "utf8"))
-    for (const name of Object.keys(installed.dependencies)) {
+    for (const name of Object.keys({ ...installed.dependencies, ...installed.optionalDependencies })) {
       const path = join(dir, "node_modules", name)
       await mkdir(path, { recursive: true })
       await writeFile(join(path, "package.json"), JSON.stringify({ name: name.startsWith("vitehub-wasm-") ? "esbuild-wasm" : name, version: "0.28.2" }))
@@ -32,7 +32,10 @@ afterEach(() => rm(dir, { recursive: true, force: true }))
 describe.skipIf(process.platform === "win32")("snapshot installs", () => {
   it("installs a wasm alias and restores the caller's exact manifest", async () => {
     const result = await createNodeModulesSnapshot({ dir })
-    expect(JSON.parse(result.lockfile).packages[""].dependencies).toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2", "npm:esbuild-wasm@0.28.2")
+    const root = JSON.parse(result.lockfile).packages[""]
+    // Optional, so npm doesn't check the alias's `cpu` against this machine.
+    expect(root.optionalDependencies).toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2", "npm:esbuild-wasm@0.28.2")
+    expect(root.dependencies).not.toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2")
     expect(JSON.parse(await readFile(join(dir, "node_modules/esbuild/package.json"), "utf8")).name).toBe("esbuild-wasm")
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
     const pinned = await createNodeModulesSnapshot({ dir, lockfile: result.lockfile })

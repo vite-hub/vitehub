@@ -81,7 +81,9 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
     // The wasm builds have the versions of the packages they replace, which the install decides. When it decides other
     // versions than the aliases have, install again with the new aliases. A second round always agrees.
     for (let round = 0; ; round++) {
-      await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: { ...withoutAliases(manifest.dependencies), ...aliases } }, null, 2)}\n`)
+      // The aliases are optional dependencies: npm checks the `cpu` of a required dependency against this machine even
+      // with `--cpu=wasm32`, and refuses `@rolldown/binding-wasm32-wasi` when an app has two rolldown versions.
+      await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: withoutAliases(manifest.dependencies), optionalDependencies: { ...withoutAliases(manifest.optionalDependencies), ...aliases } }, null, 2)}\n`)
       await rm(modules, { recursive: true, force: true })
       try {
         await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
@@ -126,6 +128,7 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
 
 interface Manifest {
   dependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
   [field: string]: unknown
 }
 
