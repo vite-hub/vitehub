@@ -1,3 +1,4 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
@@ -5,13 +6,15 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { ensureBlob } from "./ensure.ts"
 import { getBlobRequestBodyLimit } from "./internal/host-limits.ts"
 
+import type { Result } from "@vite-hub/runtime"
+
 import type {
+  BlobErrorCode,
   BlobMultipartEvent,
   BlobMultipartHandlerOptions,
   BlobMultipartHandlerResult,
   BlobMultipartPart,
   BlobObject,
-  BlobResult,
   BlobStorage,
   BlobUploadEvent,
   BlobUploadOptions,
@@ -52,18 +55,18 @@ function payloadTooLarge(bytes: number, limit: number): Error {
 }
 
 /** Reads the request body, and rejects it as Vercel does when it is above the request body limit of the dev server. */
-async function readBody(event: BlobUploadEvent): Promise<Request> {
+async function readBody(request: Request): Promise<Request> {
   const limit = getBlobRequestBodyLimit()
-  if (limit === undefined) return event.req
-  const declared = Number(event.req.headers.get("content-length"))
+  if (limit === undefined) return request
+  const declared = Number(request.headers.get("content-length"))
   if (declared > limit) throw payloadTooLarge(declared, limit)
-  const body = await event.req.arrayBuffer()
+  const body = await request.arrayBuffer()
   if (body.byteLength > limit) throw payloadTooLarge(body.byteLength, limit)
-  return new Request(event.req.url, { body, headers: event.req.headers, method: event.req.method })
+  return new Request(request.url, { body, headers: request.headers, method: request.method })
 }
 
-async function readForm(event: BlobUploadEvent): Promise<FormData> {
-  const request = await readBody(event)
+async function readForm(input: Request): Promise<FormData> {
+  const request = await readBody(input)
   try {
     return await request.formData()
   }
@@ -72,8 +75,8 @@ async function readForm(event: BlobUploadEvent): Promise<FormData> {
   }
 }
 
-async function readJson(event: BlobUploadEvent): Promise<Record<string, unknown>> {
-  const text = await event.req.text()
+async function readJson(request: Request): Promise<Record<string, unknown>> {
+  const text = await request.text()
   if (!text) return {}
   let value: unknown
   try {
@@ -121,9 +124,9 @@ export async function handleBlobUpload(
   storage: UploadStorage,
   event: BlobUploadEvent,
   options: BlobUploadOptions = {},
-): Promise<BlobResult<BlobObject[]>> {
+): Promise<Result<BlobObject[], BlobErrorCode>> {
   const formKey = options.formKey ?? "files"
-  const form = await readForm(event)
+  const form = await readForm(getStandardContext(event).req)
   const files = form.getAll(formKey).filter((value): value is File => value instanceof File)
   if (!files.length) throw badRequest(`No files in form field "${formKey}".`)
   if (options.multiple === false && files.length > 1) throw badRequest(`Form field "${formKey}" accepts one file.`)
@@ -137,7 +140,7 @@ export async function handleBlobUpload(
     if (error) return [error, undefined]
     objects.push(object)
   }
-  return [null, objects]
+  return [undefined, objects]
 }
 
 /**
@@ -148,36 +151,37 @@ export async function handleBlobMultipartUpload(
   storage: MultipartStorage,
   event: BlobMultipartEvent,
   options: BlobMultipartHandlerOptions = {},
-): Promise<BlobResult<BlobMultipartHandlerResult>> {
+): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>> {
   const { action, pathname } = event.context.params ?? {}
   if (!isMultipartAction(action)) {
     throw badRequest(`Unknown multipart action "${action ?? ""}". Expected create, upload, complete, or abort.`)
   }
   if (!pathname) throw badRequest("Missing `pathname` route param.")
-  if (event.req.method !== multipartMethods[action]) {
+  const request = getStandardContext(event).req
+  if (request.method !== multipartMethods[action]) {
     throw createError({ statusCode: 405, message: `The ${action} action requires ${multipartMethods[action]}.` })
   }
 
   if (action === "create") {
-    const body = await readJson(event)
+    const body = await readJson(request)
     const contentType = typeof body.contentType === "string" ? body.contentType : undefined
     const [error, upload] = await storage.createMultipartUpload(pathname, {
       ...options.create,
       contentType: options.create?.contentType ?? contentType,
     })
     if (error) return [error, undefined]
-    return [null, { action, pathname: upload.pathname, uploadId: upload.uploadId }]
+    return [undefined, { action, pathname: upload.pathname, uploadId: upload.uploadId }]
   }
 
-  const url = new URL(event.req.url)
+  const url = new URL(request.url)
   const uploadId = requireQuery(url, "uploadId")
   // Read the part into memory before the upload resumes: R2 rejects streams without a known length, and Vercel
   // rejects a large part before the Function runs.
-  const partBody = action === "upload" ? await (await readBody(event)).arrayBuffer() : new ArrayBuffer(0)
+  const partBody = action === "upload" ? await (await readBody(request)).arrayBuffer() : new ArrayBuffer(0)
   let completionParts: BlobMultipartPart[] | undefined
   let completionBody: Record<string, unknown> | undefined
   if (action === "complete") {
-    completionBody = await readJson(event)
+    completionBody = await readJson(request)
     if (Object.hasOwn(completionBody, "parts")) completionParts = readParts(completionBody.parts)
   }
   const [resumeError, upload] = await storage.resumeMultipartUpload(pathname, uploadId)
@@ -187,12 +191,12 @@ export async function handleBlobMultipartUpload(
     const partNumber = Number(requireQuery(url, "partNumber"))
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) throw badRequest("`partNumber` must be an integer from 1 to 10000.")
     const [error, part] = await upload.uploadPart(partNumber, partBody)
-    return error ? [error, undefined] : [null, { action, part }]
+    return error ? [error, undefined] : [undefined, { action, part }]
   }
   if (action === "complete") {
     const [error, object] = await upload.complete(completionParts ?? readParts(completionBody?.parts))
-    return error ? [error, undefined] : [null, { action, object }]
+    return error ? [error, undefined] : [undefined, { action, object }]
   }
   const [error] = await upload.abort()
-  return error ? [error, undefined] : [null, { action }]
+  return error ? [error, undefined] : [undefined, { action }]
 }

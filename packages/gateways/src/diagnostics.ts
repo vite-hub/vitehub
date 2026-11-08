@@ -1,5 +1,7 @@
 import { defineDiagnostics } from "nostics"
 
+import { recordPublicAiGatewayDiagnostic } from "./public-diagnostics.ts"
+
 const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
@@ -7,6 +9,7 @@ const dynamicError = {
 // Each code identifies one AI gateway failure site. Keep published codes stable.
 export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: () => "https://vitehub.dev/docs/agents/ai-gateways#errors",
+  reporters: [recordPublicAiGatewayDiagnostic],
   codes: {
     /** An AI gateway definition is invalid. */
     GATEWAYS_R0001: dynamicError,
@@ -34,5 +37,9 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     /** `languageModel()` needs the optional AI SDK provider package of its model API. */
     GATEWAYS_R0010: dynamicError,
+    /** `askWithModel()` needs the optional `ai` package. */
+    GATEWAYS_R0011: dynamicError,
+    /** The model answered a question with a value that is not one of its options. */
+    GATEWAYS_R0012: dynamicError,
   },
 })
