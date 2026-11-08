@@ -45,7 +45,7 @@ export const cronPresets: Record<string, string> = {
 
 interface ModuleOptions {
   jobsDir: string
-  timeZone?: string
+  timeZone?: Node
   runOnInit?: boolean
 }
 
@@ -100,13 +100,13 @@ function migrateJob(file: string, target: string, code: string, defaults: Module
     return { edits: [], followUps: [follow(time, `"${cron}" has six fields, so it runs every few seconds. Schedule runs at most once a minute. Keep this job on a timer, such as setInterval() in a Nitro plugin, or choose a five-field cron.`)], migrated: false }
   }
   const followUps: FollowUp[] = []
-  let timeZone = defaults.timeZone
+  let timeZoneOption = defaults.timeZone
   let runOnInit = defaults.runOnInit
   if (options && options.type === "ObjectExpression") {
     for (const property of options.properties) {
       const key = property.type === "ObjectProperty" ? keyName(property.key, property.computed) : undefined
       const value = property.type === "ObjectProperty" ? literalValue(property.value) : undefined
-      if (key === "timeZone" && (typeof value === "string" || value === undefined)) timeZone = typeof value === "string" ? value : undefined
+      if (key === "timeZone" && property.type === "ObjectProperty") timeZoneOption = property.value
       else if (key === "runOnInit" && typeof value === "boolean") runOnInit = value
       else followUps.push(follow(property, "This defineCronHandler() option has no Schedule equivalent and was dropped."))
     }
@@ -114,6 +114,11 @@ function migrateJob(file: string, target: string, code: string, defaults: Module
   else if (options) {
     followUps.push(follow(options, "The options are not an object literal, so the codemod dropped them. Set timeZone in defineSchedule() by hand if the job needs one."))
   }
+  const zone = timeZoneOption ? literalValue(timeZoneOption) : undefined
+  if (timeZoneOption && typeof zone !== "string") {
+    return { edits: [], followUps: [follow(handlerCall, "The timeZone is not a string literal, so this job stayed with nuxt-cron. Set its timeZone in defineSchedule() by hand.")], migrated: false }
+  }
+  let timeZone = typeof zone === "string" ? zone : undefined
   // The cron package read zones such as "UTC+0" through Luxon. They mean UTC.
   if (timeZone && /^(?:utc|gmt|etc\/utc|z)(?:[+-]0{1,2}(?::?00)?)?$/i.test(timeZone)) timeZone = undefined
   if (timeZone && !processDriver) {
@@ -171,7 +176,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       const key = keyName(property.key, property.computed)
       const value = literalValue(property.value)
       if (key === "jobsDir" && typeof value === "string") defaults.jobsDir = value
-      if (key === "timeZone" && typeof value === "string") defaults.timeZone = value
+      if (key === "timeZone") defaults.timeZone = property.value
       if (key === "runOnInit" && typeof value === "boolean") defaults.runOnInit = value
     }
   }
@@ -182,6 +187,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const preset = planPreset(config).preset
   if (!preset) throw new CodemodError(`${config.fileName} has no statically known ViteHub preset. Set the effective vitehub.preset or inline module preset to a string literal, then run the codemod again.`)
   if (preset === "deno") throw new CodemodError('The ViteHub "deno" preset cannot provide Schedule through the Nuxt integration. Keep nuxt-cron or compose an explicit Deno scheduling integration by hand.')
+  if (findViteHubOption(config, "schedule")) {
+    throw new CodemodError(`${config.fileName} already sets vitehub.schedule or inline module schedule options. Merge the Schedule options and move the cron jobs by hand.`)
+  }
   const processDriver = preset === "node"
   const kv = findViteHubOption(config, "kv")
   if (processDriver && kv && literalValue(kv.value) === false) {

@@ -76,9 +76,9 @@ Code that checks `runtimeConfig.resend.apiKey` keeps working: the codemod keeps 
 
 The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `server/schedules/<name>.ts` as a `defineSchedule()` Definition, and drops a `.cron` suffix from the name. Presets such as `daily` become five-field cron strings, and functions that return a literal cron keep it. On Node, it sets `vitehub.schedule.runtime.driver` to `process`, so the Process Runtime runs the jobs in the server process as `nuxt-cron` did, and `timeZone` stays. On other hosts, it sets `vitehub.schedule: true`: the host runs each Schedule from its own cron in UTC, and the codemod drops `timeZone` and reports it.
 
-Jobs with six-field crons, computed times, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. The report also lists `runOnInit`, which Schedule does not have.
+Jobs with six-field crons, computed times or time zones, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. A computed module time zone keeps each job that does not override it with a literal. The report also lists `runOnInit`, which Schedule does not have.
 
-Jobs that map to the same Schedule file all stay unchanged. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. The codemod stops without edits when the effective preset is computed or is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
+Jobs that map to the same Schedule file all stay unchanged. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective preset is computed or is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
 
 ## Check real apps
 
