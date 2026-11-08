@@ -9,8 +9,8 @@ export type {
   ChannelConnectorMap,
   ChannelDefinition,
   ChannelDefinitionRegistry,
+  ChannelErrorCode,
   ChannelSendOptions,
-  ChannelSendOutcome,
   ChannelSendResult,
   DiscoveredChannelDefinition,
 } from "./types.ts"
