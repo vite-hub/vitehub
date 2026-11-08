@@ -11,9 +11,9 @@ const consoleCatalog = "packages/vite-hub/src/console/runtime/diagnostics.ts"
 const codes = readDiagnosticCodes(resolve(import.meta.dirname, "../..")).filter(code => code.file !== consoleCatalog)
 
 it("links each diagnostic code to its own page", () => {
-  // Nostics and `defineErrors()` build the `docs` URL as `<docsBase>/<code in lowercase>`.
+  // A per-code `docs` URL takes precedence over the catalog base.
   const wrong = codes
-    .map(code => ({ code: code.code, docs: `${code.docsBase ?? agentDiagnosticOptions.docsBase}/${code.code.toLowerCase()}`, page: `https://vitehub.dev${diagnosticPath(diagnosticSection(code)!, code.code)}` }))
+    .map(code => ({ code: code.code, docs: code.docs ?? `${code.docsBase ?? agentDiagnosticOptions.docsBase}/${code.code.toLowerCase()}`, page: `https://vitehub.dev${diagnosticPath(diagnosticSection(code)!, code.code)}` }))
     .filter(entry => entry.docs !== entry.page)
   expect(wrong).toEqual([])
 })

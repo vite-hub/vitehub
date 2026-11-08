@@ -73,6 +73,21 @@ describe("catalog object references", () => {
     expect(() => readFixture(`const cycle = cycle; defineDiagnostics({ codes: ${expression} });`))
       .toThrow("Cannot read diagnostic codes in packages/example/src/diagnostics.ts:1")
   })
+
+  it.each(['docs: "https://example.com/guide#failed"', "docs"])("reads per-code URL overrides: %s", (property) => {
+    const found = readFixture(`
+      const docs = "https://example.com/guide#failed";
+      const definition = { why: "Failed.", ${property} };
+      defineDiagnostics({ docsBase: "https://example.com/diagnostics", codes: {
+        EXAMPLE_FAILED: definition,
+        EXAMPLE_OTHER: { why: "Other." },
+      } });
+    `)
+    expect(found).toEqual([
+      expect.objectContaining({ code: "EXAMPLE_FAILED", docsBase: "https://example.com/diagnostics", docs: "https://example.com/guide#failed" }),
+      expect.objectContaining({ code: "EXAMPLE_OTHER", docsBase: "https://example.com/diagnostics", docs: null }),
+    ])
+  })
 })
 
 describe("diagnostic pages", () => {
