@@ -73,6 +73,7 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
 On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
+`vitehub inspect resources` reports other configured tokens with source `config`, without printing a token value or an environment store id.
 
 ## Remote stores in development
 
