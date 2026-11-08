@@ -28,7 +28,7 @@ it.each(["runAgent", "startAgentInvocation"] as const)("loads the cold host befo
       workflow: async () => ({
         ...await import("@vite-hub/workflow"),
         // SAFETY: The fixture only uses the provider's Workflow run operation.
-        createWorkflow: () => ({ run: providerRun }),
+        createWorkflow: () => ({ start: providerRun }),
       }) as never,
     })
   })

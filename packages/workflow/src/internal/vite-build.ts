@@ -119,6 +119,8 @@ async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise
 }
 
 const generatedRegistryFileName = "registry.mjs"
+/** Holds the definition loaders and their runtime setup. The registry index imports it on the first run. */
+const generatedRegistryRuntimeFileName = "registry-runtime.mjs"
 const cloudflareWorkflowWranglerConfigKeys = ["compatibility_date", "compatibility_flags", "main", "observability", "workflows"]
 const cloudflareWorkflowWrapperImport = `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
@@ -783,6 +785,23 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
   if (!artifacts.providerDefinitions.length) return options.nitro
 
   const nitro = { ...options.nitro }
+  const middlewareFile = resolve(ensureGeneratedDir(options.rootDir, productName), "nitro-middleware.ts")
+  await writeFile(middlewareFile, [
+    'import { defineMiddleware } from "nitro"',
+    'import { env, waitUntil } from "cloudflare:workers"',
+    `import { enterWorkflowRuntimeEvent } from ${JSON.stringify(`${options.workflowImportBase ?? workflowPackageName}/runtime/state`)}`,
+    '',
+    'export default defineMiddleware((event) => {',
+    '  Object.assign(event, { env, waitUntil })',
+    '  enterWorkflowRuntimeEvent(event)',
+    '})',
+    '',
+  ].join("\n"), "utf8")
+  const handlers = Array.isArray(nitro.handlers) ? [...nitro.handlers] : []
+  if (!handlers.some(handler => record(handler).handler === middlewareFile)) {
+    handlers.unshift({ handler: middlewareFile, middleware: true, route: "/**" })
+  }
+  nitro.handlers = handlers
   const cloudflare = { ...record(nitro.cloudflare) }
   const wrangler = { ...record(cloudflare.wrangler) }
   const workflows = createCloudflareWorkflowBindings(artifacts.providerDefinitions, config)
@@ -1015,6 +1034,28 @@ export function createWorkflowRegistryContents(
   ].join("\n")
 }
 
+/**
+ * Hosts import this index at startup. It holds the Workflow names and metadata, and imports the
+ * definition loaders on the first run: Cloudflare Workers export the Workflow classes from the entry.
+ */
+function createWorkflowRegistryIndexContents(definitions: DiscoveredWorkflowDefinition[]): string {
+  return [
+    `const loadRegistryRuntime = () => import(${JSON.stringify(`./${generatedRegistryRuntimeFileName}`)})`,
+    "",
+    "const registry = {",
+    ...definitions.map((definition) => {
+      const loader = `async () => await (await loadRegistryRuntime()).default[${JSON.stringify(definition.name)}]()`
+      return definition.source === "agent-workflow-recovery"
+        ? `  [${JSON.stringify(definition.name)}]: Object.assign(${loader}, { internalAgentInvocationRecovery: true }),`
+        : `  [${JSON.stringify(definition.name)}]: ${loader},`
+    }),
+    "}",
+    "",
+    "export default registry",
+    "",
+  ].join("\n")
+}
+
 function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition[]) {
   const legacyAliases = getUniqueLegacyCloudflareWorkflowAliases(definitions)
   return [
@@ -1134,14 +1175,16 @@ export async function writeProviderEntries(
     const nativeFile = vercelNativeFiles[definition.name]
     await writeFile(nativeFile, createVercelNativeWorkflowContents(definition), "utf8")
   }))
+  const registryRuntimeFile = resolve(generatedDir, generatedRegistryRuntimeFileName)
   const registryContents = createWorkflowRegistryContents(
-    registryFile,
+    registryRuntimeFile,
     providerDefinitions,
     importBases,
     vercelNativeFiles,
     retainedAgentInstructions,
   )
-  await writeFile(registryFile, transformRegistry ? await transformRegistry(registryContents, registryFile) : registryContents, "utf8")
+  await writeFile(registryRuntimeFile, transformRegistry ? await transformRegistry(registryContents, registryRuntimeFile) : registryContents, "utf8")
+  await writeFile(registryFile, createWorkflowRegistryIndexContents(providerDefinitions), "utf8")
 
   const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
@@ -1484,7 +1527,7 @@ async function generateProviderOutputsWithinLock(
           })
           if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
         }
-        await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))
+        await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryRuntimeFileName))
         await Promise.all(artifacts.vercelNativeFiles.map(file => rewriteRetainedSourceImports(resolve(nextDir, relative(artifacts.generatedDir, file)))))
         await Promise.all(providerEntrySpecs.map(async spec => await rewriteRetainedSourceImports(resolve(nextDir, spec.entryFile))))
       }

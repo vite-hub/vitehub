@@ -124,6 +124,7 @@ interface Bindings {
   renamed: Map<string, string>
   /** Namespace imports, such as `import * as queue from "vite-hub/queue"`. */
   namespaces: Map<string, Primitive>
+  localBindings: Map<Node, Set<string>>
   dynamicQueue: Set<string>
   createWorkflow: Set<string>
   deferWorkflow: Set<string>
@@ -133,9 +134,57 @@ interface Bindings {
   deferImport?: { statement: ImportDeclaration, specifier: ImportSpecifier }
 }
 
+function functionScope(node: Node): boolean {
+  return ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "ObjectMethod", "ClassMethod", "ClassPrivateMethod"].includes(node.type)
+}
+
+/** The lexical scope that owns each local declaration. Imports are kept separate. */
+function localBindingScopes(program: File): Map<Node, Set<string>> {
+  const scopes = new Map<Node, Set<string>>()
+  const bind = (pattern: Node | null | undefined, scope: Node | undefined) => {
+    if (!pattern || !scope) return
+    if (pattern.type === "Identifier") {
+      const bound = scopes.get(scope) ?? new Set<string>()
+      bound.add(pattern.name)
+      scopes.set(scope, bound)
+    }
+    else if (pattern.type === "AssignmentPattern") bind(pattern.left, scope)
+    else if (pattern.type === "RestElement") bind(pattern.argument, scope)
+    else if (pattern.type === "ArrayPattern") pattern.elements.forEach(element => bind(element, scope))
+    else if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) bind(property.type === "RestElement" ? property.argument : property.value, scope)
+    }
+    else if (pattern.type === "TSParameterProperty") bind(pattern.parameter, scope)
+  }
+  walk(program, (node, ancestors) => {
+    const owner = (variable = false) => ancestors.findLast(ancestor => ancestor.type === "Program" || functionScope(ancestor)
+      || (!variable && ["BlockStatement", "CatchClause", "ForStatement", "ForInStatement", "ForOfStatement", "SwitchStatement", "ClassExpression", "ClassDeclaration"].includes(ancestor.type)))
+    if (node.type === "VariableDeclarator") {
+      const declaration = ancestors.at(-1)
+      bind(node.id, owner(declaration?.type === "VariableDeclaration" && declaration.kind === "var"))
+    }
+    else if (node.type === "CatchClause") bind(node.param, node)
+    else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression" || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod") {
+      if ("id" in node) bind(node.id, node.type === "FunctionDeclaration" ? owner() : node)
+      node.params.forEach(param => bind(param, node))
+    }
+    else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") bind(node.id, node.type === "ClassDeclaration" ? owner() : node)
+  })
+  return scopes
+}
+
+function namespaceAt(bindings: Bindings, node: Node, ancestors: readonly Node[]): Primitive | undefined {
+  if (node.type !== "Identifier" || localBindingScope(bindings, node.name, ancestors)) return
+  return bindings.namespaces.get(node.name)
+}
+
+function localBindingScope(bindings: Bindings, name: string, ancestors: readonly Node[]): Node | undefined {
+  return ancestors.findLast(scope => bindings.localBindings.get(scope)?.has(name))
+}
+
 function rewriteImports(context: FileContext): Bindings {
   const { program } = context
-  const bindings: Bindings = { renamed: new Map(), namespaces: new Map(), dynamicQueue: new Set(), createWorkflow: new Set(), deferWorkflow: new Set() }
+  const bindings: Bindings = { renamed: new Map(), namespaces: new Map(), localBindings: localBindingScopes(program), dynamicQueue: new Set(), createWorkflow: new Set(), deferWorkflow: new Set() }
   /** Local names that an import of a Queue or Workflow module binds. */
   const imported = new Set<string>()
   for (const statement of program.program.body) {
@@ -182,7 +231,7 @@ function rewriteImports(context: FileContext): Bindings {
       continue
     }
     if (shadowed.has(local)) {
-      overwrite(context, specifier, `${to} as ${local}`)
+      overwrite(context, specifier.imported, `${to} as ${local}`)
       followUp(context, specifier, `\`${local}\` is also declared in this file, so the codemod imports \`${to}\` as \`${local}\`. Rename the calls to \`${to}\` by hand.`)
       continue
     }
@@ -201,12 +250,12 @@ function rewriteImports(context: FileContext): Bindings {
       context.handled.add(specifier)
       continue
     }
-    overwrite(context, specifier, to)
+    overwrite(context, specifier.imported, to)
     bindings.renamed.set(local, to)
     if (to === "startWorkflow") bindings.startWorkflow = to
   }
 
-  // A barrel such as `export { runQueue } from "vite-hub/queue"` re-exports the new name.
+  // Keep the barrel's public names so local consumers can keep importing them.
   for (const statement of program.program.body) {
     if (statement.type !== "ExportNamedDeclaration" || !statement.source) continue
     const primitive = primitiveModules.get(statement.source.value)
@@ -216,7 +265,7 @@ function rewriteImports(context: FileContext): Bindings {
       const name = keyName(specifier.local)
       const to = name ? renamedExports[primitive].get(name) : undefined
       if (!to) continue
-      if (start(specifier.local) === start(specifier.exported)) overwrite(context, specifier, to)
+      if (start(specifier.local) === start(specifier.exported)) overwrite(context, specifier.local, `${to} as ${name}`)
       else overwrite(context, specifier.local, to)
     }
   }
@@ -253,48 +302,69 @@ function memberProperty(node: Node): { object: Node, name: string, property: Nod
   return { object: node.object, name: node.property.name, property: node.property }
 }
 
-function isCreateWorkflowCall(node: Node | null | undefined, bindings: Bindings): node is CallExpression {
+function isCreateWorkflowCall(node: Node | null | undefined, bindings: Bindings, ancestors: readonly Node[]): node is CallExpression {
   if (node?.type !== "CallExpression") return false
   const callee = node.callee
-  if (callee.type === "Identifier") return bindings.createWorkflow.has(callee.name)
+  if (callee.type === "Identifier") return bindings.createWorkflow.has(callee.name) && !localBindingScope(bindings, callee.name, ancestors)
   const member = memberProperty(callee)
-  return Boolean(member && member.name === "createWorkflow" && member.object.type === "Identifier" && bindings.namespaces.get(member.object.name) === "workflow")
+  return Boolean(member && member.name === "createWorkflow" && namespaceAt(bindings, member.object, ancestors) === "workflow")
 }
 
 /** Names of variables that hold a Workflow handle from `createWorkflow()`. */
-function workflowHandles(context: FileContext, bindings: Bindings): Set<string> {
-  const handles = new Set<string>()
+function workflowHandles(context: FileContext, bindings: Bindings): (node: Node, ancestors: readonly Node[]) => boolean {
+  const handles = new Map<Node, Set<string>>()
+  const isHandle = (node: Node, ancestors: readonly Node[]) => {
+    if (isCreateWorkflowCall(node, bindings, ancestors)) return true
+    if (node.type !== "Identifier") return false
+    const scope = localBindingScope(bindings, node.name, ancestors)
+    return Boolean(scope && handles.get(scope)?.has(node.name))
+  }
+  // Revisit declarations so simple alias chains work in either source order.
+  let added = true
+  while (added) {
+    added = false
+    walk(context.program, (node, ancestors) => {
+      if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
+      if (!node.init || !isHandle(node.init, ancestors)) return
+      const scope = localBindingScope(bindings, node.id.name, ancestors)
+      if (!scope) return
+      const names = handles.get(scope) ?? new Set<string>()
+      if (!names.has(node.id.name)) {
+        names.add(node.id.name)
+        handles.set(scope, names)
+        added = true
+      }
+    })
+  }
   walk(context.program, (node, ancestors) => {
-    if (node.type !== "VariableDeclarator" || !isCreateWorkflowCall(node.init, bindings)) return
+    if (node.type !== "VariableDeclarator" || !node.init || !isHandle(node.init, ancestors)) return
     if (node.id.type === "Identifier") {
-      handles.add(node.id.name)
       const exported = ancestors.at(-2)?.type === "ExportNamedDeclaration"
       if (exported) followUp(context, node, `\`${node.id.name}\` is a Workflow handle that this file exports. Rename \`.run()\` to \`.start()\` where other files call it.`)
       return
     }
     followUp(context, node, "This destructures a Workflow handle. Its `run` method is now `start`, and `defer` returns nothing.")
   })
-  walk(context.program, (node) => {
-    if (node.type === "ExportDefaultDeclaration" && isCreateWorkflowCall(node.declaration, bindings)) {
+  walk(context.program, (node, ancestors) => {
+    if (node.type === "ExportDefaultDeclaration" && isCreateWorkflowCall(node.declaration, bindings, ancestors)) {
       followUp(context, node, "This file exports a Workflow handle. Rename `.run()` to `.start()` where other files call it.")
     }
   })
-  return handles
+  return isHandle
 }
 
 function rewriteReferences(context: FileContext, bindings: Bindings) {
   const { program } = context
-  const handles = workflowHandles(context, bindings)
-  const isHandle = (node: Node) => (node.type === "Identifier" && handles.has(node.name)) || isCreateWorkflowCall(node, bindings)
-  const isDynamicQueue = (node: Node) => {
-    if (node.type === "Identifier") return bindings.dynamicQueue.has(node.name)
+  const isHandle = workflowHandles(context, bindings)
+  const isDynamicQueue = (node: Node, ancestors: readonly Node[]) => {
+    if (node.type === "Identifier") return bindings.dynamicQueue.has(node.name) && !localBindingScope(bindings, node.name, ancestors)
     const member = memberProperty(node)
-    return Boolean(member && member.name === "dynamicQueue" && member.object.type === "Identifier" && bindings.namespaces.get(member.object.name) === "queue")
+    return Boolean(member && member.name === "dynamicQueue" && namespaceAt(bindings, member.object, ancestors) === "queue")
   }
-  const isDeferWorkflow = (node: Node) => {
-    if (node.type === "Identifier") return bindings.deferWorkflow.has(node.name)
+  const isDeferWorkflow = (node: Node, ancestors: readonly Node[]) => {
+    if (node.type === "Identifier") return bindings.deferWorkflow.has(node.name) && !localBindingScope(bindings, node.name, ancestors)
     const member = memberProperty(node)
-    return Boolean(member && member.name === "deferWorkflow" && member.object.type === "Identifier" && bindings.namespaces.get(member.object.name) === "workflow")
+    return Boolean(member && member.name === "deferWorkflow" && namespaceAt(bindings, member.object, ancestors) === "workflow")
   }
 
   walk(program, (node, ancestors) => {
@@ -311,18 +381,18 @@ function rewriteReferences(context: FileContext, bindings: Bindings) {
 
     const member = memberProperty(node)
     if (member) {
-      const namespace = member.object.type === "Identifier" ? bindings.namespaces.get(member.object.name) : undefined
+      const namespace = namespaceAt(bindings, member.object, ancestors)
       const renamed = namespace ? renamedExports[namespace].get(member.name) : undefined
       if (renamed) {
         overwrite(context, member.property, renamed)
         return
       }
       const method = dynamicQueueMethods.get(member.name)
-      if (method && isDynamicQueue(member.object)) {
+      if (method && isDynamicQueue(member.object, ancestors)) {
         overwrite(context, member.property, method)
         return
       }
-      if (member.name === "run" && isHandle(member.object)) {
+      if (member.name === "run" && isHandle(member.object, ancestors)) {
         overwrite(context, member.property, "start")
         return
       }
@@ -331,7 +401,7 @@ function rewriteReferences(context: FileContext, bindings: Bindings) {
     if (node.type !== "CallExpression") return
     const callee = node.callee
     const handleDefer = memberProperty(callee)
-    const deferCall = isDeferWorkflow(callee) || Boolean(handleDefer && handleDefer.name === "defer" && isHandle(handleDefer.object))
+    const deferCall = isDeferWorkflow(callee, ancestors) || Boolean(handleDefer && handleDefer.name === "defer" && isHandle(handleDefer.object, ancestors))
     if (!deferCall) return
     if (!valueIsRead(node, ancestors)) {
       removeStatementAwait(context, node, ancestors)

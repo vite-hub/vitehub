@@ -166,15 +166,16 @@ describe("vitehub/no-destructure-non-tuples", () => {
   it("reports tuple destructuring of values and Responses", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { startWorkflow } from "vite-hub/workflow"',
+        'import { startWorkflow, deferWorkflow } from "vite-hub/workflow"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
         "export async function run() {",
         '  const [error, run] = await startWorkflow("onboard", {})',
         '  const [failure, output] = await runSandboxTask("resize", {})',
+        '  const [deferred] = await deferWorkflow("onboard", {})',
         "  return { error, run, failure, output }",
         "}",
       ].join("\n"),
-    })).toEqual(["VHUB0018", "VHUB0018"])
+    })).toEqual(["VHUB0018", "VHUB0018", "VHUB0018"])
   })
 
   it("accepts direct results and the tuple form of runAgent", async () => {

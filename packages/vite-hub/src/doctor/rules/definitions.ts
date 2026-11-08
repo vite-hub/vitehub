@@ -234,7 +234,7 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   const reference = r.callee(call)
   if (!reference) return
   if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
-  if (isExport(reference, ["workflow"], ["startWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
+  if (isExport(reference, ["workflow"], ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
     || isExport(reference, ["queue"], "useQueue")
     || isExport(reference, ["schedule/runtime"], "runSchedule")) return { name: reference.name, kind: "value" }
   // `runAgent(agent, context, input)` returns the Agent's output, which can be an array, so it is not checked.

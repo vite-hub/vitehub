@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises"
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -15,6 +15,42 @@ afterEach(async () => {
 })
 
 describe("queue-workflow-verbs", () => {
+  it("keeps inline type imports, shadowed namespaces, and Workflow aliases safe", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
+    directories.push(cwd)
+    await writeFile(join(cwd, "contracts.ts"), [
+      'import { createWorkflow, type WorkflowDeferOptions } from "vite-hub/workflow"',
+      'import * as queue from "vite-hub/queue"',
+      'queue.runQueue("welcome", {})',
+      'function custom(queue: { runQueue(): void }) { queue.runQueue() }',
+      'const handle = createWorkflow("welcome")',
+      'const alias = handle',
+      'const second = alias',
+      'await second.run()',
+      'const run = await alias.defer()',
+      'function unrelated(alias: { run(): void }) { alias.run() }',
+    ].join("\n"))
+    const { result } = await runCodemod("queue-workflow-verbs", { cwd, dryRun: true })
+    const output = result.edits[0]!.after
+    expect(output).toContain('import { createWorkflow, type WorkflowStartOptions }')
+    expect(output).toContain('queue.sendQueue("welcome", {})')
+    expect(output).toContain('function custom(queue: { runQueue(): void }) { queue.runQueue() }')
+    expect(output).toContain('await second.start()')
+    expect(output).toContain('const run = await alias.start()')
+    expect(output).toContain('function unrelated(alias: { run(): void }) { alias.run() }')
+  })
+
+  it("preserves a local barrel's exports for its consumers", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
+    directories.push(cwd)
+    await cp(join(fixture, "input"), cwd, { recursive: true })
+    await runCodemod("queue-workflow-verbs", { cwd })
+    const barrel = await readFile(join(cwd, "server/utils/barrel.ts"), "utf8")
+    expect(barrel).toContain('export { useQueue as getQueue, sendQueue as runQueue }')
+    expect(await readFile(join(cwd, "server/utils/barrel-consumer.ts"), "utf8"))
+      .toBe(await readFile(join(fixture, "input/server/utils/barrel-consumer.ts"), "utf8"))
+  })
+
   it("renames the Queue and Workflow verbs and reads deferred runs with startWorkflow", async () => {
     const input = join(fixture, "input")
     const run = await runCodemod("queue-workflow-verbs", { cwd: input, dryRun: true })
