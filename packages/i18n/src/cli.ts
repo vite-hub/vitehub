@@ -6,7 +6,7 @@ import { formatter as poFormatter } from "@lingui/format-po"
 
 import { inspectI18n } from "./inspect.ts"
 import { recordsRoot } from "./lingui.ts"
-import { isVisible, messageId, readRecords, removeRecord, saveTranslation } from "./records.ts"
+import { importTranslation, isVisible, removeRecord } from "./records.ts"
 
 import type { CatalogType, LinguiConfigNormalized } from "@lingui/conf"
 import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/internal/cli"
@@ -158,7 +158,6 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             const file = resolve(context.cwd, input)
             const catalog = await poFormatter().parse(await readFile(file, "utf8"), { locale, sourceLocale: config.sourceLocale, filename: file })
             const root = recordsRoot(config.rootDir)
-            const { records } = await readRecords(root, locale)
             const by = flags.by || userInfo().username
             const at = new Date().toISOString()
             let saved = 0
@@ -166,17 +165,12 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
             const refused: { message: string, problem: string }[] = []
             for (const entry of Object.values(catalog)) {
               if (!entry.message || !entry.translation) continue
-              const current = records[messageId(entry.message, entry.context)]
-              if (current && isVisible(current) && current.text === entry.translation) {
-                unchanged++
-                continue
-              }
               const expected = importBaseline(entry.comments)
               if (expected === undefined) {
                 refused.push({ message: entry.message, problem: "The PO export baseline is invalid. Export the locale again before editing it." })
                 continue
               }
-              const result = await saveTranslation(root, locale, { message: entry.message, context: entry.context }, entry.translation, { by, at, expected })
+              const result = await importTranslation(root, locale, { message: entry.message, context: entry.context }, entry.translation, { by, at, expected })
               if (result.ok) saved++
               else if (result.code === "unchanged") unchanged++
               else refused.push({ message: entry.message, problem: result.message })

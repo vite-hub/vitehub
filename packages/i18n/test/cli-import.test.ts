@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { formatter as poFormatter } from "@lingui/format-po"
-import { afterEach, beforeEach, expect, it } from "vitest"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { createI18nCliContributor } from "../src/cli.ts"
 import { createLinguiConfig } from "../src/lingui.ts"
@@ -11,6 +11,21 @@ import { resolveI18nLocaleConfig } from "../src/locales.ts"
 import { messageId, readRecords, saveTranslation } from "../src/records.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
+
+const recordIO = vi.hoisted(() => ({ pause: undefined as undefined | (() => Promise<void>) }))
+
+vi.mock("@diglot/store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@diglot/store")>()
+  return {
+    ...actual,
+    readRecord: async (...args: Parameters<typeof actual.readRecord>) => {
+      const pause = recordIO.pause
+      recordIO.pause = undefined
+      await pause?.()
+      return actual.readRecord(...args)
+    },
+  }
+})
 
 let root: string
 
@@ -20,6 +35,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  recordIO.pause = undefined
   await rm(root, { recursive: true, force: true })
 })
 
@@ -36,6 +52,12 @@ async function cli(...args: string[]) {
     stderr: { write: () => {} },
   } as unknown as ViteHubCliContext
   return { code: await feature.run(args.slice(1), context) ?? 0, stdout }
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => resolve = done)
+  return { promise, resolve }
 }
 
 it.each([null, "Guardar"])("refuses a stale PO edit exported with %j", async (baseline) => {
@@ -75,4 +97,38 @@ it("lets a PO file without a baseline add translations but refuses to overwrite 
   await writeFile(join(root, "es.po"), po.replace("Guardar", "Salvar"))
   expect((await cli("import", "es", "es.po")).code).toBe(1)
   expect((await readRecords(join(root, "locales"), "es")).records[messageId("Save")]!.text).toBe("Guardar")
+})
+
+it("checks unchanged entries against the locked record after import starts", async () => {
+  const records = join(root, "locales")
+  await saveTranslation(records, "es", { message: "Save" }, "Guardar", { by: "ana", expected: null })
+  await writeFile(join(root, "es.po"), [
+    '#. vitehub-i18n-expected: null',
+    'msgid "Continue"',
+    'msgstr "Continuar"',
+    '',
+    '#. vitehub-i18n-expected: "Guardar"',
+    'msgid "Save"',
+    'msgstr "Guardar"',
+    '',
+  ].join("\n"))
+  const started = deferred()
+  const release = deferred()
+  // Hold the first entry inside its record lock while a translator changes the next entry.
+  recordIO.pause = async () => {
+    started.resolve()
+    await release.promise
+  }
+  const importing = cli("import", "es", "es.po", "--json")
+  try {
+    await started.promise
+    expect((await saveTranslation(records, "es", { message: "Save" }, "Conservar", { by: "luis", expected: "Guardar" })).ok).toBe(true)
+  }
+  finally {
+    release.resolve()
+  }
+  const imported = await importing
+  expect(imported.code).toBe(1)
+  expect(JSON.parse(imported.stdout)).toMatchObject({ saved: 1, unchanged: 0, refused: [{ message: "Save", problem: expect.stringContaining("changed") }] })
+  expect((await readRecords(records, "es")).records[messageId("Save")]!.text).toBe("Conservar")
 })
