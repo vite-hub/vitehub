@@ -548,11 +548,11 @@ async function isColocatedAgentInstructionDependency(root: string, file: string,
   return false
 }
 
-function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")]): boolean {
+function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "server")], standaloneChannels = discoverStandaloneChannels(root, serverDirs)): boolean {
   return discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: serverDirs,
-  }).length > 0 || discoverStandaloneChannels(serverDirs).length > 0
+  }).length > 0 || standaloneChannels.length > 0
 }
 
 function subpath(base: string, path: string): string {
@@ -1995,7 +1995,7 @@ async function generateAgentDeploymentCatalog(
         ? [
             // A standalone Channel's host Agent only serves the Channel's webhooks. Its trigger selects the Agent that runs.
             ...standaloneChannels.flatMap((channel, index) => [
-              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
+              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
               `agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
             ]),
             "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent)]))",
@@ -2349,7 +2349,7 @@ async function writeAgentWebhookRouteHandler(
     mode: "server-agents",
     scanDirs: serverDirs,
   })
-  const standaloneChannels = discoverStandaloneChannels(serverDirs)
+  const standaloneChannels = options.standaloneChannels ?? discoverStandaloneChannels(root, serverDirs)
   const owner = standaloneChannels.find(channel => definitions.some(definition => definition.name === channel.agent))
   if (owner) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${owner.handler} serves its webhooks as "${owner.agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.` })
   options = { ...options, standaloneChannels, explicitWebhookAliasPaths: Object.keys(options.webhookAliases || {}), webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
@@ -3010,9 +3010,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     setChannelSimulation(Boolean(normalized && agent && agent.channels?.simulate && config.command === "serve" && !cliStageServer), config)
     if (normalized) validateInspectionRoute(normalized.routes)
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
-    const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     const generatedRoot = resolveViteHubGeneratedRoot(config)
     const definitionServerDirs = serverDirs ?? [join(config.root, "server")]
+    const standaloneChannels = normalized ? discoverStandaloneChannels(viteHubProjectRoot(config), definitionServerDirs) : []
+    const hasHostedAgents = hasHostedAgentDefinitions(config.root, definitionServerDirs, standaloneChannels)
     const registryDefinitions = normalized
       ? [
           ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: config.root }),
@@ -3084,6 +3085,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       else {
         await writeAgentWebhookRouteHandler(generatedRoot, {
+          standaloneChannels,
           preparation: normalized.preparation,
           webhookAliases: normalized.routes.aliases,
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
@@ -3388,10 +3390,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       const nitroContext = hasNitroConfigContext(config)
-      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
+      const standaloneChannels = resolved ? discoverStandaloneChannels(viteHubProjectRoot(config), serverDirs ?? [join(root, "server")]) : []
+      const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs, standaloneChannels))
       const hasAgentDefinitions = Boolean(resolved && discoverProjectAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
-      const standaloneChannels = resolved ? discoverStandaloneChannels(serverDirs ?? [join(root, "server")]) : []
       if (standaloneChannels.length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
         throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${standaloneChannels[0]!.handler} declares its own webhook route. Channels in server/channels with webhooks.path currently require a Nitro host.` })
       }

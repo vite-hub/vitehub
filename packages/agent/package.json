@@ -256,6 +256,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
+    "@vite-hub/channels": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
