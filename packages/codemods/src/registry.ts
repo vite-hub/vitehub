@@ -1,3 +1,4 @@
+import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
 import { rootAccessors } from "./root-accessors/index.ts"
 import { resend } from "./resend/index.ts"
@@ -11,6 +12,7 @@ export const codemods: readonly Codemod[] = [
   t3Env,
   resend,
   rootAccessors,
+  nuxtCron,
 ]
 
 /** Codemods that move an app between ViteHub releases. `vitehub migrate` runs them in order. */
