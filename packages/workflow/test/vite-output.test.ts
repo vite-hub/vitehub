@@ -1357,8 +1357,8 @@ describe("Vite workflow provider outputs", () => {
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
-      .replace("      plugins: [hubWorkflow()],\n      workflow: {},", `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, hubWorkflow(), { name: "nitro:main", config() {} }],\n      workflow: {},`)
-      .replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+      .replace("      plugins: [hubWorkflow({})],", `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, hubWorkflow({}), { name: "nitro:main", config() {} }],`)
+      .replaceAll("hubWorkflow({})", "hubWorkflow({ provider: \"vercel\" })"))
     const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
     await mkdir(generatedWorkflowDir, { recursive: true })
     await writeFile(join(rootDir, "server", "email.ts"), "export const outboxRuntimeId = \"disabled\"\nexport default { driver: () => ({ send: async () => ({}) }) }\n")
@@ -1419,7 +1419,7 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-external-native-")
     await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("hubWorkflow({})", "hubWorkflow({ provider: \"vercel\" })"))
     await mkdir(join(rootDir, "server", "durable"), { recursive: true })
     await writeFile(join(rootDir, "server", "durable", "welcome.ts"), [
       `export async function durable() {`,
@@ -1445,8 +1445,8 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
-        "workflow: {},",
-        "workflow: { provider: \"openworkflow\", postgres: { url: \"postgres://example\" } },",
+        "hubWorkflow({})",
+        "hubWorkflow({ provider: \"openworkflow\", postgres: { url: \"postgres://example\" } })",
       ),
     )
 
@@ -1479,8 +1479,8 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
-        "workflow: {},",
-        "workflow: { provider: \"openworkflow\", postgres: { url: \"postgres://example\" } },",
+        "hubWorkflow({})",
+        "hubWorkflow({ provider: \"openworkflow\", postgres: { url: \"postgres://example\" } })",
       ),
     )
 
@@ -1517,8 +1517,8 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
-        "workflow: {},",
-        "workflow: { provider: \"openworkflow\", postgres: { url: \"postgres://example\" } },",
+        "hubWorkflow({})",
+        "hubWorkflow({ provider: \"openworkflow\", postgres: { url: \"postgres://example\" } })",
       ),
     )
 

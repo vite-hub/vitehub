@@ -3,10 +3,10 @@ import { basename } from "node:path"
 import { end, findProperty, indentAt, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
 
 import { ConfigEditor, findViteHubEntry } from "../shared/config-editor.ts"
-import { blockBindings } from "../shared/bindings.ts"
+import { bindingResolver } from "../shared/binding-resolver.ts"
 import { unwrapExpression } from "../shared/nuxt-config.ts"
 
-import type { File, Node, ObjectExpression, ObjectProperty } from "@babel/types"
+import type { File, Identifier, Node, ObjectExpression, ObjectProperty } from "@babel/types"
 import type { FollowUp } from "../types.ts"
 
 /** Top-level Vite keys that owner plugins read before `vitehub()` became the only config place. */
@@ -37,7 +37,7 @@ export interface OptionsMigration {
 }
 
 /** The object of `defineConfig({...})`, `defineConfig(() => ({...}))`, `defineNuxtConfig({...})`, or `export default {...}`. */
-function findConfigRoot(program: File): ObjectExpression | undefined {
+function findConfigRoot(program: File, followUps: FollowUp[], file: string): ObjectExpression | undefined {
   const exported = program.program.body.find(statement => statement.type === "ExportDefaultDeclaration")
   if (!exported) return undefined
   let value = unwrapExpression(exported.declaration)
@@ -57,7 +57,24 @@ function findConfigRoot(program: File): ObjectExpression | undefined {
     if (!argument) return undefined
     value = unwrapExpression(argument)
   }
-  if (value.type === "ArrowFunctionExpression" && value.body.type !== "BlockStatement") value = unwrapExpression(value.body)
+  if (value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression" || value.type === "FunctionDeclaration") {
+    if (value.body.type !== "BlockStatement") value = unwrapExpression(value.body)
+    else {
+      const returns: Node[] = []
+      walk(value.body, (node, ancestors) => {
+        if (node.type === "ReturnStatement" && node.argument && !ancestors.some(ancestor =>
+          ancestor.type === "ArrowFunctionExpression" || ancestor.type === "FunctionExpression"
+          || ancestor.type === "FunctionDeclaration" || ancestor.type === "ObjectMethod"
+          || ancestor.type === "ClassMethod" || ancestor.type === "ClassPrivateMethod")) returns.push(node.argument)
+      })
+      const returned = returns.length === 1 ? objectValue(returns[0]) : undefined
+      if (!returned) {
+        followUps.push({ file, line: line(value), message: "The config factory does not return one object literal. Move top-level feature and Env options into vitehub() or owner plugin arguments, and move logs into observability.logs by hand." })
+        return undefined
+      }
+      value = returned
+    }
+  }
   return value.type === "ObjectExpression" ? value : undefined
 }
 
@@ -70,24 +87,22 @@ function objectValue(node: Node | undefined): ObjectExpression | undefined {
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
-/** Verified, unshadowed value imports of the expected API. Ambiguous bindings stay unchanged. */
-function importedNames(program: File, sources: readonly string[], imported: string): Set<string> {
-  const names = new Set<string>()
-  const bindings = blockBindings(program)
+/** Value imports of the expected API, checked against each call's lexical binding. */
+function importedNames(program: File, sources: readonly string[], imported: string): Map<string, Identifier> {
+  const names = new Map<string, Identifier>()
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !sources.includes(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === imported
-        && bindings.get(specifier.local.name)?.every(binding => binding === specifier.local)) names.add(specifier.local.name)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === imported) names.set(specifier.local.name, specifier.local)
     }
   }
   return names
 }
 
-function callsOf(scope: Node, names: ReadonlySet<string>): Array<Node & { type: "CallExpression" }> {
+function callsOf(scope: Node, names: ReadonlyMap<string, Identifier>, resolveBinding: ReturnType<typeof bindingResolver>): Array<Node & { type: "CallExpression" }> {
   const calls: Array<Node & { type: "CallExpression" }> = []
   walk(scope, (node) => {
-    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) calls.push(node)
+    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name) && names.get(node.callee.name) === resolveBinding(node.callee)) calls.push(node)
   })
   return calls
 }
@@ -118,12 +133,17 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   catch {
     return unchanged
   }
-  const defaultRoot = findConfigRoot(program)
+  const defaultRoot = findConfigRoot(program, followUps, file)
   const roots = findRoots ? findRoots(program) : defaultRoot ? [defaultRoot] : []
   if (!roots[0]) return unchanged
   const nuxt = basename(file).startsWith("nuxt.config")
   const editor = new ConfigEditor({ code, fileName: file, path: file, program, root: roots[0] })
+  const resolveBinding = bindingResolver(program)
   const removed = new Set<Node>()
+  const additions = new Map<ObjectExpression, string[]>()
+  const insertProperties = (object: ObjectExpression, entries: string[]) => {
+    additions.set(object, [...(additions.get(object) ?? []), ...entries])
+  }
   let changed = false
   const text = (node: Node) => code.slice(start(node), end(node))
   const follow = (node: Node, message: string) => followUps.push({ file, line: line(node), message })
@@ -146,8 +166,8 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   }
   else {
     const names = importedNames(program, ["vite-hub"], "vitehub")
-    const local = callsOf(root, names)
-    for (const call of local.length || findRoots ? local : callsOf(program, names)) {
+    const local = callsOf(root, names, resolveBinding)
+    for (const call of local.length || findRoots ? local : callsOf(program, names, resolveBinding)) {
       const [argument] = call.arguments
       const options = objectValue(argument)
       if (options) optionObjects.push(options)
@@ -194,7 +214,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       changed = true
     }
     else if (observabilityObject) {
-      editor.insertProperties(observabilityObject, entries, new Set())
+      insertProperties(observabilityObject, entries)
       remove(logs)
     }
     else if (observabilityValue?.type === "BooleanLiteral" && observabilityValue.value) {
@@ -214,14 +234,14 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     const envText = text(envValue)
     const sourceIndent = indentAt(code, start(envProperty))
     const hubEnvNames = importedNames(program, ["@vite-hub/env/vite", "vite-hub/env/vite"], "hubEnv")
-    const localHubEnvCalls = callsOf(root, hubEnvNames)
-    const hubEnvCalls = nuxt ? [] : localHubEnvCalls.length || findRoots ? localHubEnvCalls : callsOf(program, hubEnvNames)
+    const localHubEnvCalls = callsOf(root, hubEnvNames, resolveBinding)
+    const hubEnvCalls = nuxt ? [] : localHubEnvCalls.length || findRoots ? localHubEnvCalls : callsOf(program, hubEnvNames, resolveBinding)
     const viteHubTargets = optionObjects.length + emptyCalls.length
     const moveInto = (target: ObjectExpression, nested: boolean): boolean => {
       const targetEnv = nested ? property(target, "env") : undefined
       if (nested && !targetEnv) {
         const indent = editor.propertyIndent(target)
-        editor.insertProperties(target, [`env: ${reindent(envText, sourceIndent, indent)}`], removed)
+        insertProperties(target, [`env: ${reindent(envText, sourceIndent, indent)}`])
         return true
       }
       const envOptions = nested ? objectValue(targetEnv!.value) : target
@@ -233,7 +253,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       }
       const indent = editor.propertyIndent(envOptions)
       if (envValue.type !== "ObjectExpression") {
-        editor.insertProperties(envOptions, [`...${reindent(envText, sourceIndent, indent)}`], removed)
+        insertProperties(envOptions, [`...${reindent(envText, sourceIndent, indent)}`])
         return true
       }
       const conflict = envValue.properties.find(item => item.type === "ObjectProperty" && property(envOptions, keyName(item.key, item.computed) ?? ""))
@@ -242,7 +262,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
         return false
       }
       const propertyIndent = envValue.properties[0] ? indentAt(code, start(envValue.properties[0])) : sourceIndent
-      editor.insertProperties(envOptions, envValue.properties.map(item => reindent(text(item), propertyIndent, indent)), removed)
+      insertProperties(envOptions, envValue.properties.map(item => reindent(text(item), propertyIndent, indent)))
       return true
     }
     let moved = false
@@ -289,10 +309,10 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       const value = unwrapExpression(item.value)
       const sourceIndent = indentAt(code, start(item))
       const plugin = ownerPlugins[key]
-      const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.name)) : []
+      const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.name), resolveBinding) : []
       // The key moves to the one place that reads it now: the vite-hub options, or the owner plugin's argument.
       if (key !== "vitehub" && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
-        editor.insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`], removed)
+        insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`])
         remove(item)
       }
       else if (!optionObjects.length && !emptyCalls.length && pluginCalls.length === 1 && !pluginCalls[0]!.arguments.length) {
@@ -308,5 +328,6 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   }
   }
 
+  for (const [object, entries] of additions) editor.insertProperties(object, entries, removed)
   return changed ? { code: editor.output.toString(), changed, followUps, notes } : unchanged
 }

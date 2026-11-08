@@ -105,6 +105,67 @@ describe("vitehub-options transform", () => {
     expect(migrateViteHubOptions("vite.config.ts", input).code).toBe(input)
   })
 
+  it.each([
+    ["vitehub", "vite-hub", "{ logs: true }", "", "observability: { logs: true }"],
+    ["hubEnv", "@vite-hub/env/vite", "", ", env: { server: {} }", "hubEnv({ server: {} })"],
+    ["hubKv", "@vite-hub/kv/vite", "", ", kv: { driver: 'fs-lite' }", "hubKv({ driver: 'fs-lite' })"],
+  ])("migrates imported %s calls beside unrelated nested bindings", (name, source, argument, options, expected) => {
+    const input = `import { ${name} } from '${source}'\nfunction helper(${name}) { return ${name}(${argument}) }\nexport default { plugins: [${name}(${argument})]${options} }\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain(expected)
+    expect(result.code).toContain(`function helper(${name}) { return ${name}(${argument}) }`)
+    expect(result.followUps).toEqual([])
+  })
+
+  it.each([
+    "() => { const helper = () => ({ logs: false }); return CONFIG }",
+    "function () { return CONFIG }",
+    "async function () { return CONFIG }",
+  ])("migrates a block-bodied config factory: %s", (factory) => {
+    const input = `import { vitehub } from 'vite-hub'\nexport default defineConfig(${factory.replace("CONFIG", "{ plugins: [vitehub({ logs: true })], env: { server: {} }, kv: { driver: 'fs-lite' } }")})\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.changed).toBe(true)
+    expect(result.followUps).toEqual([])
+    expect(result.code).toContain("observability: { logs: true }")
+    expect(result.code).toContain("env: { server: {} }")
+    expect(result.code).toContain("kv: { driver: 'fs-lite' }")
+    expect(migrateViteHubOptions("vite.config.ts", result.code).changed).toBe(false)
+  })
+
+  it("migrates an exported config function", () => {
+    const input = "import { vitehub } from 'vite-hub'\nexport default function config() { return { plugins: [vitehub({ logs: true })] } }\n"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code).toContain("observability: { logs: true }")
+    expect(result.followUps).toEqual([])
+  })
+
+  it("migrates owner options returned by a function factory", () => {
+    const input = "import { hubKv } from '@vite-hub/kv/vite'\nexport default defineConfig(function () { return { plugins: [hubKv()], kv: { driver: 'fs-lite' } } })\n"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code).toContain("hubKv({ driver: 'fs-lite' })")
+    expect(result.followUps).toEqual([])
+  })
+
+  it("migrates Nuxt Env declarations returned by a block-bodied factory", () => {
+    const input = "export default defineNuxtConfig(() => { return { modules: ['vite-hub/nuxt'], vitehub: {}, vite: { env: { server: {} } } } })\n"
+    const result = migrateViteHubOptions("nuxt.config.ts", input)
+    expect(result.changed).toBe(true)
+    expect(result.code).toContain("vitehub:")
+    expect(result.code).toContain("env: { server: {} }")
+    expect(result.followUps).toEqual([])
+  })
+
+  it.each([
+    "() => { if (process.env.PROD) return { plugins: [vitehub()], env: {} }; return { plugins: [vitehub()], kv: {} } }",
+    "function () { const config = { plugins: [vitehub()], env: {} }; return config }",
+  ])("reports config factories that need manual migration", (factory) => {
+    const input = `import { vitehub } from 'vite-hub'\nexport default defineConfig(${factory})\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code).toBe(input)
+    expect(result.followUps).toEqual([expect.objectContaining({ file: "vite.config.ts", message: expect.stringContaining("by hand") })])
+  })
+
   it("migrates an imported alias", () => {
     const input = "import { vitehub as hub } from 'vite-hub'\nexport default { plugins: [hub({ logs: true })] }\n"
     expect(migrateViteHubOptions("vite.config.ts", input).code).toContain("hub({ observability: { logs: true } })")
