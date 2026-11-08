@@ -2,20 +2,22 @@ import { BinCmdOperator, LangVariant, parseSync, type Stmt, type Word, type Word
 
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
-export function wordText(word: Word, source: string): string {
-  return word.parts.map(part => wordPartText(part, source, false)).join("")
+type SourceIndex = (byteOffset: number) => number
+
+export function wordText(word: Word, source: string, toIndex = createSourceIndex(source)): string {
+  return word.parts.map(part => wordPartText(part, source, toIndex, false)).join("")
 }
 
-function wordPartText(part: WordPart, source: string, doubleQuoted: boolean): string {
+function wordPartText(part: WordPart, source: string, toIndex: SourceIndex, doubleQuoted: boolean): string {
   switch (part.type) {
     case "Lit":
       return doubleQuoted ? unescapeDoubleQuoted(part.value) : part.value
     case "SglQuoted":
       return part.value
     case "DblQuoted":
-      return part.parts.map(nested => wordPartText(nested, source, true)).join("")
+      return part.parts.map(nested => wordPartText(nested, source, toIndex, true)).join("")
     default:
-      return source.slice(part.start, part.end)
+      return source.slice(toIndex(part.start), toIndex(part.end))
   }
 }
 
@@ -53,10 +55,11 @@ export function parseShellCommand(command: string, mode: "execution" | "inspecti
   const call = stmt?.cmd
   if (call?.type !== "CallExpr") return []
 
+  const toIndex = createSourceIndex(command)
   return [
-    ...call.assigns.map(assign => command.slice(assign.start, assign.end)),
-    ...call.args.map(arg => wordText(arg, command)),
-    ...(stmt?.redirs ?? []).map(redir => command.slice(redir.start, redir.end)),
+    ...call.assigns.map(assign => command.slice(toIndex(assign.start), toIndex(assign.end))),
+    ...call.args.map(arg => wordText(arg, command, toIndex)),
+    ...(stmt?.redirs ?? []).map(redir => command.slice(toIndex(redir.start), toIndex(redir.end))),
   ]
 }
 
@@ -81,17 +84,17 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
     return [{ command, followsPipe: false }]
   }
 
+  const toIndex = createSourceIndex(command)
   const leaves: Array<{ stmt: Stmt, separator?: StatementSeparator }> = []
   file.stmts.forEach((stmt, index) => {
-    flattenStatement(stmt, statementSeparator(file.stmts, index, command), leaves)
+    flattenStatement(stmt, statementSeparator(file.stmts, index, command, toIndex), toIndex, leaves)
   })
 
   const segments: ShellCommandSegment[] = []
   let cursor = 0
   let followsPipe = false
   for (const { stmt, separator } of leaves) {
-    const commentStart = stmt.comments[0]?.start
-    const rawEnd = separator?.offset ?? commentStart ?? stmt.end
+    const rawEnd = separator?.offset ?? (stmt.comments[0] ? toIndex(stmt.comments[0].start) : toIndex(stmt.end))
     const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd)))
     segments.push({
       command: raw,
@@ -107,23 +110,29 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
 function flattenStatement(
   stmt: Stmt,
   outer: StatementSeparator | undefined,
+  toIndex: SourceIndex,
   leaves: Array<{ stmt: Stmt, separator?: StatementSeparator }>,
 ) {
   if (stmt.cmd?.type === "BinaryCmd") {
-    const operator = binaryOperator(stmt.cmd.op, stmt.cmd.opPos.offset)
-    flattenStatement(stmt.cmd.x!, operator, leaves)
-    flattenStatement(stmt.cmd.y!, outer, leaves)
+    const operator = binaryOperator(stmt.cmd.op, toIndex(stmt.cmd.opPos.offset))
+    flattenStatement(stmt.cmd.x!, operator, toIndex, leaves)
+    flattenStatement(stmt.cmd.y!, outer, toIndex, leaves)
     return
   }
   leaves.push({ stmt, ...(outer ? { separator: outer } : {}) })
 }
 
-function statementSeparator(stmts: Stmt[], index: number, command: string): StatementSeparator | undefined {
+function statementSeparator(
+  stmts: Stmt[],
+  index: number,
+  command: string,
+  toIndex: SourceIndex,
+): StatementSeparator | undefined {
   const stmt = stmts[index]!
-  if (stmt.semicolon.offset > 0) return { kind: ";", offset: stmt.semicolon.offset, length: 1 }
+  if (stmt.semicolon.offset > 0) return { kind: ";", offset: toIndex(stmt.semicolon.offset), length: 1 }
   const next = stmts[index + 1]
   if (!next) return undefined
-  for (let offset = stmt.end; offset < next.start; offset++) {
+  for (let offset = toIndex(stmt.end); offset < toIndex(next.start); offset++) {
     if (command[offset] === "\n") return { kind: "\n", offset, length: 1 }
   }
   return undefined
@@ -132,8 +141,9 @@ function statementSeparator(stmts: Stmt[], index: number, command: string): Stat
 function binaryOperator(op: number, offset: number): StatementSeparator | undefined {
   switch (op) {
     case BinCmdOperator.Pipe:
-    case BinCmdOperator.PipeAll:
       return { kind: "|", offset, length: 1 }
+    case BinCmdOperator.PipeAll:
+      return { kind: "|", offset, length: 2 }
     case BinCmdOperator.AndStmt:
       return { kind: "&&", offset, length: 2 }
     case BinCmdOperator.OrStmt:
@@ -141,6 +151,25 @@ function binaryOperator(op: number, offset: number): StatementSeparator | undefi
     default:
       return undefined
   }
+}
+
+function createSourceIndex(source: string): SourceIndex {
+  const indexes = [0]
+  let byteOffset = 0
+  for (let index = 0; index < source.length;) {
+    const codePoint = source.codePointAt(index)!
+    byteOffset += utf8Length(codePoint)
+    index += codePoint > 0xffff ? 2 : 1
+    indexes[byteOffset] = index
+  }
+  return offset => indexes[offset] ?? source.length
+}
+
+function utf8Length(codePoint: number): number {
+  if (codePoint <= 0x7f) return 1
+  if (codePoint <= 0x7ff) return 2
+  if (codePoint <= 0xffff) return 3
+  return 4
 }
 
 function stripLineContinuations(command: string): string {
