@@ -45,7 +45,7 @@ beforeAll(async () => {
   await writeFile(join(root, "server/agents/greeter.ts"), agent("greeter", "workflow(\"greeter\")"))
   await writeFile(join(root, "server/api/run.post.ts"), [
     "import { defineEventHandler, getQuery } from \"h3\"",
-    "import { defineAgent, runAgent, workflow } from \"vite-hub/agent\"",
+    "import { defineAgent, startAgentInvocation, workflow } from \"vite-hub/agent\"",
     "import { getRuntimeContext } from \"vite-hub/runtime/h3\"",
     "import greeter from \"../agents/greeter\"",
     "import hello from \"../agents/hello\"",
@@ -57,7 +57,7 @@ beforeAll(async () => {
     "export default defineEventHandler(async (event) => {",
     "  const runtime = getRuntimeContext(event)",
     "  try {",
-    "    const run = await runAgent(agents[getQuery(event).agent as keyof typeof agents], runtime, { prompt: \"ping\" })",
+    "    const run = await startAgentInvocation(agents[getQuery(event).agent as keyof typeof agents], runtime, { prompt: \"ping\" })",
     "    return typeof run === \"object\" && run && \"id\" in run ? { id: run.id } : { inline: run }",
     "  }",
     "  catch (error) {",
@@ -102,7 +102,7 @@ async function run(agentName: string): Promise<Record<string, unknown>> {
 it.each([
   ["hello", "a default Agent"],
   ["greeter", "an Agent with a workflow() binding"],
-])("runAgent() from a route starts the discovered Workflow of %s (%s) in workerd", async (name) => {
+])("startAgentInvocation() from a route starts the discovered Workflow of %s (%s) in workerd", async (name) => {
   const started = await run(name)
   expect(started).toEqual({ id: expect.any(String) })
 

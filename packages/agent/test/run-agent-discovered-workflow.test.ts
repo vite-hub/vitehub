@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-import { defineAgent, defineCapability, runAgent, workflow } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, startAgentInvocation, workflow } from "../src/index.ts"
 import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 
@@ -48,15 +48,28 @@ function hello() {
 it("starts the discovered Workflow of a discovered Agent from a caller without a host identity", async () => {
   const started = discoveredWorkflowHost()
 
-  await expect(runAgent(hello(), runtime(), { prompt: "ping" })).resolves.toMatchObject({ id: "hello-run" })
+  await expect(startAgentInvocation(hello(), runtime(), { prompt: "ping" })).resolves.toMatchObject({ id: "hello-run" })
   expect(started).toEqual([{ inline: false, name: "hello" }])
+})
+
+it.each([false, true])("runs a discovered Agent inline with runAgent() (explicit Workflow: %s)", async (explicit) => {
+  const started = discoveredWorkflowHost()
+  const agent = defineAgent({ ...(explicit ? { runtime: workflow("hello") } : {}), driver: { run: () => "inline" } })
+  markDiscoveredAgentName(agent, "hello")
+
+  await expect(runAgent(agent, { prompt: "ping" }, { runtimeContext: runtime() })).resolves.toMatchObject([
+    undefined, { output: "inline", text: "inline" },
+  ])
+  expect(started).toEqual([])
 })
 
 it("runs a discovered Agent inline when the call passes invocation Capabilities", async () => {
   const started = discoveredWorkflowHost()
   const capability = defineCapability({ id: "invocation-probe", tools: () => ({}) })
 
-  await expect(runAgent(hello(), runtime(), { prompt: "ping" }, { capabilities: [capability] })).resolves.toBe("inline")
+  await expect(runAgent(hello(), { prompt: "ping" }, { capabilities: [capability], runtimeContext: runtime() })).resolves.toMatchObject([
+    undefined, { output: "inline", text: "inline" },
+  ])
   expect(started).toEqual([])
 })
 
@@ -64,7 +77,7 @@ it("rejects a named Agent that the host did not discover when it uses a discover
   const started = discoveredWorkflowHost()
   const impostor = defineAgent({ name: "hello", runtime: workflow("hello"), driver: { run: () => "impostor" } })
 
-  await expect(runAgent(impostor, runtime(), { prompt: "ping" })).rejects.toMatchObject({ code: "AGENT_R0422" })
+  await expect(startAgentInvocation(impostor, runtime(), { prompt: "ping" })).rejects.toMatchObject({ code: "AGENT_R0422" })
   expect(started).toEqual([])
 })
 
@@ -72,6 +85,6 @@ it.each(["constructor", "toString", "__proto__"])("starts an inline Workflow nam
   const started = discoveredWorkflowHost()
   const agent = defineAgent({ runtime: workflow(name), driver: { run: () => "inline" } })
 
-  await expect(runAgent(agent, runtime(), { prompt: "ping" })).resolves.toMatchObject({ id: "hello-run" })
+  await expect(startAgentInvocation(agent, runtime(), { prompt: "ping" })).resolves.toMatchObject({ id: "hello-run" })
   expect(started).toEqual([{ inline: true, name }])
 })

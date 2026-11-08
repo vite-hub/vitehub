@@ -31,7 +31,7 @@ it.each([
       `export default defineAgent({ ${explicit ? 'runtime: workflow("reporter"),' : ""} workspace: {}, driver: { run: () => 'inline' } })`,
     ].join("\n"))
     await writeFile(schedule, [
-      "import { runAgent } from '@vite-hub/agent'",
+      "import { startAgentInvocation } from '@vite-hub/agent'",
       "import { defineSchedule } from '@vite-hub/schedule'",
       "import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from '@vite-hub/workflow/runtime/state'",
       "import reporter from '../agents/reporter/index'",
@@ -40,7 +40,7 @@ it.each([
       "  setWorkflowRuntimeConfig({ provider: 'cloudflare' })",
       "  setWorkflowRuntimeRegistry({ reporter: async () => ({ handler: () => { throw new Error('The discovered Workflow must dispatch to the provider') } }) })",
       "  try {",
-      "    const result = await runAgent(reporter, { runtime: 'cloudflare', memo: (_key, create) => create(), waitUntil: () => {}, cloudflare: { env: {",
+      "    const result = await startAgentInvocation(reporter, { runtime: 'cloudflare', memo: (_key, create) => create(), waitUntil: () => {}, cloudflare: { env: {",
       "      WORKFLOW_7265706F72746572: { createBatch: async (batch) => { calls.push(...batch); return batch.map(({ id }) => ({ id })) } },",
       "    } } }, { prompt: 'Write the report.' })",
       "    return { result, calls }",
@@ -57,7 +57,7 @@ it.each([
     await rm(join(root, "server"), { recursive: true })
     const built = await import(/* @vite-ignore */ pathToFileURL(output).href)
     await expect(built.default.handler()).resolves.toMatchObject({
-      result: { id: expect.any(String), provider: "cloudflare", status: "queued" },
+      result: { id: expect.any(String) },
       calls: [{ id: expect.any(String), params: { agentIdentity: { name: "reporter", workspace: "reporter" }, input: { prompt: "Write the report." } } }],
     })
   }
