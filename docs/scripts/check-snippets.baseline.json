@@ -40,11 +40,6 @@
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
-    "label": "server/agents/support.ts",
-    "error": "TS2554 Expected 0 arguments, but got 1."
-  },
-  {
     "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2339 Property 'unseal' does not exist on type '{}'."
@@ -140,11 +135,6 @@
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
-    "label": "server/schedules/weekly-report.ts",
-    "error": "TS2307 Cannot find module '../agents/bot/agent' or its corresponding type declarations.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"teams\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"teams\"' is not assignable to parameter of type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, input: AgentRunInput<unknown, AgentRunInputContextValues, unknown>, options: RunAgentOptions<...> & { ...; }): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'.\n  Overload 2 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, input: AgentRunInput<unknown, AgentRunInputContextValues, unknown>, options: RunAgentOptions<...> & { ...; }): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'.\n  Overload 3 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, context: AgentRuntimeContextInput<AgentRuntimeConfig>, input: AgentRunInput<...>, options?: (Omit<...> & { ...; }) | undefined): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'."
-  },
-  {
     "id": "docs/content/docs/channels/agent-capability.md#0876e6e71790",
     "label": null,
     "error": "TS2304 Cannot find name 'channelDelivery'.\nTS2304 Cannot find name 'useChannel'.\nTS7006 Parameter 'context' implicitly has an 'any' type."
@@ -158,21 +148,6 @@
     "id": "docs/content/docs/channels/agent-capability.md#d71a3be85bbb",
     "label": null,
     "error": "TS2304 Cannot find name 'channelDelivery'.\nTS2304 Cannot find name 'useChannel'."
-  },
-  {
-    "id": "docs/content/docs/channels/index.md#7f237ef8efd9",
-    "label": "server/utils/slack.ts",
-    "error": "TS18046 'env.slack' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/channels/server-api.md#0a63e2ce13a7",
-    "label": "server/api/build-finished.post.ts",
-    "error": "TS2322 Type 'string' is not assignable to type 'never'.\nTS2322 Type 'string' is not assignable to type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"teams\"): ChannelClient<{ teams: ChatConnector; }, \"teams\">', gave the following error.\n    Argument of type '\"alerts\"' is not assignable to parameter of type '\"teams\"'.\n  Overload 2 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"alerts\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/channels/server-api.md#7904bd1bf174",
-    "label": null,
-    "error": "TS2304 Cannot find name 'useChannel'."
   },
   {
     "id": "docs/content/docs/cms/access.md#2b019396a64c",
@@ -218,11 +193,6 @@
     "id": "docs/content/docs/connections/get-started.md#470146cec573",
     "label": "server/api/labels.get.ts",
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"google\", options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<GoogleApis, { ...; }, false>', gave the following error.\n    Object literal may only specify known properties, and 'event' does not exist in type 'Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/connections/index.md#b5254d8a047e",
-    "label": "server/connections/google.ts",
-    "error": "TS2322 Type 'false' is not assignable to type 'true | \"approve\" | readonly ConnectionActionPattern<GoogleApis>[] | undefined'.\nTS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
@@ -420,11 +390,6 @@
     "error": "TS2304 Cannot find name 'rateLimit'."
   },
   {
-    "id": "docs/content/docs/rate-limit/index.md#cb8cae0e5e63",
-    "label": "server/api/messages.post.ts",
-    "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'.\n  Type 'AuthRequest' is not assignable to type 'RateLimitRequestEvent'."
-  },
-  {
     "id": "docs/content/docs/rate-limit/server-api.md#1bc63bfa9b4b",
     "label": null,
     "error": "TS1108 A 'return' statement can only be used within a function body.\nTS2304 Cannot find name 'checkRateLimit'."
@@ -485,16 +450,6 @@
     "error": "TS2322 Type 'BlobReferenceSchema' is not assignable to type 'BaseSchema<unknown, unknown, BaseIssue<unknown>> | SchemaWithFallback<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown> | OptionalEntrySchema'.\n  Type 'BlobReferenceSchema' is missing the following properties from type 'OptionalSchema<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown>': type, reference, expects, wrapped, and 4 more."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#0a11b2f3e675",
-    "label": "server/api/signup.post.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS2345 Argument of type '\"welcom-email\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#04dd22dff12a",
-    "label": "server/api/signup.post.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer."
-  },
-  {
     "id": "docs/content/docs/reference/doctor-rules.md#a7f75e406bf5",
     "label": "server/plugins/warmup.ts",
     "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
@@ -503,11 +458,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#6e7ca644e272",
     "label": "server/api/warmup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#19125e85e0ab",
-    "label": "server/channels/alerts.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'url' does not exist in type 'ChannelConnector<never, object>'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",
@@ -585,11 +535,6 @@
     "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
   },
   {
-    "id": "packages/blob/README.md#f9b91514e273",
-    "label": null,
-    "error": "TS2304 Cannot find name 'file'."
-  },
-  {
     "id": "packages/blob/README.md#49ae73a1f27e",
     "label": null,
     "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
@@ -625,7 +570,7 @@
     "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
   },
   {
-    "id": "packages/env/README.md#932b9d7dbf0b",
+    "id": "packages/env/README.md#a9239e812708",
     "label": "server/sync.ts",
     "error": "TS18046 'airtableToken' is of type 'unknown'."
   },

@@ -61,6 +61,7 @@ const blobMock = vi.hoisted(() => {
 })
 
 const vercelBlobModule = {
+  BlobNotFoundError,
   del: blobMock.del,
   get: blobMock.get,
   head: blobMock.head,
@@ -78,9 +79,21 @@ afterEach(() => {
   blobMock.list.mockClear()
   blobMock.put.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.BLOB_STORE_ID
 })
 
 describe("Vercel Blob workspace store", () => {
+  it("calls the Vercel SDK without a token when the project has BLOB_STORE_ID", async () => {
+    process.env.BLOB_STORE_ID = "store_1"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, "docs")
+    await store.writeFile("notes.md", { path: "notes.md", content: "hello" })
+    await expect(store.readFile("notes.md")).resolves.toBeDefined()
+    for (const call of [...blobMock.put.mock.calls, ...blobMock.get.mock.calls]) {
+      expect(call[call.length - 1]).not.toHaveProperty("token")
+    }
+    expect(blobMock.put).toHaveBeenCalled()
+  })
   it("rejects repeated pagination cursors before looping", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
@@ -471,14 +484,23 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.readFile("archive/old.md")).resolves.toBeUndefined()
   })
 
-  it("recognizes not-found errors from a separately loaded Blob SDK", async () => {
+  it("recognizes the not-found class of the loaded Blob SDK", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
     const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, "docs")
-    const peerNotFound = new Error("missing")
-    peerNotFound.name = "BlobNotFoundError"
-    blobMock.head.mockRejectedValueOnce(peerNotFound)
+    // The SDK keeps the name "Error", so only the class says that the blob is missing.
+    expect(new BlobNotFoundError().name).toBe("Error")
+    blobMock.head.mockRejectedValueOnce(new BlobNotFoundError())
     await expect(store.rm("missing.md", { force: true })).resolves.toBeUndefined()
+  })
+
+  it("does not treat a plain Error with the SDK message as a missing blob", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, "docs")
+    const failure = new Error("Vercel Blob: The requested blob does not exist")
+    blobMock.head.mockRejectedValueOnce(failure)
+    await expect(store.rm("missing.md", { force: true })).rejects.toBe(failure)
   })
 
   it("matches glob patterns relative to cwd", async () => {

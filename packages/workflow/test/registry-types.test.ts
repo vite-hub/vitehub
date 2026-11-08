@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest"
 import { createWorkflowTypes } from "../src/internal/registry-types.ts"
 
 describe("generated Workflow types", () => {
-  it.each([false, true])("supports JavaScript steps with allowJs: %s", async (allowJs) => {
+  it.each(["@vite-hub/workflow", "vite-hub/workflow", "vite-hub/_internal/workflow"].flatMap(importBase => [false, true].map(allowJs => ({ allowJs, importBase }))))("supports steps through $importBase with allowJs: $allowJs", async ({ allowJs, importBase }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-js-types-"))
     try {
       await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
@@ -22,17 +22,22 @@ describe("generated Workflow types", () => {
             : "export default (input = 1) => input + 1\n")
       }
       const declaration = join(root, "workflow.d.ts")
-      await writeFile(declaration, createWorkflowTypes(declaration, [{ handler: root, name: "release", steps }]))
+      await writeFile(declaration, createWorkflowTypes(declaration, [{ handler: root, name: "release", steps }], importBase))
       const entry = join(root, "index.mts")
       await writeFile(entry, [
         'import { defineWorkflow } from "@vite-hub/workflow"',
-        'defineWorkflow("release", async (_payload, { steps }) => {',
+        'import { defineWorkflow as definePublicWorkflow } from "vite-hub/workflow"',
+        'import { defineWorkflow as defineInternalWorkflow } from "vite-hub/_internal/workflow"',
+        "for (const define of [defineWorkflow, definePublicWorkflow, defineInternalWorkflow]) {",
+        'define("release", async (_payload, { steps }) => {',
         "  await steps.javascript()",
         "  await steps.module(1)",
         "  await steps.commonjs()",
         "  const result: string = await steps.typed(1)",
         "  // @ts-expect-error TypeScript step inputs remain checked.",
         '  await steps.typed("wrong")',
+        "  // @ts-expect-error Undiscovered steps remain unavailable through every import form.",
+        "  await steps.missing()",
         ...(allowJs ? [
           "  const inferred: number = await steps.javascript(1)",
           "  // @ts-expect-error JavaScript inference remains available with allowJs.",
@@ -40,10 +45,16 @@ describe("generated Workflow types", () => {
           "  return inferred",
         ] : ["  return result"]),
         "})",
+        "}",
       ].join("\n"))
       const program = ts.createProgram([entry, declaration], {
         allowImportingTsExtensions: true, allowJs, module: ts.ModuleKind.NodeNext,
-        noEmit: true, skipLibCheck: false, strict: true, target: ts.ScriptTarget.ESNext,
+        noEmit: true, noUncheckedIndexedAccess: true, skipLibCheck: false, strict: true, target: ts.ScriptTarget.ESNext,
+        // Use the distribution's real barrels without building its unrelated integrations.
+        paths: {
+          "vite-hub/workflow": [resolve(import.meta.dirname, "../../vite-hub/src/workflow.ts")],
+          "vite-hub/_internal/workflow": [resolve(import.meta.dirname, "../../vite-hub/src/_internal/workflow.ts")],
+        },
       })
       expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
     }

@@ -8,6 +8,20 @@
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
 
+## File access without Agent tools
+
+Use `useWorkspaceFiles()` from `@vite-hub/workspace/files` for file, history, and Content operations that do not need Agent tools. It accepts the same name, mode, and definition options as `useWorkspace()`, and returns the same facade without `tools`. This entry skips constructing and loading Agent tools, including when Workspace is external to a consumer bundle.
+
+```ts
+import { useWorkspaceFiles } from "@vite-hub/workspace/files"
+
+const workspace = useWorkspaceFiles("docs", { mode: "write" })
+await workspace.fs.writeFile("guide.md", "# Guide\n")
+await workspace.history.checkpoint({ message: "Update guide" })
+```
+
+Use `useWorkspace()` when you need `workspace.tools`.
+
 ## Install
 
 ```sh
@@ -193,6 +207,62 @@ vitehub workspace show content draft posts/hello.md
 Add `--json` for machine-readable output. A Store without retained history
 fails with `WORKSPACE_R0069`.
 
+Work on one ref in a local folder, as with `git pull` and `git push`:
+
+```bash
+vitehub pull content --dir content --ref draft --url https://docs.example.com
+vitehub pull --dry-run    # local changes, and remote changes since the last pull
+vitehub push              # pull, then commit the local changes to `draft`
+```
+
+The first pull writes `vitehub.lock`: commit it. Pull merges text by line and writes
+Git conflict markers where both sides changed the same lines; push refuses until they
+are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
+A push keeps the media type and metadata of the files that it replaces, and records
+the signed-in user as `author` of the revision. When a Store starts a new ref from
+another ref, the first push also pulls the files of that ref. Unknown flags and extra
+positional arguments to pull or push fail before any call, so `vitehub push --dry-run` commits nothing.
+Checkout folders must be separate: they cannot share a folder or contain one another.
+On Windows and macOS, folder names that differ only in case are one folder.
+Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter
+case and with any trailing dots or spaces, are excluded from pulls, status, and pushes;
+their remote files stay unchanged.
+Checkout paths must use portable names on every platform. Different spellings of a
+file or directory that differ only in case or Unicode normalization fail with
+`WORKSPACE_CHECKOUT_PATH` before remote changes are written. Names with trailing dots
+or spaces, Windows device names, and Windows-invalid characters also fail. A pull does
+not replace a file with a directory or a directory with a file. For these transitions,
+keep local edits elsewhere, remove the lock entry, and pull into a new empty folder.
+Top-level files named `__proto__`, `constructor`, or `prototype` fail with the same
+error because the operation input map cannot carry these keys. Workspace names have no such restriction.
+One push is one `workspace.commit` call of at most 4 MiB, which fits the request body
+limit of every host (Vercel Functions: 4.5 MB). A larger push fails with
+`WORKSPACE_CHECKOUT_TOO_LARGE` before the call and names the largest files. A pull reads
+all changes in one response; on Vercel, keep it below 4.5 MB.
+Pulls replace files through a rename, so a hard link to an old file keeps its content. A file that ends in `.vitehub-tmp` is the leftover of a stopped write and is never pulled or pushed.
+A symbolic link at `vitehub.lock` fails. Commands in one project can run at the same time:
+each one rewrites only its own Workspace entries of `vitehub.lock`, under a short
+`vitehub.lock.lock` file. A command waits up to 10 seconds, then fails with
+`WORKSPACE_LOCK_BUSY`. Lock age does not allow takeover. If a command stopped, check
+that no command is running before you delete this file.
+An existing checkout rejects a different `--url`; remove its lock entry and pull into
+a new folder to change the remote. A push records the committed bytes after write
+validation and updates the local file if it still contains the submitted bytes.
+Commands reject existing symbolic links in the checkout folder and its ancestors
+inside the project. These checks do not isolate files from another process that can
+replace paths during an operation. Use an OS or container boundary for that isolation.
+`vitehub hooks install` adds a pre-commit hook that checks the staged files and working
+tree for conflicts, and a pre-push hook
+that runs `vitehub push` when Git pushes the default branch. When that push changes
+`vitehub.lock` or pulls files, the hook fails: commit the changes and push again.
+See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
+
+A derived file, such as a translation, can record its source as `derivedFrom: { path, digest }`
+in Markdown frontmatter (`.md`, `.markdown`, `.mdx`), YAML, or JSON. `vitehub status` and
+`vitehub workspace stale <workspace>` list the derived files whose source changed. `workspace stale`
+also prints the source digest to write back as `derivedFrom.digest`. `@vite-hub/workspace/lineage` has the same checks.
+See [Derived files](https://vitehub.dev/docs/workspace/server-api#derived-files).
+
 ## JSON Collections
 
 Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.
@@ -361,12 +431,12 @@ Contributed Workspaces appear in the generated registry, `WorkspaceName` types, 
 
 ## Hosted Cloudflare runtime
 
-Nuxt apps can install the Workspace Nuxt module so hosted Workspace runtime setup is generated by the Vite Integration and merged into Nuxt's top-level Nitro config:
+Nuxt apps enable Workspace through `vite-hub/nuxt`. It generates the hosted Workspace runtime setup with the Vite Integration and merges it into Nuxt's top-level Nitro config:
 
 ```ts
 export default defineNuxtConfig({
-  modules: ["@vite-hub/workspace/nuxt"],
-  vite: {
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
     workspace: {
       store: {
         provider: "github",
@@ -418,6 +488,10 @@ The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<worksp
 The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
 `_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
 letters, numbers, underscores, dashes, and single slashes.
+
+Without a `store`, a production build selects `vercel-blob` when the project has
+`BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`. With `BLOB_STORE_ID`, the store uses
+Vercel OIDC, as `@vite-hub/blob` does. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`.
 
 Vercel Blob writes preserve file bytes and JSON attributes in separate objects. Same-path writes and removals are serialized across Store instances in one process, including failed-write recovery. Readers are not isolated from in-progress writes. Coordinate access across processes or hosts when they share a Workspace; this adapter does not provide distributed transactions. Use the Blob + Database Store when you need atomic publication across replicas.
 

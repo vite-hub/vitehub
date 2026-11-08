@@ -3,12 +3,15 @@ import { Diagnostic } from "nostics"
 import { blobResult } from "../errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
+import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobDriverAdapter, BlobMultipartUpload, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobDriverAdapter, BlobErrorCode, BlobMultipartUpload, BlobObject, BlobOperation, BlobStorage, BlobStoreName, BlobStoreOptions, ReadonlyBlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
@@ -41,6 +44,8 @@ const driverModules = {
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   if (config.driver === "cloudflare-r2") {
+    // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
+    if (config.localFallback && !getOptionalBucket(config)) return importRuntimeDriverModule(config.localFallback)
     const nativeDriver = createCloudflareR2NativeDriver(config)
     let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
     const activeDriver = async () => {
@@ -144,7 +149,7 @@ function resolveStorage(name = "default"): Promise<BlobStorage> {
   })
 }
 
-async function resolveStorageResult(operation: BlobOperation, name: string): Promise<BlobResult<BlobStorage>> {
+async function resolveStorageResult(operation: BlobOperation, name: string): Promise<Result<BlobStorage, BlobErrorCode>> {
   const result = await blobResult(operation, name, () => resolveStorage(name))
   if (result[0]?.cause instanceof UnknownBlobStoreError) throw result[0].cause
   return result
@@ -156,7 +161,7 @@ function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): Blob
     ...upload,
     async complete(parts) {
       const [error, object] = await upload.complete(parts)
-      return error ? [error, undefined] : [null, await withServedBlobUrl(name, object)]
+      return error ? [error, undefined] : [undefined, await withServedBlobUrl(name, object)]
     },
   }
 }
@@ -168,7 +173,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]
       const [error, upload] = await resolved.createMultipartUpload(pathname, options)
-      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]
+      return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
     handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
     handleUpload: (event, options) => handleBlobUpload(storage, event, options),
@@ -176,7 +181,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]
       const [error, upload] = await resolved.resumeMultipartUpload(pathname, uploadId)
-      return error ? [error, undefined] : [null, withServedMultipartUrl(name, upload)]
+      return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
     async del(pathnames) {
       const [error, storage] = await resolveStorageResult("del", name)
@@ -190,7 +195,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [resolutionError, storage] = await resolveStorageResult("head", name)
       if (resolutionError) return [resolutionError, undefined]
       const [error, object] = await storage.head(pathname)
-      return error ? [error, undefined] : [null, object && await withServedBlobUrl(name, object)]
+      return error ? [error, undefined] : [undefined, object && await withServedBlobUrl(name, object)]
     },
     async list(options) {
       const [resolutionError, storage] = await resolveStorageResult("list", name)
@@ -198,13 +203,13 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, result] = await storage.list(options)
       return error
         ? [error, undefined]
-        : [null, { ...result, blobs: await Promise.all(result.blobs.map(object => withServedBlobUrl(name, object))) }]
+        : [undefined, { ...result, blobs: await Promise.all(result.blobs.map(object => withServedBlobUrl(name, object))) }]
     },
     async put(pathname, body, options) {
       const [resolutionError, storage] = await resolveStorageResult("put", name)
       if (resolutionError) return [resolutionError, undefined]
       const [error, object] = await storage.put(pathname, body, options)
-      return error ? [error, undefined] : [null, await withServedBlobUrl(name, object)]
+      return error ? [error, undefined] : [undefined, await withServedBlobUrl(name, object)]
     },
     async sign(pathname, options) {
       const [error, storage] = await resolveStorageResult("sign", name)
@@ -214,9 +219,18 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, storage] = await resolveStorageResult("serve", name)
       return error ? [error, undefined] : storage.serve(event, pathname, options)
     },
-    store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
+    store: selectRuntimeBlobStore,
   }
   return storage
+}
+
+function selectRuntimeBlobStore(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
+function selectRuntimeBlobStore(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage
+function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions): BlobStorage | ReadonlyBlobStorage
+function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions): BlobStorage | ReadonlyBlobStorage {
+  const mode = blobStoreMode(options)
+  const storage = createRuntimeBlobStorage(name)
+  return mode === "read" ? readonlyBlobStorage(storage) : storage
 }
 
 export const blob: BlobStorage = createRuntimeBlobStorage()

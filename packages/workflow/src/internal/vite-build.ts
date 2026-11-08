@@ -644,6 +644,8 @@ interface GenerateProviderOutputsOptions {
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
   transformRegistry?: (code: string, id: string) => string | Promise<string>
+  /** Nitro's Worker holds the Cloudflare Workflows, so no separate Cloudflare Workflow Worker is written. */
+  cloudflareInNitro?: boolean
 }
 
 interface WorkspaceDependencyRuntimeImports {
@@ -1256,7 +1258,7 @@ function createCloudflareWorkflowWrapper(artifacts: GeneratedWorkflowArtifacts):
   return renderCloudflareWorkerWrapper(workflowDefinitions)
 }
 
-async function createCloudflareWorkflowCleanup(rootDir: string) {
+async function createCloudflareWorkflowCleanup(rootDir: string, cloudflareInNitro = false) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   let ownsWrapper = false
   try {
@@ -1270,7 +1272,8 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
     fileNames: ownsWrapper ? ["index.js", "worker.mjs", deployedWorkflowSourcesPath] : ["worker.mjs", deployedWorkflowSourcesPath],
     outputRoot,
     wranglerConfigOwnership: {
-      keys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
+      // Nitro has already written the shared config, including its Workflow bindings.
+      keys: cloudflareInNitro ? [] : ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
     },
   }
 }
@@ -1527,7 +1530,7 @@ async function generateProviderOutputsWithinLock(
     }
   }
   artifacts = await publishGeneratedArtifacts()
-  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
+  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare" && !options.cloudflareInNitro
     ? createCloudflareOutput(options.rootDir, artifacts, {
         ...options.providerImportAliases,
         ...options.providerRuntimeImportAliases?.cloudflare,
@@ -1565,7 +1568,7 @@ async function generateProviderOutputsWithinLock(
         clientOutDir: options.clientOutDir,
         cloudflare: cloudflareOutput,
         cleanup: {
-          cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
+          cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir, options.cloudflareInNitro),
         },
         afterWrite: async (signal) => {
           signal?.throwIfAborted()

@@ -4,6 +4,7 @@ import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/server.ts"
+import { requestEvent } from "./request-event.ts"
 
 const provider = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -39,7 +40,7 @@ describe("Auth access handlers", () => {
     const resolve = vi.fn(async () => ({ id: "token-user" }))
     setAuthAccessIdentityResolver("/portal/_vitehub/mcp", resolve)
     const request = new Request("https://app.example/portal/_vitehub/mcp", { method: "POST" })
-    expect((await handler({ req: request }))?.status).toBe(403)
+    expect((await handler(requestEvent(request)))?.status).toBe(403)
     expect(first).toHaveBeenCalledWith({ request, session: {}, user: { id: "token-user" } })
     expect(second).toHaveBeenCalledOnce()
     second.mockReturnValue(true)
@@ -70,11 +71,11 @@ describe("Auth access handlers", () => {
       { route: "/private/admin", authorize },
     ] } })
     const handler = createAuthAccessHandler([{ route: "/private/**", authorize: true }], definition)
-    const input = { req: new Request("https://app.example/private/admin") }
+    const input = requestEvent(new Request("https://app.example/private/admin"))
     await expect(requireAuthAccessRoutes(input, [0], definition, [0], { reuse: true })).resolves.toBeUndefined()
     await expect(handler(input)).resolves.toBeUndefined()
     expect(authorize).toHaveBeenCalledOnce()
-    const next = { req: input.req.clone() }
+    const next = requestEvent(input["~standard"].req.clone())
     await expect(handler(next)).resolves.toBeUndefined()
     await expect(requireAuthAccessRoutes(next, [0], definition, [0], { reuse: true })).resolves.toBeUndefined()
     expect(authorize).toHaveBeenCalledTimes(2)
@@ -89,7 +90,7 @@ describe("Auth access handlers", () => {
   it("does not reuse a denial or an unchecked authorization requirement", async () => {
     const authorize = vi.fn(() => false)
     const definition = defineAuth({ access: { routes: [{ route: "/private", authorize }] } })
-    const input = { req: new Request("https://app.example/private") }
+    const input = requestEvent(new Request("https://app.example/private"))
     expect((await requireAuthAccessRoutes(input, [0], definition, [0], { reuse: true }))?.status).toBe(403)
     authorize.mockReturnValue(true)
     await expect(requireAuthAccessRoutes(input, [0], definition, [0], { reuse: true })).resolves.toBeUndefined()
@@ -125,7 +126,7 @@ describe("Auth access handlers", () => {
       authorize.mockClear()
       provider.getSession.mockClear()
       const request = new Request(`https://app.example${path}`, { method })
-      await expect(handler(adapter === "host" ? { req: request } : request)).resolves.toBeUndefined()
+      await expect(handler(adapter === "host" ? requestEvent(request) : request)).resolves.toBeUndefined()
       expect(authorize).toHaveBeenCalledTimes(matches ? 1 : 0)
       expect(provider.getSession).toHaveBeenCalledTimes(matches ? 1 : 0)
       if (matches) expect(authorize).toHaveBeenCalledWith({ request, ...session })

@@ -77,9 +77,10 @@ export default defineConfig({
 
 ```ts
 // server/sync.ts
+import type { ViteHubContext } from "@vite-hub/env/server";
 import { useServerEnv } from "#vitehub/env/server";
 
-export async function sync(event: unknown) {
+export async function sync(event: ViteHubContext) {
   const { airtableToken } = useServerEnv(event);
 
   await fetch("https://api.airtable.com/v0/app/table", {

@@ -91,6 +91,11 @@ const nuxtModules = {
 }
 const appDeclarations = [
   {
+    // The ViteHub plugin includes this H3 augmentation in `.vitehub/types.d.ts`.
+    code: `import type {} from "vite-hub/runtime/h3"\nexport {}\n`,
+    file: join(docsRoot, ".snippets/standard-context.d.ts"),
+  },
+  {
     code: [
       `declare module "*.vue" {`,
       `  const component: import("vue").DefineComponent`,
@@ -129,7 +134,7 @@ export function collectSnippets(sources = snippetSources()) {
     const used = new Set()
     extractBlocks(readFileSync(source.file, "utf8")).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
-      let name = block.label && /\.(m?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
+      let name = block.label && /\.(?:[cm]?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
@@ -172,7 +177,13 @@ function definitionName(directory, kind) {
     const serverPath = server.exec(label)?.[1]
     let name = serverPath?.replace(/\/index$/i, "") ?? suffix.exec(label)?.[1]
     if (serverPath && (kind === "channel" || kind === "connection")) name = name.replace(new RegExp(`\\.${kind}$`, "i"), "")
-    return name ? [name] : []
+    const names = name ? [name] : []
+    // Queue discovery also scans suffix files below server/queues from the project root.
+    if (serverPath && kind === "queue") {
+      const suffixName = suffix.exec(label)?.[1]
+      if (suffixName) names.push(suffixName)
+    }
+    return names
   }
 }
 
@@ -226,7 +237,7 @@ const registries = [
     // @vite-hub/database: src/internal/generated.ts. `server/databases/config.ts` and `src/database.ts` define the
     // `default` Database, and `server/databases/<name>/config.ts` a named one.
     definitions: (label) => {
-      if (/^(?:server\/databases\/config|src\/database)\.[cm]?ts$/.test(label)) return ["default"]
+      if (/^server\/databases\/config\.[cm]?ts$/.test(label) || label === "src/database.ts") return ["default"]
       const name = /^server\/databases\/(.+)\/config\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
@@ -249,6 +260,7 @@ async function registryDeclarations(pageSnippets) {
     for (const snippet of pageSnippets) {
       if (snippet.fragment || !snippet.label) continue
       const label = snippet.label.replace(/^\/+/, "")
+      if (/\.d\.(?:[cm]?ts|tsx)$/i.test(label)) continue
       for (const name of await registry.definitions(label, snippet.code, pageSnippets)) if (!definitions.has(name)) definitions.set(name, snippet.file)
     }
     if (!definitions.size) continue
@@ -385,8 +397,15 @@ export function compareBaseline(failures, baseline) {
   return { fresh, stale }
 }
 
-function readBaseline() {
-  return existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : []
+function readBaseline(path = baselinePath) {
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : []
+}
+
+export function updateBaseline(failures, path = baselinePath) {
+  if (compareBaseline(failures, readBaseline(path)).fresh.length) return false
+  const entries = failures.map(baselineEntry)
+  writeFileSync(path, `${JSON.stringify(entries, null, 2)}\n`)
+  return true
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -406,10 +425,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
   ]
   const baseline = readBaseline()
-  if (process.argv.includes("--update-baseline")) {
-    const entries = failures.map(baselineEntry)
-    writeFileSync(baselinePath, `${JSON.stringify(entries, null, 2)}\n`)
-    console.log(`Wrote ${entries.length} known failures to ${relative(repoRoot, baselinePath)}.`)
+  if (process.argv.includes("--update-baseline") && updateBaseline(failures)) {
+    console.log(`Wrote ${failures.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
   const { fresh, stale } = compareBaseline(failures, baseline)
