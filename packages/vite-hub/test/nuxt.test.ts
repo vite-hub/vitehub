@@ -695,7 +695,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(resolveId).toHaveBeenCalledWith("#vitehub/email/definition", importer, options)
     expect(resolveId.mock.instances.at(-1)).toBe(hookContext)
     expect(await hooks.load.call(hookContext, String(resolved))).toContain("email resolver reached")
-    expect(load).toHaveBeenCalledWith(String(resolved))
+    expect(load).toHaveBeenCalledWith(String(resolved), { ssr: true })
     expect(load.mock.instances.at(-1)).toBe(hookContext)
     const generatedPlugin = "/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"
     expect(await readFile(generatedPlugin, "utf8"))
@@ -740,6 +740,35 @@ describe("ViteHub Nuxt integration", () => {
       trace: false,
     })
     expect(inline).toEqual(["existing-inline"])
+  })
+
+  it("loads mode-specific KV credentials only in Nitro's server replay", async () => {
+    const envDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-kv-env-"))
+    for (const name of ["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"]) vi.stubEnv(name, undefined)
+    await writeFile(resolve(envDir, ".env.development"), "KV_REST_API_URL=https://nuxt-kv.test\nKV_REST_API_TOKEN=nuxt-kv-secret\n")
+    const plugin = hubKv({ remote: true })
+    mocks.vitehub.mockReturnValue([plugin])
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    nuxt.options.vite.envDir = envDir
+    try {
+      await viteHubNuxtModule({ kv: true, preset: "node" }, nuxt)
+      const config: Record<string, unknown> = {}
+      await runNitroConfigHook(config)
+      const { plugins } = config.rollupConfig as { plugins: Plugin[] }
+      const resolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
+      if (typeof resolver?.load !== "function") throw new TypeError("Expected the Nitro KV load hook.")
+      const module = await Reflect.apply(resolver.load, {}, ["\0#vitehub/kv/config"])
+      expect(module).toContain("https://nuxt-kv.test")
+      expect(module).toContain("nuxt-kv-secret")
+      expect(JSON.stringify(plugin.api.getConfig())).not.toContain("nuxt-kv-secret")
+      const clientLoad = typeof plugin.load === "function" ? plugin.load : plugin.load!.handler
+      expect(await Reflect.apply(clientLoad, {}, ["\0#vitehub/kv/config", { ssr: false }])).not.toContain("nuxt-kv-secret")
+      expect(process.env.KV_REST_API_TOKEN).toBeUndefined()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(envDir, { force: true, recursive: true })
+    }
   })
 
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
@@ -805,6 +834,8 @@ describe("ViteHub Nuxt integration", () => {
     )
     expect(kvResolveId.mock.contexts[0]).toBe(context)
     expect(kvLoad.mock.contexts[0]).toBe(context)
+    expect(kvLoad).toHaveBeenCalledWith("\0#vitehub/kv/config", { ssr: true })
+    expect(blobLoad).toHaveBeenCalledWith("\0#vitehub/blob/config", { ssr: true })
     expect(blobResolveId.mock.contexts[0]).toBe(context)
     expect(blobLoad.mock.contexts[0]).toBe(context)
   })

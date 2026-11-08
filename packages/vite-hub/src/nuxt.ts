@@ -457,8 +457,9 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>): 
       : {}),
     ...(load
       ? {
-          load(...args) {
-            return load.call(this, ...args)
+          load(id, options) {
+            // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
+            return load.call(this, id, { ...options, ssr: true })
           },
         }
       : {}),
