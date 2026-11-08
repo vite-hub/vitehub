@@ -985,6 +985,7 @@ export async function createHostedWorkspaceSession(
 
   return {
     executionAuthority,
+    revision: materialization.revision,
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, readOptions?: TOptions): Promise<ReadFileResult<TOptions>> {
       assertOpen()
       const target = toHostPath(root, assertPathInSessionScope(normalizeReadableSessionPath(path), sessionPaths, { masked: true }))

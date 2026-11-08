@@ -557,7 +557,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 </span>
               </p>
 
-              <section v-if="modelSegments.length > 1" aria-label="Share by model" class="usage-share">
+              <section v-if="metric !== 'sessions' && modelSegments.length > 1" aria-label="Share by model" class="usage-share">
                 <div role="img" :aria-label="`Share of ${metric === 'cost' ? 'spend' : metric} by model: ${breakdownModels.map(model => `${model.model} ${modelShare(model)}`).join(', ')}`" class="usage-share__bar">
                   <span v-for="segment in modelSegments" :key="segment.key" :style="{ flex: `${segment.value} 1 0`, backgroundColor: segment.color }" :title="`${segment.label} · ${formatMetricNumber(segment.value)}`" />
                 </div>
@@ -587,7 +587,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 </header>
                 <ol v-if="breakdown === 'model' && summary.models.length" data-slot="usage-model-breakdown">
                   <li class="usage-ranked__head" aria-hidden="true">
-                    <span /><span>Model</span><span>Sessions</span><span>{{ metric === "sessions" ? "Tokens" : metricOptions.find(option => option.value === metric)?.label }}</span><span>Share</span>
+                    <span /><span>Model</span><span>Sessions</span><span>{{ metric === "sessions" ? "Tokens" : metricOptions.find(option => option.value === metric)?.label }}</span><span v-if="metric !== 'sessions'">Share</span>
                   </li>
                   <li v-for="(model, index) in breakdownModels" :key="model.model">
                     <span class="usage-ranked__rank">{{ index + 1 }}</span>
@@ -597,7 +597,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     </span>
                     <span>{{ formatTokenEvidence(model.invocations, model.invocationsAvailable) }}</span>
                     <span class="text-highlighted">{{ metric === "sessions" ? formatTokenEvidence(model.totalTokens, model.totalTokensAvailable) : formatValue(model).replace(/^~/, "") }}</span>
-                    <span>{{ modelShare(model) }}</span>
+                    <span v-if="metric !== 'sessions'">{{ modelShare(model) }}</span>
                   </li>
                 </ol>
                 <ol v-else-if="breakdown === 'time' && summary.buckets.length">

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils"
-import { defineComponent, h, type Component } from "vue"
+import { defineComponent, h, ref, type Component } from "vue"
 import { createMemoryHistory, createRouter } from "vue-router"
 import { expect, it, vi } from "vitest"
 import { queryChoice, querySelection, useConsoleQuery } from "../src/console/runtime/client/route-query"
@@ -10,6 +10,29 @@ vi.mock("../src/console/runtime/components/console-session-copy-link.vue", () =>
 vi.mock("../src/console/runtime/components/console-session-loading.vue", () => ({ default: { render: () => null } }))
 
 import Session from "../src/console/runtime/components/console-agent-session.vue"
+
+it.each(["Close Details", "Open a surface"])("opens the desktop launcher from %s", async (label) => {
+  localStorage.clear()
+  const host = defineComponent({
+    setup() {
+      const tab = ref("details")
+      return () => h(Session as Component, {
+        loading: false, title: "Session", details: "open", tab: tab.value,
+        "onUpdate:tab": (value: string) => { tab.value = value },
+      })
+    },
+  })
+  const wrapper = mount(host, { global: { components: { UIcon: { render: () => null } } } })
+  try {
+    await wrapper.get(`button[aria-label="${label}"]`).trigger("click")
+    expect(wrapper.find('[data-slot="agent-session-launcher"]').exists()).toBe(true)
+    expect(wrapper.find('[role="tab"][aria-selected="true"]').exists()).toBe(false)
+    await wrapper.get('[data-slot="agent-session-launcher"] button').trigger("click")
+    expect(wrapper.find('[data-slot="agent-session-launcher"]').exists()).toBe(false)
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toContain("Trace")
+  }
+  finally { wrapper.unmount() }
+})
 
 it("restores desktop surfaces, visibility, and maximization through the URL and Back/Forward", async () => {
   localStorage.clear()

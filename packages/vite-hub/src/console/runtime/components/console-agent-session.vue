@@ -5,7 +5,7 @@ import {
   AgentSessionDetailsSection,
   type AgentSessionSurface,
 } from "@vite-hub/ui/agent-session";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { AgentInvocation, invocationActivities, type AgentInvocationView } from "./invocation";
 import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
@@ -29,6 +29,10 @@ const emit = defineEmits<{ focusActivity: [activityId: string]; refresh: [] }>()
 const selectedPath = defineModel<string | undefined>("selectedPath");
 const tab = defineModel<SurfaceId>("tab", { default: "details" });
 const details = defineModel<"closed" | "open" | "max">("details", { default: "closed" });
+// The launcher has no surface ID. Keep the last URL tab for reopening the panel.
+const launcherOpen = ref(false);
+const surface = computed(() => launcherOpen.value ? null : tab.value);
+watch([tab, details], () => { launcherOpen.value = false; });
 const panelOpen = computed({
   get: () => details.value !== "closed",
   set: (open: boolean) => { details.value = open ? details.value === "max" ? "max" : "open" : "closed"; },
@@ -38,7 +42,11 @@ const maximized = computed({
   set: (value: boolean) => { details.value = value ? "max" : details.value === "closed" ? "closed" : "open"; },
 });
 function selectSurface(id: string | null) {
-  if (surfaces.value.some(surface => surface.id === id)) tab.value = id as SurfaceId;
+  if (id === null) launcherOpen.value = true;
+  else if (surfaces.value.some(surface => surface.id === id)) {
+    launcherOpen.value = false;
+    tab.value = id as SurfaceId;
+  }
 }
 
 const session = ref<InstanceType<typeof AgentSession> & { openSurface: (id: string) => void }>();
@@ -133,7 +141,7 @@ const changedFiles = computed(() => {
     class="console-agent-session"
     :title="title"
     :surfaces="surfaces"
-    :surface="tab"
+    :surface="surface"
     storage-key="vitehub-console:session-layout"
     :default-panel-open="false"
     @update:surface="selectSurface"

@@ -115,6 +115,24 @@ afterEach(() => {
 })
 
 describe("Console Usage page", () => {
+  it("shows overlapping model session counts without a share percentage or bar", async () => {
+    route.query = { metric: "sessions" }
+    responses.push(summary({
+      totals: totals({ invocations: 1 }),
+      models: ["model-a", "model-b"].map(model => ({ ...totals({ invocations: 1, totalTokens: 10 }), model })),
+    }))
+    const { app, root } = await mount()
+    try {
+      const models = root.querySelector('[data-slot="usage-model-breakdown"]')!
+      expect(models.textContent).toContain("model-a")
+      expect(models.textContent).toContain("model-b")
+      expect(models.textContent).not.toContain("%")
+      expect(models.textContent).not.toContain("Share")
+      expect(root.querySelector('[aria-label="Share by model"]')).toBeNull()
+    }
+    finally { app.unmount() }
+  })
+
   it("names the chart, keeps plotted periods out of the tab order, and lists values in a data table", async () => {
     responses.push(summary({ totals: totals({ costUsd: "0.5", invocations: 1, pricedInvocations: 1, totalTokens: 10 }), buckets: [
       { ...totals(), models: [], start: "2026-10-11T00:00:00.000Z" },

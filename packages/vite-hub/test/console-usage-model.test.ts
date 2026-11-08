@@ -73,6 +73,12 @@ describe("Console usage model ranking", () => {
     expect(consoleUsageModelShare(expensive, totals, "tokens")).toBeCloseTo(0.25);
   });
 
+  it("does not treat overlapping model session counts as a share", () => {
+    const totals = evidence({ invocations: 1 });
+    expect(consoleUsageModelShare(expensive, totals, "sessions")).toBeNull();
+    expect(consoleUsageModelShare(busy, totals, "sessions")).toBeNull();
+  });
+
   it("has no cost share without recorded cost but keeps its token share", () => {
     const unpriced = model("local", "0", 100, { costAvailable: false, pricedInvocations: 0 });
     const totals = evidence({ costUsd: "10", totalTokens: 400 });

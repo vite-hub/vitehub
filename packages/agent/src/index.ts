@@ -49,7 +49,7 @@ export { defineFinishEffect } from "./delivery-effects.ts"
 import { createExecutionBudget, createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { withAgentRuntimeMemo } from "./runtime/context.ts"
-import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, observeAgentWorkspaceRevision, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
@@ -261,7 +261,6 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceName,
-  WorkspaceRevision,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
@@ -4928,15 +4927,10 @@ async function createAgentInvocationContext<
       ...tool,
       ...(toolOwners.has(transformed.originalNames.get(tool.name) ?? tool.name) ? { capabilityId: toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name) } : {}),
     }))
-    let workspaceRevision: WorkspaceRevision | null | undefined
-    if ((capabilities.registries.telemetry.length || invocationJournal) && activeWorkspace) {
-      try {
-        workspaceRevision = await activeWorkspace.history.head()
-      }
-      catch (error) {
-        if (!isRuntimeRecord(error) || error.code !== "WORKSPACE_R0069") throw error
-      }
-    }
+    // Provider Drivers record the revision materialized by their Workspace Session after Source setup.
+    const workspaceRevision = (capabilities.registries.telemetry.length || invocationJournal) && activeWorkspace && driverKind !== "provider"
+      ? await observeAgentWorkspaceRevision(activeWorkspace)
+      : undefined
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),

@@ -345,6 +345,7 @@ describe("workspace host sessions", () => {
       })
       await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
       await expect(session.readFile("UNSAFE.md")).resolves.toBe("../../../../outside")
+      expect(session.revision).toBe("0123456789012345678901234567890123456789")
       await expect(session.readFile(".vitehub-revision/kept.txt")).resolves.toBe("kept")
       await expect(session.readFile(".vitehub-revision.tar.gz")).resolves.toBe("kept archive name")
       await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([

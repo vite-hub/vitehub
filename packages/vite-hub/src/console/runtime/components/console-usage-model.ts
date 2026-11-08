@@ -67,13 +67,14 @@ export function sortConsoleUsageModels<
 /**
  * A model's share of the selected metric, or `null` when it is unknown.
  * Cost shares require complete aggregate cost evidence. Token shares stay independent.
+ * Sessions can use several models, so their model counts do not form a share.
  */
 export function consoleUsageModelShare(
   model: Pick<ConsoleUsageEvidence, "costUsd" | "invocations" | "pricedInvocations" | "totalTokens" | "totalTokensAvailable">,
   totals: Pick<ConsoleUsageEvidence, "costAvailable" | "costUsd" | "invocations" | "totalTokens">,
   metric: ConsoleUsageMetric,
 ): number | null {
-  if (metric === "sessions") return totals.invocations > 0 ? model.invocations / totals.invocations : null;
+  if (metric === "sessions") return null;
   if (metric === "tokens") {
     if (totals.totalTokens <= 0 || (!model.totalTokensAvailable && model.totalTokens === 0)) {
       return null;

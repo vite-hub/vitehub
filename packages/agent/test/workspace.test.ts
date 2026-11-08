@@ -173,15 +173,35 @@ describe("defineAgent workspace option", () => {
     const telemetry = vi.fn()
     const tasks: Promise<unknown>[] = []
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const driver = vi.fn(() => "ok")
     const agent = defineAgent({
       name: "no-history-test",
       workspace: { name: "docs" },
       capabilities: [defineCapability({ id: "test-telemetry", telemetry: { exporter: telemetry } })],
-      driver: { run: () => "ok" },
+      driver: { run: driver },
     })
-    expect(await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })).toBe("ok")
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })
     await Promise.all(tasks)
+    expect(driver).toHaveBeenCalledOnce()
     expect(JSON.stringify(telemetry.mock.calls)).toContain('"workspace":{"mode":"read","name":"docs"}')
+  })
+
+  it("still runs the Driver when optional retained revision observation fails", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const facade = readonlyWorkspaceFacade()
+    vi.spyOn(facade.history, "head").mockRejectedValue(new Error("history provider unavailable"))
+    useWorkspace.mockReturnValueOnce(facade)
+    const driver = vi.fn(() => "ok")
+    const agent = defineAgent({
+      name: "history-outage-test",
+      workspace: { name: "docs" },
+      capabilities: [defineCapability({ id: "test-telemetry", telemetry: { exporter: vi.fn() } })],
+      driver: { run: driver },
+    })
+    const tasks: Promise<unknown>[] = []
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })
+    await Promise.all(tasks)
+    expect(driver).toHaveBeenCalledOnce()
   })
 
   afterEach(async () => {
