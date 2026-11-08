@@ -52,7 +52,6 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
   for (const [source, feature] of [
     ["vite-hub/ui", "ui"],
     ["vite-hub/ui/avatar-stack", "ui"],
-    ["vite-hub/ui/nuxt", "ui"],
     ["vite-hub/ui/styles.css", "ui"],
     ["vite-hub/presets/babysitter/server", "presets"],
     ["vite-hub/shell", "shell"],

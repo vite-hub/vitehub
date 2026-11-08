@@ -4,7 +4,8 @@ import { consoleActionError, consoleDocumentActionContext, loadConsoleDocumentAc
 import { consoleRequestError } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
-import type { BlobResult, BlobStorage, MediaFocalPoint, MediaRecord, MediaUpdate } from "@vite-hub/blob"
+import type { BlobErrorCode, BlobStorage, MediaFocalPoint, MediaRecord, MediaUpdate } from "@vite-hub/blob"
+import type { Result } from "@vite-hub/runtime"
 
 /**
  * The media library of a document editor section. Blob owns storage: every change runs through `blob.media` of the Blob
@@ -179,7 +180,7 @@ function isReservedPath(pathname: string): boolean {
 }
 
 /** Turns a Blob failure into a Console failure with a status the library shows. */
-function unwrap<T>(result: BlobResult<T>): T {
+function unwrap<T>(result: Result<T, BlobErrorCode>): T {
   const [error, value] = result
   if (!error) return value
   if (error.code === "BLOB_NOT_FOUND") throw failure(404, error.code, error.message)
@@ -188,7 +189,7 @@ function unwrap<T>(result: BlobResult<T>): T {
 }
 
 /** Blob input diagnostics, such as a reserved pathname or an invalid crop, describe the request. */
-async function blobCall<T>(call: () => Promise<BlobResult<T>>): Promise<T> {
+async function blobCall<T>(call: () => Promise<Result<T, BlobErrorCode>>): Promise<T> {
   try {
     return unwrap(await call())
   }
