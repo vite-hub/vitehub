@@ -48,8 +48,9 @@ type Bytes = Uint8Array
 // ignores case and trailing dots and spaces, because Windows opens `NODE_MODULES` and `node_modules.` as
 // `node_modules`, and macOS ignores case. A remote path can come from any system, so the match is the same everywhere.
 const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
-const conflictStart = /^<{7}(?: |$)/m
-const conflictEnd = /^>{7}(?: |$)/m
+/** Line patterns shared by working-tree scans and Git index searches. */
+export const conflictMarkerPatterns = ["^<{7}( |\r?$)", "^>{7}( |\r?$)"]
+const conflictMarkers = conflictMarkerPatterns.map(pattern => new RegExp(pattern, "m"))
 
 /** The suffix of the temporary file of an atomic write. A command that stopped before the rename leaves one behind. */
 const temporarySuffix = ".vitehub-tmp"
@@ -58,7 +59,8 @@ function portableKey(name: string): string {
   return name.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC")
 }
 
-function ignoredName(name: string): boolean {
+/** True for a file or folder name that a checkout skips, such as `node_modules`, `.GIT`, or a leftover temporary file. */
+export function ignoredName(name: string): boolean {
   const normalized = portableKey(name).replace(/[. ]+$/, "")
   return ignored.has(normalized) || normalized.endsWith(temporarySuffix)
 }
@@ -137,7 +139,7 @@ function encode(bytes: Bytes): { content: string, encoding: "base64" | "utf8" } 
 
 /** True when a text file still has Git conflict markers. */
 function hasConflictMarkers(content: string): boolean {
-  return conflictStart.test(content) && conflictEnd.test(content)
+  return conflictMarkers.every(pattern => pattern.test(content))
 }
 
 function lines(value: string): string[] {
@@ -399,7 +401,8 @@ async function saveWorkspaceLock(rootDir: string, lock: WorkspaceLock, names: re
   })
 }
 
-function folderOf(rootDir: string, dir: string): string {
+/** The absolute checkout folder of a lock `dir`. Fails unless it is a folder inside the project. */
+export function folderOf(rootDir: string, dir: string): string {
   const folder = resolve(rootDir, dir)
   const inside = relative(rootDir, folder)
   if (!inside || inside.startsWith("..") || inside.split(sep).includes("..")) {
@@ -453,7 +456,7 @@ async function scan(rootDir: string, folder: string, directories: string[] = [])
 }
 
 /** Checks every existing path component inside the project before a checkout reads or writes it. */
-async function assertNoSymlinks(rootDir: string, target: string): Promise<void> {
+export async function assertNoSymlinks(rootDir: string, target: string): Promise<void> {
   let current = rootDir
   for (const segment of relative(rootDir, target).split(sep)) {
     current = join(current, segment)
@@ -718,6 +721,8 @@ async function takeTheirs(context: WorkspaceCheckoutContext, workspace: string, 
 interface WorkspacePushOptions {
   workspace?: string
   message?: string
+  /** Write files that someone else holds an edit lease on, such as a Content document open in the Console. */
+  overrideLease?: boolean
 }
 
 /** Pulls, then commits the local changes of each checkout folder to its ref. Refuses while a conflict is open. */
@@ -728,7 +733,7 @@ export async function pushWorkspaces(context: WorkspaceCheckoutContext, options:
   try {
     for (const name of selected(lock, options.workspace)) {
       touched.push(name)
-      results.push(await pushEntry(context, name, lock.workspaces[name]!, options.message))
+      results.push(await pushEntry(context, name, lock.workspaces[name]!, options))
     }
   }
   finally {
@@ -737,7 +742,8 @@ export async function pushWorkspaces(context: WorkspaceCheckoutContext, options:
   return results
 }
 
-async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, entry: WorkspaceCheckout, message: string | undefined): Promise<WorkspacePushResult> {
+async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, entry: WorkspaceCheckout, options: Pick<WorkspacePushOptions, "message" | "overrideLease">): Promise<WorkspacePushResult> {
+  const { message, overrideLease } = options
   const folder = folderOf(context.rootDir, entry.dir)
   // Another push can land between the pull and the commit. Pull and try again, a few times.
   for (let attempt = 0; ; attempt++) {
@@ -757,10 +763,12 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
       ...(Object.keys(putFiles).length ? { put: putFiles } : {}),
       ...(local.deleted.length ? { delete: local.deleted } : {}),
       ...(message ? { message } : {}),
+      ...(overrideLease ? { lease: "override" } : {}),
     }
     assertCommitSize(workspace, input, putFiles)
     const called = await context.call("workspace.commit", input, entry.remote)
     if (!called.ok) {
+      // Only a moved head is worth a retry. Any other refusal, such as a held edit lease, fails the same way again.
       if (called.code === "WORKSPACE_CONFLICT" && attempt < 3) continue
       throw new WorkspaceCheckoutError(called.code ?? "WORKSPACE_CHECKOUT_FAILED", called.message, called.fix)
     }

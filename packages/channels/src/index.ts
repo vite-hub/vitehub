@@ -1,17 +1,30 @@
+export { stripe, webhook } from "./adapters.ts"
 export { createChannel } from "./client.ts"
-export { defineOutboundChannel } from "./definition.ts"
+export { defineChannel } from "./definition.ts"
 export { useChannel } from "./runtime/state.ts"
 
+export type { StripeAdapterOptions, StripeEvent } from "./adapters.ts"
 export type {
+  ChannelAdapter,
   ChannelClient,
-  ChannelConnector,
-  ChannelConnectorResult,
-  ChannelConnectorMap,
   ChannelDefinition,
+  ChannelDefinitionOptions,
   ChannelDefinitionRegistry,
   ChannelErrorCode,
+  ChannelEvent,
+  ChannelExtensionOptions,
+  ChannelHandler,
+  ChannelHandlerContext,
   ChannelSendOptions,
+  ChannelSendReceipt,
   ChannelSendResult,
+  ChannelTarget,
+  ChannelTrigger,
+  ChannelWebhookRequest,
+  ChannelWebhookSecret,
+  ChannelWebhookSignature,
   DiscoveredChannelDefinition,
+  WebhookAdapterOptions,
+  WebhookChannelAdapter,
 } from "./types.ts"
 export type { ChannelDefinitionName } from "./registry-types.ts"

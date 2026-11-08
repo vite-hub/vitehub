@@ -7,5 +7,5 @@ export default defineEventHandler(async (event) => {
   const { name } = await readBody<{ name?: string }>(event) || {}
   const [error, result] = await runAgent(greeting, { prompt: name?.trim() || "friend" })
   if (error) throw error
-  return result
+  return { text: result.text }
 })

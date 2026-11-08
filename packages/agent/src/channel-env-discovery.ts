@@ -146,7 +146,7 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
 }
 
 /**
- * Find built-in Channel factory and `.connector()` calls, such as `telegram({ ... })` imported from
+ * Find built-in Channel factory calls, such as `telegram({ ... })` imported from
  * `vite-hub/agent/channels`, and bare factory references such as `channels: { telegram }`.
  * Source is TypeScript by default. JavaScript files must disable type argument handling.
  */
@@ -205,22 +205,10 @@ export function discoverBuiltInChannelUses(
   const uses: Array<DiscoveredChannelUse & { index: number }> = []
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i - 1] === "." || tokens[i - 1] === "as") continue
-    const factory = !isShadowedAt(tokens, i, tokens[i]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[i]!)) && factoryCall(tokens, i, factoryBindings, namespaces, known, lineBreaks, typescript, options.modules === undefined)
+    const factory = !isShadowedAt(tokens, i, tokens[i]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[i]!)) && factoryCall(tokens, i, factoryBindings, namespaces, known, lineBreaks, typescript)
     if (factory) {
       const start = skipOptionAssertions(tokens, factory.open + 1, typescript)
-      let optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
-      // Telegram connectors accept botToken inside adapter options, unlike the Agent Channel.
-      if (factory.connector && factory.name === "telegram" && optionKeys) {
-        const settings = localObject(tokens, start, declarations, typescript)
-        if (settings !== undefined) visitObjectProperties(tokens, settings, (key, value) => {
-          if (key !== "adapter" || value === undefined) return
-          const adapter = localObject(tokens, value, declarations, typescript)
-          if (adapter === undefined) return
-          const adapterKeys = staticOptionKeys(tokens, adapter, "}", typescript)
-          if (adapterKeys?.has("postMessage")) return
-          optionKeys = adapterKeys
-        })
-      }
+      const optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
       const stringOptions = new Map<string, string>()
       let object = start
       while (tokens[object] === "(") object = skipOptionAssertions(tokens, object + 1, typescript)
@@ -845,8 +833,7 @@ function factoryCall(
   names: ReadonlySet<string>,
   lineBreaks: ReadonlySet<number>,
   typescript: boolean,
-  connectors = false,
-): { name: string, open: number, connector: boolean } | undefined {
+): { name: string, open: number } | undefined {
   if (tokens[index - 1] === "#") return undefined
   let name = bindings.get(tokens[index]!)
   let next = index + 1
@@ -863,8 +850,6 @@ function factoryCall(
     }
   }
   if (!name) return undefined
-  const connector = connectors && ["teams", "discord", "telegram"].includes(name) && tokens[next] === "." && tokens[next + 1] === "connector"
-  if (connector) next += 2
   if (tokens[next] === "?" && tokens[next + 1] === ".") next += 2
   if (tokens[next] === "<") {
     if (!typescript) return undefined
@@ -878,7 +863,7 @@ function factoryCall(
   // Method keys are declarations. A call can precede a ternary colon, so also
   // require the key to follow a property boundary or a method modifier.
   if (["{", ":"].includes(after!) && (afterType || followsDecorator(tokens, index) || ["{", "}", ",", ";", "async", "get", "set", "*", "static", "public", "private", "protected", "abstract", "declare", "override"].includes(previous)) && isMethodContainer(tokens, index)) return undefined
-  return { name, open: next, connector }
+  return { name, open: next }
 }
 
 // Decorator calls can separate a method key from its property boundary.

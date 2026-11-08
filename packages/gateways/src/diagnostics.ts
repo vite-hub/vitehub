@@ -1,12 +1,15 @@
 import { defineDiagnostics } from "nostics"
 
+import { recordPublicAiGatewayDiagnostic } from "./public-diagnostics.ts"
+
 const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
 // Each code identifies one AI gateway failure site. Keep published codes stable.
 export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/agents/ai-gateways#errors",
+  docsBase: "https://vitehub.dev/docs/agents/diagnostics",
+  reporters: [recordPublicAiGatewayDiagnostic],
   codes: {
     /** An AI gateway definition is invalid. */
     GATEWAYS_R0001: dynamicError,

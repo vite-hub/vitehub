@@ -1,4 +1,4 @@
-import { runAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { eq } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
@@ -66,7 +66,7 @@ describe("Default Agent D1 journal read by the Console", () => {
     await expect(db.select().from(schema.invocations)).resolves.toEqual([])
     await expect(db.select().from(schema.invocations).get()).resolves.toBeUndefined()
 
-    await expect(runAgent(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
 
     // Each journal write is bounded to one second and retried in the background, so wait for the terminal state.
     await vi.waitFor(async () => {
@@ -263,7 +263,7 @@ describe("Default Agent D1 journal read by the Console", () => {
       return { DB: database }
     })
     installD1Journal("/console-d1-usage-cache", { binding: "DB", env })
-    const request = () => usageHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/usage" }))
+    const request = () => usageHandler(consoleEvent({ url: "http://localhost/_vitehub/api/usage" }))
     const requests = [request(), request()]
     try {
       await vi.waitFor(() => expect(env).toHaveBeenCalledTimes(2))
@@ -297,7 +297,7 @@ describe("Default Agent D1 journal read by the Console", () => {
       observations: [observation(5)],
     }
     await db.insert(schema.invocations).values({ id: record.id, status: record.status, agentName: record.agentName, search: "", summary: record, updatedAt: now, record }).run()
-    const request = () => usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage?agent=${record.agentName}` }))
+    const request = () => usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?agent=${record.agentName}` }))
     let release: (() => void) | undefined
     const ready = new Promise<void>(resolve => { release = resolve })
     const query = index.query.bind(index)

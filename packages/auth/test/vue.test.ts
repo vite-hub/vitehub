@@ -16,9 +16,10 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
-const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, useAuthClient, useSession, useSignIn, useSignUp, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAuthClient, useSession, useSignIn, useSignUp, useUserSession } = await import("../src/vue.ts")
 
 afterEach(() => {
+  setSessionSeedResolver(undefined)
   betterAuth.created.length = 0
   betterAuth.calls.length = 0
   vi.unstubAllGlobals()
@@ -74,6 +75,34 @@ describe("Vue Auth composables", () => {
     real.value = { ...real.value, data: null }
     await nextTick()
     expect(session.loggedIn.value).toBe(true)
+  })
+
+  it("starts settled with the session that the server read, without loading Better Auth", () => {
+    setSessionSeedResolver(() => ({ session: { id: "s" }, user: { id: "u", name: "Ada" } }))
+    const session = useUserSession(createAuthClient())
+    expect(session.ready.value).toBe(true)
+    expect(session.loggedIn.value).toBe(true)
+    expect(session.user.value).toEqual({ id: "u", name: "Ada" })
+    expect(betterAuth.created).toEqual([])
+    setSessionSeedResolver(() => null)
+    const signedOut = useUserSession(createAuthClient())
+    expect(signedOut.ready.value).toBe(true)
+    expect(signedOut.loggedIn.value).toBe(false)
+  })
+
+  it("keeps the server's session in the browser until Better Auth has its own", async () => {
+    vi.stubGlobal("window", {})
+    setSessionSeedResolver(() => ({ session: { id: "s" }, user: { id: "u" } }))
+    const real = ref({ data: null, error: null, isPending: true, isRefetching: false, refetch: async () => {} })
+    betterAuth.session = real
+    const session = useUserSession(createAuthClient())
+    await vi.waitFor(() => expect(betterAuth.created).toHaveLength(1))
+    await nextTick()
+    // Better Auth starts pending with no data. The page must not flash signed out.
+    expect(session.loggedIn.value).toBe(true)
+    real.value = { ...real.value, isPending: false, data: null }
+    await nextTick()
+    expect(session.loggedIn.value).toBe(false)
   })
 
   it("gives Better Auth's own client for members that are not calls", async () => {

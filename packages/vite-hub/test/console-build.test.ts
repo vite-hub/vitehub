@@ -76,7 +76,7 @@ describe("Console build id", () => {
       const first = await generatedBuild(file, root, ["kv"])
       expect(await generatedBuild(file, root, ["kv"])).toBe(first)
       expect(await generatedBuild(file, root, ["kv", "blob"])).not.toBe(first)
-      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`)
       expect(await readFile(file, "utf8")).toContain("installConsoleOperations([], { invoke: false })")
     }
     finally {
@@ -96,7 +96,7 @@ describe("Console build id", () => {
   it("is read with the Console navigation", async () => {
     stubSections(["aaaaaaaaaaaaaaaa"])
 
-    await expect(loadConsoleNavigation("/navigation-build/api/_vitehub/console/sections")).resolves.toMatchObject({ build: "aaaaaaaaaaaaaaaa" })
+    await expect(loadConsoleNavigation("/navigation-build/_vitehub/api/sections")).resolves.toMatchObject({ build: "aaaaaaaaaaaaaaaa" })
   })
 
   it("marks an update when the deployed build changes, on an interval and when the tab is visible again", async () => {
@@ -105,7 +105,7 @@ describe("Console build id", () => {
     const sectionsMock = stubSections(["first", "first", "second"])
     const updateReady = useConsoleUpdate()
 
-    watchConsoleBuild("/watch-build/api/_vitehub/console/sections")
+    watchConsoleBuild("/watch-build/_vitehub/api/sections")
     await vi.waitFor(() => expect(sectionsMock).toHaveBeenCalledTimes(1))
 
     await vi.advanceTimersByTimeAsync(consoleBuildCheckInterval)
