@@ -1,7 +1,7 @@
 import { end, findProperty, indentAt, keyName, line, quoteString, start } from "@vite-hub/internal/ast"
 
-import { addViteHubOptions, ConfigEditor, createLineResolver, findViteHubEntry, hasInlinePreset, nitroPresets, nodePresetNote, useViteHubModule } from "../shared/config-editor.ts"
-import { findModuleEntry, literalValue, nitroPreset, unwrapExpression } from "../shared/nuxt-config.ts"
+import { addViteHubOptions, ConfigEditor, createLineResolver, planPreset, useViteHubModule } from "../shared/config-editor.ts"
+import { findModuleEntry, literalValue, unwrapExpression } from "../shared/nuxt-config.ts"
 import { CodemodError } from "../types.ts"
 
 import type { ObjectExpression } from "@babel/types"
@@ -103,24 +103,7 @@ export function readHub(config: NuxtConfigFile): HubPlan {
 
 /** Chooses the deployment preset: nitro.preset, then a Wrangler config, then Node. */
 function choosePreset(config: NuxtConfigFile, wranglerFile: string | undefined): { add?: string, note?: string, preset?: string } {
-  const existing = findProperty(config.root, "vitehub")
-  const existingPreset = existing && existing.value.type === "ObjectExpression" ? findProperty(existing.value, "preset") : undefined
-  if (existingPreset || hasInlinePreset(findViteHubEntry(config))) {
-    const value = existingPreset ? literalValue(existingPreset.value) : undefined
-    return { preset: typeof value === "string" ? value : undefined }
-  }
-  const nitro = nitroPreset(config)
-  if (nitro.property && nitro.value === undefined) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
-  }
-  if (nitro.value) {
-    const mapped = nitroPresets[nitro.value.trim().toLowerCase().replaceAll("_", "-")]
-    return mapped
-      ? { add: mapped, preset: mapped }
-      : { note: `nitro.preset "${nitro.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
-  }
-  if (wranglerFile) return { add: "cloudflare", preset: "cloudflare" }
-  return { add: "node", preset: "node", note: nodePresetNote }
+  return planPreset(config, wranglerFile ? { preset: "cloudflare" } : undefined)
 }
 
 export interface ConfigEditResult {

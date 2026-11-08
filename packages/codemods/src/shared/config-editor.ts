@@ -2,7 +2,7 @@ import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, l
 import MagicString from "magic-string"
 
 import { CodemodError } from "../types.ts"
-import { findModuleEntry, literalValue, nitroPreset } from "./nuxt-config.ts"
+import { findModuleEntry, literalValue, nitroPreset, staticOptionsObject, unwrapExpression } from "./nuxt-config.ts"
 
 import type { ObjectExpression, ObjectProperty, Statement } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -219,23 +219,34 @@ export function findViteHubEntry(config: NuxtConfigFile): Node | undefined {
   const viteHubImports = new Set(config.program.program.body.flatMap(statement => statement.type === "ImportDeclaration" && statement.source.value === vitehubModule
     ? statement.specifiers.map(specifier => specifier.local.name)
     : []))
-  return modules?.elements.find((element) => {
-    if (!element) return false
-    const head = element.type === "ArrayExpression" ? element.elements[0] : element
-    if (!head) return false
-    return literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))
-  }) ?? undefined
+  for (const element of modules?.elements ?? []) {
+    if (!element) continue
+    const entry = unwrapExpression(element)
+    const first = entry.type === "ArrayExpression" ? entry.elements[0] : entry
+    if (!first) continue
+    const head = unwrapExpression(first)
+    if (literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))) return entry
+  }
+  return undefined
 }
 
 export function objectPropertyArray(object: ObjectExpression, name: string) {
   const property = findProperty(object, name)
-  return property?.value.type === "ArrayExpression" ? property.value : undefined
+  const value = property ? unwrapExpression(property.value) : undefined
+  return value?.type === "ArrayExpression" ? value : undefined
 }
 
-export function hasInlinePreset(entry: Node | undefined): boolean {
-  if (entry?.type !== "ArrayExpression") return false
-  const options = entry.elements[1]
-  return options?.type === "ObjectExpression" && Boolean(findProperty(options, "preset"))
+/** Reads an explicit ViteHub option. Rejects opaque objects; inline options take precedence over `vitehub`. */
+export function findViteHubOption(config: NuxtConfigFile, name: string): ObjectProperty | undefined {
+  const entry = findViteHubEntry(config)
+  const inline = entry?.type === "ArrayExpression" ? entry.elements[1] : undefined
+  const inlineOptions = inline ? staticOptionsObject(inline) : undefined
+  if (inline && !inlineOptions) throw new CodemodError(`${config.fileName} sets inline vite-hub/nuxt options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  const existing = findProperty(config.root, "vitehub")
+  const rootOptions = existing ? staticOptionsObject(existing.value) : undefined
+  if (existing && !rootOptions) throw new CodemodError(`${config.fileName} sets vitehub options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  return (inlineOptions ? findProperty(inlineOptions, name) : undefined)
+    ?? (rootOptions ? findProperty(rootOptions, name) : undefined)
 }
 
 /** Returns the line of the property at `path` from the config root in `code`, or of its nearest parent. */
@@ -335,6 +346,36 @@ export interface ViteHubOptionsResult {
   presetNote?: string
 }
 
+/** The ViteHub deployment preset an app builds for, and the preset that `addViteHubOptions()` adds when the app sets none. */
+export interface PresetPlan {
+  /** The preset the app will build for, when the codemod can tell. */
+  preset?: string
+  /** The preset to add under `vitehub`. */
+  add?: string
+  note?: string
+}
+
+export function planPreset(config: NuxtConfigFile, defaultPreset?: DefaultPreset): PresetPlan {
+  const existingPreset = findViteHubOption(config, "preset")
+  if (existingPreset) {
+    const value = literalValue(existingPreset.value)
+    return { preset: typeof value === "string" ? value : undefined }
+  }
+  const preset = nitroPreset(config)
+  if (preset.property && preset.value === undefined) {
+    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
+  }
+  if (preset.value) {
+    const mapped = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
+    return mapped
+      ? { preset: mapped, add: mapped }
+      : { note: `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
+  }
+  return defaultPreset
+    ? { preset: defaultPreset.preset, add: defaultPreset.preset, note: defaultPreset.note }
+    : { preset: "node", add: "node", note: nodePresetNote }
+}
+
 /**
  * Adds `options` under `vitehub`, and a deployment preset when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
@@ -343,25 +384,9 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
-  const existingPreset = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "preset") : undefined
-  const inlinePreset = hasInlinePreset(findViteHubEntry(config))
-  const preset = nitroPreset(config)
-  if (preset.property && preset.value === undefined && !inlinePreset && !existingPreset) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
-  }
-  let vitehubPreset: string | undefined = input.defaultPreset?.preset ?? "node"
-  let presetNote: string | undefined = input.defaultPreset ? input.defaultPreset.note : nodePresetNote
-  if (preset.value) {
-    vitehubPreset = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
-    presetNote = vitehubPreset
-      ? undefined
-      : `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.`
-  }
-  if (inlinePreset) {
-    vitehubPreset = undefined
-    presetNote = undefined
-  }
-
+  const planned = planPreset(config, input.defaultPreset)
+  let vitehubPreset = planned.add
+  let presetNote = planned.note
   const unit = style.indent
   const baseIndent = config.root.properties[0] ? indentAt(config.code, start(config.root.properties[0])) : unit
   if (existingOptions) {

@@ -251,6 +251,13 @@ validation and updates the local file if it still contains the submitted bytes.
 Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
+On the GitHub Store, revision ids are commit shas. An instance keeps a ref head for up to
+5 seconds, so a pull can miss a newer commit for that time. The revision `author` is the
+GitHub account of the token, and the signed-in user is only in the commit trailer. Files
+keep only their Git mode. The first push to a new ref starts it from the published or
+default branch and then pulls the copied files. A pull reads one blob per changed file
+(two when it also needs the old version), which counts against the GitHub rate limit.
+
 `vitehub hooks install` adds a pre-commit hook that checks the staged files and working
 tree for conflicts, and a pre-push hook
 that runs `vitehub push` when Git pushes the default branch. When that push changes

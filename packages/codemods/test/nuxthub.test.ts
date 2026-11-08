@@ -147,6 +147,21 @@ describe("nuxthub", () => {
     await expect(runCodemod("nuxthub", { cwd: directory, dryRun: true })).rejects.toThrow("ViteHub does not support MySQL")
   })
 
+  it.each([
+    ["wrangler fallback", "'vite-hub/nuxt'", "", ""],
+    ["inline preset", "['vite-hub/nuxt', { preset: 'cloudflare' }]", "preset: 'node'", "nitro: { preset: process.env.NITRO_PRESET },"],
+  ])("keeps Cloudflare resources with %s when merging existing options", async (name, module, options, nitro) => {
+    const directory = await app(name, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['@nuxthub/core', ${module}], hub: { kv: true }, vitehub: { ${options} }, ${nitro} })\n`,
+      "wrangler.jsonc": JSON.stringify({ kv_namespaces: [{ binding: "KV", id: "abcdef1234567890abcdef1234567890" }] }),
+    })
+    const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
+    const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
+    expect(config).toContain("preset: 'cloudflare'")
+    expect(config).toContain("kv: { driver: 'cloudflare-kv-binding', binding: 'KV', namespaceId: 'abcdef1234567890abcdef1234567890' }")
+    expect(run.result.followUps.some(followUp => followUp.message.includes("To keep this namespace"))).toBe(false)
+  })
+
   it("maps driver options to follow-ups and merges into an existing vitehub key", async () => {
     const directory = await app("options", {
       "nuxt.config.ts": [

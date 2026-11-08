@@ -1,5 +1,7 @@
+import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
 import { nuxthub } from "./nuxthub/index.ts"
+import { resend } from "./resend/index.ts"
 import { t3Env } from "./t3-env/index.ts"
 
 import type { Codemod } from "./types.ts"
@@ -12,4 +14,6 @@ export const codemods: readonly Codemod[] = [
   nuxthub,
   nuxtSafeRuntimeConfig,
   t3Env,
+  resend,
+  nuxtCron,
 ]
