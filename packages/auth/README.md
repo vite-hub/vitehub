@@ -79,6 +79,12 @@ The owned core tables have fixed columns. `authDatabase()` rejects `additionalFi
 
 `VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
+For an app without social sign-in, `vitehub auth claim` prints a one-time code and the `VITEHUB_ADMIN_CLAIM` value (its SHA-256) to set on the host. The first signed-in user who enters the code on the Console's Access denied page, or sends it to `POST <auth base>/vitehub/admin-claim`, gets the admin role. A row in the `verification` table marks the code as used. A malformed value fails with `AUTH_C0059`.
+
+The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+
+With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
+
 ## Sessions without a database
 
 `stateless()` keeps each session in an encrypted cookie. Sessions survive restarts and work across replicas and Workers when every instance uses the same secret.

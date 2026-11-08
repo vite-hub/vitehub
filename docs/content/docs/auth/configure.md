@@ -254,6 +254,27 @@ On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec w
 
 `VITEHUB_ADMINS` takes no emails. An email and password sign-up does not prove that the person owns the email, so the first person to sign up with the admin's email would get the role. An email entry fails with `AUTH_C0058`, and the removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
+### Claim the admin role with a code
+
+An app with only email and password sign-in has no social account to list. Create a one-time claim code instead:
+
+```bash [Terminal]
+$ vitehub auth claim
+Claim code: 7KQF-2M9D-XW4P-R8TB
+This is the only time the code is shown. Keep it private.
+
+Set this variable on the host, for example as a Worker secret:
+VITEHUB_ADMIN_CLAIM=sha256:3f9a...
+```
+
+Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in, open `/_vitehub`, and enter the code under **Claim code** on the Access denied page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
+
+The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
+
+The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+
+With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
+
 ## Sign MCP clients in
 
 An app with its own MCP server, such as `/mcp`, can make Better Auth its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token. For the Console endpoint `/_vitehub/mcp`, use [Console MCP OAuth](/docs/development/mcp#set-up-oauth) instead.

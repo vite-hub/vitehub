@@ -296,8 +296,9 @@ describe("vitehub/no-removed-apis", () => {
         "export const pages = documents({ route: id => `/blog/${id}` })",
         "export { runSandboxTask, cms }",
       ),
+      "server/api/reminders.post.ts": "import { schedules } from \"vite-hub/schedule/runtime\"\nexport const create = () => schedules.create({ target: \"reminder\", cron: \"0 9 * * *\" })\n",
       "src/Chat.vue": "<script setup lang=\"ts\">\nimport { AgentChat, AgentFileTree } from \"@vite-hub/ui\"\n</script>\n",
-    })).toEqual(Array(7).fill("VHUB0033"))
+    })).toEqual(Array(8).fill("VHUB0033"))
   })
 
   it("accepts current APIs", async () => {
@@ -311,6 +312,7 @@ describe("vitehub/no-removed-apis", () => {
         "export const pages = documents({ url: page => `/blog/${page.id}` })",
         "export { runSandboxTask, cms }",
       ),
+      "server/api/reminders.post.ts": "import { startSchedule } from \"vite-hub/schedule\"\nexport const create = () => startSchedule(\"reminder\", { cron: \"0 9 * * *\" })\n",
       "src/Chat.vue": "<script setup lang=\"ts\">\nimport { Chat, FileTree } from \"@vite-hub/ui\"\n</script>\n",
     })).toEqual([])
   })

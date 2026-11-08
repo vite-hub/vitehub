@@ -500,7 +500,7 @@ const removedPaths = new Map([
   ["@vite-hub/sandbox-task", { replacement: "@vite-hub/sandbox/task", note: "Sandbox Task moved into the Sandbox package." }],
   ["vite-hub/content/presets/cms", { replacement: "vite-hub/cms", note: "The CMS has its own package." }],
   ["@vite-hub/content/presets/cms", { replacement: "@vite-hub/cms", note: "The CMS has its own package." }],
-  ["vite-hub/schedule/runtime/driver", { replacement: "`defineSchedule()` from `vite-hub/schedule` in `server/schedules/`", note: "Runtime Schedules were removed." }],
+  ["vite-hub/schedule/runtime/driver", { replacement: "`startSchedule()` from `vite-hub/schedule`, with a Definition without `cron` in `server/schedules/`", note: "Runtime Schedules are started with `startSchedule()`." }],
 ])
 
 /** Exports that ViteHub renamed, by module name from `vitehubModule()`. */
@@ -529,6 +529,11 @@ const renamedExports: { modules: (module: string) => boolean, renames: Map<strin
   {
     modules: module => module === "agent/capabilities",
     renames: new Map([["cost", "usage"]]),
+  },
+  {
+    // Runtime Schedules: `schedules.create()` became `startSchedule()`, and a target is a Definition without `cron`.
+    modules: module => module === "schedule" || module === "schedule/runtime",
+    renames: new Map([["defineScheduleTarget", "defineSchedule"], ["schedules", "startSchedule"]]),
   },
 ]
 

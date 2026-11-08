@@ -18,6 +18,7 @@ export type AuthReservedOption =
   | "events"
   | "console"
   | "access"
+  | "adminClaim"
   | "basePath"
   | "database"
   | "preset"
@@ -129,6 +130,8 @@ export interface AuthSecondaryStorageReference {
 export type AuthSecondaryStorageConfiguration = true | AuthSecondaryStorageReference
 
 export interface AuthViteHubOptions {
+  /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
+  adminClaim?: false
   /** Opt in to durable auth events with an explicit store. */
   events?: AuthEventsConfiguration | false
   console?: AuthConsoleOptions;
@@ -211,6 +214,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "events"
       | "console"
       | "access"
+      | "adminClaim"
       | "database"
       | "preset"
       | "route"
@@ -223,6 +227,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "events"
       | "console"
       | "access"
+      | "adminClaim"
       | "database"
       | "preset"
       | "route"

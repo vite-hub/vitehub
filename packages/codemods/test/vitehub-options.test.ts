@@ -223,6 +223,32 @@ describe("vitehub-options transform", () => {
     ))
   })
 
+  it.each([
+    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ preset: 'cloudflare' })], sandboxTask: { provider: 'cloudflare' } }\n"],
+    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub()], sandboxTask: { provider: 'cloudflare' } }\n"],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: {}, vite: { sandboxTask: { provider: 'cloudflare' } } })\n"],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: [['vite-hub/nuxt', {}]], vite: { sandboxTask: taskOptions } })\n"],
+  ])("reports Sandbox Task options for manual migration in %s", (file, input) => {
+    const result = migrateViteHubOptions(file, input)
+    expect(result).toMatchObject({ changed: false, code: input })
+    expect(result.followUps).toEqual([expect.objectContaining({ file, message: expect.stringContaining("hubSandboxTask()") })])
+  })
+
+  it.each(["true", "false"])("migrates boolean Sandbox Task enablement: %s", (value) => {
+    const input = `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({})], sandboxTask: ${value} }\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.changed).toBe(true)
+    expect(result.code.replace(/\s+/g, "")).toBe(`import{vitehub}from'vite-hub'exportdefault{plugins:[vitehub({sandboxTask:${value},})]}`)
+    expect(result.followUps).toEqual([])
+  })
+
+  it.each(["@vite-hub/sandbox/task/vite", "vite-hub/sandbox/task/vite"])("passes Sandbox Task options to the standalone plugin from %s", (source) => {
+    const input = `import { hubSandboxTask as tasks } from '${source}'\nexport default { plugins: [tasks()], sandboxTask: { provider: 'cloudflare' } }\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code).toBe(`import { hubSandboxTask as tasks } from '${source}'\nexport default { plugins: [tasks({ provider: 'cloudflare' })] }\n`)
+    expect(result.followUps).toEqual([])
+  })
+
   it("moves vite.env into the vite-hub/nuxt options", () => {
     const input = lines(
       "export default defineNuxtConfig({",

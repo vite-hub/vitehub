@@ -12,7 +12,7 @@ import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { collectScheduleContributions } from "./contributions.ts"
-import { discoverScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
+import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
 import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, readTimeZoneCrons, schedulePackageName } from "./internal/provider-output.ts"
@@ -36,7 +36,7 @@ export type {
   ScheduleContributionContext,
   ScheduleContributionFactory,
 } from "./contributions.ts"
-export { contributedScheduleSource, discoverScheduleDefinitions, type ScheduleDiscoveryOptions } from "./discovery.ts"
+export { contributedScheduleSource, discoverScheduleDefinitions, discoverStartableScheduleDefinitions, type ScheduleDiscoveryOptions } from "./discovery.ts"
 export { inspectScheduleDefinitions, type ScheduleInspectionOptions, scheduleConsoleSection } from "./inspect.ts"
 
 export async function readScheduleDefinitionCrons(
@@ -51,6 +51,8 @@ const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
+const generatedNitroStartedRegistry = ".vitehub/nitro/schedule/started-registry.js"
+const defaultCatchUpMs = 60 * 60 * 1000
 const generatedNitroScheduleModule = "./.vitehub/nitro/schedule/module.mjs"
 const generatedNitroNetlifyEntry = ".vitehub/nitro/schedule/netlify-entry.mjs"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
@@ -312,6 +314,8 @@ interface RenderNitroSchedulePluginOptions {
   timeZoneCrons: ScheduleTimeZoneCrons
   importBase?: string
   pluginFile: string
+  /** Set when a Definition has no `cron`: the registry of those Definitions, for `startSchedule()` and the tick. */
+  startedRegistryFile?: string
   processRuntime?: ScheduleProcessRuntimeOptions
   providerDefinitions: DiscoveredScheduleDefinition[]
   providerRegistryFile: string
@@ -348,6 +352,13 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           `import staticScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.staticRegistryFile))}`,
         ]
       : []),
+    ...(options.startedRegistryFile
+      ? [
+          `import { createKVStartedScheduleStore, installStartedSchedules } from ${JSON.stringify(`${importBase}/runtime`)}`,
+          ...(processRuntime ? [] : [`import { scheduleKVStorage } from ${JSON.stringify(`${importBase}/runtime/kv`)}`]),
+          `import startedScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.startedRegistryFile))}`,
+        ]
+      : []),
     "",
     ...(processRuntime
       ? [
@@ -357,6 +368,17 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
         ]
       : []),
     "export default definePlugin((nitroApp) => {",
+    ...(options.startedRegistryFile
+      ? [
+          // The Process Runtime keeps runs in KV, so its first tick can run the minutes that a restart missed. Other
+          // hosts keep runs in memory, so a tick checks only its own minute.
+          "  installStartedSchedules({",
+          `    catchUpMs: ${processRuntime ? processRuntime.catchUpMs ?? defaultCatchUpMs : 0},`,
+          "    registry: startedScheduleRegistry,",
+          `    store: createKVStartedScheduleStore({ ...${JSON.stringify(scheduleStoreOptions)}, kvStore: scheduleKVStorage }),`,
+          "  })",
+        ]
+      : []),
     ...(providerWake
       ? [
           "  nitroApp.hooks.hook('cloudflare:scheduled', async (event) => {",
@@ -542,6 +564,7 @@ function renderScheduleRegistryTypes(importBase = schedulePackageName): string {
 
 interface WriteNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
+  startableDefinitions: DiscoveredScheduleDefinition[]
   timeZoneCrons: ScheduleTimeZoneCrons
   crons: string[]
   importBase?: string
@@ -557,6 +580,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   const moduleFile = resolve(root, generatedNitroScheduleModule)
   const providerRegistryFile = resolve(root, generatedNitroProviderRegistry)
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
+  const startedRegistryFile = options.startableDefinitions.length ? resolve(root, generatedNitroStartedRegistry) : undefined
   // A CLI command that loads the project renders the same files while the dev server watches them. A rewrite of the
   // same bytes would reload the dev server's Nitro worker, which can read the file while it is empty.
   const writes: Array<Promise<void>> = [
@@ -565,6 +589,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
       timeZoneCrons: options.timeZoneCrons,
       importBase: options.importBase,
       pluginFile,
+      startedRegistryFile,
       processRuntime: options.processRuntime,
       providerDefinitions: options.providerDefinitions,
       providerRegistryFile,
@@ -572,6 +597,10 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
       runtimeImport: options.runtimeImport,
     })),
   ]
+  if (startedRegistryFile) {
+    writes.push(writeFileIfChanged(startedRegistryFile, createRuntimeRegistryContents(startedRegistryFile, options.startableDefinitions)))
+    writes.push(writeFileIfChanged(startedRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase)))
+  }
   if (options.processRuntime) {
     writes.push(writeFileIfChanged(staticRegistryFile, createRuntimeRegistryContents(staticRegistryFile, options.staticDefinitions)))
     writes.push(writeFileIfChanged(staticRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase)))
@@ -613,8 +642,8 @@ function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinitio
   }
 }
 
-function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): boolean {
-  return selectNitroScheduleDefinitions(definitions, options).length > 0 || options.runtime !== undefined
+function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions, startable: number): boolean {
+  return selectNitroScheduleDefinitions(definitions, options).length > 0 || options.runtime !== undefined || startable > 0
 }
 
 function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): boolean {
@@ -636,8 +665,14 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     serverDirs: options.serverDirs,
     serverRootDir: roots.projectRoot,
   })
+  const startableDefinitions = discoverStartableScheduleDefinitions({
+    contributions,
+    rootDir: roots.viteRoot,
+    serverDirs: options.serverDirs,
+    serverRootDir: roots.projectRoot,
+  })
   const cronOverrides = resolveCronOverrides(options.cron, (options as InternalScheduleNitroConfigOptions).preliminary ? undefined : definitions, options)
-  const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options)
+  const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options, startableDefinitions.length)
   const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string"
     ? options.nitro.preset
     : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING || ""
@@ -670,6 +705,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     timeZoneCrons,
     processRuntime,
     providerDefinitions: nitroDefinitions,
+    startableDefinitions,
     staticDefinitions: definitions.filter(definition =>
       !nitroDefinitionNames.has(definition.name)
       && !(processRuntime && options.providerOutput === "standalone")

@@ -1,6 +1,8 @@
 export interface ScheduleRunContext {
   id: string
   attemptId?: string
+  /** The `payload` that `startSchedule()` stored. Absent for a run on the Definition's own cron. */
+  payload?: unknown
   /**
    * Key derived from `scheduledAt`: `schedule:<name>:<scheduledAt ISO>`. Cloudflare and the Process Runtime retain
    * occurrence identity. Vercel, Netlify, and Deno estimate it from callback time, so a late delivery or retry across
@@ -20,10 +22,13 @@ export type ScheduleHandler<TResult = unknown> = {
 }["bivarianceHack"]
 
 export interface ScheduleDefinitionInput<TResult = unknown> {
-  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
+  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start a Definition with `cron` outside its cron. */
   manual?: boolean
-  /** Five-field cron expression, evaluated in `timeZone`. */
-  cron: string
+  /**
+   * Five-field cron expression, evaluated in `timeZone`. Leave it out for a Schedule that runs only when code starts it
+   * with `startSchedule()`.
+   */
+  cron?: string
   handler: ScheduleHandler<TResult>
   /**
    * IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. Every host follows daylight saving time:
@@ -34,14 +39,15 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
 }
 
 export interface ScheduleDefinitionOptions {
-  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
+  /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start a Definition with `cron` outside its cron. */
   manual?: boolean
   /** IANA time zone of the cron, such as `"Europe/Madrid"`. Defaults to `"UTC"`. */
   timeZone?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
-  cron: string
+  /** Absent for a Schedule that runs only when code starts it with `startSchedule()`. */
+  cron?: string
   handler: ScheduleHandler<TResult>
   /** IANA time zone of `cron`. Absent means UTC. */
   timeZone?: string
@@ -117,6 +123,8 @@ export interface ScheduleRunStore {
 
 export interface DiscoveredScheduleDefinition {
   manual?: boolean
+  /** True when the Definition declares no `cron`, so it runs only when code starts it with `startSchedule()`. */
+  startable?: boolean
   /** Plugin that contributed the Definition through `vitehub.schedules`. Only set for contributed Definitions. */
   contributor?: string
   handler: string
@@ -126,3 +134,46 @@ export interface DiscoveredScheduleDefinition {
   source?: "server-schedules" | "vite-plugin-contribution" | "vite-suffix"
 }
 import type { SerializedResponse } from "@vite-hub/runtime"
+
+/** When a started Schedule runs: once at `at`, or on each occurrence of `cron` until you cancel it. */
+export type StartScheduleTiming =
+  | {
+    /** One run at this time: a `Date`, or an ISO 8601 date-time with a time zone, such as `"2026-11-08T09:00:00Z"`. */
+    at: Date | string
+    cron?: never
+    timeZone?: never
+  }
+  | {
+    at?: never
+    /** Five-field cron expression. The Schedule runs on each occurrence until you cancel it. */
+    cron: string
+    /** IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. */
+    timeZone?: string
+  }
+
+export type StartScheduleOptions = StartScheduleTiming & {
+  /** JSON value that the handler receives as `context.payload`. */
+  payload?: unknown
+}
+
+/** A Schedule that code started with `startSchedule()`. It stays in the store until its last run or `cancelSchedule()`. */
+export interface StartedSchedule {
+  /** One-time run. Absent for a cron Schedule. */
+  at?: Date
+  createdAt: Date
+  cron?: string
+  /** Pass it to `getSchedule()` and `cancelSchedule()`. Its runs use it as `scheduleId`. */
+  id: string
+  payload?: unknown
+  /** Name of the Schedule Definition that runs. */
+  name: string
+  timeZone?: string
+}
+
+/** Stores the Schedules that code started. Records do not change after `put()`. */
+export interface StartedScheduleStore {
+  delete: (id: string) => Promise<boolean>
+  get: (id: string) => Promise<StartedSchedule | undefined>
+  list: () => Promise<StartedSchedule[]>
+  put: (schedule: StartedSchedule) => Promise<void>
+}

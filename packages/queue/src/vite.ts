@@ -7,7 +7,7 @@ import { resolve } from "pathe"
 
 import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
-import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
+import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, generatedQueueTestSetup, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
 import { inspectQueueDefinitions, inspectQueueResources } from "./inspect.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
@@ -303,6 +303,13 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const nitro = (config as { nitro?: unknown }).nitro
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, config.root || process.cwd())
+      // Vitest does not boot Nitro. Install only config and Definitions, without starting providers.
+      if (process.env.VITEST) {
+        const testConfig: UserConfig & { test: { setupFiles: string[] } } = {
+          test: { setupFiles: [resolve(config.root || process.cwd(), generatedQueueTestSetup)] },
+        }
+        return testConfig
+      }
     },
     async configResolved(config) {
       resolved = config

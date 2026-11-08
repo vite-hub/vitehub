@@ -20,6 +20,7 @@ export const queuePackageName = "@vite-hub/queue"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
+export const generatedQueueTestSetup = ".vitehub/queue/test-setup.mjs"
 export const generatedQueueNitroPlugin = ".vitehub/nitro/queue/plugin.ts"
 export const generatedQueueNitroMiddleware = ".vitehub/nitro/queue/middleware.ts"
 export const generatedQueueNitroVercelConsumerDir = ".vitehub/nitro/queue/vercel"
@@ -186,6 +187,13 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
       const file = resolve(rootDir, consumer.handler)
       await writeFile(file, renderVercelQueueConsumerHandler(file, consumer.name), "utf8")
     }),
+    ...(process.env.VITEST ? [writeFile(resolve(rootDir, generatedQueueTestSetup), [
+      `import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(resolve(rootDir, generatedQueueTestSetup), resolveRuntimeModule("internal/runtime/state")))}`,
+      `import registry from "./${generatedRegistryFileName}"`,
+      `setQueueRuntimeConfig(${JSON.stringify(queueConfig)})`,
+      "setQueueRuntimeRegistry(registry)",
+      "",
+    ].join("\n"), "utf8")] : []),
   ])
 }
 

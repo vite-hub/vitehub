@@ -199,9 +199,9 @@ const serverPrimitives: SupportMatrixGroup = {
       "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host.",
       "Cloudflare / Vercel",
     ), "sandbox"),
-    featureRow("schedule", "Static and runtime schedules", cell(
+    featureRow("schedule", "Static schedules and schedules that code starts", cell(
       "available",
-      "Nitro Provider Wake, or the process runtime on a long-lived host.",
+      "Nitro Provider Wake, or the process runtime on a long-lived host. `startSchedule()` needs KV.",
       "Provider Wake",
     )),
     featureRow("workflow", "Durable execution", cell(
