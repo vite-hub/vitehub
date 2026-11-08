@@ -25,6 +25,8 @@ ViteHub has no generic OAuth 2 provider function yet. For another service, use a
 A provider object lists the endpoints of an OAuth 2.0 authorization code flow with PKCE:
 
 ```ts [server/connections/crm.ts]
+import { defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: {
     id: 'crm',
@@ -60,6 +62,8 @@ export default defineConnection({
 `verify` checks a new key before ViteHub stores it. Return `false` to reject it, or `{ account }` to label the Connection:
 
 ```ts [server/connections/crm.ts]
+import { apiKey, defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: apiKey({
     id: 'crm',
@@ -176,18 +180,22 @@ This file defines `portal:acme` and `portal:globex`. Always use the full name, s
 `apiKey({ mcp })` and OAuth providers can declare an MCP endpoint with `mcp`. Its origin also gets the credential, and `inspect()` reports it. The URL must use `https`, or `http` for a loopback host, with no credentials, query, or fragment.
 
 ```ts [server/connections/crm.ts]
+import { apiKey, defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: apiKey({ id: 'crm', origins: ['https://api.crm.example.com'], mcp: 'https://mcp.crm.example.com/mcp' }),
 })
 ```
 
-An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `const [error, result] = await callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`, which returns an `[error, value]` tuple and does not reject. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
+An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `const [error, result] = await callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`. It returns a `Result`, `[error, undefined]` or `[undefined, value]`, instead of rejecting. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
 
 ## Request policy
 
 `requests` on an OAuth provider, `oauthLogin()`, or `apiKey()` sets pacing, retries, and timeouts for `fetch` and API methods. It skips the [MCP endpoint](#mcp-endpoint), whose sessions are long streams. Without it, each request is sent once, with no pacing and no timeout.
 
 ```ts [server/connections/airtable.ts]
+import { apiKey, defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: apiKey({
     id: 'airtable',
@@ -226,7 +234,7 @@ ViteHub checks the rule before the operation. A write list holds exact Operation
 
 An actor that only uses the [MCP endpoint](#mcp-endpoint) can use the `'mcp'` preset instead of a rule:
 
-```ts [server/connections/docs.ts]
+```ts [server/connections/docs.ts] fragment
 access: {
   'agent:support': 'mcp',
 },

@@ -15,6 +15,7 @@ Records are JSON files in the same store, so they work on every driver, even Ver
 `blob.media.put()` stores the file, reads its dimensions from the header, hashes it, and writes its record.
 
 ```ts [server/api/media.post.ts]
+import { defineEventHandler } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -69,14 +70,17 @@ A record looks like this:
 `media.get()` returns the record, or `null` when the file does not exist. When a file has no record, or `blob.put()` changed its ETag, `get()` rebuilds the record and keeps the alt text, caption, focal point, and crops. So files stored without `blob.media` get records too.
 
 ```ts
+import { blob } from 'vite-hub/blob'
+
 const [error, record] = await blob.media.get('posts/cover.jpg')
 
-await blob.media.update('posts/cover.jpg', {
+const [updateError, updated] = await blob.media.update('posts/cover.jpg', {
   alt: 'A field at sunrise',
   caption: null, // null removes a field
   focal: { x: 0.2, y: 0.5 },
   crops: { square: { aspect: '1:1' }, story: null },
 })
+if (updateError) throw updateError
 ```
 
 `update()` merges crops by name, and `null` removes one. A new focal point or crop clears the cached variants, so the next request crops again.
@@ -86,13 +90,15 @@ await blob.media.update('posts/cover.jpg', {
 Folders are pathname prefixes. `media.list()` lists one level by default and hides the `_vitehub/` folders.
 
 ```ts
+import { blob } from 'vite-hub/blob'
+
 const [, page] = await blob.media.list({ prefix: 'posts/' })
 // page.folders: ['posts/2026/'], page.items: MediaRecord[]
 
-await blob.media.createFolder('posts/drafts')
-await blob.media.moveFolder('posts/drafts', 'archive/drafts')
-await blob.media.removeFolder('archive/drafts')                  // fails with BLOB_CONFLICT when not empty
-await blob.media.removeFolder('archive/drafts', { force: true }) // removes every object and its record
+const [createError] = await blob.media.createFolder('posts/drafts')
+const [moveError, moved] = await blob.media.moveFolder('posts/drafts', 'archive/drafts')
+const [removeError] = await blob.media.removeFolder('archive/drafts')                       // BLOB_CONFLICT when not empty
+const [forceError, removed] = await blob.media.removeFolder('archive/drafts', { force: true }) // removes every object and its record
 ```
 
 Object stores have no real folders, so an empty folder holds an empty `.keep` file. `media.list()` hides it. `blob.list()` shows it.
@@ -104,9 +110,11 @@ List items come from the records. A file that changed after its record lists wit
 Object stores have no rename. `media.move()` copies the file, its record, and its crop replacements. Then it deletes the originals and the cached variants of both pathnames.
 
 ```ts
+import { blob } from 'vite-hub/blob'
+
 const [error, record] = await blob.media.move('posts/cover.jpg', 'posts/2026/cover.jpg')
 // error.code === 'BLOB_CONFLICT' when the destination exists; pass { overwrite: true } to replace it
-await blob.media.remove('posts/2026/cover.jpg') // object, record, crops, and variants
+const [removeError] = await blob.media.remove('posts/2026/cover.jpg') // object, record, crops, and variants
 ```
 
 An `image()` field or other stored pathname still points at the old path after a move. Update it in the same request.
@@ -136,7 +144,7 @@ Variants are cached under `_vitehub/derived/` like every [transformed object](/d
 
 In your own routes, pass the variant to `blob.serve()`:
 
-```ts
+```ts fragment
 import { blob, parseImageVariant } from '@vite-hub/blob'
 
 const [error, stream] = await blob.serve(event, pathname, {
@@ -314,9 +322,9 @@ A crop names an aspect ratio, such as 4:5 for narrow screens. ViteHub cuts the l
 
 When a generated crop is not good enough, upload a replacement. ViteHub stores it under `_vitehub/media/crops/` and serves it for `?crop=mobile` at the same URL.
 
-```ts
-await blob.media.replaceCrop('posts/cover.jpg', 'mobile', portraitFile) // a new crop takes the file's aspect
-await blob.media.replaceCrop('posts/cover.jpg', 'mobile', null)         // back to cropping the original
+```ts fragment
+const [replaceError] = await blob.media.replaceCrop('posts/cover.jpg', 'mobile', portraitFile) // a new crop takes the file's aspect
+const [resetError] = await blob.media.replaceCrop('posts/cover.jpg', 'mobile', null)         // back to cropping the original
 ```
 
 Replacements must be JPEG, PNG, WebP, or AVIF images. They crop from their center when their aspect differs from the crop.
@@ -325,7 +333,7 @@ Replacements must be JPEG, PNG, WebP, or AVIF images. They crop from their cente
 
 `responsiveImage()` from `@vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It works with any framework and in the browser.
 
-```ts [server/api/posts/[slug].get.ts]
+```ts [server/api/posts/[slug].get.ts] fragment
 import { blob, responsiveImage } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -363,7 +371,7 @@ defineProps<{ image: ResponsiveImage }>()
 
 Preload the largest image above the fold with unhead:
 
-```ts
+```ts fragment
 useHead({
   link: [{ rel: 'preload', as: 'image', imagesrcset: cover.img.srcset, imagesizes: cover.img.sizes, fetchpriority: 'high' }],
 })
@@ -375,7 +383,7 @@ With custom `blob.images.sizes`, pass the same values as `widths`. The server sn
 
 `image()` and `file()` references store `{ pathname, contentType, size }` and nothing else. Read alt text, dimensions, and crops from the record when you render:
 
-```ts
+```ts fragment
 const [, record] = await blob.media.get(entry.cover) // accepts the reference object
 ```
 

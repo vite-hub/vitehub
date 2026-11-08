@@ -16,7 +16,7 @@ For message platforms, [Channels](/docs/agents/channels) accept messages and del
 
 Attach `chat()` to start the Agent from a chat interface:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { chat } from 'vite-hub/agent/capabilities'
 

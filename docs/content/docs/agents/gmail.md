@@ -91,6 +91,8 @@ Colors are not case-sensitive. A label without `color` keeps its Gmail color.
 To hide unmanaged labels from the Gmail sidebar, set `hideUnmanagedLabels: true`:
 
 ```ts
+import { gmail } from 'vite-hub/agent/channels'
+
 gmail({
   hideUnmanagedLabels: true,
   labels: {
@@ -270,7 +272,7 @@ Access tokens stay in process memory, never in the State Adapter (where the Chan
 
 To call Gmail through another credential owner, pass a `client` function. It receives `{ method, path, query, body }`, with `path` relative to `https://gmail.googleapis.com/gmail/v1/users/me/`, and returns the JSON response body. Query values have Gmail API types: repeated parameters such as `historyTypes` or `labelIds` are arrays, and flags such as `includeSpamTrash` are booleans. For an HTTP error, it throws an error with a numeric `status`.
 
-```ts
+```ts fragment
 gmail({
   client: request => broker.call('gmail', request),
 })
@@ -372,6 +374,8 @@ Only the Inbox of one mailbox is watched. Mail that a Gmail filter moves past th
 A failed message does not block later mail. When a message keeps failing (Gmail cannot return it, its body fetch times out, or its Invocation cannot start), the Channel retries it on the next `maxAttempts` syncs (default 5). Then it records the message as skipped in State and lets the cursor move on.
 
 ```ts
+import { gmail } from 'vite-hub/agent/channels'
+
 gmail({ maxAttempts: 3 })
 ```
 

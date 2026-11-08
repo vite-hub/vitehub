@@ -71,7 +71,7 @@ Each resolve sends the model one question per multi-select option, one per non-e
 
 `ai.selection.value` is the object that `resolve()` returns. Use it to show what the model understood, such as the ranked options of a group:
 
-```ts
+```ts fragment
 ai.selection.value?.chart.ranked // [{ value: "bar", probability: 0.8 }, { value: "line", probability: 0.1 }]
 ```
 

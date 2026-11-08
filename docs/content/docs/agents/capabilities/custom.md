@@ -14,7 +14,7 @@ Write your own Capability when the [official catalog](/docs/agents/capabilities/
 
 Put it next to the app code that owns the behavior. `defineCapability()` checks the id and runs the normal lifecycle.
 
-```ts [server/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts] fragment
 import { defineCapability } from 'vite-hub/agent'
 import { z } from 'zod'
 
@@ -59,7 +59,7 @@ The catalog saves `title` as `label`. Metadata-only journals keep `label` and `i
 
 Attach it like an official Capability. Keep instructions in the Agent Driver, not hidden in Capability config.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { tickets } from '../capabilities/tickets'
 
@@ -93,7 +93,7 @@ Policy defaults to `allow`. Use `require-approval` or `deny` when a tool needs a
 
 `workspace` adds Workspace Sources or rules for one Invocation (one Agent run). It only adds, is inspectable, and never changes your Workspace Definition.
 
-```ts [server/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts] fragment
 import { defineCapability } from 'vite-hub/agent'
 
 export function ticketContext() {
@@ -134,7 +134,7 @@ For provider-backed Agents, declare files in `requires.workspace.paths` or add t
 
 `cli` gives the Capability its own commands, run instead of a generic shell command. Pass a static command tree or a per-run resolver.
 
-```ts [server/capabilities/inventory-runtime.ts]
+```ts [server/capabilities/inventory-runtime.ts] fragment
 import { defineCapability } from 'vite-hub/agent'
 import * as v from 'valibot'
 
@@ -175,7 +175,7 @@ export const inventoryRuntime = defineCapability({
 
 Return `undefined` from the resolver to hide the CLI for this run; the Capability stays attached and inspectable. To drop the whole Capability, use a `capabilities` callback, which decides before any tools, commands, requirements, hooks, or cleanup are added.
 
-```ts [server/capabilities/inventory-runtime.ts]
+```ts [server/capabilities/inventory-runtime.ts] fragment
 export const inventoryRuntime = defineCapability({
   id: 'inventory-runtime',
   cli: ({ actor }) => actor.kind === 'support'
@@ -310,7 +310,7 @@ The callback gets a copy of each definition with its prototype, property flags, 
 
 A transform can remove, replace (same key, keeping its MCP provenance), or rename MCP tools. A rename must keep `metadata.mcpServer` and `metadata.originalName`, even when it rebuilds the tool:
 
-```ts
+```ts fragment
 context.tools.transform(tools => ({
   lookup: {
     name: 'lookup',

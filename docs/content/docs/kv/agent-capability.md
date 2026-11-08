@@ -12,7 +12,7 @@ The `kv()` Capability gives an Agent the `kv_read` tool, plus `kv_edit` in write
 
 Start in read mode. Switch only when the Agent must write keys.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/agent/capabilities'
 
@@ -26,7 +26,7 @@ export default defineAgent({
 
 `mode: 'write'` allows writes. `store` limits the Agent to one store. `policy` controls writes.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 kv({ mode: 'write', policy: 'require-approval', store: 'agent-notes' })
 ```
 

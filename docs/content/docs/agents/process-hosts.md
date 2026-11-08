@@ -18,7 +18,7 @@ The host works inside one process only. Its `dataDir` must belong to one running
 
 Export the host from a server module. The `run` callback finds work and tracks it only while the host accepts work:
 
-```ts [server/host.ts]
+```ts [server/host.ts] fragment
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
 
 export default await createProcessAgentHost({
@@ -249,6 +249,8 @@ The default health route is `/api/health`. Generated routes grant no Console aut
 To test admission independent of machine pressure, use a disposable directory and a custom `sample` function:
 
 ```ts
+import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+
 const capacity = createProcessAgentCapacity({
   concurrency: 2,
   fallbackConcurrency: 0,

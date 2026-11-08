@@ -27,6 +27,7 @@ icon: i-lucide-code-2
 `runSchedule(name, { registry })` runs one schedule (a Definition) with `manual: true` now. Each call records a Schedule Run with a `srun_manual_` id, so it never collides with a cron run.
 
 ```ts [server/api/reports/run.post.ts]
+import { defineEventHandler } from 'h3'
 import registry from '#vitehub/schedule/registry'
 import { runSchedule } from '@vite-hub/schedule/runtime'
 

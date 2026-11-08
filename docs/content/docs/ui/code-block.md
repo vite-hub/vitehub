@@ -15,7 +15,7 @@ Syntax highlighting with [Shiki](https://shiki.style) is optional and lives in a
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/code-block`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/code-block`:
 
 ```ts
 import { CodeBlock, CodeBlockContent, useHighlightedCode } from "@vite-hub/ui";
@@ -359,7 +359,7 @@ A row below the content, such as for Show More. No props. Renders a `div` with `
 
 ### useHighlightedCode
 
-```ts
+```ts fragment
 function useHighlightedCode(
   code: MaybeRefOrGetter<string>,
   language: MaybeRefOrGetter<string>,

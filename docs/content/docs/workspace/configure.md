@@ -227,7 +227,7 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | --- | --- | --- |
 | `commit` | `boolean \| string` | Commit all changes automatically, with an optional message. |
 | `rootDir` | `string` | Source root used by loaders. |
-| `sourceRootDir` | `string` | Source-specific root for Source helpers. |
+| `sourceRootDir` | `string` | Folder that local Source helpers such as `file()` and `glob()` read from. For application `server/workspaces/<name>.ts` files, the default is the resolved project root. For flat files in Nuxt layers, `server/workspaces/<name>/config.ts` and Agent folders, the default is the file's folder, or its `workspace/` folder when present. |
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |
 | `bindings` | `Record<string, WorkspaceInstructionBinding>` | Values that Agent instructions can read: `string`, `number`, `boolean`, `null`, or a file as `{ path: string }`. |
 | `sources` | `Record<string, WorkspaceSourceInput>` | Source Bindings (where each Source appears). |
@@ -296,7 +296,7 @@ import { glob } from 'vite-hub/source/glob'
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```
 
-```ts [server/workspaces/docs.ts]
+```ts [server/workspaces/docs.ts] fragment
 import { defineWorkspace } from 'vite-hub/workspace'
 import { docs } from '../sources/docs'
 

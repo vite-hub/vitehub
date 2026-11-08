@@ -8,7 +8,7 @@ icon: i-lucide-calendar-clock
 ---
 
 ::product-hero{tagline="Run server code at set times. One file deploys as cron on your host." hosts="Cloudflare, Vercel, Deno, Node, Docker"}
-  :::product-files
+  :::product-files{feature="schedule"}
   ```ts [server/schedules/daily-report.ts]
   import { defineSchedule } from 'vite-hub/schedule'
 

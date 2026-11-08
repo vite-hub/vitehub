@@ -43,7 +43,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'netlify',
-    agent: true,
+    agent: { invocations: false },
     blob: true,
   },
   vite: {
@@ -64,7 +64,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'netlify',
-      agent: true,
+      agent: { invocations: false },
       blob: true,
     }),
     nitro(),
@@ -84,7 +84,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'netlify',
-      agent: true,
+      agent: { invocations: false },
       blob: true,
     }),
     hubSchedule({ providerOutput: 'standalone' }),
@@ -95,6 +95,8 @@ export default defineConfig({
 ::
 
 The `netlify` preset selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition becomes a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
+
+The standalone Agent function does not install an app-wide Invocation journal. Set `agent.invocations: false` and configure `invocations` on each Agent Definition when records are needed. An omitted or configured app-wide journal fails with `VITE_HUB_R0132`.
 
 ## Generated functions
 

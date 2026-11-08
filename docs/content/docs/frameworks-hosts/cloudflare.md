@@ -94,7 +94,7 @@ export default defineConfig({
 
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 
-```ts [src/database.ts]
+```ts [src/database.ts] fragment
 import { defineDatabase } from 'vite-hub/database'
 import { notes } from './schema'
 

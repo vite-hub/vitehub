@@ -15,7 +15,7 @@ The scroller does not hold messages, Agent state, transport, or storage. Put any
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The parts are headless (unstyled). Import them from `@vite-hub/ui/headless`, which loads no styles and needs no Nuxt UI. The Nuxt module does not auto-import them:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The parts are headless (unstyled). Import them from `@vite-hub/ui/headless`, which loads no styles and needs no Nuxt UI. `vite-hub/nuxt` does not auto-import them:
 
 ```ts
 import {
@@ -27,7 +27,7 @@ import {
 } from "@vite-hub/ui/headless";
 ```
 
-`@vite-hub/ui/styles.css` adds the shadcn/ui layout: a full-height root, a thin-scrollbar viewport, `1.5rem` between items, and a centered bottom button. The Nuxt module loads it for you.
+`@vite-hub/ui/styles.css` adds the shadcn/ui layout: a full-height root, a thin-scrollbar viewport, `1.5rem` between items, and a centered bottom button. Load it after Tailwind CSS and Nuxt UI, as [Installation](/docs/ui/installation) shows.
 
 ## Usage
 
@@ -279,7 +279,7 @@ Renders a `button` with `data-slot="message-scroller-button"` and `data-active`.
 
 Returns the state and commands of the nearest `MessageScroller`.
 
-```ts
+```ts fragment
 function useMessageScroller(): MessageScrollerContext;
 
 interface MessageScrollerContext {

@@ -54,7 +54,7 @@ Each Invocation opens a new Sandbox session. It creates a private Home, installs
 
 A trusted-host Sandbox can limit memory for all session commands and their children in one cgroup v2 group:
 
-```ts
+```ts fragment
 sandbox: {
   runtime: {
     kind: 'trusted-host',
@@ -124,7 +124,7 @@ The Sandbox fetches `ref`, compares the commit with the full `sha`, and starts i
 
 A Sandbox does not need Node.js, a package manager, or Corepack on the host or image. With `toolchain: 'project'`, it reads pinned versions from the checkout or `cwd`:
 
-```ts
+```ts fragment
 sandbox: {
   runtime: { kind: 'crabbox', profile: 'review' },
   checkout: { ref, remote, sha },

@@ -13,7 +13,7 @@ icon: i-ph-chats-circle-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/chat-session`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/chat-session`:
 
 ```ts
 import { ChatSession } from "@vite-hub/ui";
@@ -21,7 +21,7 @@ import { ChatSession } from "@vite-hub/ui";
 
 ## Usage
 
-```ts
+```ts fragment
 import { ChatSession, type ViteHubUISession } from "@vite-hub/ui";
 
 const session: ViteHubUISession = {
@@ -98,6 +98,8 @@ Other attributes go to the root `<section>`. It has a `data-session-id` attribut
 #### Types
 
 ```ts
+import type { UIMessage } from "ai"
+
 interface ViteHubUISession<Message extends UIMessage = UIMessage> {
   id: string;
   messages: readonly Message[];

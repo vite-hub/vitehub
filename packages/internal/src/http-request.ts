@@ -126,7 +126,7 @@ const httpInterruptedMessage = "[vitehub] HTTP request was interrupted."
 
 class HttpStatusError extends Diagnostic {
   constructor(readonly status: number) {
-    super({ code: "INTERNAL_R0012", docs: "https://vitehub.dev/docs/reference/diagnostics", why: `[vitehub] HTTP request failed with status ${status}.` }, HttpStatusError)
+    super({ code: "INTERNAL_R0012", docs: "https://vitehub.dev/docs/development/diagnostics/internal_r0012", why: `[vitehub] HTTP request failed with status ${status}.` }, HttpStatusError)
     this.name = "HttpStatusError"
   }
 }

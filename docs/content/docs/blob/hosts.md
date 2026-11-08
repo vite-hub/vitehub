@@ -12,6 +12,8 @@ Nitro writes the host output. `hubBlob()` adds a Nitro plugin that picks the sto
 
 ## Read and write blobs during development
 
+`vite dev` uses a local store unless the store sets `remote: true` or an explicit `driver`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+
 `hubBlob()` adds the `vitehub blob` CLI commands. Start the dev server, then run them from another terminal.
 
 ```bash [Terminal]

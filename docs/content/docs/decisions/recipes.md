@@ -14,7 +14,7 @@ A demand forecast has filter chips for suppliers and materials. Typing "nord par
 
 **Bridge in.** Your lists become options:
 
-```ts [server/utils/forecast-choices.ts]
+```ts [server/utils/forecast-choices.ts] fragment
 export const forecast = defineChoices({
   gateway: typesafe(),
   groups: {
@@ -26,7 +26,7 @@ export const forecast = defineChoices({
 
 **Bridge out.** The selection becomes your store filters:
 
-```ts
+```ts fragment
 useChoices<typeof forecast>({
   resolve,
   onSelect: (selection) => {
@@ -37,7 +37,7 @@ useChoices<typeof forecast>({
 })
 ```
 
-```ts
+```ts fragment
 selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.material // { include: [], exclude: [] }
 ```
@@ -50,7 +50,7 @@ A docs search box has facets for section and page kind. "guides about queues" se
 
 **Bridge in.** The facets are fixed lists:
 
-```ts [server/utils/search-choices.ts]
+```ts [server/utils/search-choices.ts] fragment
 export const search = defineChoices({
   gateway: typesafe(),
   groups: {
@@ -62,7 +62,7 @@ export const search = defineChoices({
 
 **Bridge out.** The selection becomes the URL query:
 
-```ts
+```ts fragment
 useChoices<typeof search>({
   resolve,
   onSelect: selection => navigateTo({
@@ -71,7 +71,7 @@ useChoices<typeof search>({
 })
 ```
 
-```ts
+```ts fragment
 selection.section // { include: ["queue"], exclude: [] }
 selection.kind // { value: "guide", confidence: 0.85, ranked: [...] }
 ```
@@ -84,7 +84,7 @@ Decisions picks facets but does not search. Your search code reads the query as 
 
 **Bridge in.** Your commands become options, with the command id as the value:
 
-```ts [server/utils/palette-choices.ts]
+```ts [server/utils/palette-choices.ts] fragment
 export const palette = defineChoices({
   gateway: typesafe(),
   groups: {
@@ -95,7 +95,7 @@ export const palette = defineChoices({
 
 **Bridge out.** Run a command only when the model is sure:
 
-```ts
+```ts fragment
 useChoices<typeof palette>({
   resolve,
   onSelect: ({ command }) => {
@@ -105,7 +105,7 @@ useChoices<typeof palette>({
 })
 ```
 
-```ts
+```ts fragment
 selection.command // { value: "open-settings", confidence: 0.82, ranked: [{ value: "open-settings", probability: 0.82 }, ...] }
 ```
 
@@ -122,6 +122,9 @@ Do not run a destructive command from a model answer without a confirm step.
 **Bridge in.** Each knob is a single group:
 
 ```ts [server/utils/dashboard-choices.ts]
+import { typesafe } from 'vite-hub/gateways'
+import { defineChoices } from 'vite-hub/decisions'
+
 export const dashboard = defineChoices({
   gateway: typesafe(),
   groups: {
@@ -134,7 +137,7 @@ export const dashboard = defineChoices({
 
 **Bridge out.** Set a knob only when the model chose a value:
 
-```ts
+```ts fragment
 useChoices<typeof dashboard>({
   resolve,
   onSelect: ({ metric, period, chart }) => {
@@ -145,7 +148,7 @@ useChoices<typeof dashboard>({
 })
 ```
 
-```ts
+```ts fragment
 selection.metric // { value: "revenue", confidence: 0.8, ranked: [...] }
 selection.period // { value: "quarter", confidence: 0.8, ranked: [...] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [...] }

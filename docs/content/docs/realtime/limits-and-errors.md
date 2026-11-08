@@ -8,9 +8,9 @@ icon: i-lucide-circle-alert
 
 ## Handle request errors
 
-`save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` says what went wrong, `error.fix` says what to do, and `error.docs` links here.
+`save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` says what went wrong, `error.fix` says what to do, and `error.docs` links to the code in [Realtime diagnostics](/docs/realtime/diagnostics).
 
-```ts [app/components/PageEditor.vue]
+```ts [app/components/PageEditor.vue] fragment
 const realtime = useRealtimeTiptap('pages', () => props.path)
 const toast = useToast()
 

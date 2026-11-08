@@ -13,7 +13,7 @@ icon: i-ph-tree-structure-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/file-tree`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/file-tree`:
 
 ```ts
 import { FileTree } from "@vite-hub/ui";
@@ -102,7 +102,7 @@ Other attributes go to the tree element. A template ref exposes `getModel()`.
 
 Creates a Pierre `FileTree` model.
 
-```ts
+```ts fragment
 function useFileTree(options: FileTreeOptions): FileTreeModel;
 
 interface FileTreeOptions extends Omit<PierreFileTreeOptions, "paths"> {
@@ -116,7 +116,7 @@ Common options: `initialExpansion`, `initialSelectedPaths`, `search`, `gitStatus
 
 Returns the selected paths of a model.
 
-```ts
+```ts fragment
 function useFileTreeSelection(model: FileTreeModel): ShallowRef<readonly string[]>;
 ```
 

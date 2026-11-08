@@ -25,7 +25,7 @@ the same value as `actor` and `invoker`.
 
 Authenticate first. Then pass only checked identity facts:
 
-```ts [server/api/support.post.ts]
+```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'

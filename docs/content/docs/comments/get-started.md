@@ -100,7 +100,7 @@ Comments also must know the repository. When you build, it reads the `origin` re
 
 A production build keeps comments in a database that you choose. On Node, the simplest choice is a SQLite file:
 
-```ts [node/vite.config.ts]
+```ts [node/vite.config.ts] fragment
 export default defineConfig({
   plugins: [vue(), comments({ database: 'file:./data/comments.sqlite' })],
 })

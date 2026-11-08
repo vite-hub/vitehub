@@ -6,13 +6,13 @@ navigation.order: 4
 icon: i-lucide-server
 ---
 
-Import the server API from `vite-hub/decisions`. It runs in any server code. Pass a gateway (the model client) with `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways` ([AI gateways](/docs/agents/ai-gateways)).
+Import the server API from `vite-hub/decisions`. It runs wherever your server code runs. Pass it a gateway that has `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways`, to ask TypeSafe Jev. Or pass any AI SDK `model`. See [AI gateways](/docs/agents/ai-gateways).
 
 ## Define choices
 
-`defineChoices()` takes a gateway and your groups. It throws on a wrong definition.
+`defineChoices()` takes a gateway or a model, and your groups. A wrong definition throws when you call it.
 
-```ts [server/utils/forecast-choices.ts]
+```ts [server/utils/forecast-choices.ts] fragment
 import { defineChoices, toOptions } from "vite-hub/decisions"
 import { typesafe } from "vite-hub/gateways"
 
@@ -36,29 +36,33 @@ export const forecast = defineChoices({
 
 | Setting | Meaning |
 | --- | --- |
-| `gateway` | An object with `ask()`. The key stays on the server. |
-| `groups` | One entry per decision. The key names the group in the selection. |
-| `hints` | A note about your domain, added to every question. |
-| `name` | A label for logs and the CLI. It connects nothing. |
+| `gateway` | An object with `ask()`, such as `typesafe()` or `vercel()` for TypeSafe Jev. The key stays on the server. |
+| `model` | Any AI SDK model, such as `openai("gpt-5.1-mini")`, instead of `gateway`. It needs the `ai` package. Set `gateway` or `model`, not both. |
+| `groups` | One entry for each decision. The key names the group in the selection. |
+| `hints` | A short note for the model about your domain. It applies to every question. |
+| `name` | A label for logs and the CLI. It never connects anything. |
 | `limits` | Change the [limits](/docs/decisions/limits-and-errors#limits). |
 | `thresholds` | Change the [thresholds](/docs/decisions/concepts#thresholds). |
 
-Group settings:
+Jev gives a probability for every option. A chat model gives one answer and how sure it is, so with `model` the other options share the rest of the probability. `ranked` is then less useful after its first entry. See [Ask with any model](/docs/agents/ai-gateways#ask-with-any-model).
+
+Each group takes these settings:
 
 | Setting | Meaning |
 | --- | --- |
 | `label` | The group name. The model reads it. |
 | `options` | A list, or a function that loads it per request. |
 | `multiple` | `true` (default): any number of options. `false`: at most one. |
-| `hints` | A note about this group for the model. |
+| `infer` | `false` (default): choose only an option that the text names. `true`: choose the option that fits the text best, also when the text does not name it. Needs `multiple: false`. See [Infer one option](/docs/decisions/concepts#infer-one-option). |
+| `hints` | A short note for the model about this group. |
 
-`toOptions(items, { value, label, aliases? })` turns your data into options of shape `{ value, label, aliases? }`. `value` is a string or number, unique in its group.
+`toOptions(items, { value, label, aliases?, description? })` turns your data into options. An option is `{ value, label, aliases?, description? }`. The `value` is a string or a number, and it must be unique in its group. The `description` tells the model what the option is about. An `infer` group needs it.
 
 ## Resolve text
 
 Call `resolve()` in a route, queue worker, or test. It returns `[error, selection]` and never throws.
 
-```ts [server/api/forecast/choices.post.ts]
+```ts [server/api/forecast/choices.post.ts] fragment
 import { forecast } from "../../utils/forecast-choices"
 
 export default defineEventHandler(async (event) => {
@@ -70,7 +74,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-```ts
+```ts fragment
 selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
@@ -83,7 +87,7 @@ The route is yours, so put auth, rate limits, and context there. Use [Rate Limit
 
 An `options` function gets `context`. Type its parameter, and `resolve()` requires the same type.
 
-```ts
+```ts fragment
 const sites = defineChoices({
   gateway: typesafe(),
   groups: {
@@ -104,7 +108,7 @@ Without a type, `resolve()` takes no context. With one, TypeScript stops you fro
 
 Pass a `signal` to stop the gateway request:
 
-```ts
+```ts fragment
 await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 ```
 
@@ -112,9 +116,9 @@ await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 
 `forecast.inspect(text)` returns `[error, plan]`, with the state and questions that `resolve()` would send. Nothing leaves your server. Use it in tests or when an answer looks wrong.
 
-```ts
+```ts fragment
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
-plan.questions // one question for each option of a multiple group, one for each single group, and `supported`
+plan.questions // one question for each option of a multiple group, one for each single group, and `supported` unless every group infers
 ```
 
 The CLI runs both functions on a file, with no route or dev server:

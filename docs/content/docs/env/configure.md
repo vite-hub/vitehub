@@ -315,6 +315,8 @@ Every field is required and sensitive unless an annotation changes that. `@optio
 The default prefix is `VITEHUB_`. Only non-sensitive keys that start with `VITEHUB_PUBLIC_` go to Public Env. `@public` on another key clears sensitivity but keeps it on the server, so an annotation alone never moves a value to the browser.
 
 ```ts
+import { envSchema } from '@vite-hub/env/vite'
+
 env: envSchema(new URL('./.env.example', import.meta.url), {
   prefix: 'APP_',
   paths: { APP_DATABASE_URL: 'database.url' },

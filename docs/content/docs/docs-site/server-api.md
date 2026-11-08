@@ -36,12 +36,14 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `groups` | `DocsGroup[]` | `[]` | Rail items that hold several sections. A `DocsGroup` is `{ title, icon?, sections? }`. `sections` lists section ids; a section can also join with `group` in its `.navigation.yml`. See [Groups](/docs/docs-site/configure#groups). |
 | `start` | `{ section, links? }` | None | The section new readers open first, plus site pages listed at its top. The header and error page link to them. |
 | `socials` | `DocsLink[]` | `[]` | Community links in the header, or its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
+| `footer` | `DocsLink[]` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy, so each one has a link to it. |
 | `banner` | `string` | None | One line above every docs page. |
 | `sitemap` | `string[]` | `[]` | Extra paths for `/sitemap.xml`, which already lists every docs page. |
 | `github` | `{ repo, branch?, dir? }` or `false` | `false` | The site repository. The shell links to `https://github.com/<repo>`. `branch` (default `main`) and `dir` (default: the `dir` option) are in `useDocsConfig().github` for your components. |
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Rail and sidebar icons: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect. |
 | `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on errors. It checks fragments only on the current page and does not fetch remote URLs. A link to an exact `redirect` route rule passes; the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule leads to no docs page or hides one. Change this with the app's own `linkChecker` options. |
+| `seoAudit` | `boolean` | `false` | `true` checks every prerendered page as a site audit does, and stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror) on a problem. Pages with `noindex` or a canonical link to another page are left out. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered by `nuxt-og-image` during prerender. `component` names your template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to `vite-hub/nuxt`'s `comments` option. `false` sets `comments: false` there. |
@@ -66,8 +68,8 @@ The module also configures the modules it installs: `llms` from `site`, and `age
 | `codePanel` | `boolean` | `false` | Tutorials only. Shows the current step's files beside the text. |
 | `sidebar` | `boolean` | `true` | `false` hides the left navigation on this page. |
 | `toc` | `boolean` | `true`, `false` on `landing` and `home` | `false` hides the "On this page" outline. |
-| `navigation` | `false` or `{ title?, order?, group?, kind? }` | Listed | `false` hides the page from the sidebar. `title` is the sidebar label, `order` sorts pages, `group` is a sidebar heading, and `kind` is stored in the manifest. |
-| `seo` | `{ title?, description?, image? }` | None | Title and description for search engines, shares, and the search dialog, when they differ from the page. `image` is the share image: a path in `public/`, a URL, or `false` for none. Without it, the build renders one. |
+| `navigation` | `false` or `{ title?, order?, group?, kind?, panel? }` | Listed | `false` keeps the page out of the sidebar. `title` is the sidebar label, `order` sorts the pages, and `group` is a sidebar heading. `kind` is stored in the manifest. `panel: true` on the `index.md` of a folder inside a section makes the folder a [panel](/docs/docs-site/configure#panels). |
+| `seo` | `{ title?, description?, image?, index? }` | None | Title and description for search engines, shares, and the search dialog, when they must differ from the page. `image` is the share image, a path in `public/` or a URL, or `false` for none; without it the build renders one. `index: false` marks the page `noindex` and leaves it out of the prerender, `sitemap.xml`, llms.txt, and the share images. See [Pages that search engines skip](/docs/docs-site/configure#pages-that-search-engines-skip). |
 
 Dotted keys, such as `navigation.order: 2`, equal nested keys. `navigation: false` hides the page even when dotted keys set other navigation fields.
 

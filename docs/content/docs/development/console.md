@@ -6,7 +6,7 @@ navigation.group: Local tools
 icon: i-lucide-monitor-dot
 ---
 
-The ViteHub Console is a page in your app that shows the primitives you turned on. It is off by default. Enable it, start the app, and open `/_vitehub`.
+The ViteHub Console is a page in your app that shows the primitives you turned on. It is off by default. Enable it, start the app, and open `/_vitehub`. To open deployed apps from one place, use the [hosted Console](#hosted-console) at [console.vitehub.dev](https://console.vitehub.dev).
 
 Agents reach the same data through the [MCP endpoint](/docs/development/mcp) at `/_vitehub/mcp`.
 
@@ -29,7 +29,7 @@ The sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Lo
 > [!WARNING]
 > Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before you put it on a production URL.
 
-### Section pages and URLs
+## Section pages and URLs
 
 A section can have more pages than its main view. Content has a dashboard, a Settings page when it defines a singleton, and a Media page when Blob is on. Each page has its own URL, so links, reloads, and Back work:
 
@@ -48,7 +48,7 @@ Pages use the access of their section. `{ sections: ['content'] }` in `console.a
 
 The sidebar header button collapses it to icons. The browser keeps the state and width.
 
-### Page state in the URL
+## Page state in the URL
 
 Each page keeps its view in the query string. A reload, a shared link, Back and Forward, and **Open in new tab** in the floating window open the same view. A selection, a tab, or a new page of results adds a history entry. A search, a filter, or a sort replaces the current entry. Default values stay out of the URL, and the Console ignores unknown values.
 
@@ -70,7 +70,7 @@ Each page keeps its view in the query string. A reload, a shared link, Back and 
 | Skills | `agent`, `path`. |
 | Usage | `window`, `section`, `metric`, `breakdown`, `agent`, `status`, `search`. |
 
-### Search
+## Search
 
 <kbd>⌘</kbd> <kbd>K</kbd> or <kbd>/</kbd> opens search from any Console page.
 
@@ -82,7 +82,7 @@ Each page keeps its view in the query string. A reload, a shared link, Back and 
 
 Items also match aliases, such as `images` for Media and `deploy` for **Publish all changes**. <kbd>Enter</kbd> opens the highlighted item. <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. **Publish all changes** lists the changes it will publish. Choose **Publish N changes** to publish exactly those drafts, or press <kbd>Backspace</kbd> on an empty query to go back.
 
-### Update ready
+## Update ready
 
 Each Console build has an id, which changes only when the Console catalog or client changes. An open Console compares its id with the deployed one once a minute and when the tab becomes visible. When they differ, choose **Update ready** at the bottom of the rail to reload. The sections response returns the deployed id as `build`.
 
@@ -94,6 +94,7 @@ Set `console` in the ViteHub options. `console.auth` chooses who can open it, an
 | --- | --- |
 | `false` | Anyone who can reach `/_vitehub`. Use it on your own machine, or behind a host that already checks every request. |
 | `'app'` | Users with a session from the app [Auth](/docs/auth). |
+| `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
 The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub db generate` and `vitehub db migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
@@ -237,6 +238,27 @@ App Auth and the Console must use the same public origin, with the same protocol
 
 When `console` is missing or `false`, ViteHub registers no Console page, RPC route, Nitro plugin, or public asset path. The host returns its normal not-found response.
 
+## Read the project
+
+The `project.get` operation tells a client what the project runs and what the caller may use. Each section and each operation is one that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows for the caller. A read-only grant, such as `"kv:read"`, and an MCP access token without `vitehub:write` leave out the operations that change state. It does not need Agents or a section grant, so every caller that passes Console access can read it.
+
+```bash [Terminal]
+pnpm vitehub project info
+pnpm vitehub project info --url https://app.example.com
+```
+
+```json
+{
+  "protocol": 1,
+  "name": "my-app",
+  "vitehub": "0.1.0",
+  "sections": ["env", "kv"],
+  "operations": ["definitions.list", "documents.action", "env.get", "kv.del", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
+}
+```
+
+`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. Registered operations can appear even when their section has no Console page, such as `task.list`. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
+
 ## Inspect environment declarations
 
 Env searches declared Server Env variables and filters them by source. A variable shows its provider, secret flag, and whether it is required or has a default. Host environment means process environment variables and host runtime bindings.
@@ -273,12 +295,20 @@ When `console.authorize` returns `{ sections }`, these routes also need the `con
 Set `console.mcpClient` to `true` to add the MCP client section. It runs on the server and connects to MCP servers over Streamable HTTP as the person signed in to the Console. It lists and calls their tools, reads their resources, gets their prompts, and shows each result as the server sent it.
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   console: { auth: "app", mcpClient: true },
 })
 ```
 
-This section is a client. [ViteHub MCP](/docs/development/mcp) is the server that the Console serves at `/_vitehub/mcp`, with no option needed.
+The section uses the MCP SDK. Install it in your app first:
+
+```sh
+pnpm add @modelcontextprotocol/sdk
+```
+
+This section is the client side. [ViteHub MCP](/docs/development/mcp) is the server side: the MCP server that the Console itself serves at `/_vitehub/mcp`, which needs no option.
 
 The section lists ViteHub MCP and the MCP server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata at `/.well-known/oauth-protected-resource`, such as its own `/mcp`. **Connect** also takes the URL of another server or a path on this app. URLs must use HTTPS. Plain HTTP works only for this app and `localhost`. The same rule applies to OAuth endpoints and every redirect.
 
@@ -317,6 +347,8 @@ The Console keeps MCP connections on the server, per person. Tokens, refresh tok
 By default, connections live in server memory, and a restart ends them. To keep them, turn on the default [KV](/docs/kv) store with `kv: true` (or an explicit default KV configuration) and set `VITEHUB_CONSOLE_MCP_KEY`:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'cloudflare',
   console: { auth: 'app', mcpClient: true },
@@ -339,9 +371,205 @@ Agents and ViteHub MCP cannot use these connections. The `vitehub` CLI of `vite 
 
 Without the key, use the MCP client only in development or on one Node server. Hosts with many instances, such as Cloudflare Workers, have one memory per instance, so a sign-in that finishes on another instance fails.
 
+## Use one Console for many projects
+
+One Console build can open many ViteHub apps. Each app is a **project**. The Console that an app serves at `/_vitehub` opens that app. A Console that runs on its own origin, such as a copy on a static host, keeps a list of projects and switches between them.
+
+Each project must use [`auth: "token"`](#use-a-console-token) and list the origin of the Console in [`console.origins`](#call-the-console-from-another-origin):
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: {
+      auth: 'token',
+      origins: ['https://console.example.com'],
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: {
+      auth: 'token',
+      origins: ['https://console.example.com'],
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: {
+      auth: 'token',
+      origins: ['https://console.example.com'],
+    },
+  })],
+})
+```
+:::
+::
+
+### Hosted Console
+
+[console.vitehub.dev](https://console.vitehub.dev) is the same Console build as a static site. It has no server and keeps no state. The project list and the tokens stay in your browser, and the browser calls each project directly. ViteHub never receives your tokens or your project data.
+
+To open a deployed app there:
+
+1. Set `console: { auth: "token" }`. `console.origins` defaults to `["https://console.vitehub.dev"]`, so the hosted Console needs no other option. When you set `console.origins` yourself, keep `https://console.vitehub.dev` in the list.
+2. Create a token, and set its SHA-256 hash as `VITEHUB_CONSOLE_TOKEN_SHA256` on the server, then deploy. The server keeps only the hash, so keep the token itself in a password manager.
+3. Open [console.vitehub.dev](https://console.vitehub.dev), select **Link project**, enter the app URL, and paste the token. See [Link a project](#link-a-project).
+
+```sh
+TOKEN=$(openssl rand -hex 32)
+echo "$TOKEN"                          # paste this into the Console
+printf %s "$TOKEN" | sha256sum | cut -d' ' -f1  # set this as VITEHUB_CONSOLE_TOKEN_SHA256
+```
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { auth: 'token' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { auth: 'token' },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { auth: 'token' },
+  })],
+})
+```
+:::
+::
+
+The hosted Console can also link a development server on `localhost` that uses `auth: "token"`. Chrome then asks for permission to reach the local network. During development, the Console at `/_vitehub` of the app is simpler.
+
+The page sends a strict Content Security Policy. It loads scripts only from its own origin and cannot be shown in a frame. The browser lets it call `https:` origins, and `http://localhost` and `http://127.0.0.1` on any port.
+
+Some features need the app origin, so they work only in the Console that the app serves. See [What needs the Console that the app serves](#what-needs-the-console-that-the-app-serves).
+
+### Link a project
+
+1. Select **Link project**.
+2. Enter the app URL: its origin, with its base path if it has one, such as `https://app.example.com` or `https://app.example.com/portal`. A pasted Console URL such as `https://app.example.com/_vitehub/kv` also works.
+3. The Console reads [`project.get`](#read-the-project). When the project asks for a token, paste the token that you created for it and select **Sign in**. The server keeps only its SHA-256 hash, in `VITEHUB_CONSOLE_TOKEN_SHA256`.
+
+The Console then opens the project and shows only the sections that the project lists for this token. When linking fails, the Console says why:
+
+| Message | Fix |
+| --- | --- |
+| `<console> is not in console.origins for <host>` | Add the Console origin to `console.origins`, then build and deploy again. The browser hides why a cross-origin request failed, so the project can also be offline. |
+| `<host> refused this token` | Paste the token whose hash is in `VITEHUB_CONSOLE_TOKEN_SHA256`. If you lost it, create a new token and set its hash. |
+| `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
+| `This project signs in with OAuth` | OAuth sign-in for a Console on another origin is not ready. Use `auth: "token"`. |
+
+### Link a new project
+
+A one-time link lets a new project link itself, so you do not copy a token by hand. The setup command that makes these links, `vite-hub init --console`, is not released yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
+
+The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. The setup command stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
+
+When you open the link, the Console removes it from the address bar and asks **Link `<host>`?**. It sends nothing before you confirm. Select **Link project** only when the host is the app that you just started, because a changed link can name another host. The Console then sends the key to that app, saves the project with the key as its Console token, and deletes the one-time entry.
+
+The link has limits:
+
+- It works only in the browser profile that made it. Teammates use [`auth: "app"`](#use-the-app-auth), or link the project with their own token.
+- It works once, and for 24 hours. A used or unknown link says `This link was made in another browser or already used`. Make a new link and run the command again.
+- When the app refuses the key, its `VITEHUB_CONSOLE_TOKEN_SHA256` is not the hash of this link. Run the command again, or relink.
+- The first confirmation binds the link to that app URL, also when the request fails. You can fix the app and confirm the same URL again. Another app needs a new link.
+- Tabs take turns with [Web Locks](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API), so only one tab can use a link. A browser without Web Locks, or a Console on plain `http:` outside `localhost`, cannot confirm a link.
+
+### Switch projects
+
+The top of the rail shows the name and the host of the open project. Select it, or press <kbd>⌘</kbd><kbd>K</kbd> and choose **Switch project**, to see the linked projects. A dot shows if each one is reachable, needs a new token, or is unreachable. The Console loads the project that you choose, and opens it again after a reload.
+
+### Where the tokens are
+
+The project list and the tokens stay in this browser, in `localStorage` of the Console origin, under the key `vitehub-console:projects`. No server keeps a copy. This has consequences:
+
+- Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
+- Another browser or another Console origin has its own list. Link the projects again there.
+- When the browser does not let the Console store data, such as when storage is full or blocked, the list stays in memory until the page reloads. The Console says so.
+- To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
+
+To remove a project, open the project list, select the **×** next to the project, and confirm **Forget project**. The browser removes the URL and the token. The project does not change.
+
+The Console that an app serves also uses this storage. With `auth: "token"`, `/_vitehub` asks for the token, keeps it in `localStorage` of the app origin, and **Sign out** in the account menu removes it.
+
+### What needs the Console that the app serves
+
+Some features act on the app's own pages or set cookies of the app, so they work only in the Console at `/_vitehub` of the app. In production, an app serves that Console only with `console.embed: true`. A Console on another origin hides or turns them off, and links to the app's Console where that helps:
+
+- Live editing of Content documents. The editor saves alone, and saves still refuse to overwrite a newer version.
+- The Content page preview.
+- Impersonation of Auth users.
+- The connect flow of Connections.
+- Env management: values, Access, and Activity. The Env bridge accepts calls only from the app origin.
+- Image previews from a Blob serve route that needs the app session. The Media library shows the file type instead.
+- The app session account menu, and the page tools of the app's pages.
+
+### Self-host the Console
+
+The hosted build is a static site, so any static host can serve it. Build it in a clone of the [ViteHub repository](https://github.com/vite-hub/vitehub):
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm exec vp run -t vite-hub#build
+corepack pnpm --dir packages/vite-hub run build:console-hosted
+```
+
+The last command writes `index.html`, `404.html`, `_headers`, and `assets/` to `packages/vite-hub/.vitehub/console-hosted`. When you serve that folder:
+
+- Serve it from an origin that serves nothing else, because every script on that origin can read the tokens.
+- Answer unknown paths with `index.html`, so Console routes such as `/kv` load the app.
+- Send the headers in `_headers`. Cloudflare and Netlify read that file. On other hosts, set the same headers. When a project uses `http:` on a host other than `localhost` or `127.0.0.1`, add it to `connect-src`.
+- Add the Console origin to `console.origins` of each project.
+
+On Cloudflare, `packages/vite-hub/console.hosted.wrangler.jsonc` is the configuration of console.vitehub.dev: a Worker with static assets and no Worker script. Copy it into the same folder, because `assets.directory` is relative to the file. Change `name` and `routes`, build, and run `wrangler deploy --config <file>`.
+
 ## Develop against a fixture
 
-Use `vitehub console dev` to get the same Agent Invocations (Agent runs) on every restart. It validates a versioned JSON fixture, then runs the command after `--` with an in-memory Console journal. It does not write `.vitehub/data/console.sqlite`.
+Use `vitehub console dev` to get the same Agent Invocations (Agent runs) on every restart. It validates a versioned JSON fixture, then runs the command after `--` with an in-memory Console journal. It does not write the default Agent journal at `.vitehub/data/agent-invocations.sqlite`.
 
 ```bash [Terminal]
 pnpm vitehub console dev \
@@ -386,7 +614,7 @@ Fixtures often contain prompts and model output. Use fake or cleaned records bef
 
 ## Protect the Console route
 
-The Console registers its page and assets under `/_vitehub/**` and its RPC route under `/_vitehub/rpc/**`. Provider status uses `GET /api/_vitehub/console/status`. It serves the [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) as static files under `/_vitehub/.well-known/skills/`, so `npx skills add <app>/_vitehub` installs the skill of your `vite-hub` version. These files need no sign-in.
+The Console registers its page and assets under `/_vitehub/**` and its RPC route under `/_vitehub/rpc/**`. Provider status uses `GET /_vitehub/api/status`. It serves the [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) as static files under `/_vitehub/.well-known/skills/`, so `npx skills add <app>/_vitehub` installs the skill of your `vite-hub` version. These files need no sign-in.
 
 ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and a robots meta tag in the page. This keeps the Console out of search engines that respect it. It does not block access, so choose an access policy below.
 
@@ -410,6 +638,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -422,6 +654,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -446,22 +681,19 @@ export default defineAuth({
   access: {
     routes: [
       { route: '/_vitehub/**', authorize: authorizeConsole },
-      { route: '/api/_vitehub/console/**', authorize: authorizeConsole },
     ],
   },
 })
 ```
 
-The `role` field comes from Better Auth's `admin()` plugin. You can use any role, permission, or allowlist the app has. To make the first account admin on a fresh deploy, set `VITEHUB_ADMIN_EMAILS` (see [Give the first admin role](/docs/auth/configure#give-the-first-admin-role)). To keep users and sessions across restarts, use [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database).
+The `role` field comes from Better Auth's `admin()` plugin. Use the app's role, permission, or allowlist. To give your account the admin role on a fresh deploy, set `VITEHUB_ADMINS`. See [Give the first admin role](/docs/auth/configure#give-the-first-admin-role). To keep users and sessions across restarts, use [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database).
 
 - No session returns `401`.
 - After sign-in, the callback gets the request and the signed-in `user`.
 - `false` returns `403` and offers **Switch account**.
 - A custom `Response` sets the rejection or redirect.
 
-App Auth gives a built-in page at `/_vitehub/sign-in`, with the social providers and, when `emailAndPassword` is on, an email and password form. When sign-up is open, **Create one** opens a sign-up form (`emailAndPassword.disableSignUp: true` hides it). After sign-in, the page returns to the requested Console page. Failed attempts show the form again. Expired sessions show **Sign in**. The account menu can sign out. You need no Console Auth Definition, client, or sign-in route.
-
-Every Console route needs an authorization callback, including `GET /api/_vitehub/console/status` and, when on, `GET /api/_vitehub/console/usage`. The two wildcard routes above cover them. A missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` alone never lets every signed-in user in.
+ViteHub requires an authorization callback for every Console route, including `GET /_vitehub/api/status` and, when enabled, `GET /_vitehub/api/usage`. The wildcard route above covers them. Missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` never grants access to every signed-in user by itself.
 
 For per-section rules or a separate Console policy, use an authorization file:
 
@@ -606,6 +838,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
@@ -625,6 +861,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
@@ -643,13 +882,9 @@ export default defineConfig({
 :::
 ::
 
-Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and [`VITEHUB_SECRET`](/docs/env/app-secret) on the server. Console Auth signs sessions with a secret derived from `VITEHUB_SECRET`. `BETTER_AUTH_SECRET` wins when set, and `secretEnv` names another required variable. Changing either secret signs out every Console session.
+Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and [`VITEHUB_SECRET`](/docs/env/app-secret) in the server environment. Console Auth signs sessions with a secret derived from `VITEHUB_SECRET`; `BETTER_AUTH_SECRET` wins when it is set, and `secretEnv` names another required variable. Rotating either secret signs out every Console session. `baseURL` is the public origin used for OAuth redirects; set it when a proxy terminates TLS. The GitHub callback URL is `https://agent.example.com/_vitehub/api/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub includes `app.baseURL` in the callback and redirects. Put `databasePath` on persistent storage. Console Auth creates or updates its Better Auth tables before the first protected request. It refuses a missing database or secret. Application requests and channel requests keep their own authentication.
 
-- `baseURL` is the public origin for OAuth redirects. Set it when a proxy ends TLS.
-- The GitHub callback URL is `https://agent.example.com/api/_vitehub/console/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub adds `app.baseURL` to the callback and redirects.
-- Put `databasePath` on persistent storage. Console Auth creates or updates its Better Auth tables before the first protected request, and refuses to run without a database or secret.
-
-App and channel requests keep their own authentication. If Primary Auth (the app's Auth) protected the Console before, remove its `/_vitehub/**` and `/api/_vitehub/console/**` access routes. Keep `auth: true` if app routes still use it. Otherwise both guards apply and maintainers sign in twice.
+If you previously protected the Console through Primary Auth, remove its `/_vitehub/**` access route when you switch to Console Auth. Keep `auth: true` if application routes still use Primary Auth. Otherwise, both auth guards apply and maintainers must sign in twice.
 
 Inline Console Auth uses `node:sqlite` and needs the Node preset. Other presets need a Console Auth Definition file with a database adapter the host supports.
 
@@ -679,7 +914,7 @@ export default defineConsoleAuth({
 })
 ```
 
-ViteHub sets the auth route to `/api/_vitehub/console/auth/**` and the cookie prefix to `vitehub_console`. It guards `/_vitehub/**` and every method under `/api/_vitehub/console/**`, including RPC and invocation actions, but not the sign-in page and callback. A signed-out visit opens `/_vitehub/sign-in`, and the provider redirect starts when the user selects its button. Console APIs return 401 without a session. The server file must give a Better Auth database adapter on durable storage and a secret. ViteHub runs Better Auth migrations before the first protected request. Set `migrate: false` only when your own startup applies the schema.
+ViteHub sets the auth route to `/_vitehub/api/auth/**` and the cookie prefix to `vitehub_console`. It guards `/_vitehub/**`, including RPC and invocation actions, but not the sign-in page and callback. A signed-out visit opens `/_vitehub/sign-in`, and the provider redirect starts when the user selects its button. Console APIs return 401 without a session. The server file must give a Better Auth database adapter on durable storage and a secret. ViteHub runs Better Auth migrations before the first protected request. Set `migrate: false` only when your own startup applies the schema.
 
 An optional `vitehub/console/auth/client.ts` adds Better Auth client plugins and a `setup` hook, for the Console pages only. `setup` gets the client from `createAuthClient()`. Use `loadAuthClient(client)` from `vite-hub/auth/vue` for members that are not calls, such as `$store`:
 
@@ -697,6 +932,174 @@ export default defineConsoleAuthClient({
 Use `console.auth.server` or `console.auth.client` for a file in another place. A relative path starts at the project root. An explicit path conflicts with a found file at the default place. Client code does not authorize requests.
 
 On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a Cloudflare Access application. See [Cloudflare](/docs/frameworks-hosts/cloudflare).
+
+### Use a Console token
+
+`auth: 'token'` protects the Console data routes with one secret. Use it for an app without sign-in, for the CLI, and for a Console on another origin.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  })],
+})
+```
+:::
+::
+
+The server never stores the token. It reads only its SHA-256 from the `VITEHUB_CONSOLE_TOKEN_SHA256` environment variable on each request, so a person or tool that reads the host env, or a pulled `.env` file, does not get a working token. The build does not contain it. Create a token, keep it where you keep secrets, and set its hash in the host environment:
+
+```bash [Terminal]
+TOKEN=$(openssl rand -hex 32)
+printf %s "$TOKEN" | sha256sum   # 64 hex characters
+# Node and most hosts: set the hash in the server environment
+VITEHUB_CONSOLE_TOKEN_SHA256=<hash> node .output/server/index.mjs
+# Cloudflare
+wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256
+```
+
+Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set or is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
+
+The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, with the token, not the hash:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
+```
+
+A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`. An Agent that calls Console operations as tools gets `via: 'agent'` and never `via: 'token'`, so allow it on its own:
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize(({ via }) => {
+  if (via === 'token') return { sections: ['kv', 'logs:read'] }
+  if (via === 'agent') return { sections: ['kv:read'] }
+  return false
+})
+```
+
+::warning
+The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles. To rotate it, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or redeploy the server. The old token stops working at once.
+::
+
+The Console page on the app's own origin cannot send the token yet, so with `auth: 'token'` it opens in its signed-out state. Use the CLI, MCP, or a Console on another origin.
+
+### Call the Console from another origin
+
+A Console on another origin, such as the hosted Console at `https://console.vitehub.dev` or a Console that you host yourself, calls the app's Console data routes from the browser. `console.origins` lists the origins that may do this:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: {
+      auth: 'token',
+      origins: ['https://console.vitehub.dev', 'https://console.example.com'],
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: {
+      auth: 'token',
+      origins: ['https://console.vitehub.dev', 'https://console.example.com'],
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: {
+      auth: 'token',
+      origins: ['https://console.vitehub.dev', 'https://console.example.com'],
+    },
+  })],
+})
+```
+:::
+::
+
+`origins` defaults to `['https://console.vitehub.dev']`. Set `origins: []` to turn cross-origin calls off. Each entry is an `https://` origin, or an `http://` origin on `localhost` or `127.0.0.1` for development. An entry has no path, query, or trailing slash. The build fails on any other value.
+
+The server accepts a cross-origin call only when all of these are true:
+
+- `console.origins` lists the `Origin` of the request.
+- `console.auth` is `'token'`.
+- The request sends the token as `Authorization: Bearer`, and the token is correct.
+
+Cookies never authorize a cross-origin call, so another site cannot use a signed-in browser session. A call from an origin that is not listed gets `403` with `CONSOLE_ORIGIN_REJECTED`. The other `auth` modes keep every Console data route same-origin.
+
+The rule covers the Console data routes: the RPC at `/_vitehub/rpc/__call` and `/_vitehub/rpc/__upload`, Auth management at `/_vitehub/auth/manage`, Env management at `/_vitehub/env/manage`, Channel replay at `/_vitehub/channels/replay`, and Schedule runs at `/_vitehub/schedules/run`. Env management still authenticates the request with its provider and checks the provider permissions. A Schedule run with a signed dispatch keeps the signature as its own authority. Without a signature, the route takes the Console token as `Authorization: Bearer` with `auth: 'token'`, and needs the full `schedules` grant. A session runs a Schedule through the RPC instead.
+
+The responses to a listed origin carry `Access-Control-Allow-Origin: <origin>`, `Access-Control-Expose-Headers: WWW-Authenticate`, and `Origin` in `Vary`. They never carry `Access-Control-Allow-Credentials`. A Nitro plugin answers the `OPTIONS` preflight of these routes before every app middleware, including the files in `server/middleware/`, and before app Auth. A listed origin gets `204` with `Access-Control-Allow-Methods: POST` and `Access-Control-Allow-Headers: authorization, content-type, x-vitehub-console`. Any other origin gets `403` with `CONSOLE_ORIGIN_NOT_ALLOWED`. The actual call then goes through your middleware as usual, so middleware that requires a session must let the Console data routes through and leave the check to the Console.
+
+Check the setup with curl:
+
+```bash [Terminal]
+curl -i -X OPTIONS https://app.example.com/_vitehub/rpc/__call \
+  -H 'Origin: https://console.vitehub.dev' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization, content-type'
+curl -i https://app.example.com/_vitehub/rpc/__call \
+  -H 'Origin: https://console.vitehub.dev' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"operation":"sections.list","input":{}}'
+```
 
 ### Use another authentication library
 
@@ -718,6 +1121,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
@@ -730,6 +1137,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
@@ -741,7 +1151,7 @@ export default defineConfig({
 :::
 ::
 
-```ts [server/console-authorize.ts]
+```ts [server/console-authorize.ts] fragment
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
 import { readHostSession } from './session'
 
@@ -825,14 +1235,15 @@ Each Console data route checks access itself. The Console Auth middleware stays 
 | --- | --- |
 | `auth: false` | Allows the request. A production build and server log a warning. |
 | `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. |
-| `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback with `withAuthorization()`. Returns `401` or `403`, without a sign-in redirect. |
+| `auth: 'token'` | Compares the SHA-256 of `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN_SHA256`. Returns `401`, or `500` when the hash is not set or is malformed. Accepts a cross-origin call from `console.origins`. |
+| `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback with `withAuthorization()`. Returns `401` or `403`. It does not redirect to sign-in. |
 | `auth: { provider: 'cloudflare-access' }` | Verifies the Cloudflare Access token. Development has no Access edge, so the development server allows the request. |
 | `authorize` | Runs after any check above. It can reject the request or limit it to some sections. |
 
 All Console paths here sit under the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), else a root-relative Vite `base`.
 
-- With `base: '/portal/'`, host middleware must protect `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Update host policies when you change the base or upgrade to base-aware routes.
-- Absolute and protocol-relative bases, such as `https://cdn.example/portal/` and `//cdn.example/portal/`, are asset CDN URLs. Without an explicit application base, protect `/_vitehub/**` and `/api/_vitehub/console/**` at root. Relative bases (`''` or `'./'`) also use root routes.
+- With `base: '/portal/'`, host middleware must protect `/portal/_vitehub/**` for every method, including assets, RPC, and invocation actions. Update host policies when you change the base or upgrade to base-aware routes.
+- Absolute and protocol-relative bases, such as `https://cdn.example/portal/` and `//cdn.example/portal/`, are asset CDN URLs. Without an explicit application base, protect `/_vitehub/**` at root. Relative bases (`''` or `'./'`) also use root routes.
 - When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`.
 - Primary Auth access routes must use the application base too. Built-in Console Auth adds it for you.
 
@@ -852,7 +1263,7 @@ The pill uses the Console access check, for any section. People the Console reje
 
 A page with its own bar where the pill docks, such as a review toolbar at the bottom center, can move the pill aside. Set `data-vitehub-pill="mark"` on `<html>`. The pill folds to the ViteHub mark and moves to the nearer end of the bottom edge. Remove the attribute and the pill comes back as it was. In Nuxt, set it from the page or component that draws the bar:
 
-```ts
+```ts fragment
 useHead({ htmlAttrs: { 'data-vitehub-pill': 'mark' } })
 ```
 
@@ -1057,6 +1468,8 @@ async function stop() {
 On the development server, Console users can connect [Connections](/docs/connections), set API keys, refresh tokens, and disconnect. A production build has the Connections section and its routes only with `connections: { management: true }`:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   connections: { management: true },
   console: { auth: 'app', authorize: './server/console-authorize.ts' },
@@ -1117,7 +1530,9 @@ Read [Auth](/docs/auth/server-api#authorize-access-routes) for sign-in redirects
 
 ## Know what the Console stores
 
-When Agents are on and no journal (the store of run records) is set, the Console adds a fallback journal at `.vitehub/data/console.sqlite`. It keeps invocation records and searchable text: prompts, messages, final text, progress updates, and session titles. A KV-only Console adds no Agent journal or Agent read endpoints.
+The Console does not store Agent Invocations. It reads the app-wide journal that `@vite-hub/agent` installs, with the Console on or off. When Agents are configured and no journal is set, that is the default journal at `.vitehub/data/agent-invocations.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. See [the default journal](/docs/agents/invocation-storage#use-the-default-journal) for its options, location, and retention. A KV-only Console does not read an Agent journal or install Agent read endpoints.
+
+Earlier releases stored this journal at `.vitehub/data/console.sqlite` and read `console.databaseUrl`, `console.observations`, `console.retention`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed. A build that sets one of them fails with `VITE_HUB_B0020`, and a server that sets `VITEHUB_CONSOLE_DATABASE_URL` fails with `VITE_HUB_R0139`. Set `agent: { invocations: { databaseUrl, observations, retention } }` and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` instead. ViteHub does not move records from `console.sqlite`. To keep them, set `databaseUrl` to the old file, or pass it to [`vitehub agent invocations`](/docs/agents/invocation-storage#inspect-and-maintain-from-the-cli) with `--database`.
 
 Console image uploads use the configured Blob store. Before each new upload, the Console retries at most 100 pending rollback records. Malformed batch records move unchanged to `_vitehub/console/quarantine/batch/<id>`. New uploads continue, but stored attachment references stay unavailable while any quarantine record exists, because their delete owner is unknown. Quarantine deletes no image bytes.
 
@@ -1129,67 +1544,13 @@ To repair a quarantined record:
 
 If you cannot get the original UUIDs, keep the quarantine record. Guessing can delete kept images.
 
-Set `observations` when the fallback journal needs larger records or more time to flush pending writes:
+In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled; use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list recorded runs, in development or on a deployment with `--url`.
 
-```ts
-console: {
-  auth: 'app',
-  authorize: './server/console-authorize.ts',
-  observations: {
-    maxCount: 1024,
-    maxStringLength: 131072,
-    maxBytes: 16777216,
-    flushTimeoutMs: 10000,
-  },
-}
-```
+A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option replaces the default journal. The Console reads that journal instead, so development uses one journal. An Agent with `invocations: false` records no sessions. With `agent: { invocations: false }`, the Console lists no sessions.
 
-These limits apply only to the fallback journal. For a shared journal from Agent Definitions or `agent.invocations`, set that journal's `observations` instead. See [Agent Invocations](/docs/agents/invocations) for defaults and bounds. Larger limits use more storage and memory.
+The default journal requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store.
 
-Set `VITEHUB_CONSOLE_DATABASE_URL` to put the journal on another volume or libSQL endpoint. Relative `file:` paths start at the project root:
-
-```dotenv [.env]
-VITEHUB_CONSOLE_DATABASE_URL=file:/var/lib/my-app/console.sqlite
-```
-
-Authenticated libSQL endpoints also need `VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN`:
-
-```dotenv [.env]
-VITEHUB_CONSOLE_DATABASE_URL=libsql://my-database.turso.io
-VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN=secret-token
-```
-
-The fallback journal keeps every finished record by default. Set `retention` to remove old finished records by age, count, or size. All set limits apply together, oldest records first:
-
-```ts
-console: {
-  auth: 'app',
-  authorize: './server/console-authorize.ts',
-  retention: { maxAge: '14d', maxSize: '30%' },
-}
-```
-
-`retention` options:
-
-- `maxAge`: a duration such as `'14d'`, or milliseconds.
-- `maxRecords`: a positive integer.
-- `maxSize`: a size such as `'500MB'`, bytes, or a percent of the volume that holds the journal file, such as `'30%'`. A percent counts only the journal file. `maxSize` limits the live data of the whole database file, so keep the journal in its own file. A file created before this release keeps its largest size until a `VACUUM` rebuilds it, but new records reuse its free pages.
-
-An invalid limit fails the build with `VITE_HUB_B0015`. The D1 fallback does not support `maxSize`, because D1 reports the size of the whole app database. It fails the build with `VITE_HUB_B0016`. See [Agent Invocations](/docs/agents/invocation-storage#use-a-custom-store) for how each limit runs.
-
-> [!WARNING]
-> In production, you must still decide how long to keep records that can hold sensitive data.
-
-Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue show no run or message history, because ViteHub has no provider-independent way to list it yet. The Schedule page lists Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is on. Use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list runs, in development or on a deployment with `--url`.
-
-The fallback applies only when no journal is set:
-
-- A journal from `defineAgent({ invocations })` or the app-wide `agent.invocations` wins. The Console reads it, and copies nothing into `console.sqlite`.
-- An Agent with `invocations: false` records no sessions.
-- The fallback needs `defineAgent` from `vite-hub/agent`. Definitions imported from `@vite-hub/agent` must set their own `invocations` store.
-- With more than one Agent, all must use the same journal. Set [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent) to give them one. Different journals fail at runtime setup, because the Console has one combined query interface.
-
-The SQLite fallback fits development and Node deployments with durable local storage. It belongs to one replica and is lost when the replica is replaced, unless the host keeps that path. On Cloudflare, Netlify, Vercel, and Deno production, set a durable hosted journal.
+The Agent Console uses an invocation journal configured on the discovered Agent Definition. Configure the same journal on every discovered Agent when the Console includes more than one. Set [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent) to give all of them the same journal. Distinct journals fail during runtime setup because the Console exposes one combined query interface.
 
 Every read goes through the RPC route at `/_vitehub/rpc/**`. Listings and metadata use `GET` semantics. A KV value read uses a JSON-body `POST`, so the key stays out of the URL. KV writes use the same route with an `action` (`set`, `del`), and Blob writes with `put` and `del`, which run `kv.set`, `kv.del`, `blob.put`, and `blob.del`. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
@@ -1226,18 +1587,19 @@ The Console does not fill in missing provider data. Token counts, model metadata
 
 | Symptom | Check |
 | --- | --- |
-| `/_vitehub` returns `404` | Set `console` with an `auth` choice, then restart the development server. A missing or `false` option registers no route. |
-| Agents is missing from the home | Set `agent`. The home lists only primitives on in the same ViteHub configuration. |
-| KV is missing from the home | Set `kv`. |
-| A KV key page stops at 200 entries | Load the next page or filter by key prefix. Values load only when you select a key. |
-| Blob is missing from the home | Set `blob` with a preset that supports Blob, or an explicit Blob store. |
-| Blob inspection returns a provider error | Give the deployed Console permission and credentials to list the store. |
-| Databases is missing from the home | Set `database`. |
-| Rate Limits is missing from the home | Set `rateLimit` and use statically declared `requireRateLimit()` policies. |
-| Workspaces is missing from the home | Set `workspace` and add a Workspace Definition. |
-| Sandbox Tasks (Sandboxes) is missing from the home | Set `sandboxTask: true` with a preset that supports Sandbox Tasks. |
-| KV inspection returns a provider error | Give the deployed Console permission and credentials to read the store. Read-only requests still read from the provider. |
-| Agents opens but has no sessions | Invoke an Agent. Check that it uses the fallback journal, not a separate `invocations` store. |
+| `/_vitehub` returns `404` | Confirm that `console` is set with an `auth` choice, then restart the development server. Omitted and false configurations register no route. |
+| Agents is absent from the Console home | Configure `agent`. The Console only lists primitives active in the same ViteHub configuration. |
+| KV is absent from the Console home | Configure `kv`. The Console only lists stores from the active KV configuration. |
+| A KV key page stops at 200 entries | Load the next page or enter a key prefix to narrow the list. The Console does not fetch values until selection. |
+| Blob is absent from the Console home | Configure `blob` with a preset that supports Blob or an explicit Blob store. |
+| Blob inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to list the configured store. |
+| Databases is absent from the Console home | Configure `database`. The Console catalogs Database Definitions only when the integration is enabled. |
+| Rate Limits is absent from the Console home | Configure `rateLimit` and use statically declared `requireRateLimit()` policies. |
+| Workspaces is absent from the Console home | Configure `workspace` and add a discovered Workspace Definition. |
+| Sandbox Tasks is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox. |
+| KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
+| Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal, not a separate `invocations` store. |
+| Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
 | A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
 | `console: true` reports missing app Auth or Console access policy | Set `auth: true` and allow the Console routes in the app Auth Definition. Use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub says `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object: `false`, `'app'`, or a Console Auth config. |
@@ -1245,12 +1607,14 @@ The Console does not fill in missing provider data. Token counts, model metadata
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
 | The build or server warns that `auth: false` has no sign-in | Add `console.authorize`, or set `console.auth` to `'app'` or a Console Auth config. |
 | Console data routes return `500` with "console.authorize must return" | Return `true`, `false`, a `Response`, or `{ sections: string[] }` from `authorize`. Use the global `Response`. A Response-like object, or a Response from another Fetch implementation, is invalid. |
-| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The SQLite fallback needs a writable, persistent filesystem. |
+| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the host's Auth provider. |
 | The page returns `403` with **Access denied** | `authorize` or the `auth` check rejected this account. Check the callback and the user's role or permission. |
 | A section is missing or returns `403` | `console.authorize` returned `{ sections }` without that section id. |
 
 ### Console error codes
+
+A `401` from a Console data route carries `WWW-Authenticate: Bearer realm="vitehub-console"`. The MCP endpoint keeps its own challenge with `resource_metadata`.
 
 Each failed Console request returns JSON with a stable `code`, a `message` that says why, a `fix`, and a `docs` link. RPC failures also keep `ok: false` and `status`. The Console shows one next step: sign in again, reload, try again, or read the docs. It offers a retry only when a retry can work.
 
@@ -1258,10 +1622,13 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | --- | --- | --- |
 | `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
 | `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
-| `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. The Auth Definition that protects the Console must return a user with an id. |
-| `CONSOLE_IMPERSONATING` | `403` | This browser uses an impersonation session. Stop impersonating to get your session back. |
-| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with an explicit `console.auth`: `console: { auth: 'app' }` with the Primary Auth Definition, or a Console Auth session. Set `console.authorize` to limit who may use it. |
-| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
+| `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
+| `CONSOLE_IMPERSONATING` | `403` | This browser uses an impersonation session. Stop impersonating to get your own session back. |
+| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with an explicit `console.auth` choice. Use `console: { auth: 'app' }` with the Primary Auth Definition, or configure a Console Auth session. Set `console.authorize` to restrict who may use it. |
+| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. For a Console on another origin, see [Call the Console from another origin](#call-the-console-from-another-origin). |
+| `CONSOLE_ORIGIN_NOT_ALLOWED` | `403` | Add the origin to `console.origins`, use `auth: 'token'`, then build and deploy again. |
+| `CONSOLE_TOKEN_INVALID` | `401` | Send `Authorization: Bearer` with the token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION="Bearer <token>"`. |
+| `CONSOLE_TOKEN_NOT_CONFIGURED` | `500` | Set `VITEHUB_CONSOLE_TOKEN_SHA256` to the SHA-256 of the token as 64 hex characters (`printf %s "$TOKEN" \| sha256sum`), remove `VITEHUB_CONSOLE_TOKEN`, then restart or deploy. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
 | `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
 | `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |

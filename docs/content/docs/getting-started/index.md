@@ -1,6 +1,6 @@
 ---
 title: Introduction
-description: Add storage to your app or run your first Agent with ViteHub.
+description: "Add Server Primitives and Agents to a Vite or Nuxt app. Install ViteHub, save your first KV value, and call your first Agent without credentials."
 navigation.title: Introduction
 navigation.order: 1
 navigation.group: Get started

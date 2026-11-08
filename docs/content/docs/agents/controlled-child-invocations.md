@@ -18,7 +18,7 @@ Workflow Run.
 
 ## Start and inspect a child
 
-```ts
+```ts fragment
 import { startAgentInvocation } from 'vite-hub/agent'
 import researcher from '../agents/researcher'
 
@@ -43,7 +43,7 @@ by id later.
 
 ## Cancel active work
 
-```ts
+```ts fragment
 const cancellation = await child.cancel('The parent no longer needs this work.')
 
 if (cancellation.outcome === 'accepted') {
@@ -60,7 +60,7 @@ state. A provider can return `unsupported`. A finished child returns
 Check `child.support` before you send input. Check the result too, because
 support changes with the lifecycle state.
 
-```ts
+```ts fragment
 if (child.support.respond) {
   const result = await child.sendInput(
     { messages: [responseMessage] },
@@ -97,7 +97,7 @@ every runtime returns a completed result.
 If your host creates input resources, such as uploaded files, pass
 `onInputHandoff` in the fourth argument:
 
-```ts
+```ts fragment
 const child = await startAgentInvocation(researcher, runtimeContext, input, {
   onInputHandoff() {
     markUploadsAsOwnedByRuntime()

@@ -63,7 +63,7 @@ ViteHub only appends. It never polls or resends a changing open-span snapshot. O
 
 Every Capability adds its public `metadata`. A custom Capability can also add facts learned during the run, without knowing the exporter:
 
-```ts
+```ts fragment
 import { defineCapability } from 'vite-hub/agent'
 
 export const repository = defineCapability({
@@ -105,6 +105,8 @@ Capability tool start, finish, and error events carry `capability.id`; unused Ca
 Agent instructions are prompt content, left out by default. Turn them on for a trusted receiver:
 
 ```ts
+import { otlp } from 'vite-hub/agent/capabilities'
+
 otlp({
   endpoint: process.env.OTLP_ENDPOINT!,
   content: {

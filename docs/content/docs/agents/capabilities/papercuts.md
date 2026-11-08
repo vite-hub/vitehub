@@ -15,7 +15,7 @@ Your app stores reports through a `report` callback or a `backend`. No Server Pr
 
 Pass a callback that stores each report:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { papercuts } from 'vite-hub/agent/capabilities'
 import { reports } from '../storage/reports'
@@ -69,6 +69,9 @@ With both set, `report` wins.
 Each `PapercutReportEvent` has the Capability runtime context and a `papercut` with these fields:
 
 ```ts
+import type { TraceContext } from 'vite-hub/runtime'
+import type { AgentRunMetadata } from 'vite-hub/agent'
+
 interface Papercut {
   agent?: { name: string, workspace?: string }
   createdAt: string

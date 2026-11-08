@@ -72,7 +72,7 @@ Each timeout must be a positive integer up to `2_147_483_647`. `defineSandboxTas
 
 The package `index.ts` default-exports a normal async function. ViteHub calls it with the payload and context and returns its result. The entry point does not import `@vite-hub/sandbox/task`.
 
-```ts [server/sandbox-tasks/image/index.ts]
+```ts [server/sandbox-tasks/image/index.ts] fragment
 export default async function optimize(
   payload: { image: Blob },
   context: { requestId: string },

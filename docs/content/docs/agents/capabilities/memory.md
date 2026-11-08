@@ -15,7 +15,7 @@ Each store sets its adapter, scope, allowed kinds, read tools, and write policy.
 
 Configure at least one store with a scope.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { memory, workspaceJsonlMemoryStore } from 'vite-hub/agent/capabilities'
 

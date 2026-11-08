@@ -157,19 +157,13 @@ Auth reads `VITEHUB_SECRET` from each request's Cloudflare bindings. `BETTER_AUT
 
 ### Get the first admin
 
-Store the first admin's email as `VITEHUB_ADMIN_EMAILS`. The account that signs up with it gets the `admin` role of `admin()`:
+Store the admin's GitHub account as `VITEHUB_ADMINS`, such as `github:22072217`. Find the numeric id with `gh api users/<login> --jq .id`. When that account signs in, it gets the `admin` role of `admin()`:
 
 ```bash [Terminal]
-pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS --config .output/server/wrangler.json
+pnpm exec wrangler secret put VITEHUB_ADMINS --config .output/server/wrangler.json
 ```
 
-Limit access to the Worker for now. Open `/_vitehub/sign-in` on the Worker URL and select **Create one**, or send the sign-up request there.
-
-::warning
-Unset `VITEHUB_ADMIN_EMAILS` after you create the admin, before public sign-up opens. The first account with that email gets the role, and email verification does not stop another person from registering it first.
-::
-
-See [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
+Then open `/_vitehub/sign-in` on the Worker URL and sign in with GitHub. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
 
 ## Use cookie sessions without D1
 

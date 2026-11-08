@@ -10,6 +10,8 @@ The Auth section is at `/_vitehub/auth` on your app's origin. It appears when th
 
 Turn on and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`, and it covers every Auth page and management request. Console access lets you look. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A separate Console login gives no app admin rights.
 
+With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call.
+
 ## Pages
 
 - **Overview** shows users, new users in the last seven days, active sessions, and approved agents (with the OAuth provider plugin). With events on, it adds active users in the last seven days, daily sign-ins and sign-ups for 30 UTC days, sign-in methods, and the eight latest events.
@@ -51,7 +53,7 @@ Better Auth `user.additionalFields` become columns and profile fields. Fields wi
 
 Use a Better Auth adapter and schema with those columns. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) has a fixed `user` table and rejects `user.additionalFields` with `AUTH_C0055`.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from 'vite-hub/auth'
 import { admin, organization } from 'better-auth/plugins'
 import { countProjectsByUser } from './projects'
@@ -104,7 +106,7 @@ The `console` option also works in a request-time Auth Definition callback, and 
 
 When the app computes roles, for example from an environment variable, add `read` to `roles`. The Console shows those roles and the Admins filter uses them, also for users who have not signed in since the rule changed. It writes nothing.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 console: {
   roles: {
     editable: false,
@@ -144,7 +146,7 @@ Lists show 25 items by default, up to 100. Better Auth adapters share no join qu
 
 Trusted server code can use the same reader:
 
-```ts
+```ts fragment
 import { getAuthConsoleForRequest } from 'vite-hub/auth/server'
 
 const inspect = getAuthConsoleForRequest(request)

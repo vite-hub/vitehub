@@ -72,6 +72,8 @@ Read [Definition discovery](/docs/development/definition-discovery), [Runtime He
 Set `dataDir` in `vitehub()` to pick one local storage directory on a Node host:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "node",
   dataDir: "/var/lib/app",
@@ -83,7 +85,7 @@ vitehub({
 })
 ```
 
-Turned-on integrations use `agent-state.sqlite`, `console.sqlite`, `kv/`, `blob/`, and `workspaces/` in this directory. Inline Console Auth uses `console-auth.sqlite`. Named local KV and Blob stores get their own subdirectories. Explicit paths and remote providers win, and disabled services stay off. Relative paths resolve from the working directory of the configuration process.
+Turned-on integrations use `agent-state.sqlite`, `agent-invocations.sqlite`, `kv/`, `blob/`, and `workspaces/` in this directory. Inline Console Auth uses `console-auth.sqlite`. Named local KV and Blob stores get their own subdirectories. Explicit paths and remote providers win, and disabled services stay off. Relative paths resolve from the working directory of the configuration process.
 
 ::warning
 The host must give a persistent, writable filesystem at this path. The option does not create a volume or make a temporary filesystem durable. Other presets reject it. For hosted storage, keep your provider configuration.
@@ -96,6 +98,8 @@ To keep an existing storage location, use `agent.providers.state.url`, `console.
 Set `publicUrl` in `vitehub()` to your deployed app's public origin. ViteHub uses it for Console invocation links, GitHub activity links, Chat error links, trigger `failed` events, telemetry `session_url` values, the default Auth `baseURL`, and the Connections OAuth callback and origin check:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "node",
   publicUrl: "https://agents.example.com",
@@ -105,6 +109,8 @@ vitehub({
 Use a function when one build serves Agents from different origins. ViteHub calls it once per Agent at build time, with the name from its file. An explicit definition name gets the same origin at runtime. A shared definition found under several names gets no implicit alias:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "node",
   publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
@@ -140,6 +146,8 @@ When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels hist
 On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and no port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid hostnames leave routing alone:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "cloudflare",
   publicUrl: process.env.APP_URL, // https://calories.example.com
@@ -154,3 +162,6 @@ vitehub({
 ```
 
 ViteHub leaves routing to you when `nitro.cloudflare.wrangler` or the project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` sets `route`, `routes`, or `workers_dev`. Nitro merges these keys from both places, so keep all routing in one place. Without `publicUrl`, or with a `workers.dev` origin, the Worker keeps its `workers.dev` host.
+
+
+Use `agent.providers.state.url`, `agent.invocations.databaseUrl`, `console.auth.databasePath`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.

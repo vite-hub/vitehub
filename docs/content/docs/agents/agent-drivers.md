@@ -1,7 +1,7 @@
 ---
 title: Agent Drivers
 description: Run an Agent with an AI SDK model, Codex, Claude Code, typed questions, or your own function. Each Driver decides how one Invocation runs.
-seo.title: Agent Drivers for Codex, Claude Code, and AI SDK models
+seo.title: "Agent Drivers: Codex, Claude Code, AI SDK"
 navigation.order: 11
 navigation.group: Define and run
 icon: i-lucide-cpu
@@ -140,7 +140,7 @@ Provider cursors resume a thread while the process runs. Set `sessionStorePath` 
 
 Resolve `env` per Invocation for short-lived credentials. Use `launch` to start the provider through your own wrapper, such as a remote execution CLI:
 
-```ts [server/agents/review/agent.ts]
+```ts [server/agents/review/agent.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
@@ -169,7 +169,7 @@ With `launch`, requirements need a resolver. Status inspection resolves it once 
 
 A resolver that routes by executable must read `providerCommand`, because `command` is `sh` during the check:
 
-```ts
+```ts fragment
 launch: ({ command, providerCommand }) => ({
   args: ['exec', '--', command],
   command: selectRunnerForProvider(providerCommand),

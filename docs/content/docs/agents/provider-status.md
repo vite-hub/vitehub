@@ -9,7 +9,7 @@ navigation.kind: Reference
 
 `status(context, { abortSignal })` on an Agent Definition tells you if its provider is signed in and has quota. The built-in Codex and Claude Code Drivers (model runners) reuse T3's account and quota probes. A check starts no Agent Invocation, prompt, or conversation.
 
-The Console shows status on Usage, in its authenticated `status` RPC operation, and at `GET /api/_vitehub/console/status`. The optional `agent` query picks one Agent Definition. Console access rules protect it in production, also with a custom base path. Status works when `console.invoke` is off. Running tasks still needs that opt-in.
+The Console shows status on Usage, in its authenticated `status` RPC operation, and at `GET /_vitehub/api/status`. The optional `agent` query picks one Agent Definition. Console access rules protect it in production, also with a custom base path. Status works when `console.invoke` is off. Running tasks still needs that opt-in.
 
 ## Read the result
 

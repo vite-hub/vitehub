@@ -151,7 +151,7 @@ export default defineConfig({
 
 An admin stores the first value and grants `use` to the service, from trusted server code or the Console.
 
-```ts
+```ts fragment
 // owner is the administrator context that authenticate(request) returns.
 await bridge.replace(owner, {
   key: 'github/token',
@@ -271,7 +271,7 @@ Admins read `bridge.activity(context, key, before?)`: up to 100 events per page,
 
 `emit` sends each saved event to your evlog drain. It does not retry. A failed export does not remove the record or undo the operation.
 
-```ts
+```ts fragment
 import { createLogger } from 'evlog'
 
 const bridge = createEnvBridge({
@@ -317,7 +317,7 @@ Add [`@better-auth/agent-auth`](https://www.better-auth.com/docs/plugins/agent-a
 
 Pass that reader to `createEnvAuthenticator`, and map capabilities and their constraints to exact store keys. This example supports one fixed capability and rejects grants with constraints:
 
-```ts
+```ts fragment
 import { createEnvAuthenticator } from 'vite-hub/env/auth'
 import type { AgentSession } from '@better-auth/agent-auth'
 import type { EnvAgentScope } from 'vite-hub/env/auth'

@@ -159,7 +159,7 @@ The build fails with `SCHEDULE_B0008` when a name matches no schedule. It also f
 
 A Static Schedule Definition is a file whose cron the build reads, so it can write host cron entries.
 
-```ts [server/schedules/daily-report.ts]
+```ts [server/schedules/daily-report.ts] fragment
 import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
@@ -183,7 +183,7 @@ Cron uses UTC unless you set `timeZone`. The file name is the schedule name.
 
 Set `manual: true` to allow runs on demand:
 
-```ts [server/schedules/daily-report.ts]
+```ts [server/schedules/daily-report.ts] fragment
 export default defineSchedule({
   cron: '0 8 * * *',
   manual: true,
@@ -197,7 +197,7 @@ export default defineSchedule({
 
 Set `timeZone` when the cron must follow a local clock:
 
-```ts [server/schedules/morning-brief.ts]
+```ts [server/schedules/morning-brief.ts] fragment
 export default defineSchedule({
   cron: '0 8 * * 1-5',
   timeZone: 'Europe/Madrid',

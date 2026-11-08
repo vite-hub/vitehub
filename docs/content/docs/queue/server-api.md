@@ -25,7 +25,7 @@ Set `queue: true` in your ViteHub config, then import from `vite-hub/queue`. Rou
 | `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `vite-hub/queue` | Read generated provider names. Do not store them as app identifiers. |
 | `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `vite-hub/queue` | Host helpers for generated output. Install `@vercel/functions` if you import the Vercel runtime. |
 
-`vite-hub/queue` also exports the option, client, job, provider, registry, and result types. `@vite-hub/queue` has the same APIs for owner packages, with `hubQueue` from `@vite-hub/queue/vite` and the `@vite-hub/queue/nuxt` module. `vite-hub` sets these up for apps. Generated output uses `@vite-hub/queue/internal/runtime/*` subpaths. Do not import them in app code.
+`vite-hub/queue` also exports the option, client, job, provider, registry, and result types. `@vite-hub/queue` has the same APIs for owner packages, with `hubQueue` from `@vite-hub/queue/vite`. `vite-hub` sets these up for apps. Nuxt apps use `vite-hub/nuxt`. Generated output uses `@vite-hub/queue/internal/runtime/*` subpaths. Do not import them in app code.
 
 ## Queue job
 
@@ -54,7 +54,7 @@ In `vite dev`, Cloudflare and Vercel apps run jobs with the local provider and t
 
 Throw `ViteHubError` to give a failure a stable code. The code does not choose the retry policy. Use `onError` or `callbackOptions.retry` for that.
 
-```ts [server/queues/image-expiry.ts]
+```ts [server/queues/image-expiry.ts] fragment
 import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 import { defineQueue } from 'vite-hub/queue'
 import { deleteImage } from '../utils/images'
@@ -231,7 +231,7 @@ Creates a provider QueueClient directly. Most apps use `runQueue()` or `getQueue
 
 A Cloudflare direct client needs a binding object, here `binding` from the Worker host.
 
-```ts [examples/cloudflare-client.ts]
+```ts [examples/cloudflare-client.ts] fragment
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({

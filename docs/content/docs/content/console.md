@@ -243,7 +243,7 @@ export default defineConsoleAuthorize(({ user }) => {
 })
 ```
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   workspace: 'site',
   collections: { posts },

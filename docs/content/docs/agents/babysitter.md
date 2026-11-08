@@ -84,7 +84,7 @@ Add project guidance in `instructions.md` next to `agent.ts`. The preset puts it
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
 | `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. |
-| `deferWhilePending` | `true` | Wait for running checks on the head, even after a fast failure, so one pass handles CI and review together. A conflict starts the pass at once. A check running 30 minutes counts as stuck. |
+| `deferWhilePending` | `true` | Wait for running checks on the head, even after a fast failure, so one pass handles CI and review together. A conflict starts the pass at once. A GitHub Actions check counts as stuck after 24 hours in the queue or 8 hours running. Other checks count as stuck after 30 minutes. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
 | `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
 | `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
@@ -121,7 +121,7 @@ Use `lifecycle.labels` or `filter.labels`, not both: both is a configuration err
 
 `admission` stops model passes when a limit is spent. The host checks it before it claims a pull request. Direct merges and recorded waits continue, so a ready pull request still merges.
 
-```ts [server/agents/babysitter/agent.ts]
+```ts [server/agents/babysitter/agent.ts] fragment
 export default defineAgent({
   extends: babysitter,
   options: {
@@ -184,9 +184,9 @@ A configured `sandbox` always takes precedence over placement.
 
 Admission only controls when new work starts. To contain provider commands and native tools, set [Sandbox memory limits](/docs/agents/sandboxes). The preset runs focused local tests and lint and leaves full typechecks and builds to hosted CI, unless a maintainer asks for a bounded local reproduction. After a memory-limit failure, shrink the workload or change the budget before you retry.
 
-## Share the Console journal
+## Share the Agent journal
 
-The Babysitter writes runs to the Invocation journal (the stored record of each run) of its discovered Agent. Set the Console journal in the project configuration, so the Console and the Babysitter process read the same records:
+The Babysitter uses the invocation journal assigned to its discovered Agent. Set the location of the [default journal](/docs/agents/invocation-storage#use-the-default-journal) in the ViteHub project configuration, so the Console and the long-lived worker inspect the same records:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -195,10 +195,10 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       auth: false,
       authorize: './server/console-authorize.ts',
-      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
   },
 })
@@ -214,10 +214,10 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       auth: false,
       authorize: './server/console-authorize.ts',
-      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
   }), nitro()],
 })
@@ -232,10 +232,10 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       auth: false,
       authorize: './server/console-authorize.ts',
-      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
   })],
 })

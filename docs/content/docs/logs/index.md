@@ -3,7 +3,7 @@ title: Logs
 layout: landing
 navigation.title: Overview
 navigation.order: 1
-description: Logs for ViteHub Logs, powered by Evlog.
+description: "Structured request logs for Vite apps with Evlog. Capture events locally, read an existing backend, and inspect them in the Console and the CLI."
 icon: i-lucide-logs
 ---
 
@@ -24,7 +24,10 @@ icon: i-lucide-logs
   import { vitehub } from 'vite-hub'
 
   export default defineConfig({
-    plugins: [vitehub({ preset: 'node', logs: true }), nitro()],
+    plugins: [
+      vitehub({ preset: 'node', logs: true }),
+      nitro(),
+    ],
   })
   ```
   ::::

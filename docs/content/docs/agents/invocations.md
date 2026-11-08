@@ -34,7 +34,7 @@ A Channel can start many Invocations, and a Workflow Run can carry one, but each
 
 For an Agent with `runtime: false`, the shortest call returns an `[error, result]` tuple:
 
-```ts
+```ts fragment
 import { runAgent } from 'vite-hub/agent'
 import support from './agents/support'
 
@@ -86,7 +86,7 @@ The H3 `getRuntimeContext()` adapter gives `runtime`, a fresh `memo` cache, and 
 
 In a script, or without a server request, pass the input as the second argument:
 
-```ts
+```ts fragment
 const [error, result] = await runAgent(support, { prompt: 'Summarize the support policy.' })
 if (error) throw error
 ```
@@ -215,7 +215,7 @@ For structured values, set `defineAgent({ data })`. ViteHub validates `input.dat
 
 Hooks record what each run did. `agent:finish` gets the normalized duration, result kind, and usage. `agent:error` gets each failed Invocation.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
@@ -288,7 +288,9 @@ The export runs through `runtime.waitUntil()`, so a failed delivery does not rep
 
 ### Store invocation history
 
-A journal records each run. It is off unless set or supplied by the Console. `invocations: 'database'` keeps runs in the application's Database, `'memory'` keeps them in the process, and `false` turns it off for one Agent. See [Invocation storage](/docs/agents/invocation-storage#store-invocation-history). A journal does not replace [Chat History](/docs/agents/chat-history-sessions).
+Set `invocations: 'database'` to retain runs in the application's Database, or `'memory'` for process-local history. Without a setting, the Agent records into the [default journal](/docs/agents/invocation-storage#use-the-default-journal), with the Console on or off. Set `invocations: false` to disable it for one Agent.
+
+See [Invocation storage](/docs/agents/invocation-storage#store-invocation-history) for configuration and durability. A journal does not replace [Chat History](/docs/agents/chat-history-sessions).
 
 ### Use one journal for every Agent
 
@@ -330,7 +332,9 @@ Model and provider Drivers get an abort signal. A custom `run` Driver must stop 
 
 ## Inspect invocations in the console
 
-The [ViteHub Console](/docs/development/console) at `/_vitehub` shows stored sessions and Invocation events. It is off by default: without `console`, or with `false`, its page, RPC endpoint, plugin, and assets do not exist. A journal from `defineAgent({ invocations })` or `agent.invocations` stays the source of truth. The Console guide covers setup, fallback storage, production limits, usage records, and route authorization.
+Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
+
+The Console guide covers Vite and Nuxt setup, the journal that it reads, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 
 ## Control child work
 
@@ -341,6 +345,8 @@ Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when t
 ### Get a final result for a Schedule
 
 `runAgent(agent, runtimeContext, input, { schedule, output: 'drained' })` adds schedule metadata and reads all Driver output before it returns, so the final response, completion hooks, and capacity release finish together. `driver.output.schema` gives the scheduler a validated result, with no rebuilding from telemetry. A thrown stream or schema error still fails the Invocation.
+
+A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module on its first request, not at startup. A run that starts before any request, such as a Schedule on a new Worker, loads the module before it runs. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
 
 ### Add tools for one run
 

@@ -55,7 +55,7 @@ export default defineAgent({
 
 Call the Trigger from a server route:
 
-```ts [server/api/support-chat.post.ts]
+```ts [server/api/support-chat.post.ts] fragment
 import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
@@ -157,7 +157,7 @@ When the Channel declares message methods, also return `message`: JSON that iden
 
 Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts.
 
-```ts
+```ts fragment
 import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
 
 defineChannelTrigger({
@@ -177,7 +177,7 @@ Two other helpers answer `{ accepted: false, ok: false, reason }` and start no I
 | `retryLater(reason)` | 503 | The Channel cannot take the event yet, such as when a dependency is down. | The sender retries. For a queued delivery that the queue replays, the queue retries, and its error names the reason. |
 | `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
 
-```ts
+```ts fragment
 import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/agent/channels'
 
 defineChannelTrigger({
@@ -194,7 +194,7 @@ defineChannelTrigger({
 
 `webhook.serialize: key` queues a delivery until no other delivery with the same key runs.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
   invoke: (context, event) => ({
@@ -210,7 +210,7 @@ defineChannelTrigger({
 
 `webhook.deliveryId` identifies the delivery, so ViteHub drops a retry it already accepted. On a Channel Trigger, the Invocation runs under this ID. The default is the SHA-256 (hex) of the raw request body, so a retry with the same body is the same delivery.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
   invoke: (context, event) => ({
@@ -226,7 +226,7 @@ Set `deliveryId` when the provider sends an event ID, when two events can share 
 
 Some providers send several notifications for one change. `webhook.debounce: { key, delayMs }` runs only the last one: a queued delivery waits `delayMs`, and a later delivery with the same `key` replaces it before it starts and restarts the wait.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: recordChanged,
   invoke: (context, event) => ({
@@ -246,7 +246,7 @@ Debounce needs a state provider and `concurrencyLimit`. A running delivery does 
 
 An accepted delivery gets a JSON receipt such as `{ "accepted": true, "ok": true, "queued": true }`. For providers that expect a specific answer, set `webhook.response`:
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: recordChanged,
   invoke: (context, event) => ({
@@ -262,7 +262,7 @@ It is sent after admission for an accepted, queued, steered, or duplicate delive
 
 Keep `invoke` fast: it only accepts a delivery and returns JSON input. Put slow or side-effect work in `prepare`. Name units of work in `tasks`, and select one from `invoke` with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
 
-```ts
+```ts fragment
 import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
 import triage from '../agents/triage'
 
@@ -310,7 +310,7 @@ Call it from server code in the same persistent Node server as the Agent webhook
 > [!NOTE]
 > Standalone serverless Schedule and API entries on Netlify or Vercel run in separate processes. They cannot use these APIs.
 
-```ts
+```ts fragment
 import { cancelChannelTask, enqueueChannelTask } from 'vite-hub/agent/server'
 
 const [error, receipt] = await enqueueChannelTask('airtable', 'close-duplicate', { data: { closeId, survivorId } }, {
@@ -320,12 +320,21 @@ const [error, receipt] = await enqueueChannelTask('airtable', 'close-duplicate',
 })
 
 // Someone objected: drop the queued task.
-await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
+const [cancelError, cancelled] = await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
+if (cancelError) throw cancelError
 ```
 
 A later enqueue with the same `key` replaces a queued task of that Trigger that has not started. `cancelChannelTask()` drops queued tasks with the `key` and returns the count. Started tasks keep running, so check live state in `prepare` and return `ignored()` when work is no longer needed.
 
-Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. Pass `trigger` when several Triggers declare the task. Both functions return `[error, result]`. The receipt has the queue `deliveryId`, the Invocation `runId`, and `notBefore`.
+Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return a `Result` from `vite-hub/runtime`: `[error, undefined]` or `[undefined, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time. `error.code` is one of these:
+
+#### CHANNEL_TASK_FAILED
+
+The queue or the Agent State store failed while it queued or cancelled the task. `error.cause` keeps the original error. Retry when the store is available again.
+
+#### CHANNEL_TASK_REJECTED
+
+The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem.
 
 ### Report a failed webhook delivery
 
@@ -335,7 +344,7 @@ When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the A
 - A retry moves the Invocation from `failed` back to `pending` and runs the Agent again. The record keeps failed-attempt observations; status, error, and `failedAt` come from the latest attempt.
 - Cancelling a failed Invocation that waits for another attempt makes it `cancelled`, and the retry does not dispatch. `cancelled` or `completed` Invocations are never reopened.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
   invoke: (context, event) => ({
@@ -352,7 +361,7 @@ ViteHub calls `failed` at most once per delivery: after the last failed attempt,
 
 A task's own `failed` replaces the Trigger's for that task and gets the same event. A row stored without a task key finds its task through `run.origin` when the origin names a declared task.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketChanged,
   tasks: {

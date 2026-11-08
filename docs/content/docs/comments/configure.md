@@ -1,6 +1,6 @@
 ---
 title: Comments configuration
-description: Decide who can comment, sign people in with GitHub, let guests in, keep comments on your own records, choose where threads go, upgrade the tables, mention and notify people, attach files, turn comment mode on and off, and mark Content fields for edits in place.
+description: "Decide who can comment, sign people in with GitHub, choose where threads go, notify mentions, attach files, and mark Content fields for edits in place."
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal
@@ -73,6 +73,8 @@ export default defineConfig({
 ```
 :::
 ::
+
+Do not add the `comments()` plugin next to `vitehub()`. The dev server and the build fail with `COMMENTS_B0003`.
 
 `comments: false` turns Comments off. These combinations fail the build:
 
@@ -156,6 +158,8 @@ On Cloudflare, Comments also reads the variables from the Worker's bindings.
 **What `authorize` gets.** `user.github` holds the GitHub account, so you can widen or narrow the default:
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export const comments = defineComments({
   authorize: ({ user, action }) => {
     // Everyone who signs in may read. People who can push may comment and resolve.
@@ -243,14 +247,14 @@ To use your own login, return the user from `identify`, or `null` when anonymous
 Without `authorize`, a production build lets in nobody that `identify` names. Write the policy.
 ::
 
-```ts [server/comments.ts]
-import { getCookie } from 'h3'
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { findSession } from './utils/session'
 
 export const comments = defineComments({
+  // `event['~standard'].req` is the Web Request of the call, with its cookies.
   identify: async ({ event }) => {
-    const session = await findSession(getCookie(event, 'sid'))
+    const session = await findSession(event['~standard'].req)
     return session ? { id: session.userId, name: session.name, image: session.avatar } : null
   },
 })
@@ -263,6 +267,8 @@ The user needs a string `id`. Comments shows `name`, else `email`, else "Someone
 Return `true` for `user: null` to let people without an account comment. The overlay asks for a display name once, keeps it in `localStorage`, and shows it with "(guest)".
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export const comments = defineComments({
   // Guests may read and comment. Only editors resolve.
   authorize: ({ user, action }) => action !== 'resolve' || user?.role === 'editor',
@@ -362,6 +368,9 @@ When your app uses `DATABASE_URL` or `TURSO_DATABASE_URL` for another database, 
 ### Cloudflare D1
 
 ```ts [vite.config.ts]
+import { comments } from '@vite-hub/comments/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [comments({ database: 'd1:COMMENTS' })],
 })
@@ -384,6 +393,9 @@ Add the [Sign in with GitHub](#sign-in-with-github) variables as Worker secrets,
 ### A SQLite file
 
 ```ts [vite.config.ts]
+import { comments } from '@vite-hub/comments/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [comments({ database: 'file:./data/comments.sqlite' })],
 })
@@ -398,6 +410,8 @@ In a [ViteHub app](/docs/comments/with-vite-hub), Comments adds four tables to a
 To use another Database, give its name:
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export const comments = defineComments({
   database: 'team',
 })
@@ -436,7 +450,7 @@ Stop comment writes while you migrate, also from older app instances, and back u
 
 **A ViteHub Database.** The migration must go in the migration history, so that `vitehub db generate` does not try to change the old table itself:
 
-1. Run `vitehub db generate --custom --name comments_one_model`. It writes an empty SQL migration and a snapshot of the new tables.
+1. Run `vitehub db generate --custom --schema-snapshot --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables. Without `--schema-snapshot`, the snapshot is a copy of the previous one, and the next `vitehub db generate` tries to move the tables again.
 2. Print the SQL and put it in that file, one statement before each `--> statement-breakpoint`:
 
 ```bash
@@ -477,7 +491,7 @@ Type `@` in a comment to mention someone. The server checks that the id is a rea
 
 By default, a person may be mentioned only in a thread they may read: `authorize({ action: 'read', user: person, thread })`. Suggestions leave out others, and mentioning one fails with `COMMENTS_INVALID_INPUT`. Change this with `canMention`:
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { team } from './utils/team'
 
@@ -497,7 +511,7 @@ export const comments = defineComments({
 
 `onMention` runs once per saved message that mentions people, with those people. An edit runs it only for added people. It runs after the response, through `waitUntil` where available. A failure is logged and never fails the comment. Use it with [Email](/docs/email):
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { email } from 'vite-hub/email/server'
 import { findUserEmail } from './utils/users'
@@ -529,7 +543,7 @@ A message can keep files, with keys in `attachments`. The `comments.upload` oper
 
 By default, files go to the app's [Blob](/docs/blob) store, under `comments/<id>/<name>`. To store them yourself, return the key from `storeAttachment`:
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { saveImage } from './utils/images'
 
@@ -682,7 +696,7 @@ The App posts each comment with its author's name: "**Ada** commented on the pre
 
 With another sign-in, return their GitHub token from `token(author)`, such as their GitHub user token from [Auth](/docs/auth). `token` replaces the sign-in token.
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { githubToken } from './utils/github'
 

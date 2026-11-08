@@ -81,6 +81,21 @@ TypeScript infers answer types from the questions. [Use an ask Driver](/docs/age
 
 `gateway.ask(state, questions, { signal, onUsage })` sends the questions in a sequence of size-limited requests. The shared state plus each question must be under 30,000 bytes. It retries up to two times on network failure or a 408, 429, 500, 502, 503, or 504 answer. `onUsage` gets the `model`, `provider`, and token `usage` of each request.
 
+### Ask with any model
+
+`askWithModel(model)` answers the same questions with any [AI SDK](https://ai-sdk.dev) model, in one structured output request. Use it where a gateway with `ask()` goes. It needs the `ai` package:
+
+```ts [label.ts]
+import { ask, askWithModel } from '@vite-hub/gateways'
+import { openai } from '@ai-sdk/openai'
+
+const answers = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+```
+
+A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
+
 ## Presets
 
 | Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |
@@ -117,7 +132,7 @@ Vercel uses separate Server Env fields: `vercel.apiKey` reads `AI_GATEWAY_API_KE
 
 A passed value replaces its variable. Pass values when your application stores credentials, such as one key per tenant:
 
-```ts
+```ts fragment
 import { cloudflare, typesafe, vercel } from '@vite-hub/gateways'
 
 typesafe({ apiKey: tenant.typesafeKey })
@@ -273,3 +288,5 @@ Every error has a `code`, a `why`, and a `fix`. Errors from `ask()` keep the pro
 | `GATEWAYS_R0008` | The provider rejected the key with 401 or 403. `status` is 503, with `providerStatus` and `requestId`. The `fix` names the variable to rotate. |
 | `GATEWAYS_R0009` | The provider still failed after three attempts. `status` is 502, with `providerStatus` and `requestId`. |
 | `GATEWAYS_R0010` | `languageModel()` without its model API's AI SDK provider package, which the message names. |
+| `GATEWAYS_R0011` | `askWithModel()` without the `ai` package. Install it with `pnpm add ai`. |
+| `GATEWAYS_R0012` | The model of `askWithModel()` answered a question with a value that is not one of its options. |

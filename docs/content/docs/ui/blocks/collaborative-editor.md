@@ -69,7 +69,7 @@ Key the editor component by `path`, so another document joins another room.
 
 Pass `carets` options to change the carets. `selectionRender` returns the attributes for a remote selection. `render` builds the caret element. Options you leave out keep the default.
 
-```ts
+```ts fragment
 import { useEditor } from "@tiptap/vue-3";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 

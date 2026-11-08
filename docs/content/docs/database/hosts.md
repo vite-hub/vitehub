@@ -12,14 +12,40 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle files. |
 | Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep secret URLs and tokens in Server Env. |
-| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development and Vercel use D1 only with `cloudflare.http`. |
+| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
 | Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Hyperdrive binding on Cloudflare and `connection.url` elsewhere. See [Use Postgres](#use-postgres). |
+
+### Use the real D1 database in development
+
+`vite dev` uses local SQLite for every Database by default. Set `remote: true` on a Definition to query its real D1 database instead. The development server sends each query over HTTP to Cloudflare's D1 API, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env, like `cloudflare.http: true`. A local D1 binding does not replace it.
+
+```ts [server/databases/config.ts] fragment
+import { defineDatabase } from '@vite-hub/database'
+
+import { notes } from './schema'
+
+export default defineDatabase({
+  cloudflare: {
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+  },
+  remote: true,
+  schema: { notes },
+})
+```
+
+::warning
+Writes from `vite dev` then change real data. The development server prints `Database "default" is remote` on the first query, and `vitehub inspect definitions --kind database` shows `Development: Remote`.
+::
+
+The database id comes from `cloudflare.databaseId` or from `vitehub provision run`. ViteHub development never creates a cloud resource. `remote` changes only `vite dev`: builds ignore it, so Cloudflare output keeps its D1 binding and Node output keeps local SQLite. `vitehub db migrate` follows `cloudflare.http`, not `remote`, so it still migrates the local SQLite file.
+
+`cloudflare.http` already makes `vite dev` remote, so `remote: true` is not needed with it. To send queries through a D1 proxy in development, set `cloudflare.http: { url, authToken }`. `remote: false` with `cloudflare.http` fails with [`DATABASE_REMOTE_CONFLICT`](/docs/database/limits-and-errors#database_remote_conflict).
 
 ### Use Cloudflare D1 over HTTP
 
 Use one D1 database in local development and on other hosts. Cloudflare output still prefers the binding. Set `cloudflare.http: true` to call Cloudflare's D1 raw API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/config.ts] fragment
 import { defineDatabase } from '@vite-hub/database'
 
 import { notes } from './schema'
@@ -36,7 +62,7 @@ export default defineDatabase({
 
 Set `cloudflare.http: { url, authToken }` to send the same raw queries to an authenticated HTTP(S) proxy. Both values are required at runtime. The proxy never falls back to `CLOUDFLARE_API_TOKEN`.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/config.ts] fragment
 import { defineDatabase } from '@vite-hub/database'
 
 import { notes } from './schema'
@@ -67,7 +93,7 @@ Without `cloudflare.http`, ViteHub keeps local SQLite and hosted libSQL, even wh
 
 D1 keeps one primary database in one region, so a far-away Worker waits on each query. Set `readReplication: true` to read from [D1 read replicas](https://developers.cloudflare.com/d1/best-practices/read-replication/) near the Worker.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/config.ts] fragment
 import { defineDatabase } from '@vite-hub/database'
 
 import { notes } from './schema'
@@ -113,7 +139,7 @@ ViteHub finds the request through a request scope:
 - Nitro 3 apps, Nuxt on Nitro 3 too, get a generated middleware that does the same.
 - Nitro 2 apps, such as Nuxt 4, cannot wrap the request. The Nuxt bridge sets a new env object per request, and ViteHub uses it as the scope. Requests at the same time in one isolate can replace that object before a query starts. Use Nitro 3 for high-concurrency Postgres traffic on Workers.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/config.ts] fragment
 import { defineDatabase } from '@vite-hub/database'
 
 import { notes } from './schema'
@@ -230,6 +256,7 @@ The simplest setup removes the binding from the project file.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
+    preset: 'cloudflare',
     database: {
       driver: 'd1',
       databaseName: 'app-content',
@@ -248,6 +275,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
+      preset: 'cloudflare',
       database: {
         driver: 'd1',
         databaseName: 'app-content',
@@ -267,6 +295,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
+      preset: 'cloudflare',
       database: {
         driver: 'd1',
         databaseName: 'app-content',
@@ -281,7 +310,7 @@ export default defineConfig({
 Run `vitehub provision run --provider cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it finds no id in provision state, `database.databaseId`, or a complete matching Nitro Wrangler binding.
 
 ::note
-In Nuxt, `vite-hub/nuxt` passes `vitehub.database` to `@vite-hub/database/nuxt`, a small bridge for one D1 resource. It mainly keeps Nuxt Content and `wrangler.d1_databases` in sync. Definitions still own the Drizzle runtime. For Cloudflare and Vercel builds, the module writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases win.
+In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, `vite-hub/nuxt` writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::
 
 ## Preview deployments

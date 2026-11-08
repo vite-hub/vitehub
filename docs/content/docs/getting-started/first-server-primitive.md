@@ -26,6 +26,12 @@ works in every framework.
 ::tutorial-step{title="Enable local KV"}
 ## Enable local KV
 
+Install the KV package:
+
+```bash [commands/install-kv]
+pnpm add @vite-hub/kv
+```
+
 Turn on KV with the `fs-lite` driver, which stores values under
 `.vitehub/data/kv`. Keep the other features in your config.
 

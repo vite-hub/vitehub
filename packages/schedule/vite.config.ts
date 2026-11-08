@@ -25,7 +25,6 @@ export default defineConfig({
     entry: [
       "src/definition.ts",
       "src/index.ts",
-      "src/nuxt.ts",
       "src/operations.ts",
       "src/runtime.ts",
       "src/runtime/console.ts",

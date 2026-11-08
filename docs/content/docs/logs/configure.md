@@ -1,8 +1,8 @@
 ---
-title: Configure
+title: Logs configuration
 navigation.title: Configure
 navigation.order: 3
-description: Configure ViteHub Logs, powered by Evlog.
+description: "Pass Evlog options through vitehub(), or read an existing log backend with a LogSource module for the Console and the CLI."
 icon: i-lucide-logs
 ---
 
@@ -10,7 +10,7 @@ icon: i-lucide-logs
 
 Pass native Evlog options under `logs.evlog`:
 
-```ts
+```ts fragment
 logs: {
   evlog: {
     env: { service: 'checkout' },

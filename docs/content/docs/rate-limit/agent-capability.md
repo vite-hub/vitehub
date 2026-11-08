@@ -16,7 +16,7 @@ Create a direct limiter next to the Agent and pass it to the Capability. The Cap
 pnpm add @vite-hub/rate-limit
 ```
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { rateLimit } from 'vite-hub/agent/capabilities'
 import { createRateLimiter } from '@vite-hub/rate-limit'
@@ -55,7 +55,7 @@ The Agent chooses the identity, not the driver. The default `identity: 'auto'` u
 
 Use `identity: 'invoker'` when authentication gives a stable Invoker. Use `identity: 'ip'` only after you name headers that the host sets and cleans.
 
-```ts [server/agents/public-support.ts]
+```ts [server/agents/public-support.ts] fragment
 rateLimit({
   identity: 'ip',
   limiter: invocations,
@@ -84,7 +84,7 @@ export const invocationLimiter = createRateLimiter({
 })
 ```
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { rateLimit } from 'vite-hub/agent/capabilities'
 import { invocationLimiter } from '../rate-limiter'
 
@@ -122,6 +122,10 @@ rateLimit({
 ```
 
 ```ts [After]
+import { rateLimit } from 'vite-hub/agent/capabilities'
+import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+
 const invocations = createRateLimiter({
   driver: memoryRateLimitDriver(),
   limit: 20,

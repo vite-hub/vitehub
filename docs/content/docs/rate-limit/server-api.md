@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 `requireRateLimit(event, id, options)` resolves when the request is allowed. At build time, ViteHub finds these calls and writes their IDs and policies to Provider Output, the generated host config.
 
-```ts
+```ts fragment
 await requireRateLimit(event, 'image-upload', {
   enforcement: 'best-effort',
   failure: 'deny',

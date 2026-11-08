@@ -20,7 +20,7 @@ You write the handler and the send call. ViteHub writes the topic name, consumer
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add vite-hub @vercel/queue
+pnpm add vite-hub @vite-hub/queue @vercel/queue
 pnpm add -D @types/node @types/ws
 ```
 

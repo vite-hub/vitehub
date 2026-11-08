@@ -12,7 +12,7 @@ The `sandbox({ commands })` Capability (a set of tools for an Agent) adds the `s
 
 Pass program names, not shell command strings. `commands` is required and needs at least one name.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { sandbox } from 'vite-hub/agent/capabilities'
 

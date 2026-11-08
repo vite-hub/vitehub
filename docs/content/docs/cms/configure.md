@@ -1,6 +1,6 @@
 ---
 title: CMS configuration
-description: Choose the Database, Blob store, and Workspace of the cms preset, keep documents in a GitHub repository, publish through pull requests, and decide who may edit and publish.
+description: "Choose the Database, Blob store, and Workspace of the cms preset, keep documents in GitHub, publish through pull requests, and decide who may edit."
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 The `cms` preset works without options. Pass a tuple to pick another Database, Blob store, Workspace name, or the GitHub store:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 
@@ -62,7 +62,7 @@ Turn on CMS roles with `extends: [cms, { access: 'roles' }]`. Install the Better
 
 The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) check access through `content.can()`. To use your own policy instead, set `authorize` in `defineContent()`:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   extends: cms,
   collections: { posts },
@@ -81,6 +81,10 @@ export const content = defineContent({
 Set `repo` to keep documents in a Git repository instead of Blob and the Database. Published content and drafts live on separate branches, and a publish is a commit. Use this store when someone edits content files in a checkout, so local and online edits meet in Git. Without `repo`, the Blob + Database store holds the content, not the files on collection paths. It needs no GitHub access.
 
 ```ts [server/content.ts]
+import { z } from 'zod'
+import { cms } from 'vite-hub/cms'
+import { defineContent, documents } from 'vite-hub/content'
+
 export const content = defineContent({
   extends: [cms, {
     repo: 'onmax/docs',
@@ -190,7 +194,7 @@ With the earlier setup, the app has a Database Definition that lists `workspaceH
 2. Delete the Workspace Definition, such as `server/workspaces/site.ts`.
 3. Use the preset with the old names. `workspace` must equal the old `createBlobDatabaseWorkspaceStore({ workspace })` identity, because the identity picks the stored history.
 
-   ```ts [server/content.ts]
+   ```ts [server/content.ts] fragment
    export const content = defineContent({
      extends: [cms, { database: 'content', blob: 'content', workspace: 'site' }],
      collections: { posts },

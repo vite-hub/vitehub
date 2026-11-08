@@ -94,7 +94,7 @@ subfolders and creates a typed `#vitehub/emails/<name>` import for each.
 Your workspace is ready.
 ```
 
-```ts [server/welcome.ts]
+```ts [server/welcome.ts] fragment
 import renderWelcome from '#vitehub/emails/welcome'
 import { renderEmailMarkdown } from 'vite-hub/email/markdown'
 import { email } from 'vite-hub/email/server'
@@ -128,11 +128,11 @@ templates for builds under `.vitehub/email/templates`.
 
 ## Test without delivery
 
-`vite-hub` does not re-export test utilities. To use the in-memory client in
-tests, install `@vite-hub/email` as a dev dependency.
+The framework distribution does not re-export test utilities. Keep the Email
+owner package as a runtime dependency when tests use its in-memory client.
 
 ```bash [Terminal]
-pnpm add -D @vite-hub/email
+pnpm add @vite-hub/email
 ```
 
 ```ts [welcome.test.ts]

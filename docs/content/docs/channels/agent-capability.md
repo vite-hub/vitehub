@@ -14,7 +14,7 @@ Use it when an Agent run (an Invocation) must deliver its result somewhere other
 
 Pass the client from `useChannel()` and the send options. Set `required` to fail the Invocation when nothing was sent:
 
-```ts [server/schedules/weekly-report.ts]
+```ts [server/schedules/weekly-report.ts] fragment
 import { defineSchedule } from '@vite-hub/schedule'
 import { defineAgent, runAgent } from 'vite-hub/agent'
 import { channelDelivery } from 'vite-hub/agent/capabilities'
@@ -134,7 +134,7 @@ channelDelivery({
 
 ## Requirements
 
-- A Channel client with `send(text, options)` that returns `[error, null]` or `[null, { deliveryId }]`, such as `useChannel(name)` from `vite-hub/channels/server`.
+- A Channel client with `send(text, options)` that returns `[error, undefined]` or `[undefined, { deliveryId }]`. `useChannel(name)` from `vite-hub/channels/server` returns one.
 - `maxCalls` must be a positive integer.
 - `reminder` needs `required: true`. `reminder.turns` must be a positive integer, and `reminder.instruction` a non-empty string.
 - When the Agent Definition loads, `channelDelivery()` throws a `TypeError` if `channel` has no `send()`, or `maxCalls` or `reminder` is invalid.

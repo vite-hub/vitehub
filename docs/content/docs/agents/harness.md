@@ -1,7 +1,7 @@
 ---
 title: Agent harness
 description: An agent harness runs an AI model as an agent, with tools, files, approvals, and sessions. ViteHub is an open source agent harness for TypeScript.
-seo.title: What is an agent harness? Open source TypeScript harness
+seo.title: What is an agent harness? A TypeScript harness
 navigation.title: Agent harness
 navigation.order: 3
 navigation.group: Start
@@ -76,7 +76,7 @@ Each property is one part of the harness. ViteHub names the Agent `docs` after i
 
 To run the same Agent in the Codex harness, change only the Driver:
 
-```ts [server/agents/docs/agent.ts]
+```ts [server/agents/docs/agent.ts] fragment
 driver: codexDriver({
   model: 'gpt-5.5',
   instructions: 'Answer from the docs Workspace. Say when the answer is absent.',

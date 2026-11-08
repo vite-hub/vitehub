@@ -12,7 +12,7 @@ A preview cookie lets one browser see drafts through your real pages. Requests w
 
 `content.preview.enable(event)` signs a token and sets it as a cookie on the response. `content.preview.disable(event)` clears it.
 
-```ts [server/api/preview.post.ts]
+```ts [server/api/preview.post.ts] fragment
 import { content } from '../content'
 
 export default defineEventHandler(async (event) => {
@@ -68,11 +68,11 @@ Call `content.preview.run(event, callback)` yourself only for requests outside N
 
 The Console editor shows the document's page in a side browser. The page renders through your routes with the on-screen fields and body, before anything saves. The collection needs a `url` on the Console origin, such as `documents({ url: '/blog/:id' })`.
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string() } }),
 ```
 
-```ts [server/routes/blog/[...id].get.ts]
+```ts [server/routes/blog/[...id].get.ts] fragment
 const post = await content.collection('posts').get(id) // the document on screen in a preview frame
 return html`<h1 ${contentField('posts', post.id, 'title')}>${post.data.title}</h1>`
 ```

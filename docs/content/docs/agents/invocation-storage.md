@@ -13,7 +13,7 @@ The journal gives the model no conversation context. Use [Chat History](/docs/ag
 
 ## Store invocation history
 
-Set `invocations` on the Agent Definition (the file that defines the Agent) to keep a queryable journal. History is opt-in: without a journal, nothing is recorded unless the [Console](/docs/development/console) supplies one.
+An Agent Definition from `vite-hub/agent` that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -26,6 +26,7 @@ export default defineAgent({
 
 | Value | Journal |
 | --- | --- |
+| Omitted | The app-wide journal: [`agent.invocations`](#use-one-journal-for-every-agent), or the [default journal](#use-the-default-journal). |
 | `'database'` | The `default` [ViteHub Database](/docs/database). |
 | `'memory'` | Process memory. Lost on restart, not shared between replicas. |
 | `false` | No journal, also not the app-wide one. |
@@ -35,6 +36,8 @@ export default defineAgent({
 The object form accepts every `defineAgentInvocations()` option except `store`. Set `database` to use another Database. It works only with `store: 'database'`:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
   invocations: { store: 'database', database: 'journal', content: 'content' },
@@ -42,6 +45,99 @@ export default defineAgent({
 ```
 
 ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle.
+
+## Use the default journal
+
+When an app has Agents and sets no journal, ViteHub installs the default journal from `@vite-hub/agent`. It is the same journal with the Console on or off, so turning the Console on does not change where Invocations are stored. The Console only reads it.
+
+| Host | Default journal |
+| --- | --- |
+| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root |
+| Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
+| Cloudflare without a Database Definition | Memory of the Worker isolate |
+
+The default journal keeps prompts, messages, final text, tool input and output, progress updates, and generated session titles, so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these presets logs a warning while it uses the local file.
+
+The default journal requires Nitro-hosted Agents. For the Netlify preset or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
+
+Set its options in `agent.invocations`:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: {
+      invocations: {
+        databaseUrl: 'file:/var/lib/my-app/agent-invocations.sqlite',
+        retention: { maxAge: '14d', maxSize: '30%' },
+        observations: { maxCount: 1024, flushTimeoutMs: 10000 },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: {
+      invocations: {
+        databaseUrl: 'file:/var/lib/my-app/agent-invocations.sqlite',
+        retention: { maxAge: '14d', maxSize: '30%' },
+        observations: { maxCount: 1024, flushTimeoutMs: 10000 },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: {
+      invocations: {
+        databaseUrl: 'file:/var/lib/my-app/agent-invocations.sqlite',
+        retention: { maxAge: '14d', maxSize: '30%' },
+        observations: { maxCount: 1024, flushTimeoutMs: 10000 },
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+- `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare preset, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
+- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 default journal defaults to 30 days and 10,000 terminal records. It does not support `maxSize` and fails the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
+- `observations` takes the [observation bounds](#bound-observation-storage).
+
+`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl` and D1. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
+
+```dotenv [.env]
+VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
+VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
+```
+
+The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
+
+Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
+
+### AGENT_R1029: Local file on a Cloudflare Worker
+
+The Worker rejects a selected `file:` URL at server start, including a `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` override. Set a remote libSQL URL, or remove the file URL to use the host default journal. This prevents the override from silently replacing D1 with memory.
 
 ## Use one journal for every Agent
 
@@ -95,7 +191,7 @@ export default defineConfig({
 
 In Nuxt, use the `vitehub` key. It applies to Agents from `vite-hub/agent` that do not set `invocations`. An Agent's own value replaces it, and `invocations: false` turns it off. `agent.invocations` accepts `'database'` (requires `database` in the ViteHub options), `'memory'`, `false`, or the object form without `redact` and `redactError`, which belong on the Agent.
 
-The app-wide journal works only with Nitro-hosted Agents. Netlify and Deno Agent output fail the build. The Console shows this journal when it is on.
+`agent.invocations` accepts `'database'`, `'memory'`, `false`, the [default journal options](#use-the-default-journal), and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. Every app-wide journal requires Nitro-hosted Agents. For Netlify and Deno Agent output, set `agent.invocations: false` and configure journals on each Agent Definition. `false` records no app-wide journal. When the Console is enabled, it shows the app-wide journal.
 
 ## Use a custom store
 
@@ -140,7 +236,7 @@ A failed queued attempt with another attempt left sets `retryPending: true`. Can
 
 To read only some observations, pass `observationNames`:
 
-```ts
+```ts fragment
 const record = await invocations.get(invocationId, {
   observationNames: ['agent.invocation.finish'],
 })
@@ -178,7 +274,7 @@ Run [`vitehub agent invocations compact`](#compact-a-journal-file) once to rebui
 
 By default, a slow or unavailable store does not stop a run, because the journal is only history for the Console and CLI. Set `enforcement` to change this:
 
-```ts
+```ts fragment
 const invocations = defineAgentInvocations({
   enforcement: 'strict',
   store,
@@ -235,7 +331,7 @@ Use the direct SQLite adapter when the journal has its own URL, the [`d1` adapte
 
 To delete or prune terminal records:
 
-```ts
+```ts fragment
 await invocations.delete(invocationId) // 'deleted' | 'not-found' | 'not-terminal'
 await invocations.prune({ olderThanMs: 7 * 24 * 60 * 60 * 1000, dryRun: true })
 await invocations.prune() // applies the store's maxAge, maxRecords, and maxSize now
@@ -251,7 +347,7 @@ The SQLite, D1, and memory stores support both operations. Custom stores need `s
 
 To run a finished Invocation again, read its recorded prompt:
 
-```ts
+```ts fragment
 import { agentInvocationRerunInput } from 'vite-hub/agent'
 
 const record = await invocations.get(invocationId)
@@ -290,7 +386,7 @@ The journal keeps `input.prompt` only when `metadataContent` or `content: 'conte
 
 A journal keeps only metadata by default.
 
-- `configuration: 'content'` keeps resolved instructions and tool descriptions and schemas, apart from other trace content. The default is `'metadata'`. Console journals turn it on. Older records cannot get it back. It follows the observation limits and marks truncated values.
+- `configuration: 'content'` keeps resolved instructions and tool descriptions and schemas, apart from other trace content. The default is `'metadata'`. The default Agent journal turns it on. Older records cannot get it back. It follows the observation limits and marks truncated values.
 - `content: 'content'` keeps prompts, messages, reasoning, tool inputs and outputs, and result text. Set it only when your app must keep them.
 
 ::warning
@@ -325,7 +421,7 @@ Trace write failures do not change the result. With `enforcement: 'strict'`, a r
 
 `triggeredBy` filters summaries by the person label in `annotations.triggeredBy`, matching the trimmed label exactly. It combines with Agent, Capability, status, and text filters:
 
-```ts
+```ts fragment
 const people = await invocations.listTriggeredBy('support')
 const page = await invocations.list({
   agentName: 'support',
@@ -349,6 +445,9 @@ const nextPage = page.cursor
 Set limits for long traces with `observations`:
 
 ```ts
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
   content: 'content',
   observations: {
@@ -377,6 +476,9 @@ At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcom
 An operation slower than `storeTimeoutMs` (default one second, maximum 60) counts as unconfirmed, even if it lands later. In `strict` mode, an unconfirmed running transition stops the Invocation before the Driver starts. `best-effort` starts it and retries. Raise the limit for a distant store, such as a D1 primary in another region:
 
 ```ts
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
   store: createDatabaseAgentInvocationStore(),
   storeTimeoutMs: 10_000,
@@ -419,11 +521,11 @@ vitehub agent invocations export --url https://app.example.com --origin webhook 
 vitehub agent invocations delete INVOCATION_ID
 vitehub agent invocations prune --older-than 30d --dry-run --json
 vitehub agent invocations prune --database file:./.data/invocations.db --older-than 12h
-vitehub agent invocations prune --database /data/console.sqlite --max-size 30% --dry-run
+vitehub agent invocations prune --database /data/agent-invocations.sqlite --max-size 30% --dry-run
 vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
-- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, they use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root.
+- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, they use the default journal at `.vitehub/data/agent-invocations.sqlite` in the project root.
 - Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint.
 - Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`.
 - With `--max-size` or `--max-records`, prune removes the oldest terminal records first, and `--older-than` applies only if passed.
@@ -437,8 +539,8 @@ vitehub agent invocations prune --max-records 1000 --max-size 2GB
 A journal file created before the adapter set `auto_vacuum = INCREMENTAL` keeps its largest size. Run `compact` once to rebuild it with `VACUUM` and set the mode:
 
 ```sh
-vitehub agent invocations compact --database /data/console.sqlite --dry-run
-vitehub agent invocations compact --database /data/console.sqlite --json
+vitehub agent invocations compact --database /data/agent-invocations.sqlite --dry-run
+vitehub agent invocations compact --database /data/agent-invocations.sqlite --json
 ```
 
 `compact` measures the file, WAL, page count, free pages, and `auto_vacuum` mode, then runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`. It prints the size before and after, reclaimed bytes, and the new mode. `--dry-run` prints the measurements, projected size, and free space check without changes, and exits 1 when compact would refuse. Prune first, so the rebuilt file holds only what you keep.
@@ -450,8 +552,8 @@ vitehub agent invocations compact --database /data/console.sqlite --json
 `list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or Console, for example inside a running container:
 
 ```sh
-vitehub agent invocations list --database /data/console.sqlite --status running
-vitehub agent invocations show INVOCATION_ID --database /data/console.sqlite --json
+vitehub agent invocations list --database /data/agent-invocations.sqlite --status running
+vitehub agent invocations show INVOCATION_ID --database /data/agent-invocations.sqlite --json
 ```
 
 It opens the file read-only with `node:sqlite` and never migrates or writes it, so the app can keep writing. It reads observations from the record and from the running-record table. It takes a path or `file:` URL, refuses remote libSQL (use `--url`), and honors `--table-prefix`. `cancel` still needs the running app. Without `node:sqlite`, it says so and exits 1.
@@ -504,13 +606,13 @@ console.log(d1AgentInvocationSchema().join(';\n') + ';')
 
 For ViteHub-managed SQLite or libSQL, use the [Database adapter](#store-invocations-in-a-vitehub-database). The host owns the binding, and the store never opens or closes it. Use [`redact`](#redact-stored-evidence) to keep sensitive values out of D1. Route authorization stays your app's policy.
 
-On the `cloudflare` preset (the host setting), the Console journal uses this store with the D1 Database binding when no Agent sets `invocations`. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores). Local D1 tests cover SQL and concurrency, not production limits or latency.
+On the Cloudflare preset, the [default journal](#use-the-default-journal) uses this store with the D1 Database binding when no Agent Definition configures `invocations`. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Append delivery evidence
 
 Use `appendObservation()` to record an external delivery before or after an Invocation finishes:
 
-```ts
+```ts fragment
 const record = await invocations.appendObservation(invocationId, {
   name: 'report.delivered',
   type: 'capability',
@@ -526,7 +628,7 @@ Appends use the limits saved with the record, also after a restart. If count, by
 
 Call `invocations.cancel(id)` to cancel a pending or running Invocation. The journal records `cancelRequestedAt` first, so every process sharing the store sees it.
 
-```ts
+```ts fragment
 const result = await invocations.cancel(id)
 if (result.notEnforcedBy) console.warn(`Cancel requested, not enforced by ${result.notEnforcedBy}`)
 ```

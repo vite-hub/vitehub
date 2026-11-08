@@ -15,7 +15,7 @@ Type `suppliers except vak` and press Enter. Type `error` to see the error state
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/filter-search`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/filter-search`:
 
 ```ts
 import { FilterSearch } from "@vite-hub/ui";
@@ -81,7 +81,7 @@ FilterSearch
 
 ## Headless parts
 
-Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `@vite-hub/ui/choices-input` or `@vite-hub/ui/headless`. They have no styles, and the Nuxt module does not auto-import them:
+Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `@vite-hub/ui/choices-input` or `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
 
 ```vue
 <script setup lang="ts">
@@ -136,6 +136,8 @@ The styled component. Renders a `div` with `data-slot="choices-input"`, the Nuxt
 The type of the `choices` prop, which `useChoices()` returns:
 
 ```ts
+import type { Ref } from "vue"
+
 interface ChoicesInputSource {
   abort: () => void;
   clear: () => void;

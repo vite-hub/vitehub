@@ -49,7 +49,7 @@ On AI SDK calls from a model-backed Driver, the Capability sets `providerOptions
 
 At the end, it reads `event.invocation.usage`: token usage, model, execution provider, transport, latency, and cost. A field stays empty when the provider reports too little to calculate it safely.
 
-```ts
+```ts fragment
 {
   model: 'anthropic/claude-sonnet-4.5',
   provider: 'openrouter',
@@ -76,6 +76,8 @@ Pricing is best effort. A missing provider or model, an unavailable catalog, a t
 `pricing: false` gives tokens without estimates; provider-reported cost stays. `metadata.pricing` shows whether pricing is on, which the Console reads before the cost is recorded.
 
 ```ts
+import { usage } from 'vite-hub/agent/capabilities'
+
 capabilities: [usage({ pricing: false })]
 ```
 

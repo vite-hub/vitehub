@@ -17,29 +17,6 @@ function uses(source: string) {
 }
 
 describe("built-in Channel discovery", () => {
-  it("finds outbound connector calls through imported and namespace factories", () => {
-    expect(uses(`
-      import { telegram as tg, teams } from "vite-hub/agent/channels"
-      import * as channels from "@vite-hub/agent/channels"
-      tg.connector()
-      channels.discord.connector()
-      teams.connector({ adapter: { userName: "support" } })
-    `)).toEqual([
-      { kind: "telegram", keys: [] },
-      { kind: "discord", keys: [] },
-      { kind: "teams", keys: [] },
-    ])
-  })
-
-  it("ignores unrelated and shadowed connector factories", () => {
-    expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
-      import { discord } from "another-package"
-      function send(telegram) { telegram.connector() }
-      discord.connector()
-    `)).toEqual([])
-  })
-
   it("keeps Teams Env required for the runtime-supported adapter true value", () => {
     expect(uses(`
       import { teams } from "vite-hub/agent/channels"
@@ -1045,17 +1022,16 @@ describe("built-in Channel discovery", () => {
     `)).toEqual([])
   })
 
-  it.each(["server/channels/support/index.ts", "server/channels/support.ts", "support.channel.ts", "backend/channels/support.ts"])("declares connector-only Channel Env in %s", async (handler) => {
+  it.each(["server/channels/support/index.ts", "server/channels/support.ts", "support.channel.ts", "backend/channels/support.ts"])("declares the Env of Channel adapters in %s", async (handler) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-channel-env-"))
     try {
       const directory = handler.includes("/") ? handler.slice(0, handler.lastIndexOf("/")) : ""
       if (directory) await mkdir(join(root, directory), { recursive: true })
       await writeFile(join(root, handler), `
-        import { defineOutboundChannel } from "vite-hub/channels"
+        import { defineChannel } from "vite-hub/channels"
         import { teams, discord, telegram } from "vite-hub/agent/channels"
-        export default defineOutboundChannel({
-          connectors: { teams: teams.connector(), discord: discord.connector(), telegram: telegram.connector() },
-        })
+        export const others = [discord(), telegram()]
+        export default defineChannel({ adapter: teams() })
       `)
       const declared = discoverAgentChannelEnv({ rootDir: root, ...(handler.startsWith("backend/") ? { serverDirs: [join(root, "backend")] } : {}) })
       for (const kind of ["teams", "discord", "telegram"] as const) {
@@ -1070,19 +1046,17 @@ describe("built-in Channel discovery", () => {
   })
 
   it.each([
-    { adapter: "{ userName: 'support' }", required: true },
-    { adapter: "{ botToken: 'explicit-token' }", required: false },
-    { adapter: "{ botToken: undefined }", required: true },
-    { adapter: "{ postMessage: async () => ({ id: 'message' }) }", required: false },
-    { adapter: "() => customAdapter", required: false },
-  ])("declares Telegram connector credentials for $adapter", async ({ adapter, required }) => {
+    { options: "{ userName: 'support' }", required: true },
+    { options: "{ botToken: 'explicit-token' }", required: false },
+    { options: "{ botToken: undefined }", required: true },
+  ])("declares Telegram adapter credentials for $options", async ({ options, required }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-channel-env-"))
     try {
       await mkdir(join(root, "server", "channels"), { recursive: true })
       await writeFile(join(root, "server", "channels", "support.ts"), `
-        import { defineOutboundChannel } from "vite-hub/channels"
+        import { defineChannel } from "vite-hub/channels"
         import { telegram } from "vite-hub/agent/channels"
-        export default defineOutboundChannel({ connectors: { telegram: telegram.connector({ adapter: ${adapter} }) } })
+        export default defineChannel({ adapter: telegram(${options}) })
       `)
       expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken?.required).toBe(required)
     }
@@ -1409,15 +1383,15 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     expect(loadServerEnv).toHaveBeenCalledOnce()
   })
 
-  it.each(["channel", "connector"])("skips unavailable Server Env for explicit Discord %s credentials", async (mode) => {
+  it.each(["channel", "send"])("skips unavailable Server Env for explicit Discord %s credentials", async (mode) => {
     vi.resetModules()
     vi.doMock("#vitehub/env/server", () => { throw new Error("unused provider module failed") })
     const createDiscordAdapter = vi.fn(() => ({ name: "discord", postMessage: async () => ({ id: "sent" }) }))
     vi.doMock("@chat-adapter/discord", () => ({ createDiscordAdapter }))
     const { discord } = await import("../src/channels.ts")
     const adapter = { applicationId: "app-id", botToken: "bot-token", publicKey: "public-key" }
-    if (mode === "connector") {
-      await expect(discord.connector({ adapter }).send("Hello", { recipient: "discord:channel" })).resolves.toEqual({ id: "sent" })
+    if (mode === "send") {
+      await expect(discord({ adapter }).send("Hello", { recipient: "discord:channel" })).resolves.toEqual({ id: "sent" })
     } else {
       const channel = discord({ adapter })
       if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
@@ -1427,7 +1401,7 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     expect(createDiscordAdapter).toHaveBeenCalledWith(adapter)
   })
 
-  it.each(["channel", "connector"])("reads only omitted Discord %s credentials", async (mode) => {
+  it.each(["channel", "send"])("reads only omitted Discord %s credentials", async (mode) => {
     vi.resetModules()
     const group = {
       get applicationId() { throw new Error("unused application ID provider failed") },
@@ -1439,8 +1413,8 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     vi.doMock("@chat-adapter/discord", () => ({ createDiscordAdapter }))
     const { discord } = await import("../src/channels.ts")
     const adapter = { applicationId: "app-id", publicKey: "public-key" }
-    if (mode === "connector") {
-      await expect(discord.connector({ adapter }).send("Hello", { recipient: "discord:channel" })).resolves.toEqual({ id: "sent" })
+    if (mode === "send") {
+      await expect(discord({ adapter }).send("Hello", { recipient: "discord:channel" })).resolves.toEqual({ id: "sent" })
     } else {
       const channel = discord({ adapter })
       if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
@@ -1450,14 +1424,14 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     expect(createDiscordAdapter).toHaveBeenCalledWith({ ...adapter, botToken: "env-token" })
   })
 
-  it("skips unavailable Server Env for explicit Telegram connector credentials", async () => {
+  it("skips unavailable Server Env for explicit Telegram send credentials", async () => {
     vi.resetModules()
     vi.doMock("#vitehub/env/server", () => { throw new Error("unused provider module failed") })
     const createTelegramAdapter = vi.fn(() => ({ name: "telegram", postMessage: async () => ({ id: "sent" }) }))
     vi.doMock("@chat-adapter/telegram", () => ({ createTelegramAdapter }))
     const { telegram } = await import("../src/channels.ts")
     const adapter = { apiBaseUrl: "https://api.telegram.org", botToken: "bot-token" }
-    await expect(telegram.connector({ adapter }).send("Hello", { recipient: "telegram:chat" })).resolves.toEqual({ id: "sent" })
+    await expect(telegram(adapter).send("Hello", { recipient: "telegram:chat" })).resolves.toEqual({ id: "sent" })
     expect(createTelegramAdapter).toHaveBeenCalledWith(adapter)
   })
 

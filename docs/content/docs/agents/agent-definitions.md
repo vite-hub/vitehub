@@ -38,6 +38,8 @@ The Driver runs the Agent with a model, your own `run` function, typed `ask` que
 The top-level `budget` option limits tokens and cost per Invocation (one run of the Agent). It adds the same `budget` Capability that you can put in a Capability list, inspectable the same way:
 
 ```ts [server/agents/review.ts]
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
   budget: {

@@ -1,6 +1,6 @@
 ---
 title: Build an AI Slack bot with ViteHub
-description: Create a Slack bot that answers with AI. Make the Slack app from a manifest, pass the Chat SDK Slack adapter to slack() in defineAgent, and point Slack Event Subscriptions at the ViteHub webhook route.
+description: "Create a Slack bot that answers with AI. Make the Slack app from a manifest, pass the Chat SDK Slack adapter to slack(), and send Slack events to ViteHub."
 navigation.title: Slack AI bot
 navigation.order: 4
 navigation.group: Chat bots
@@ -144,9 +144,10 @@ export default defineConfig({
 ```ts [server/agents/assistant.ts]
 import { createSlackAdapter } from '@chat-adapter/slack'
 import { defineAgent } from 'vite-hub/agent'
+import { access } from 'vite-hub/agent/capabilities'
 import { slack } from 'vite-hub/agent/channels'
 
-const allowedUsers = new Set(['U0123456789'])
+const allowedUsers = new Set(['slack:U0123456789'])
 
 export default defineAgent({
   channels: {
@@ -155,11 +156,15 @@ export default defineAgent({
         botToken: process.env.SLACK_BOT_TOKEN,
         signingSecret: process.env.SLACK_SIGNING_SECRET,
       }),
-      messages: {
-        filter: ({ message }) => allowedUsers.has(message.author.userId),
-      },
     }),
   },
+  capabilities: [
+    access({
+      chat: {
+        resolve: ({ invoker }) => invoker !== undefined && allowedUsers.has(invoker.id),
+      },
+    }),
+  ],
   driver: {
     model: 'openai/gpt-5.1-mini',
     instructions: 'You are a helpful assistant in Slack. Keep answers short.',
@@ -169,7 +174,7 @@ export default defineAgent({
 
 - The file name is the Agent name (`assistant`), and the `channels` key is the webhook name (`slack`). Together they make the Request URL `/api/_vitehub/agents/assistant/webhooks/slack`.
 - `adapter` is a function, so ViteHub creates the adapter and reads the environment when a request arrives.
-- `messages.filter` is optional. Here it admits only the listed Slack member IDs. When it returns `false`, the Agent does not start and posts nothing. To copy a member ID, open a Slack profile and select **Copy member ID**.
+- `access()` admits only the invoker IDs in the set. Each ID is `slack:<member ID>`. Return `false` and the Agent does not start and posts nothing. To copy a member ID, open a profile in Slack and select **Copy member ID**.
 
 The model string runs through AI Gateway, so the server needs `AI_GATEWAY_API_KEY`. See [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) to use another model.
 
@@ -297,7 +302,7 @@ See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-c
 
 - **Mentions.** The bot answers every direct message, but in a channel only messages that mention it. To also answer later replies in that thread, set `messages: { replyToSubscribedThreads: true }`. Slack sends those only with the `message.channels`, `message.groups`, or `message.mpim` events. See [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
 - **Other bots.** ViteHub ignores other bots' messages unless you set `messages: { allowBots: true }`.
-- **Allowed users.** `messages.filter` is a filter, not sign-in. A Slack member ID is not a trusted identity. Before the Agent reads private data, resolve a trusted [Actor](/docs/agents/actors).
+- **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Slack member ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Actor](/docs/agents/actors).
 - **One workspace.** One bot token serves one workspace. For an app that many workspaces install, set up OAuth in the Chat SDK adapter. See the [Slack adapter docs](https://chat-sdk.dev/adapters/official/slack).
 - **Socket Mode.** The webhook route needs the Events API over HTTPS. ViteHub does not start a Socket Mode listener.
 - **Proof.** `slack()` is a thin Channel over your adapter. We test its types and the shared Chat SDK webhook route, but CI runs no Slack adapter or deployed Slack bot.

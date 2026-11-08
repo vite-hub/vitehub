@@ -13,7 +13,7 @@ icon: i-lucide-circle-alert
 - `code`: the failure name
 - `why`: what went wrong
 - `fix`: what to do
-- `docs`: a link to the code on this page
+- `docs`: a link to the code in [Queue diagnostics](/docs/queue/diagnostics)
 - `cause`: the provider error
 
 ```ts [server/api/signup.post.ts]
@@ -50,7 +50,7 @@ When a handler throws, ViteHub logs the error and the provider retries, except f
 
 Throw `ViteHubError` from `@vite-hub/runtime` to give a failure a stable code. The code does not change the retry policy.
 
-```ts
+```ts fragment
 new ViteHubError('WELCOME_EMAIL_REJECTED', 'Welcome email was rejected.', {
   cause,
   details: { campaign: 'welcome' },

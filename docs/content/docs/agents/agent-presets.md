@@ -14,7 +14,7 @@ Reuse an Agent Definition (what `defineAgent()` returns) when several Agents sha
 
 `extends` starts a new Agent (the child) from an existing one (the parent), which gives the defaults:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import bot from '../bot/agent'
 
@@ -43,7 +43,7 @@ Child settings compose with parent defaults like this:
 
 Some settings add to inherited values instead:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import bot from '../bot/agent'
@@ -86,7 +86,7 @@ Keys are Skill names and values are `SKILL.md` content. Inherited Skills stay, e
 
 A preset is an Agent Definition that a package publishes for reuse. For a built-in workflow, follow the setup guide of an [Agent preset](/docs/agents/presets). To publish your own, export ordinary `defineAgent()` definitions; apps import them and select one by a local name:
 
-```ts
+```ts fragment
 import { defineAgent } from "vite-hub/agent"
 import { notetaker } from "@example/agents"
 
@@ -109,6 +109,8 @@ A preset package must declare `@vite-hub/agent` as a peer dependency, so its def
 A preset can expose typed options with the same `defineAgent()` function:
 
 ```ts
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
 export const notetaker = defineAgent({
   options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
   configure: ({ format }) => defineAgent({
@@ -119,7 +121,7 @@ export const notetaker = defineAgent({
 
 Apps override only the options they need:
 
-```ts
+```ts fragment
 const notes = defineAgent({
   preset: "notetaker",
   presets: { notetaker },
@@ -135,6 +137,8 @@ notes.options.format // "concise" | "detailed"
 A configured preset (one with `options` and `configure`) can declare a `configKey`, so apps set its options in a named block that shows which preset they belong to:
 
 ```ts
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
 const notes = defineAgent({
   configKey: 'notetaker',
   options: { format: 'concise' as 'concise' | 'detailed' },

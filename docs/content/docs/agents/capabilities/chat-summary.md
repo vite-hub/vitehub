@@ -15,7 +15,7 @@ The summary comes from your `execute()`, an AI SDK model call, or a local heuris
 
 Attach it to an Agent that receives conversation messages, such as with `chat()`. `chat()` is optional: the command works on any message input or string prompt.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { chat, chatSummary } from 'vite-hub/agent/capabilities'
 
