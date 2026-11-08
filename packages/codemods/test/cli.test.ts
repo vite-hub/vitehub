@@ -86,6 +86,38 @@ describe("codemods CLI", () => {
 })
 
 describe("nuxt-safe-runtime-config errors", () => {
+  it.each(["tsx", "jsx", "cts", "cjs"])("keeps a schema-free module used by a .%s file", async (extension) => {
+    const files = {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}\n',
+      [`plugin.${extension}`]: "export const config = useSafeRuntimeConfig()\n",
+    }
+    const directory = await app(`no-schema-${extension}`, files)
+    const result = await cli(["nuxt-safe-runtime-config", directory])
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(`plugin.${extension}:1 calls useSafeRuntimeConfig()`)
+    for (const [file, content] of Object.entries(files)) expect(await readFile(join(directory, file), "utf8")).toBe(content)
+  })
+
+  it.each([
+    "modules: activeModules",
+    "modules: buildModules()",
+    "modules: enabled ? activeModules : []",
+    "...base",
+  ])("keeps a schema-free module in a dynamic list (%s)", async (modules) => {
+    const files = {
+      "nuxt.config.ts": `const activeModules = ['nuxt-safe-runtime-config']\nconst buildModules = () => activeModules\nconst enabled = true\nconst base = { modules: activeModules }\nexport default defineNuxtConfig({ ${modules}, safeRuntimeConfig: {} })\n`,
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}\n',
+    }
+    const directory = await app(`no-schema-dynamic-${modules}`, files)
+    const result = await cli([directory])
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain("modules")
+    expect(result.stdout).toContain("array literal")
+    expect(result.stdout).toContain("Files changed (0):\n  none")
+    for (const [file, content] of Object.entries(files)) expect(await readFile(join(directory, file), "utf8")).toBe(content)
+  })
+
   it.each([
     ["no nuxt.config", {}, "Cannot find nuxt.config in"],
     ["a nuxt.config that does not parse", { "nuxt.config.ts": "export default defineNuxtConfig({" }, "Cannot parse nuxt.config.ts"],

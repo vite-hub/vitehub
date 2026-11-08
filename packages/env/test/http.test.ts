@@ -119,6 +119,17 @@ describe("Env management HTTP", () => {
     expect((await handler(new Request(`${origin}/_vitehub/env/manage`))).status).toBe(405)
   })
 
+  it("accepts only the origin that the server code allows, and still authenticates the request", async () => {
+    const { handler, authenticate } = setup(null)
+    const hosted = "https://console.vitehub.dev"
+    const input = () => request({ path, action: "inspect" }, { origin: hosted, authorization: "Bearer valid" })
+    expect((await handler(input(), { allowedOrigin: hosted })).status).toBe(401)
+    expect(authenticate).toHaveBeenCalledOnce()
+    expect((await handler(input(), { allowedOrigin: "https://other.example" })).status).toBe(403)
+    expect((await handler(input())).status).toBe(403)
+    expect(authenticate).toHaveBeenCalledOnce()
+  })
+
   it("passes bearer credentials to authentication without granting authority itself", async () => {
     const { handler, authenticate } = setup(null)
     const input = request({ path, action: "inspect" }, { authorization: "Bearer invalid" })
@@ -183,7 +194,7 @@ describe("Env management HTTP", () => {
     expect(conflict.status).toBe(409)
     expect(await conflict.json()).toEqual({
       code: "ENV_BRIDGE_CONFLICT",
-      docs: "https://vitehub.dev/docs/env/bridge#structured-errors",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_bridge_conflict",
       fix: "Reload the credential details, then replace it again.",
       message: "The credential changed. Refresh before replacing it.",
     })
@@ -261,7 +272,7 @@ describe("Env management HTTP", () => {
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({
       code: "ENV_BRIDGE_OPERATION_FAILED",
-      docs: "https://vitehub.dev/docs/env/bridge#structured-errors",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_bridge_operation_failed",
       fix: "Try again. If this continues, read the server logs for this request.",
       message: "Env operation failed.",
     })

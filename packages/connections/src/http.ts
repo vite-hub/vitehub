@@ -1,3 +1,5 @@
+import { getStandardContext } from "@vite-hub/runtime/h3";
+
 import { isConnectionError } from "./errors.ts";
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
@@ -7,6 +9,7 @@ import { page, requestReturnPath } from "./internal/http-page.ts";
 import { CONNECTIONS_ROUTE } from "./route.ts";
 import { getConnectionsRuntime } from "./runtime/state.ts";
 
+import type { ViteHubContext } from "@vite-hub/runtime";
 import type { ConnectionsAccessPolicy } from "./internal/http-access.ts";
 import type { ConnectionsRuntime } from "./runtime.ts";
 
@@ -44,6 +47,18 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
   return normalized;
 }
 
+/** Fetch hosts can supply a Request whose constructor differs from this realm's. */
+function isWebRequest(input: Request | ViteHubContext): input is Request {
+  if (input instanceof Request) return true;
+  if ("~standard" in input) return false;
+  const headers: unknown = Reflect.get(input, "headers");
+  return typeof Reflect.get(input, "url") === "string"
+    && typeof Reflect.get(input, "method") === "string"
+    && headers !== null && typeof headers === "object"
+    && typeof Reflect.get(headers, "get") === "function"
+    && typeof Reflect.get(input, "json") === "function";
+}
+
 /**
  * Management API for Connections. Every route runs the `actor` policy first. A route body reads
  * the Connections runtime only through the access that the policy grants for this request.
@@ -56,10 +71,14 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
  */
 export function createConnectionsHandler(
   options: ConnectionsHandlerOptions,
-): (request: Request, event?: unknown) => Promise<Response> {
+): (input: Request | ViteHubContext) => Promise<Response> {
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
   const base = normalizeConnectionsBasePath(options.basePath);
-  return async (request, event) => {
+  return async (input) => {
+    // A request event, such as an H3 1 or H3 2 event in a ViteHub app, gives its Web Request through Standard Context.
+    const requestInput = isWebRequest(input);
+    const request = requestInput ? input : getStandardContext(input).req;
+    const event = requestInput ? undefined : input;
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
       const check = await checkConnectionsAccess(options.actor, request, event, runtime, options.agentName);

@@ -428,6 +428,67 @@ describe("schema migration safety", () => {
 })
 
 describe("schema conversion", () => {
+  it("reports Zod 3 input coercion through wrappers instead of silently changing accepted inputs", async () => {
+    const { z } = await import("zod/v3")
+    const schema = z.object({
+      count: z.coerce.number().optional().brand(),
+      title: z.coerce.string().nullable(),
+      enabled: z.coerce.boolean().readonly(),
+      nullableCount: z.union([z.coerce.number(), z.null()]),
+      plain: z.number(),
+    })
+    const issues = schemaIssues(schema)
+    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues, runtimeConfig: new Map() })
+    for (const [name, type] of [["count", "number"], ["title", "string"], ["enabled", "boolean"], ["nullableCount", "number"]]) {
+      expect(issues.get(name)?.join(" ")).toContain(`z.coerce.${type}()`)
+      expect(plan.followUps.some(entry => entry.message.includes(name) && entry.message.includes(`z.coerce.${type}()`))).toBe(true)
+    }
+    expect(issues.has("plain")).toBe(false)
+    for (const value of ["", " "]) {
+      expect(schema.shape.count.parse(value)).toBe(0)
+      vi.stubEnv("NUXT_VALUE", value)
+      const registry = createRuntimeEnvRegistry({ value: env.number({ source: env.source("NUXT_VALUE") }) }, { prefix: false })
+      expect(() => resolveServerEnv(registry)).toThrow()
+    }
+  })
+
+  it("keeps Zod 3 catch fallbacks and their reads out of automatic migration", async () => {
+    const { z } = await import("zod/v3")
+    const schema = z.object({ value: z.string().catch("fallback"), title: z.string() })
+    expect(schema.parse({ title: "site" })).toEqual({ value: "fallback", title: "site" })
+    expect(schema.parse({ value: 42, title: "site" })).toEqual({ value: "fallback", title: "site" })
+    const cwd = await app({
+      "nuxt.config.ts": "export default defineNuxtConfig({ runtimeConfig: { value: 'configured', title: 'site' } })",
+      "server/api/config.ts": "export default () => useSafeRuntimeConfig().value",
+    })
+    const config = await readNuxtConfig(cwd)
+    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: readRuntimeConfig(config).values })
+    expect(plan.fields.map(field => field.configPath)).toEqual([["title"]])
+    expect(plan.unmigrated).toEqual(["value"])
+    expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining("Zod catch fallback") }))
+    const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set(["title"]) })
+    expect(edited.code).toContain("value: 'configured'")
+    const calls = await rewriteCallSites({ cwd, fields: plan.fields, unmigrated: plan.unmigrated })
+    expect(calls.edits).toEqual([])
+    expect(calls.remaining).toEqual(["server/api/config.ts"])
+  })
+
+  it("keeps unsupported Zod 3 wrappers unknown even inside supported wrappers", async () => {
+    const { z } = await import("zod/v3")
+    const schema = z.object({
+      optional: z.string().catch("fallback").optional(),
+      nullable: z.string().catch("fallback").nullable(),
+      branded: z.string().catch("fallback").brand(),
+      readonly: z.string().catch("fallback").readonly(),
+      defaulted: z.string().catch("fallback").default("default"),
+      public: z.object({ value: z.number().catch(7) }),
+      promised: z.string().promise(),
+    })
+    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: new Map() })
+    expect(plan.fields).toEqual([])
+    expect(plan.unmigrated).toEqual(["optional", "nullable", "branded", "readonly", "defaulted", "public.value", "promised"])
+  })
+
   it("reports Zod 3 transforms and checks that Env cannot keep, including branded refinements", async () => {
     const { z } = await import("zod/v3")
     const schema = z.object({

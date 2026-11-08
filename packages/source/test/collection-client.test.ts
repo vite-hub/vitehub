@@ -371,7 +371,7 @@ describe("useCollection", () => {
     const serialized: unknown = JSON.parse(JSON.stringify(collection.error.value))
     expect(serialized).toEqual({
       code: "SOURCE_R0026",
-      docs: "https://vitehub.dev/docs/reference/diagnostics",
+      docs: "https://vitehub.dev/docs/source/diagnostics/source_r0026",
       name: "CollectionAccessError",
       status,
       why: status === 401

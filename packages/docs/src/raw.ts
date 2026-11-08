@@ -815,6 +815,9 @@ const presentationDirectives = new Set([
   "note",
   "product-hero",
   "product-files",
+  // Hero media: agents get the screenshot as a Markdown image, and nothing for an animation.
+  "product-screenshot",
+  "cms-console-demo",
   "product-features",
   "product-feature-item",
   "steps",
@@ -844,6 +847,12 @@ function directiveLabel(name: string, attributes: string | undefined) {
       channels ? `${customChannels ? "Example connectors" : "Built-in channels"}: ${channels}.` : "",
       channels && customChannels ? "You write each connector. Use Agent Channels for built-in chat integrations." : "",
     ].filter(Boolean).join("\n\n");
+  }
+
+  if (name === "product-screenshot") {
+    const src = attributes?.match(/\bsrc=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    const alt = attributes?.match(/\balt=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    return src ? `![${alt ?? ""}](${src})` : "";
   }
 
   if (["note", "tip", "warning", "important"].includes(name)) {
