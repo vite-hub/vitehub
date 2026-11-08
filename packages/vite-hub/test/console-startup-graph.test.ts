@@ -9,6 +9,7 @@ import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const internalSource = resolve(packageRoot, "../internal/src")
+const agentSource = resolve(packageRoot, "../agent/src")
 const packageExports: Record<string, { import?: string }> = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")).exports
 // A static `import` or `export ... from` that is not type-only. Dynamic `import()` calls do not match.
 const staticImport = /^(?:import|export)\s+(?!type\s)(?:[^;"']*?\sfrom\s+)?["']([^"']+)["']/gm
@@ -20,6 +21,7 @@ function staticSpecifiers(code: string): string[] {
 /** The source file of a `vite-hub/*` or `@vite-hub/internal/*` specifier. ViteHub bundles `@vite-hub/internal`. */
 function sourceFile(specifier: string, importer?: string): string | undefined {
   if (specifier.startsWith(".") && importer) return resolve(dirname(importer), specifier)
+  if (specifier === "@vite-hub/agent/invocations/default") return join(agentSource, "invocations/default.ts")
   if (specifier.startsWith("@vite-hub/internal/")) return join(internalSource, `${specifier.slice("@vite-hub/internal/".length)}.ts`)
   const target = specifier.startsWith("vite-hub/") ? packageExports[`./${specifier.slice("vite-hub/".length)}`]?.import : undefined
   return target ? join(packageRoot, target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")) : undefined
@@ -58,11 +60,8 @@ describe("Console server startup graph", () => {
         undefined,
         undefined,
         false,
-        undefined,
         () => true,
-        { d1Binding: "DB" },
         false,
-        undefined,
         { mode: "open" },
         { blob: "vite-hub/_internal/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/_internal/kv" },
       )
@@ -73,12 +72,14 @@ describe("Console server startup graph", () => {
       }
 
       const { files, packages } = startupGraph(generated)
+      expect(files).toContain(join(agentSource, "invocations/default.ts"))
       const loaded = [...files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
       expect(loaded).toContain("src/console/runtime/server/invocations.ts")
       for (const lazy of ["operation-contributions.ts", "operations.ts", "usage-index.ts", "invocations-database.ts", "mcp.ts", "mcp-client-operations.ts", "rpc.ts"]) {
         expect(loaded).not.toContain(`src/console/runtime/server/${lazy}`)
       }
+      for (const lazy of ["d1.ts", "sqlite.ts"]) expect(files).not.toContain(join(agentSource, "invocations", lazy))
       for (const lazy of ["@vite-hub/agent/invocations/d1", "@libsql/client", "drizzle-orm"]) expect(packages).not.toContain(lazy)
     }
     finally {

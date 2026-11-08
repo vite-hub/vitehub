@@ -2,9 +2,9 @@ import { resolve } from "node:path"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
-import { createConsoleInvocationsIdentity, installConsoleInvocationFallback, resolveConsoleInvocationsByIdentity, resolveConsoleInvocationsRevision } from "../../internal.ts"
+import { createConsoleInvocationsIdentity, installConsoleInvocationFallback, markConsoleFixtureInvocations, resolveConsoleInvocationsByIdentity, resolveConsoleInvocationsRevision } from "../../internal.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
-import { consoleMetadataContent } from "./invocations.ts"
+import { defaultAgentInvocationsMetadataContent } from "@vite-hub/agent/invocations/default"
 
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { ConsoleFixture } from "../../fixture.ts"
@@ -18,7 +18,9 @@ function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): A
     const { cursor: _cursor, ...input } = record
     store.create(input)
   }
-  return defineAgentInvocations({ configuration: "content", metadataContent: consoleMetadataContent, store })
+  const invocations = defineAgentInvocations({ configuration: "content", metadataContent: defaultAgentInvocationsMetadataContent, store })
+  markConsoleFixtureInvocations(invocations)
+  return invocations
 }
 
 export function createConsoleFixtureInvocations(file: string): AgentInvocations {

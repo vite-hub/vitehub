@@ -145,11 +145,12 @@ export default async function sendReceipt(order: { orderId: string, chargeId: st
 Start the run with an id that comes from the order:
 
 ```ts [server/api/checkout.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readBody } from 'h3'
 import { runWorkflow } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
+  if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
   return runWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
 })
 ```
