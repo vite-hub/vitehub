@@ -418,7 +418,7 @@ function discoverFlatServerWorkflowDefinitions(scanDirs: string[], source: NonNu
 }
 
 export function discoverWorkflowDefinitions(options:
-  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[], serverDirs?: string[] }
+  | { mode?: "vite-suffix" | "standalone", rootDir: string, scanDirs?: string[], serverDirs?: string[] }
   | { mode: "server-workflows", scanDirs: string[] }
 ): DiscoveredWorkflowDefinition[] {
   if (options.mode === "server-workflows") {
@@ -442,6 +442,6 @@ export function discoverWorkflowDefinitions(options:
     ]),
     discoverFlatServerWorkflowDefinitions(serverScanDirs, "server-workflows"),
     folderDefinitions,
-    discoverAgentWorkflowDefinitions(roots, serverScanDirs),
+    options.mode === "standalone" ? [] : discoverAgentWorkflowDefinitions(roots, serverScanDirs),
   )
 }
