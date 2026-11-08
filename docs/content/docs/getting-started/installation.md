@@ -57,11 +57,13 @@ pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
 > [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
-> The packages are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
+> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
 >
 > ```bash [commands/approve-esbuild]
 > pnpm approve-builds esbuild
 > ```
+>
+> Then run `pnpm add -D vite@^8 typescript@^6 @types/node@^24` before you continue.
 
 Add `vitehub()` to `vite.config.ts`. It includes the Nitro plugin, so you do not add Nitro yourself. Keep your other plugins.
 
@@ -113,7 +115,7 @@ pnpm add vite-hub h3@^2.0.8
 ```
 
 > [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
-> The packages are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
+> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
 >
 > ```bash [commands/approve-esbuild-nuxt]
 > pnpm approve-builds esbuild
