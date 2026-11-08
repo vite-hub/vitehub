@@ -20,11 +20,6 @@
     "error": "TS2571 Object is of type 'unknown'.\nTS7006 Parameter 'label' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/agents/build-a-chat-app.md#04d5b39f0192",
-    "label": "server/api/chat.post.ts",
-    "error": "TS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'."
-  },
-  {
     "id": "docs/content/docs/agents/capabilities/budget.md#338de8c4dfe8",
     "label": null,
     "error": "TS1005 ';' expected.\nTS1128 Declaration or statement expected.\nTS18048 'event' is possibly 'undefined'.\nTS2339 Property 'extensions' does not exist on type 'Event'.\nTS2349 This expression is not callable.\n  Type 'String' has no call signatures."
