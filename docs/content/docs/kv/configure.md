@@ -55,6 +55,9 @@ On the Cloudflare preset, a store uses the KV binding of the dev runtime when th
 Set `remote: true` to use the real store in development:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({ kv: { remote: true } })],
 })
