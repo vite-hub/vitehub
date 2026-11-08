@@ -105,6 +105,45 @@ export default defineChannel({
     } finally { await vite.close() }
   }, 30_000)
 
+  it.each(['__proto__', 'toString', 'constructor'])('serves the prototype-like named Channel %s', async channelName => {
+    const root = await app({
+      [`server/channels/${channelName}.ts`]: `import { defineChannelTrigger } from '@vite-hub/agent/channels'
+import { defineChannel, webhook } from '@vite-hub/channels'
+export default defineChannel({ adapter: webhook(), on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName }) }) } })`,
+      'server/agents/support.ts': `import { defineAgent } from '@vite-hub/agent'
+export default defineAgent({ channels: [${JSON.stringify(channelName)}], runtime: false, driver: { run: () => 'ok' } })`,
+    })
+    const vite = await server(root)
+    try {
+      const { app } = await nitroApp(vite)
+      const delivered = await app.request(`/api/_vitehub/channels/${channelName}`, { method: 'POST', body: '{}' })
+      expect(delivered.status).toBe(200)
+      expect(await delivered.json()).toEqual({ agent: 'support' })
+    } finally { await vite.close() }
+  }, 30_000)
+
+  it('serves inherited named Channels through the listing child Agent', async () => {
+    const channel = `import { defineChannelTrigger } from '@vite-hub/agent/channels'
+import { defineChannel, webhook } from '@vite-hub/channels'
+export default defineChannel({ adapter: webhook(), on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName }) }) } })`
+    const root = await app({
+      'server/channels/inherited.ts': channel,
+      'server/channels/added.ts': channel,
+      'server/agents/support.ts': `import { defineAgent } from '@vite-hub/agent'
+const parent = defineAgent({ channels: ['inherited'], runtime: false, driver: { run: () => 'ok' } })
+export default defineAgent({ extends: parent, channels: ['added'] })`,
+    })
+    const vite = await server(root)
+    try {
+      const { app } = await nitroApp(vite)
+      for (const name of ['inherited', 'added']) {
+        const delivered = await app.request(`/api/_vitehub/channels/${name}`, { method: 'POST', body: '{}' })
+        expect(delivered.status).toBe(200)
+        expect(await delivered.json()).toEqual({ agent: 'support' })
+      }
+    } finally { await vite.close() }
+  }, 30_000)
+
   it('rejects an adapter path that is not a string literal', async () => {
     const root = await app({ 'server/channels/intake/index.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
 const prefix = '/api'

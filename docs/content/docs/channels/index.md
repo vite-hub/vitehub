@@ -9,7 +9,7 @@ icon: i-lucide-send
 
 ::product-hero{tagline="Receive webhooks with signature checks, dedupe and retry, and send messages from any server code, through one named Channel." hosts="Node, Docker, Cloudflare, Vercel" channels="Stripe, Slack, Teams, Your API" channel-mode="custom"}
   :::product-files
-  ```ts [server/channels/stripe.ts]
+  ```ts [server/channels/stripe.ts] fragment
   import { defineChannel, stripe } from 'vite-hub/channels'
   import { runQueue } from 'vite-hub/queue'
 
@@ -56,7 +56,7 @@ icon: i-lucide-send
   })
   ```
 
-  ```ts [server/api/deploys.post.ts]
+  ```ts [server/api/deploys.post.ts] fragment
   import { defineEventHandler } from 'h3'
   import { useChannel } from 'vite-hub/channels/server'
 

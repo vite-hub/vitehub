@@ -58,7 +58,7 @@ import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput, transferParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
-import { agentChannelNames, namedAgentChannels } from "./internal/named-channels.ts"
+import { namedAgentChannels } from "./internal/named-channels.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
@@ -2097,7 +2097,6 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   inputs: AgentChannelInputs<TRuntimeConfig> | readonly string[] | undefined,
 ): AgentChannels<TRuntimeConfig> | undefined {
   if (!inputs) return undefined
-  if (agentChannelNames(inputs)) return inputs as AgentChannels<TRuntimeConfig>
   if (Array.isArray(inputs)) {
     return namedAgentChannels<TRuntimeConfig>(inputs, (value, name) => {
       const channel = normalizeAgentChannelInput<TRuntimeConfig>(value)
@@ -3234,6 +3233,10 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // SAFETY: The layer owner only supplies settings from an existing Agent Definition.
   const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
   if (configured) return configured
+  // Named lists follow the same per-key layering rules as inline Channel records.
+  if (isRuntimeRecord(options) && Array.isArray(options.channels)) {
+    options = { ...options, channels: normalizeAgentChannels(options.channels) }
+  }
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = resolveAgentLayerOptions(options, settings => {
     const channels = normalizeAgentChannels(settings.channels)

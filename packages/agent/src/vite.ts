@@ -1184,7 +1184,7 @@ function transformNamedAgentChannels(
   return [
     `import { registerAgentChannels as vitehubRegisterAgentChannels } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...modules.map((channel, index) => `import vitehubChannel${index} from ${JSON.stringify(channel.handler.replace(/\\/g, "/"))}`),
-    `vitehubRegisterAgentChannels({ ${modules.map((channel, index) => `${JSON.stringify(channel.name)}: vitehubChannel${index}`).join(", ")} })`,
+    `vitehubRegisterAgentChannels({ ${modules.map((channel, index) => `[${JSON.stringify(channel.name)}]: vitehubChannel${index}`).join(", ")} })`,
     code,
   ].join("\n")
 }

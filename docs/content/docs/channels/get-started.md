@@ -62,7 +62,7 @@ The file name becomes the Channel name.
 
 `useChannel('alerts')` selects the Channel. `send()` passes the text and the options to the adapter. Check the error before you return the receipt.
 
-```ts [server/api/build-finished.post.ts]
+```ts [server/api/build-finished.post.ts] fragment
 import { defineEventHandler } from 'h3'
 import { useChannel } from 'vite-hub/channels/server'
 
@@ -106,7 +106,7 @@ Create `server/channels/builds.ts`. The `webhook()` adapter checks `Authorizatio
 import { defineChannel, webhook } from 'vite-hub/channels'
 
 export default defineChannel({
-  adapter: webhook({ signature: 'bearer', secret: 'local-secret' }),
+  adapter: webhook<{ id: string }>({ signature: 'bearer', secret: 'local-secret' }),
   on: {
     webhook: event => console.log(`build ${event.data.id} finished (delivery ${event.id})`),
   },
