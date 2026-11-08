@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { agentInvocationId, runAgent } from "@vite-hub/agent"
+import { agentInvocationId } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { channelAdapter } from "@vite-hub/agent/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -68,7 +69,7 @@ describe("inputCommands({ debug })", () => {
           runtime: "unknown",
           waitUntil: vi.fn(),
         }
-        return runAgent(agent, context, { prompt })
+        return runAgentWithContext(agent, context, { prompt })
       }
       const link = async (runId: string) =>
         `https://chat.example/_vitehub/agents/support/invocations/${encodeURIComponent(await agentInvocationId(runId, "support"))}`

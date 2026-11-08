@@ -91,7 +91,7 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 /**
- * Runtime Context that a caller passes to `runAgent()`, `streamAgent()`, and `startAgentInvocation()`.
+ * Runtime Context that a caller passes as `runtimeContext` to `runAgent()` and `streamAgent()`, and to `startAgentInvocation()`.
  * ViteHub creates a fresh memo cache for the Invocation when `memo` is absent.
  */
 export type AgentRuntimeContextInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
@@ -979,9 +979,10 @@ export interface AgentTriggerTask<
 > {
   /**
    * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * A resolver can return an Agent or its default-export module, such as `() => import('./agent')`, to avoid an import cycle.
    * An unset `run.origin` of the Invocation defaults to the task key.
    */
-  agent?: AgentInput
+  agent?: AgentInput | (() => MaybePromise<AgentInput | { default: AgentInput }>)
   /**
    * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
    * The trigger's `failed` stays the fallback for tasks without one.
@@ -1112,9 +1113,14 @@ export type AgentInterceptHandler<
   TIntercept = unknown,
 > = (context: AgentInterceptContext<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData>) => MaybePromise<TIntercept | undefined>
 
-export interface AgentRunResult {
+export interface AgentRunResult<TOutput = unknown> {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   finishReason?: unknown
+  /**
+   * Output of the Invocation after `runAgent()` consumes its streams: the `driver.output` schema value, the
+   * `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns.
+   */
+  output?: TOutput
   raw?: unknown
   text?: string
   usage?: unknown

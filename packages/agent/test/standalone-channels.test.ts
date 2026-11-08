@@ -185,6 +185,48 @@ export default ${call}({ channels: ${channels.replace('hooks', channelName)}, ru
     } finally { await vite.close() }
   }, 30_000)
 
+  it.each([false, true])('rejects an eager import of the owning Agent (helper: %s)', async (helper) => {
+    const root = await app({
+      'server/channels/cycle.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannelTrigger } from '@vite-hub/agent/channels'
+import owner from '${helper ? '../lib/owner' : '../agents/owner'}'
+export default defineChannel({ adapter: webhook(), on: { webhook: defineChannelTrigger({ tasks: { reply: { agent: owner } }, invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }) }) } })`,
+      'server/lib/owner.ts': "export { default } from '../agents/owner'",
+      'server/agents/owner.ts': `import { defineAgent } from '@vite-hub/agent'
+export default defineAgent({ name: 'owner', channels: ['cycle'], runtime: false, driver: { run: () => 'ok' } })`,
+    })
+    const vite = await server(root)
+    try {
+      await expect(vite.ssrLoadModule(join(root, 'server/agents/owner.ts'))).rejects.toThrow(/Use a lazy task target/)
+    } finally { await vite.close() }
+  }, 30_000)
+
+  it.each(['agent', 'channel'])('loads an owning Agent task from the %s entry', async (entry) => {
+    const root = await app({
+      'server/channels/owner-task.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannelTrigger } from '@vite-hub/agent/channels'
+export default defineChannel({
+  adapter: webhook(),
+  on: { webhook: defineChannelTrigger({
+    tasks: { reply: { agent: () => import('../agents/owner'), prepare: () => Response.json({ target: 'owner' }) } },
+    invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }),
+  }) },
+})`,
+      'server/agents/owner.ts': `import { defineAgent } from '@vite-hub/agent'
+export default defineAgent({ name: 'owner', channels: ['owner-task'], runtime: false, driver: { run: () => 'ok' } })`,
+    })
+    const vite = await server(root)
+    try {
+      if (entry === 'channel') await vite.ssrLoadModule(join(root, 'server/channels/owner-task.ts'))
+      const module = await vite.ssrLoadModule(join(root, 'server/agents/owner.ts'))
+      expect(module.default.channels['owner-task'].triggers.webhook.tasks.reply.agent).toBeTypeOf('function')
+      const { app } = await nitroApp(vite)
+      const response = await app.request('/api/_vitehub/channels/owner-task', { method: 'POST', body: '{}' })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ target: 'owner' })
+    } finally { await vite.close() }
+  }, 30_000)
+
   it('ignores local, shadowed, and unrelated Agent factory calls', async () => {
     const root = await app({
       'server/channels/hooks.ts': `import { defineChannel, webhook } from '@vite-hub/channels'

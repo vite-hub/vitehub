@@ -84,7 +84,7 @@ Each `channels` value is a Channel definition, such as `webChat()`, or a factory
 
 ## Typed questions
 
-`driver.ask` answers typed questions with TypeSafe Jev. Questions are sent in deterministic sequential batches when their combined request would exceed the provider budget; an empty question map skips Jev. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes, otherwise the Invocation fails. The answers are the Invocation output, and `runAgent()` infers their type from the questions:
+`driver.ask` answers typed questions with TypeSafe Jev. Questions are sent in deterministic sequential batches when their combined request would exceed the provider budget; an empty question map skips Jev. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes, otherwise the Invocation fails. The answers are the Invocation output, and `runAgent()` infers the type of `result.output` from the questions:
 
 ```ts
 // server/agents/labeller.ts
@@ -115,19 +115,31 @@ See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` an
 
 ## Direct invocations
 
-Use `runAgent(agent, input)` in a script to get `[null, result]` or `[Error, null]`. ViteHub creates an isolated memo cache and run ID, then drains background work before returning. Results retain their inline output or Workflow Run shape. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. Non-Error failures are wrapped with their original value as the cause.
+`runAgent(agent, input, options?)` runs the Agent in the calling process and returns `[error, result]`. It does not throw for a failed run. `result.text` has the final text, and `result.output` has the typed Agent output: the `driver.output` schema value, the `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns. `runAgent()` consumes streamed output and `Response` bodies before it returns. `error.code` is `AGENT_RUN_FAILED` or `AGENT_RUN_CANCELLED`, and `error.cause` has the original failure.
 
-Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it on its first request. An Invocation that starts before any request, such as a Schedule on a new Worker, loads it before selecting Workflow or inline execution. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+```ts fragment
+const [error, result] = await runAgent(agent, { prompt: "Summarize the policy." }, {
+  runtimeContext: getRuntimeContext(event),
+})
+if (error) throw error
+console.log(result.text)
+```
 
-`runAgent(agent, runtimeContext, input)` keeps the host context, returns the result directly, and throws failures. The context needs `runtime` and `waitUntil`. When it has no `memo`, ViteHub creates a fresh memo cache for the Invocation. `streamAgent()` and `startAgentInvocation()` accept the same context. Use this form for request metadata, runtime configuration, and streams that require a host background lifetime. Errors during later stream or Response-body consumption are outside the two-argument tuple. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
+`runtimeContext` is the host Runtime Context, such as `getRuntimeContext(event)` from `@vite-hub/runtime/h3`. It is not `input.context`, which holds the Invocation context values. Without `runtimeContext`, ViteHub creates an isolated memo cache and run ID and waits for background work before it returns. When `runtimeContext.waitUntil` is set, the host keeps background work alive.
 
-Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, output: 'drained' })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. Both options select inline execution. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
+Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it on its first request. An Invocation that starts before any request, such as a Schedule on a new Worker, loads it before the Invocation starts. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+
+`runAgent()` and `streamAgent()` run the Agent inline, whatever its `runtime`. The generated routes and Channels start Workflow runs. Use `startAgentInvocation()` to start a run that you inspect or cancel later.
+
+`streamAgent(agent, input, options?)` returns `[error, events]`, where `events` is an `AsyncIterable<StreamEvent>`. With `output: "ui-message-stream"`, it returns `[error, response]` with an AI SDK UI message stream `Response`. Errors during stream consumption reach the reader. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
+
+Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, schedule })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
 
 ## Structured data and interception
 
 Set `defineAgent({ data })` to a Standard Schema to validate `input.data` before Capabilities, hooks, and the Driver run. Invalid data fails the Invocation. Call sites use the schema input type; hooks and `intercept` receive the schema output type. Model and provider Drivers do not read `data`, so pass model text in `prompt` or `messages`.
 
-Set `defineAgent({ intercept })` to finish an Invocation before the Driver runs. Return `undefined` to continue, or a value to use as the Invocation output. `runAgent()` types its output as the union of the `intercept` return type and the `driver.output` schema output. `agent:finish` hooks receive the intercepted value, and the finish trace event records `agent.intercepted: true`. See [Agent Definitions](https://vitehub.dev/docs/agents/agent-definitions#finish-before-the-driver).
+Set `defineAgent({ intercept })` to finish an Invocation before the Driver runs. Return `undefined` to continue, or a value to use as the Invocation output. `runAgent()` types `result.output` as the union of the `intercept` return type and the `driver.output` schema output. `agent:finish` hooks receive the intercepted value, and the finish trace event records `agent.intercepted: true`. See [Agent Definitions](https://vitehub.dev/docs/agents/agent-definitions#finish-before-the-driver).
 
 ## Custom Capability tools
 
@@ -349,6 +361,15 @@ openapi({
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
 `operations` can also be a record of names to `operationId`s, such as `{ "invoice": "billing_get_invoice_invoices__id__get" }`. Each name becomes the tool name and the CLI command name. ViteHub reads only the selected operations, so other operations in the spec can have any `operationId`.
 Capability `cli` can be a static command tree or an invocation resolver that returns `undefined` when the CLI should not be available. Generated command trees stay behind adapter-owned options such as `openapi({ cli })`, whose resolver may return `false` or `undefined` for the current invocation.
+
+## Channel task Agents
+
+A trigger task can use an Agent Definition or a resolver such as
+`agent: () => import('../agents/triage')`. The resolver returns the definition or
+its default-export module. ViteHub resolves it before binding task callbacks and
+stores the resolved Agent name in queued deliveries. Use a lazy import when the
+target Agent lists the Channel. Keep static imports of the owning Agent out of
+the Channel and its helpers. ViteHub reports cycles through local imports at build time.
 
 ## Channel Env
 

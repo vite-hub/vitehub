@@ -239,7 +239,6 @@ A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` do
 ```ts [server/channels/tickets/index.ts] fragment
 import { defineChannelTrigger } from 'vite-hub/agent/channels'
 import { defineChannel, webhook } from 'vite-hub/channels'
-import triage from '../../agents/triage'
 import { ticketEvent } from './events'
 
 export default defineChannel({
@@ -247,7 +246,7 @@ export default defineChannel({
   on: {
     webhook: defineChannelTrigger({
       input: ticketEvent,
-      tasks: { triage: { agent: triage } },
+      tasks: { triage: { agent: () => import('../../agents/triage') } },
       invoke: (context, event) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
     }),
   },
@@ -258,6 +257,8 @@ export default defineChannel({
 - ViteHub reads `path` and `aliases` from the source without running the module. Use string literals, or `const` values in the same module that hold them. Any other value fails the build with `AGENT_B0024`.
 - When an Agent lists the Channel, that Agent serves its routes. Otherwise the route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
 - Channels that receive webhooks without an Agent need a Nitro host. Restart the development server after you add or remove one.
+
+A task's `agent` can be a definition or a resolver that returns a definition or its default-export module. Use a lazy import as above when the target Agent lists this Channel. ViteHub resolves it before binding the task callbacks and stores the resolved Agent name with queued deliveries. Keep static imports of the owning Agent out of the Channel and its helpers. ViteHub reports cycles through local imports at build time.
 
 ### Keep webhook State when a Channel moves
 
@@ -663,21 +664,24 @@ Select the Channel and its destination when the application starts the invocatio
 ```ts fragment
 import { runAgent } from 'vite-hub/agent'
 
-await runAgent(agent, {
-  runtime: 'vite',
-  waitUntil: schedule.waitUntil ?? (() => {}),
-  run: {
-    activity: {
-      links: [
-        { label: 'Session', url: sessionUrl },
-        { label: 'Memory', url: memoryUrl },
-      ],
-      target: { repository: 'acme/storefront', issue: 42 },
+const [error] = await runAgent(agent, { prompt: 'Converge this pull request.' }, {
+  runtimeContext: {
+    runtime: 'vite',
+    run: {
+      activity: {
+        links: [
+          { label: 'Session', url: sessionUrl },
+          { label: 'Memory', url: memoryUrl },
+        ],
+        target: { repository: 'acme/storefront', issue: 42 },
+      },
+      channelId: 'github',
+      runId: schedule.runId,
     },
-    channelId: 'github',
-    runId: schedule.runId,
   },
-}, { prompt: 'Converge this pull request.' }, { schedule, output: 'drained' })
+  schedule,
+})
+if (error) throw error
 ```
 
 The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.

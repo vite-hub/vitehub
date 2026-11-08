@@ -2,7 +2,9 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 import type { SandboxRequirement } from "@vite-hub/sandbox"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, streamAgent, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, startAgentInvocation, streamAgent, type AgentErrorCode, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
+import type { Result } from "@vite-hub/runtime"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, chat, content, email, git, gmail, inputCommands, mcp, modelsDevPricing, openapi, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
 import { channelAdapter, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
@@ -530,38 +532,31 @@ describe("agent public types", () => {
     const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const rawResult = runAgentInline(agent, {} as AgentRuntimeContext, {}, { output: "raw" })
-    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
-    const workflowResult = runAgent(agent, {} as AgentRuntimeContext, {})
     const standaloneResult = runAgent(agent, {})
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const controlled = startAgentInvocation(agent, {} as AgentRuntimeContext, {})
 
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
-    expectTypeOf(standaloneResult).toEqualTypeOf<Promise<[Error, null] | [null, Awaited<typeof workflowResult>]>>()
+    expectTypeOf(standaloneResult).toEqualTypeOf<Promise<Result<AgentRunResult<{ summary: string, title: string }>, AgentErrorCode>>>()
+    expectTypeOf<NonNullable<Awaited<typeof standaloneResult>[1]>["output"]>().toEqualTypeOf<{ summary: string, title: string } | undefined>()
+    expectTypeOf<NonNullable<Awaited<typeof standaloneResult>[0]>["code"]>().toEqualTypeOf<"AGENT_RUN_CANCELLED" | "AGENT_RUN_FAILED">()
     expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
-    expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<AgentRunResult | { summary: string, title: string } | undefined>()
     expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, respond: boolean, steer: boolean }>()
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
   })
 
   it("accepts a caller Runtime Context without a memo cache", () => {
     const agent = defineAgent({ driver: { run: () => "done" }, runtime: false })
-    const result = runAgent(agent, {
-      runtime: "vite",
-      waitUntil: task => { void task.catch(() => {}) },
-    }, { prompt: "friend" })
-    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
-    const hostResult = runAgent(agent, {} as AgentRuntimeContext, { prompt: "friend" })
-
-    expectTypeOf(result).toEqualTypeOf<typeof hostResult>()
-    // @ts-expect-error The caller still owns the background-work lifetime.
-    void runAgent(agent, { runtime: "vite" }, { prompt: "friend" })
+    const result = runAgent(agent, { prompt: "friend" }, {
+      runtimeContext: { runtime: "vite", waitUntil: task => { void task.catch(() => {}) } },
+    })
+    const plain = runAgent(agent, { prompt: "friend" })
+    expectTypeOf(result).toEqualTypeOf<typeof plain>()
 
     const context = { runtime: "vite", waitUntil: (task: Promise<unknown>) => { void task.catch(() => {}) } } as const
-    void streamAgent(agent, context, { prompt: "friend" })
+    expectTypeOf(streamAgent(agent, { prompt: "friend" }, { runtimeContext: context })).toEqualTypeOf<Promise<Result<AsyncIterable<StreamEvent>, AgentErrorCode>>>()
+    expectTypeOf(streamAgent(agent, { prompt: "friend" }, { output: "ui-message-stream" })).toEqualTypeOf<Promise<Result<Response, AgentErrorCode>>>()
     void startAgentInvocation(agent, context, { prompt: "friend" })
-    // @ts-expect-error The caller still owns the background-work lifetime.
-    void streamAgent(agent, { runtime: "vite" }, { prompt: "friend" })
     // @ts-expect-error The caller still owns the background-work lifetime.
     void startAgentInvocation(agent, { runtime: "vite" }, { prompt: "friend" })
   })
@@ -609,10 +604,7 @@ describe("agent public types", () => {
     const inline = runAgentInline(agent, {} as AgentRuntimeContext, { data: { from: "a@example.com", subject: "Hi" } })
     expectTypeOf(inline).toEqualTypeOf<Promise<Response | JevDecision | RuleDecision>>()
     const standalone = runAgent(agent, { data: { from: "a@example.com", subject: "Hi" }, prompt: "a@example.com: Hi" })
-    expectTypeOf<Extract<Awaited<typeof standalone>, [null, unknown]>[1]>().toExtend<Response | JevDecision | RuleDecision | { id: string }>()
-    // Callers narrow by result fields after excluding host-level results.
-    const narrow = (output: Extract<Awaited<typeof standalone>, [null, unknown]>[1]) => output instanceof Response || !("rule" in output || "probability" in output) ? undefined : output
-    expectTypeOf(narrow).returns.toEqualTypeOf<JevDecision | RuleDecision | undefined>()
+    expectTypeOf<NonNullable<Awaited<typeof standalone>[1]>["output"]>().toEqualTypeOf<JevDecision | RuleDecision | undefined>()
     // @ts-expect-error Invocation data follows the Agent data schema.
     void runAgent(agent, { data: { from: "a@example.com" } })
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.

@@ -43,9 +43,17 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "import * as channels from '@vite-hub/agent/channels'",
       "export default defineChannel({ adapter: channels.teams({ webhooks: { path: '/chat', aliases: ['/old-chat'] } }) })",
     ].join("\n"))
+    await writeFile(join(root, "server/channels/tasks.ts"), [
+      "import { defineChannel, webhook } from '@vite-hub/channels'",
+      "import { defineChannelTrigger } from '@vite-hub/agent/channels'",
+      "export default defineChannel({ adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/task-hooks' }), on: { webhook: defineChannelTrigger({",
+      "  tasks: { reply: { agent: () => import('../agents/support'), prepare: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) } },",
+      "  invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }),",
+      "}) } })",
+    ].join("\n"))
     await writeFile(join(root, "server/agents/support.ts"), [
       "import { defineAgent } from '@vite-hub/agent'",
-      "export default defineAgent({ channels: ['hooks', 'custom', 'chat'], runtime: false, driver: { run: () => 'ok' } })",
+      "export default defineAgent({ name: 'support', channels: ['hooks', 'custom', 'chat', 'tasks'], runtime: false, driver: { run: () => 'ok' } })",
     ].join("\n"))
     // A second Agent proves that aliases select the owner without an Agent route parameter.
     await writeFile(join(root, "server/agents/other.ts"), [
@@ -81,7 +89,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "globalThis.Deno = { args: [], serve: callback => { handler = callback; return { finished: Promise.resolve() } } }",
       "const module = await import(process.argv[1])",
       "handler ||= module.default",
-      "for (const path of ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/api/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two']) {",
+      "for (const path of ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/api/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two', '/task-hooks']) {",
       "  const context = { params: path.startsWith('/api/_vitehub/agents/') ? { agent: 'support', webhook: 'hooks' } : {} }",
       "  const denied = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}' }), context)",
       "  if (denied.status !== 401) throw new Error('Expected signature verification for ' + path + ', received ' + denied.status)",
@@ -94,9 +102,9 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "}",
     ].join("\n"), pathToFileURL(output).href])
     const deliveries = stdout.trim().split("\n").filter(line => line.startsWith("delivery:")).map(line => JSON.parse(line.slice("delivery:".length)))
-    expect(deliveries).toHaveLength(7)
+    expect(deliveries).toHaveLength(8)
     for (const delivered of deliveries) {
-      expect(delivered).toMatchObject({ status: 200, body: { agent: "support", channel: delivered.path.includes("custom") ? "custom" : "hooks" } })
+      expect(delivered).toMatchObject({ status: 200, body: { agent: "support", channel: delivered.path.includes("custom") ? "custom" : delivered.path === "/task-hooks" ? "tasks" : "hooks" } })
       if (delivered.body.channel === "hooks") expect(delivered.body.other).toBe("Other Agent")
     }
   }

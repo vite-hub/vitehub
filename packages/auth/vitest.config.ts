@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   resolve: {
     alias: {
+      "#app": new URL("./test/fixtures/nuxt-app.ts", import.meta.url).pathname,
       "#vitehub/auth/definition": new URL("./src/runtime/empty-definition.ts", import.meta.url).pathname,
       "#vitehub/auth/server": new URL("./src/server.ts", import.meta.url).pathname,
     },
