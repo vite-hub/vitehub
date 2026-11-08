@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 
-import { findProperty, objectProperties, scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { objectProperties, scanModule, staticString, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 import {
   createSuffixDefinitionSource,
   discoverDefinitions,
@@ -42,60 +42,22 @@ const nonDefinitionTypes = new Set<string>([
   "UnaryExpression",
 ])
 
+// A default export that is an object literal must carry `adapter`, unless a spread or computed key can add it.
+function canBeChannelDefinitionObject(value: Node): boolean {
+  if (value.type !== "ObjectExpression") return true
+  return objectProperties(value).some(property => property.node.type === "SpreadElement" || property.key === undefined || property.key === "adapter")
+}
+
 function exportName(node: { type: "Identifier", name: string } | { type: "Literal", value: string }): string {
   return node.type === "Identifier" ? node.name : node.value
 }
 
-function canBeChannelDefinitionObject(value: Node): boolean {
-  if (value.type !== "ObjectExpression") return true
-  const properties = objectProperties(value)
-  const connectors = findProperty(value, "connectors")
-  if (!connectors) return properties.some(property => property.node.type === "SpreadElement" || property.key === undefined)
-  const connectorsIndex = properties.indexOf(connectors)
-  if (properties.slice(connectorsIndex + 1).some(property => property.node.type === "SpreadElement" || property.key === undefined)) return true
-  // Accessors are evaluated at runtime, so their returned connector map is dynamic.
-  if (connectors.node.type === "Property" && connectors.node.kind !== "init") return true
-  return connectors.value === undefined || canBeConnectorMap(connectors.value)
-}
-
-const functionTypes = new Set(["ArrowFunctionExpression", "FunctionExpression"])
-
-function canBeConnector(value: Node): boolean {
-  if (value.type !== "ObjectExpression") return !nonDefinitionTypes.has(value.type)
-  const properties = objectProperties(value)
-  let knownSend = false
-  for (const property of properties.toReversed()) {
-    if (property.node.type === "SpreadElement" || property.key === undefined) return true
-    if (property.key !== "send" || knownSend) continue
-    knownSend = true
-    return property.value === undefined || functionTypes.has(property.value.type) || !nonDefinitionTypes.has(property.value.type)
-  }
-  return false
-}
-
-function canBeConnectorMap(value: Node): boolean {
-  if (value.type !== "ObjectExpression") return value.type !== "ArrayExpression" && !nonDefinitionTypes.has(value.type)
-  const properties = objectProperties(value)
-  if (!properties.length) return false
-  const seen = new Set<string>()
-  let knownConnector = false
-  for (const property of properties.toReversed()) {
-    if (property.node.type === "SpreadElement" || property.key === undefined) return true
-    if (seen.has(property.key)) continue
-    seen.add(property.key)
-    knownConnector = true
-    if (property.value === undefined || !canBeConnector(property.value)) return false
-  }
-  return knownConnector
-}
-
 /**
- * `server/channels` can also hold Agent Channels from `defineChannel()` and Channel factories. A module is an
- * outbound Channel when it exports `connectors`, or when its default export can be a Channel Definition object with
- * `connectors`: not a function, a class, a primitive, an array, or an Agent `defineChannel()` call. The module is read,
- * not run. A module that cannot be read statically stays a Channel, so the runtime reports its problems.
+ * A module in `server/channels` is a Channel when its default export can be a `defineChannel()` result: not a
+ * function, a class, a primitive, an array, or an Agent `defineChannel()` call. The module is read, not run. A module
+ * that cannot be read statically stays a Channel, so the runtime reports its problems.
  */
-function isOutboundChannelModule(file: string): boolean {
+function isChannelModule(file: string): boolean {
   const module = scanModule(readFileSync(file, "utf8"), file)
   if (module.errors.length) return true
 
@@ -104,7 +66,6 @@ function isOutboundChannelModule(file: string): boolean {
   const agentChannelNamespaces = new Set<string>()
   let defaultExport: Node | undefined
   let hasDefault = false
-  let exportsConnectors = false
   let reexportsAll = false
 
   for (const statement of module.program.body) {
@@ -126,9 +87,8 @@ function isOutboundChannelModule(file: string): boolean {
     }
     if (statement.type === "ExportAllDeclaration") {
       if (statement.exportKind === "type") continue
-      // `export *` can re-export `connectors` from a module that this check does not read.
+      // `export *` can re-export a default from a module that this check does not read.
       if (!statement.exported) reexportsAll = true
-      else if (exportName(statement.exported) === "connectors") exportsConnectors = true
       else if (exportName(statement.exported) === "default") hasDefault = true
       continue
     }
@@ -139,7 +99,6 @@ function isOutboundChannelModule(file: string): boolean {
       for (const item of declaration.declarations) {
         if (item.id.type !== "Identifier") continue
         if (item.init) bindings.set(item.id.name, unwrapExpression(item.init))
-        if (exported && item.id.name === "connectors") exportsConnectors = true
       }
     }
     if ((declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration") && declaration.id) bindings.set(declaration.id.name, declaration)
@@ -147,7 +106,6 @@ function isOutboundChannelModule(file: string): boolean {
     for (const specifier of statement.specifiers) {
       if (specifier.exportKind === "type") continue
       const name = exportName(specifier.exported)
-      if (name === "connectors") exportsConnectors = true
       if (name === "default") {
         hasDefault = true
         defaultExport = statement.source ? undefined : specifier.local
@@ -169,7 +127,6 @@ function isOutboundChannelModule(file: string): boolean {
     }
   }
 
-  if (exportsConnectors) return true
   if (!hasDefault) return reexportsAll
 
   const seen = new Set<string>()
@@ -193,10 +150,37 @@ function isOutboundChannelModule(file: string): boolean {
       : callee.property.type === "Literal" && callee.property.value === "defineChannel"))
 }
 
+const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels"])
+const webhookAdapterNames = new Set(["stripe", "webhook"])
+
+/**
+ * Whether a Channel module receives webhooks: it imports `webhook()` or `stripe()`, also through a namespace. The
+ * Agent package serves those webhooks, so the Vite plugin checks that it is on.
+ */
+export function receivesChannelWebhooks(file: string): boolean {
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  if (module.errors.length) return false
+  const namespaces = new Set<string>()
+  for (const statement of module.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !channelModules.has(statement.source.value)) continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && webhookAdapterNames.has(exportName(specifier.imported))) return true
+    }
+  }
+  let receivesWebhooks = false
+  walk(module.program, (node) => {
+    if (node.type !== "MemberExpression" || node.object.type !== "Identifier" || !namespaces.has(node.object.name)) return
+    const name = node.computed ? staticString(node.property) : node.property.type === "Identifier" ? node.property.name : undefined
+    if (name && webhookAdapterNames.has(name)) receivesWebhooks = true
+  })
+  return receivesWebhooks
+}
+
 function discoverServerChannels(scanDirs: string[]): DiscoveredChannelDefinition[] {
   return discoverServerChannelModules(scanDirs)
     .map(definition => ({ handler: definition.handler, name: definition.name, source: "server-channels" as const }))
-    .filter(definition => isOutboundChannelModule(definition.handler))
+    .filter(definition => isChannelModule(definition.handler))
 }
 
 export function discoverChannelDefinitions(options:

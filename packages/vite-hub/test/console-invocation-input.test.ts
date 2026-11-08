@@ -10,14 +10,14 @@ describe("Console invocation input", () => {
     let complete: (value: unknown) => void = () => {}
     const uploaded = new Promise<unknown>(resolve => { complete = resolve })
     vi.mocked(requestConsole).mockReset().mockReturnValueOnce(uploaded)
-    const target = { agent: "first", base: "/first/api/_vitehub/console/agents", invokerProfileId: "reader" }
+    const target = { agent: "first", base: "/first/_vitehub/api/agents", invokerProfileId: "reader" }
     const started = startConsoleAgentInvocation(target, { text: "Explain this image", files: [{ type: "file", mediaType: "image/png", url: "data:image/png;base64,aQ==" }] })
     target.agent = "second"
-    target.base = "/second/api/_vitehub/console/agents"
+    target.base = "/second/_vitehub/api/agents"
     target.invokerProfileId = "administrator"
     complete({ id: "invocation" })
     expect(await started).toEqual({ agent: "first", id: "invocation" })
-    expect(requestConsole).toHaveBeenCalledExactlyOnceWith("/first/api/_vitehub/console/agents/first/invocations", {
+    expect(requestConsole).toHaveBeenCalledExactlyOnceWith("/first/_vitehub/api/agents/first/invocations", {
       body: { files: [{ url: "data:image/png;base64,aQ==", filename: "image" }], invokerProfileId: "reader", prompt: "Explain this image" }, method: "POST", query: { agentRoute: "encoded" },
     })
   })
@@ -28,9 +28,9 @@ describe("Console invocation input", () => {
     ["team/support", "~007400650061006d002f0073007500700070006f00720074"],
   ])("starts Agent %j through one canonical route segment", async (agent, segment) => {
     vi.mocked(requestConsole).mockReset().mockResolvedValueOnce({ id: "invocation" })
-    await expect(startConsoleAgentInvocation({ agent, base: "/api/_vitehub/console/agents" }, { text: "Review" }))
+    await expect(startConsoleAgentInvocation({ agent, base: "/_vitehub/api/agents" }, { text: "Review" }))
       .resolves.toEqual({ agent, id: "invocation" })
-    const path = `/api/_vitehub/console/agents/${segment}/invocations`
+    const path = `/_vitehub/api/agents/${segment}/invocations`
     expect(requestConsole).toHaveBeenCalledExactlyOnceWith(path, { body: { prompt: "Review" }, method: "POST", query: { agentRoute: "encoded" } })
     expect(new URL(path, "https://console.test").pathname).toBe(path)
   })
@@ -66,13 +66,13 @@ describe("Console invocation input", () => {
 
   it("deletes an invocation through the invocation operation", async () => {
     vi.mocked(requestConsole).mockReset().mockResolvedValueOnce({ id: "team/run", outcome: "deleted" })
-    await deleteConsoleInvocation("/api/_vitehub/console/invocations", "team/run")
-    expect(requestConsole).toHaveBeenCalledExactlyOnceWith("/api/_vitehub/console/invocations/team%2Frun", { body: { action: "delete" }, method: "POST" })
+    await deleteConsoleInvocation("/_vitehub/api/invocations", "team/run")
+    expect(requestConsole).toHaveBeenCalledExactlyOnceWith("/_vitehub/api/invocations/team%2Frun", { body: { action: "delete" }, method: "POST" })
   })
 
   it("does not start an invocation when an upload fails", async () => {
     vi.mocked(requestConsole).mockReset().mockRejectedValueOnce(new Error("Storage unavailable"))
-    await expect(startConsoleAgentInvocation({ agent: "first", base: "/api/_vitehub/console/agents" }, { text: "", files: [{ type: "file", mediaType: "image/png", url: "data:image/png;base64,aQ==" }] })).rejects.toThrow("Storage unavailable")
+    await expect(startConsoleAgentInvocation({ agent: "first", base: "/_vitehub/api/agents" }, { text: "", files: [{ type: "file", mediaType: "image/png", url: "data:image/png;base64,aQ==" }] })).rejects.toThrow("Storage unavailable")
     expect(requestConsole).toHaveBeenCalledOnce()
   })
 })

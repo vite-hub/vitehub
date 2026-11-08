@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { delimiter, sep } from "node:path"
+import process from "node:process"
 
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { dirname, join, resolve } from "pathe"
@@ -16,10 +18,16 @@ export interface SetupProject {
   root: string
   framework: SetupFramework
   packageManager: SetupPackageManager
+  /** Where `packageManager` comes from. `default` means npm, because nothing named one. */
+  packageManagerSource: "manifest" | "lockfile" | "user-agent" | "default"
   /** The config file name in `root`, such as `vite.config.ts`. */
   configFile?: string
   /** Where `vitehub()` options are in `configFile`. `undefined` when there is no config file. */
   config: LocateResult | undefined
+  /** The text of `configFile` that `config` was read from. */
+  configSource?: string
+  /** True when the target manifest declares `name` for production, or for development when `dev` is true. */
+  declared: (name: string, dev: boolean) => boolean
   /** Static discovery directories; undefined when Nuxt directories or layers need evaluation. */
   serverDirs?: readonly string[]
   /** True when `name` is resolvable from the project or present in an ancestor's node_modules. */
@@ -64,14 +72,15 @@ function packageManagerName(value: string | undefined): SetupPackageManager | un
 }
 
 /** `packageManager` in package.json, then a lockfile in `root` or a parent folder, then the user agent, then npm. */
-function detectPackageManager(root: string, manifest: PackageManifest | undefined, env: NodeJS.ProcessEnv): SetupPackageManager {
+export function detectPackageManager(root: string, manifest: PackageManifest | undefined, env: NodeJS.ProcessEnv): Pick<SetupProject, "packageManager" | "packageManagerSource"> {
   const declared = packageManagerName(manifest?.packageManager)
-  if (declared) return declared
+  if (declared) return { packageManager: declared, packageManagerSource: "manifest" }
   for (const folder of parentFolders(root)) {
     const found = lockfiles.find(([file]) => existsSync(join(folder, file)))
-    if (found) return found[1]
+    if (found) return { packageManager: found[1], packageManagerSource: "lockfile" }
   }
-  return packageManagerName(env.npm_config_user_agent) ?? "npm"
+  const agent = packageManagerName(env.npm_config_user_agent)
+  return agent ? { packageManager: agent, packageManagerSource: "user-agent" } : { packageManager: "npm", packageManagerSource: "default" }
 }
 
 function nuxtServerDirs(root: string, config: LocateResult | undefined): string[] | undefined {
@@ -90,6 +99,18 @@ function nuxtServerDirs(root: string, config: LocateResult | undefined): string[
   return [resolve(appRoot, serverDir?.kind === "literal" && typeof serverDir.value === "string" ? serverDir.value || "server" : "server")]
 }
 
+/** The real folders of `name` in NODE_PATH, which Node's resolver reads after every node_modules folder. */
+function globalPackageDirs(name: string): string[] {
+  return (process.env.NODE_PATH ?? "").split(delimiter).filter(Boolean).flatMap((dir) => {
+    try {
+      return [realpathSync(join(dir, name))]
+    }
+    catch {
+      return []
+    }
+  })
+}
+
 /**
  * Reads the project in `root` without loading its config: the config file is parsed, never run.
  * Throws `SETUP_NOT_A_PROJECT` when `root` has no package.json and no Vite or Nuxt config.
@@ -103,29 +124,34 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
   if (!manifest && !nuxtConfig && !viteConfig) throw cliErrorDiagnostics.SETUP_NOT_A_PROJECT({ root })
 
   const framework: SetupFramework = nuxtConfig || dependencies.nuxt ? "nuxt" : viteConfig || dependencies.vite ? "vite" : "none"
-  const configFile = framework === "nuxt" ? nuxtConfig ?? viteConfig : viteConfig
-  let config = configFile ? locateViteHubConfig(configFile, await readFile(join(root, configFile), "utf8")) : undefined
+  const configFile = framework === "nuxt" ? nuxtConfig : viteConfig
+  const configSource = configFile ? await readFile(join(root, configFile), "utf8") : undefined
+  let config = configFile && configSource !== undefined ? locateViteHubConfig(configFile, configSource) : undefined
   // Nuxt automatically registers local layers, which can install ViteHub themselves.
   if (framework === "nuxt" && (!config || (!config.ok && config.reason === "no-vitehub")) && existsSync(join(root, "layers"))) config = { ok: false, reason: "dynamic-options" }
   const folders = parentFolders(root)
   const require = createRequire(join(root, "package.json"))
   return {
     config,
-    ...(configFile ? { configFile } : {}),
+    ...(configFile ? { configFile, configSource } : {}),
     framework,
+    declared: (name, dev) => Object.hasOwn(manifest?.dependencies ?? {}, name) || (dev && Object.hasOwn(manifest?.devDependencies ?? {}, name)),
     installed: (name) => {
+      if (folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json")))) return true
       // Yarn PnP and other active loader hooks can resolve packages without node_modules.
-      // Resolve metadata or an entry point without evaluating either one.
+      // Resolve metadata or an entry point without evaluating either one. `require.resolve` also reads NODE_PATH,
+      // and `pnpm exec` points it at the workspace's hoisted packages: a package found only there is not installed.
+      const globalCopies = globalPackageDirs(name)
       for (const specifier of [`${name}/package.json`, name]) {
         try {
-          require.resolve(specifier)
-          return true
+          const file = realpathSync(require.resolve(specifier))
+          if (!globalCopies.some(dir => file.startsWith(`${dir}${sep}`))) return true
         }
         catch {}
       }
-      return folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json")))
+      return false
     },
-    packageManager: detectPackageManager(root, manifest, env),
+    ...detectPackageManager(root, manifest, env),
     root,
     serverDirs: framework === "nuxt" ? nuxtServerDirs(root, config) : [join(root, "server")],
   }

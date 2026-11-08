@@ -6,7 +6,7 @@ import { projectFetch } from "./project"
 import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
-const consoleApiMarker = "/api/_vitehub/console/"
+const consoleApiMarker = "/_vitehub/api/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
 function decodeConsoleId(value: string): string {
