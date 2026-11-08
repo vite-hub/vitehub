@@ -1,4 +1,5 @@
 import { ref } from "vue"
+import { H3Event } from "h3"
 import { groupConsoleEnv } from "../src/console/runtime/client/env-groups.ts"
 import { indexEnvStatuses } from "../src/console/runtime/client/env-status.ts"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
@@ -44,7 +45,7 @@ describe("Console Env", () => {
     expect(runtimeImports).not.toContain('"#vitehub/env/server"')
     expect(generated).not.toContain('from "#vitehub/env/server"')
     // Status inspection can call providers, so the plugin imports it only on request.
-    expect(generated).toContain('async event => (await import("#vitehub/env/server")).inspectServerEnv(event)')
+    expect(generated).toContain('async () => (await import("#vitehub/env/server")).inspectServerEnv()')
   })
   it("retains distinct pathless statuses through reactive row filtering", () => {
     const descriptions = ref([
@@ -103,7 +104,7 @@ describe("Console Env", () => {
     installConsoleEnv("/env-test", metadata, undefined, inspect)
     await expect(envHandler({ method: "GET" })).resolves.toEqual(metadata)
     expect(inspect).not.toHaveBeenCalled()
-    await expect(envHandler({ method: "GET", req: { url: "/api/_vitehub/console/env?status=1" } })).resolves.toEqual({
+    await expect(envHandler(new H3Event(new Request("http://vitehub.local/api/_vitehub/console/env?status=1")))).resolves.toEqual({
       ...metadata,
       status: [
         { blocking: true, path: "env.server.token", status: "error" },
@@ -116,7 +117,7 @@ describe("Console Env", () => {
   })
   it("hides status failures behind a fixed message", async () => {
     installConsoleSections("/env-test", ["env"])
-    const statusEvent = { method: "GET", req: { url: "/api/_vitehub/console/env?status=1" } }
+    const statusEvent = new H3Event(new Request("http://vitehub.local/api/_vitehub/console/env?status=1"))
     installConsoleEnv("/env-test", { entries: [] })
     await expect(envHandler(statusEvent)).rejects.toMatchObject({ statusCode: 503, statusMessage: "Env status is unavailable." })
     installConsoleEnv("/env-test", { entries: [] }, undefined, async () => { throw new Error("private provider detail") })

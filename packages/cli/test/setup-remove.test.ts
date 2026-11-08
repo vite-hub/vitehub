@@ -30,6 +30,25 @@ async function enabled(root: string, id: string): Promise<string | undefined> {
 }
 
 describe("vitehub remove", () => {
+  it.each([
+    { config: 'rootDir: "app",', file: "app/server/schedules/hello.ts" },
+    { config: 'serverDir: "backend",', file: "backend/schedules/hello.ts" },
+  ])("removes a starter from the configured Nuxt directory ($config)", async ({ config, file }) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ ${config} modules: [["vite-hub/nuxt", { preset: "node" }]] })\n`,
+    })
+    const pm = fakePackageManager(root)
+    const added = await add(["schedule", "--name", "hello", "--option", "schedule.runtime.driver=process"], root, pm.spawn)
+    expect(added.exitCode, added.stdout).toBe(0)
+    expect(existsSync(join(root, file))).toBe(true)
+    const forced = await remove(["schedule", "--force", "--dry-run"], root)
+    expect(forced.json.changes).toContainEqual(expect.objectContaining({ kind: "delete", path: file }))
+    const removed = await remove(["schedule", "--yes"], root, pm.spawn)
+    expect(removed.exitCode, removed.stdout).toBe(0)
+    expect(existsSync(join(root, file))).toBe(false)
+  })
+
   it("gives back the original bytes after add with a starter and an install", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
     const original = await snapshot(root)
@@ -149,13 +168,13 @@ describe("vitehub remove", () => {
     expect(await enabled(root, "workflow")).toBe("off")
   })
 
-  it("names the root feature of a chained implication", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", console: true }`) })
+  it("does not treat the Console as a Database consumer", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", console: true, database: true }`) })
 
     const { exitCode, json } = await remove(["database", "--dry-run"], root)
 
-    expect(exitCode).toBe(3)
-    expect(json.impliedBy).toEqual(["console"])
+    expect(exitCode).toBe(0)
+    expect(json.turnedOff).toEqual(["database"])
   })
 
   it("refuses while app code imports the feature, with file and line", async () => {

@@ -196,9 +196,9 @@ function openEvents(): void {
   }, events.signal).catch(() => {});
 }
 
-async function restart(): Promise<void> {
+async function restart(): Promise<boolean> {
   step.value = "restart";
-  if (!route.value || !client.value) return;
+  if (!route.value || !client.value) return false;
   const next = await waitForSetupRestart(route.value, client.value.serverId);
   if (next) {
     try {
@@ -208,6 +208,7 @@ async function restart(): Promise<void> {
     window.location.reload();
   }
   else restartFailed.value = true;
+  return Boolean(next);
 }
 
 async function apply(): Promise<void> {
@@ -219,9 +220,15 @@ async function apply(): Promise<void> {
   try {
     document = await client.value.apply(plan.value.planId);
   }
-  catch {
+  catch (error) {
     // The server can restart before it answers. A new server id means the change went in.
-    await restart();
+    if (!await restart()) {
+      events?.abort();
+      restartFailed.value = false;
+      failure.value = { error: { code: "REQUEST", message: error instanceof Error ? error.message : String(error), why: "" } };
+      step.value = "plan";
+      plan.value = { ...plan.value, planId: undefined };
+    }
     return;
   }
   if (document.error) {

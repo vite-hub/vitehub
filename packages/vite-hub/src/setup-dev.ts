@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
+import { request as httpRequest } from "node:http"
+import { request as httpsRequest } from "node:https"
 import { dirname, join, resolve } from "node:path"
 import process from "node:process"
 
+import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
 
@@ -87,6 +90,57 @@ function forbidden(): Response {
   return new Response(`Forbidden ${label} host.`, { status: 403 })
 }
 
+/** Ask the Console runtime for this caller's current grant, across the Vite/Nitro process boundary. */
+async function authorizeSetupApply(server: ViteDevServer, req: IncomingMessage): Promise<Response | undefined> {
+  const address = req.socket.localAddress?.replace(/^::ffff:/u, "")
+  const port = req.socket.localPort
+  if (!address || !port) return new Response("The Console access check is unavailable.", { status: 503 })
+  const headers: Record<string, string | string[]> = {}
+  const transportHeaders = new Set(["connection", "content-length", "transfer-encoding", "content-encoding", "expect", "upgrade", "keep-alive", "te", "trailer"])
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (value !== undefined && !transportHeaders.has(name)) headers[name] = value
+  }
+  headers["content-type"] = "application/json"
+  headers["x-vitehub-console"] = "1"
+  try {
+    // The TCP destination comes only from our accepted socket, never from Host or forwarding headers.
+    // Re-enter the app listener so this also reaches Nuxt's separate Nitro worker and mounted apps.
+    const request = "encrypted" in req.socket && req.socket.encrypted ? httpsRequest : httpRequest
+    const response = await new Promise<{ status: number, body: string }>((done, fail) => {
+      const call = request({
+        agent: false,
+        headers,
+        hostname: address,
+        method: "POST",
+        path: `${viteHubPageToolsBase(server.config).base}/_vitehub/rpc/__call`,
+        port,
+        // This is our own TLS listener, which may use a development certificate.
+        rejectUnauthorized: false,
+        signal: AbortSignal.timeout(5_000),
+      }, (res) => {
+        let body = ""
+        let size = 0
+        res.setEncoding("utf8").on("data", (chunk: string) => {
+          size += Buffer.byteLength(chunk)
+          if (size > maxBodyBytes) return res.destroy(new RangeError("Console access response is too large."))
+          body += chunk
+        }).on("end", () => done({ body, status: res.statusCode ?? 500 })).on("error", fail)
+      })
+      call.once("error", fail)
+      call.end(JSON.stringify({ input: {}, operation: "sections.list" }))
+    })
+    const document: unknown = JSON.parse(response.body)
+    const value: unknown = document && typeof document === "object" && Reflect.get(document, "ok") === true ? Reflect.get(document, "value") : undefined
+    const sections: unknown = value && typeof value === "object" ? Reflect.get(value, "sections") : undefined
+    const readOnly: unknown = value && typeof value === "object" ? Reflect.get(value, "readOnly") : undefined
+    if (response.status === 200 && Array.isArray(sections) && sections.includes("setup") && (readOnly === undefined || (Array.isArray(readOnly) && !readOnly.includes("setup")))) return
+    return new Response("This Console access does not allow Setup writes.", { status: 403 })
+  }
+  catch {
+    return new Response("The Console access check is unavailable.", { status: 503 })
+  }
+}
+
 /** The HTTP status of a setup document: the exit code says why it failed. */
 const exitStatus: ReadonlyMap<number, number> = new Map([[0, 200], [1, 500], [2, 422], [3, 409], [4, 409]])
 
@@ -154,7 +208,7 @@ function openEvents(state: SetupDevState, req: IncomingMessage, res: ServerRespo
 function register(server: ViteDevServer, state: SetupDevState): void {
   const authorize = (req: IncomingMessage) => isSetupDevRequestAllowed(server, req) ? undefined : forbidden()
   const guarded = (route: string, method: "GET" | "POST", handle: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void) => registerViteHubDevEndpoint(server, {
-    authorize,
+    authorize: async req => authorize(req) ?? (route === "apply" ? await authorizeSetupApply(server, req) : undefined),
     handle: (req, res) => {
       void (async () => await handle(req, res))().catch((error: unknown) => {
         if (res.headersSent) return res.destroy()

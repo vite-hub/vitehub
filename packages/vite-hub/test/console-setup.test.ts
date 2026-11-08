@@ -6,12 +6,13 @@ import { describe, expect, it, vi } from "vitest"
 import type { SetupClient, SetupFeatureState } from "../src/console/runtime/client/setup"
 import type { ConsoleNavigation } from "../src/console/runtime/client/sections"
 
-const mocks = vi.hoisted(() => ({ connect: vi.fn(), navigation: vi.fn() }))
+const mocks = vi.hoisted(() => ({ connect: vi.fn(), navigation: vi.fn(), restart: vi.fn() }))
 vi.mock("@vite-hub/ui", () => ({ MultiFileDiff: {} }))
 vi.mock("../src/console/runtime/client/sections", () => ({ loadConsoleNavigation: mocks.navigation }))
 vi.mock("../src/console/runtime/client/setup", async (original) => ({
   ...await original<typeof import("../src/console/runtime/client/setup")>(),
   connectSetup: mocks.connect,
+  waitForSetupRestart: mocks.restart,
 }))
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
 
@@ -26,12 +27,49 @@ function mountSetup() {
       UTooltip: { template: "<slot />" },
       UButton: { props: ["label"], template: "<button>{{ label }}</button>" },
       UInput: { props: ["modelValue"], template: "<input :value='modelValue' @input='$emit(\"update:modelValue\", $event.target.value)' />" },
-      ULink: true, UEmpty: true, UAlert: true,
+      ULink: true, UEmpty: true, UAlert: { props: ["title", "description"], template: "<div>{{ title }} {{ description }}</div>" },
     } },
   })
 }
 
 describe("Console Setup actions", () => {
+  it.each([false, true])("preserves a failed Apply unless a new server is observed (restarted: %s)", async (restarted) => {
+    const support = { level: "native", detail: "KV support" } as const
+    const client: SetupClient = {
+      serverId: "test-server",
+      catalog: async () => ({ hosts: ["node"], features: [{ id: "kv", title: "KV", summary: "Store data", docs: "/kv", hosts: { node: support } }] }),
+      status: async () => ({ root: "/app", framework: "vite", config: { file: "vite.config.ts" }, host: { name: "node", source: "config" }, packageManager: "pnpm", features: [{ id: "kv", enabled: "off", reason: "config", support, missingPackages: [] }] }),
+      plan: vi.fn<SetupClient["plan"]>().mockResolvedValue({ status: "planned", planId: "test-plan" }),
+      apply: vi.fn<SetupClient["apply"]>().mockRejectedValue(new Error("Apply request failed")),
+      events: vi.fn<SetupClient["events"]>().mockResolvedValue(),
+    }
+    mocks.connect.mockResolvedValue(client)
+    mocks.navigation.mockResolvedValue({ setup: "/setup", readOnly: [] })
+    mocks.restart.mockResolvedValue(restarted ? "new-server" : undefined)
+    const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {})
+    const wrapper = mountSetup()
+    try {
+      await flushPromises()
+      await wrapper.get("form").trigger("submit")
+      await flushPromises()
+      await wrapper.findAll("button").find(button => button.text() === "Apply")!.trigger("click")
+      await flushPromises()
+      expect(mocks.restart).toHaveBeenCalledWith("/setup", "test-server")
+      if (restarted) expect(reload).toHaveBeenCalledOnce()
+      else {
+        expect(reload).not.toHaveBeenCalled()
+        expect(wrapper.text()).toContain("Apply request failed")
+        expect(wrapper.text()).toContain("Plan again")
+        expect(wrapper.text()).not.toContain("The change is written")
+      }
+    }
+    finally {
+      wrapper.unmount()
+      sessionStorage.clear()
+      reload.mockRestore()
+    }
+  })
+
   it.each([
     { name: "missing provider option", level: "explicit", fix: "Set database.connection", missingPackages: [], action: "add" },
     { name: "missing owner packages", level: "native", fix: undefined, missingPackages: ["@vite-hub/database"], action: "add" },

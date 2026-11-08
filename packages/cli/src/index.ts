@@ -281,11 +281,14 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     }
   }, stderr)
   const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, loadProject) : loadProject())
+  const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
+  // A runtime namespace runs before the project loads, so it replaces a project namespace of the same name.
+  const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
   const namespaces = [
-    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),
     createInspectNamespace(plugins, operations),
     createProvisionNamespace(contribution.provision),
-    ...(options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...runtimeNamespaces,
   ]
 
   const context: ViteHubCliContext = {
@@ -321,13 +324,17 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
 async function runNamespace(namespace: ViteHubCliCommandNamespace, args: string[], context: ViteHubCliContext): Promise<number> {
   const { stderr, stdout } = context
   const featureName = args[1]
+  const defaultFeature = namespace.defaultFeature ? namespace.features.find(item => item.name === namespace.defaultFeature) : undefined
+  // A namespace whose only feature has its own name, such as `vitehub pull`, is one command. It gets every argument,
+  // so `vitehub push push` pushes the Workspace named `push` and `vitehub pull --help` prints the command help.
+  if (defaultFeature?.name === namespace.name && namespace.features.length === 1) return await defaultFeature.run(args.slice(1), context) ?? 0
   if (featureName === "-h" || featureName === "--help") {
     writeNamespaceHelp(namespace, stdout)
     return 0
   }
-  // `vitehub usage` and `vitehub usage --json` run the default feature of the namespace.
-  const defaultFeature = namespace.defaultFeature ? namespace.features.find(item => item.name === namespace.defaultFeature) : undefined
-  if (defaultFeature && (!featureName || featureName.startsWith("-"))) return await defaultFeature.run(args.slice(1), context) ?? 0
+  // `vitehub usage`, `vitehub usage --json`, and `vitehub pull site` run the default feature of the namespace with the
+  // arguments that do not name another feature.
+  if (defaultFeature && (!featureName || featureName.startsWith("-") || !namespace.features.some(item => item.name === featureName))) return await defaultFeature.run(args.slice(1), context) ?? 0
   if (!featureName) {
     writeNamespaceHelp(namespace, stdout)
     return 0

@@ -25,6 +25,45 @@ Framework and provider integrations create Runtime Context in the generated rout
 
 Keep reusable behavior in Definitions and task data in invocation input. Runtime Context passes host resources to the operation.
 
+## Adapt a Fetchable handler
+
+A [Fetchable](https://fetchable.org) handler is a module that exports
+`fetch(request)` and returns a `Response`. Nitro, Vite deployment plugins, and
+most server runtimes call this shape. Pass its `Request` to `getRuntimeContext()`
+from `vite-hub/runtime`:
+
+```ts [server/routes/api/support.post.ts]
+import { runAgent } from 'vite-hub/agent'
+import { getRuntimeContext } from 'vite-hub/runtime'
+import support from '../../agents/support'
+
+export default {
+  async fetch(request: Request) {
+    const { prompt } = await request.json()
+    const runtime = getRuntimeContext(request)
+
+    try {
+      return Response.json(await runAgent(support, runtime, { prompt }))
+    }
+    finally {
+      await runtime.flushWaitUntil().catch(console.error)
+    }
+  },
+}
+```
+
+The function reads the host data that srvx and Nitro put on the `Request`:
+`runtime.cloudflare.env`, `runtime.cloudflare.context`, `waitUntil`, and `ip`.
+It accepts the same options as the H3 adapter. `getStandardContext(request)` returns
+the [Standard Context](#standard-context) of the `Request`, so you can pass the
+`Request` to ViteHub APIs that take a request event.
+
+In a ViteHub app, Nitro sets the Standard Context of the H3 event on its
+`Request` too. H3 then adds the response headers that primitives set, such as
+`requireRateLimit()` headers, to the `Response` that the handler returns. Outside
+Nitro, nothing reads `res`. Copy `res.status` and `res.headers` to your `Response`
+when you use a primitive that sets them.
+
 ## Adapt an H3 event
 
 Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. Create a new
@@ -96,6 +135,13 @@ export default defineEventHandler((event) => {
 
 For an event that Nitro did not create, such as in a test, call
 `installStandardContext(event)` from `vite-hub/runtime/h3` first.
+`getStandardContext(event)` from `vite-hub/runtime/h3` returns `event["~standard"]`
+and sets it first when it is missing. It also accepts a `Request`. ViteHub primitives such as `requireRateLimit()` and
+`useServerEnv()` read request events through it, so they work in an H3 app that
+does not use the ViteHub Vite plugin. The `ViteHubContext` type comes from
+`vite-hub/runtime` and does not load H3 types. In a ViteHub app, the generated
+`.vitehub/types.d.ts` adds `~standard` to `H3Event`. An H3 app without the
+ViteHub Vite plugin adds it with `import type {} from 'vite-hub/runtime/h3'`.
 
 ### Background work and cleanup
 

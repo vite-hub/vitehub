@@ -7,7 +7,11 @@ import { readViteHubDevToken } from "@vite-hub/internal/dev-token"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { connectSetup } from "../src/console/runtime/client/setup.ts"
+import { setConsoleProject } from "../src/console/runtime/client/project.ts"
+import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleDevelopment, installConsoleOperations, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { isSetupDevRequestAllowed, setupDevPlugin, setupDevRoute, setupDevTokenNamespace } from "../src/setup-dev.ts"
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 import type { SetupCommandRunner } from "@vite-hub/cli/setup"
@@ -30,7 +34,11 @@ afterEach(async () => {
 })
 
 /** The Setup plugin on a minimal dev server: the parts of a Vite server that `registerViteHubDevEndpoint` uses. */
-async function start(allowedHosts: readonly string[] | true = [], listenHost = "127.0.0.1"): Promise<Running> {
+async function start(allowedHosts: readonly string[] | true = [], listenHost = "127.0.0.1", base = ""): Promise<Running> {
+  installConsoleAccess({ mode: "open" })
+  installConsoleDevelopment("/test/setup-dev", true, setupDevRoute)
+  installConsoleSections("/test/setup-dev", ["setup"])
+  installConsoleOperations()
   const root = await mkdtemp(join(tmpdir(), "vitehub-setup-dev-"))
   await writeFile(join(root, "package.json"), JSON.stringify({ name: "app", packageManager: "pnpm@10.0.0", type: "module" }))
   await writeFile(join(root, "vite.config.ts"), "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: \"node\" })],\n})\n")
@@ -44,7 +52,7 @@ async function start(allowedHosts: readonly string[] | true = [], listenHost = "
   let closed = false
   const fake = {
     close: async () => { closed = true },
-    config: { root, server: { allowedHosts } },
+    config: { base, root, server: { allowedHosts } },
     middlewares: { use: (handler: Middleware) => middlewares.push(handler) },
     resolvedUrls: { local: ["http://localhost:5173/"] },
   }
@@ -54,6 +62,21 @@ async function start(allowedHosts: readonly string[] | true = [], listenHost = "
   // SAFETY: The plugin reads only `config.root`, `config.server`, `middlewares`, `resolvedUrls`, and `close`.
   await hook.call(undefined as never, fake as unknown as ViteDevServer)
   const http: Server = createServer((req, res) => {
+    if (req.url === `${base}/_vitehub/rpc/__call`) {
+      void (async () => {
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(Buffer.from(chunk))
+        const request = new Request(`http://${req.headers.host}${req.url}`, {
+          body: Buffer.concat(chunks),
+          headers: Object.fromEntries(Object.entries(req.headers).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : [])),
+          method: "POST",
+        })
+        const response = await handleConsoleRpcRequest(request)
+        res.statusCode = response.status
+        res.end(await response.text())
+      })().catch((error: unknown) => res.destroy(error instanceof Error ? error : undefined))
+      return
+    }
     const next = (index: number): void => {
       const handler = middlewares[index]
       if (!handler) {
@@ -96,6 +119,50 @@ function auth(running: Running, headers: Record<string, string> = {}): Record<st
 }
 
 describe("dev Setup endpoints", () => {
+  it.each(["", "/portal"])("checks the current Console grant before direct HTTP writes (mount: '%s')", async (base) => {
+    const running = await start([], "127.0.0.1", base)
+    const before = await readFile(join(running.root, "vite.config.ts"), "utf8")
+    let sections = ["setup:read"]
+    const credentials: string[] = []
+    installConsoleAccess({ mode: "open", authorize: ({ request }) => {
+      credentials.push(request.headers.get("cookie") ?? "")
+      return { sections }
+    } })
+    const headers = auth(running, { cookie: "session=reader" })
+    const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["kv"] })
+    expect(planned.status).toBe(200)
+    const { planId } = JSON.parse(planned.body) as { planId: string }
+    expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 403 })
+    expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toBe(before)
+    expect(running.calls).toEqual([])
+    sections = ["kv"]
+    expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 403 })
+    sections = ["setup"]
+    expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 200 })
+    expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toContain("kv: true")
+    expect(credentials).toEqual(["session=reader", "session=reader", "session=reader"])
+  })
+
+  it("passes the Console client's bearer credential to the write access check", async () => {
+    const running = await start()
+    installConsoleAccess({
+      mode: "auth",
+      check: async event => event.req?.headers instanceof Headers && event.req.headers.get("authorization") === "Bearer writer"
+        ? undefined
+        : new Response("Sign in.", { status: 401 }),
+      authorize: () => ({ sections: ["setup"] }),
+    })
+    setConsoleProject({ origin: "", base: "", authorization: () => "Bearer writer" })
+    try {
+      const client = await connectSetup(`http://127.0.0.1:${running.port}${setupDevRoute}`)
+      const planned = await client.plan({ action: "add", features: ["kv"] })
+      expect(await client.apply(planned.planId!)).toMatchObject({ status: "applied" })
+    }
+    finally {
+      setConsoleProject({ origin: "", base: "" })
+    }
+  })
+
   it("connects the Console client without Fetch Metadata", async () => {
     const running = await start()
     const client = await connectSetup(`http://127.0.0.1:${running.port}${setupDevRoute}`)

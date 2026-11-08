@@ -1,5 +1,5 @@
+import type { ViteHubContext } from "@vite-hub/runtime/h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
-import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
@@ -151,15 +151,14 @@ export interface BlobDriverAdapter<TOptions> {
   sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
 }
 
-/** The part of an H3 event that `handleUpload()` reads. */
-export interface BlobUploadEvent {
-  req: Request
-}
+/** A request event that `handleUpload()` reads through its Standard Context, such as a Nuxt 5 or Nitro 3 event. */
+export type BlobUploadEvent = ViteHubContext
 
-/** The parts of an H3 event that `handleMultipartUpload()` reads: the request and the `action` and `pathname` route params. */
-export interface BlobMultipartEvent extends BlobUploadEvent {
-  context: { params?: Record<string, string | undefined> }
-}
+/**
+ * A request event that `handleMultipartUpload()` reads: its Standard Context request, and the `action` and `pathname`
+ * route params in `context.params`.
+ */
+export type BlobMultipartEvent = ViteHubContext<{ context: { params?: Record<string, string | undefined> } }>
 
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
@@ -189,17 +188,11 @@ export interface BlobEnsureOptions {
   types?: BlobType[]
 }
 
-export interface BlobServeEvent {
-  req: Pick<Request, "headers" | "method">
-  res: {
-    headers: Headers
-    status?: number
-  }
-}
-
 export interface BlobServeResponseOptions {
   /** Defaults to the event's Cache-Control header, or private, no-cache. */
   cacheControl?: string
+  /** Response headers to set first. `serve()` removes them again when it does not serve the object. */
+  headers?: Record<string, string>
   /**
    * Serve a resized, cropped, or re-encoded image. The generated serve route reads it from `?w=&h=&fit=&fmt=&q=&crop=`.
    * Non-image objects, GIF, SVG, and stores without an image transformer serve the original.
@@ -312,8 +305,39 @@ export interface BlobStorage {
   resumeMultipartUpload(pathname: string, uploadId: string): Promise<BlobResult<BlobMultipartUpload>>
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   /** Returns null for a conditional 304 response. */
-  serve(event: BlobServeEvent | (H3V1Event & { node: { res: H3V1NodeResponse } }), pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
-  store(name: BlobStoreName): BlobStorage
+  /**
+   * Serve an object for a request event with Standard Context properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub
+   * app. Reads the request from `event["~standard"].req` and writes the status and headers to `event["~standard"].res`.
+   */
+  serve(event: ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
+  /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
+  store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
+  store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage
+  store(name: BlobStoreName, options?: BlobStoreOptions): BlobStorage | ReadonlyBlobStorage
+}
+
+/** Options of `blob.store()`. */
+export interface BlobStoreOptions {
+  /** `"read"` returns a handle without write methods. Defaults to `"write"`. */
+  mode?: "read" | "write"
+}
+
+/**
+ * Blob handle from `blob.store(name, { mode: "read" })`. It has only read methods, and `sign()` signs `GET` requests only.
+ * It limits this API, not the host: the R2 binding or provider token keeps full access, so it is not a security boundary
+ * against code that reads the binding directly. `media.get()` and `serve()` with a transform or variant can still store
+ * derived records and variants under the reserved `_vitehub/` prefix. They never change your objects.
+ */
+export interface ReadonlyBlobStorage {
+  /** Media records and image variants, without write methods. */
+  readonly media: Pick<BlobMedia, "get" | "list" | "variants">
+  get: BlobStorage["get"]
+  head: BlobStorage["head"]
+  list: BlobStorage["list"]
+  /** Returns null for a conditional 304 response. */
+  serve: BlobStorage["serve"]
+  /** Signs a short-lived `GET` request. */
+  sign(pathname: string, options: Extract<BlobSignOptions, { method: "GET" }>): Promise<BlobResult<BlobSignedRequest>>
 }
 
 /**
@@ -322,7 +346,15 @@ export interface BlobStorage {
  */
 export type CloudflareR2Jurisdiction = "eu" | "fedramp" | "us"
 
-export interface CloudflareR2BlobStoreConfig {
+interface HostedBlobStoreConfig {
+  /**
+   * In `vite dev`, use this hosted store instead of the local `fs` store, so writes change real data. Without it,
+   * `vite dev` never picks a hosted store from env or the host preset. An explicit `driver` is always used. Builds ignore it.
+   */
+  remote?: boolean
+}
+
+export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
   accountId?: string
   accessKeyId?: string
   binding?: string
@@ -339,10 +371,12 @@ export interface FsBlobStoreConfig {
   base?: string
   defaultUrlExpiresIn?: number
   driver: "fs"
+  /** A local store cannot be remote: `remote: true` fails with `BLOB_C0018`. */
+  remote?: boolean
   urlBaseUrl?: string
 }
 
-export interface VercelBlobStoreConfig {
+export interface VercelBlobStoreConfig extends HostedBlobStoreConfig {
   access?: "private" | "public"
   allowOverwrite?: boolean
   downloadTimeoutMs?: number
@@ -350,7 +384,7 @@ export interface VercelBlobStoreConfig {
   token?: string
 }
 
-export interface S3BlobStoreConfig {
+export interface S3BlobStoreConfig extends HostedBlobStoreConfig {
   bucket: string
   credentials?: { accessKeyId: string, secretAccessKey: string, sessionToken?: string }
   defaultUrlExpiresIn?: number
@@ -361,7 +395,7 @@ export interface S3BlobStoreConfig {
   region?: string
 }
 
-export interface GcsBlobStoreConfig {
+export interface GcsBlobStoreConfig extends HostedBlobStoreConfig {
   bucket: string
   credentials?: { client_email: string, private_key: string }
   defaultUrlExpiresIn?: number
@@ -371,7 +405,7 @@ export interface GcsBlobStoreConfig {
   publicBaseUrl?: string
 }
 
-export interface AzureBlobStoreConfig {
+export interface AzureBlobStoreConfig extends HostedBlobStoreConfig {
   accountKey?: string
   accountName?: string
   connectionString?: string
@@ -383,7 +417,7 @@ export interface AzureBlobStoreConfig {
   sasToken?: string
 }
 
-export interface SupabaseBlobStoreConfig {
+export interface SupabaseBlobStoreConfig extends HostedBlobStoreConfig {
   bucket: string
   defaultUrlExpiresIn?: number
   driver: "supabase"
@@ -393,7 +427,7 @@ export interface SupabaseBlobStoreConfig {
   url?: string
 }
 
-export interface NetlifyBlobsStoreConfig {
+export interface NetlifyBlobsStoreConfig extends HostedBlobStoreConfig {
   consistency?: "eventual" | "strong"
   deployScoped?: boolean
   driver: "netlify-blobs"
@@ -402,7 +436,7 @@ export interface NetlifyBlobsStoreConfig {
   token?: string
 }
 
-interface S3CompatibleBlobStoreConfig {
+interface S3CompatibleBlobStoreConfig extends HostedBlobStoreConfig {
   accessKeyId?: string
   bucket: string
   defaultUrlExpiresIn?: number
@@ -414,7 +448,7 @@ interface S3CompatibleBlobStoreConfig {
   secretAccessKey?: string
 }
 
-export interface UploadThingBlobStoreConfig {
+export interface UploadThingBlobStoreConfig extends HostedBlobStoreConfig {
   acl?: "private" | "public-read"
   defaultUrlExpiresIn?: number
   downloadTimeoutMs?: number
@@ -424,7 +458,7 @@ export interface UploadThingBlobStoreConfig {
   token?: string
 }
 
-export interface GoogleDriveBlobStoreConfig {
+export interface GoogleDriveBlobStoreConfig extends HostedBlobStoreConfig {
   credentials?: { client_email: string, private_key: string }
   driveId?: string
   driver: "google-drive"
@@ -435,7 +469,7 @@ export interface GoogleDriveBlobStoreConfig {
   subject?: string
 }
 
-export interface OneDriveBlobStoreConfig {
+export interface OneDriveBlobStoreConfig extends HostedBlobStoreConfig {
   accessToken?: string | (() => string | Promise<string>)
   clientCredentials?: { tenantId: string, clientId: string, clientSecret: string }
   copyTimeoutMs?: number
@@ -448,7 +482,7 @@ export interface OneDriveBlobStoreConfig {
   userId?: string
 }
 
-export interface DropboxBlobStoreConfig {
+export interface DropboxBlobStoreConfig extends HostedBlobStoreConfig {
   accessToken?: string | (() => string | Promise<string>)
   appKey?: string
   appSecret?: string
@@ -460,7 +494,7 @@ export interface DropboxBlobStoreConfig {
   rootFolderPath?: string
 }
 
-export interface BoxBlobStoreConfig {
+export interface BoxBlobStoreConfig extends HostedBlobStoreConfig {
   ccg?: { clientId: string, clientSecret: string, enterpriseId?: string, userId?: string }
   defaultUrlExpiresIn?: number
   developerToken?: string
@@ -495,7 +529,7 @@ export type BlobStoreConfig =
 export type AkamaiBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "akamai", region: string }
 export type DigitalOceanSpacesBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "digitalocean-spaces", region: string }
 export type HetznerBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "hetzner", region: string }
-export interface MinioBlobStoreConfig {
+export interface MinioBlobStoreConfig extends HostedBlobStoreConfig {
   accessKeyId?: string
   bucket?: string
   defaultUrlExpiresIn?: number
@@ -510,6 +544,8 @@ export type StorjBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "stor
 
 export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig {
   binding: string
+  /** Set only in `vite dev` for a store that the Cloudflare preset picks: without the R2 binding, the store uses this local store. */
+  localFallback?: ResolvedFsBlobStoreConfig
 }
 
 export interface ResolvedFsBlobStoreConfig extends FsBlobStoreConfig {
@@ -518,7 +554,10 @@ export interface ResolvedFsBlobStoreConfig extends FsBlobStoreConfig {
 
 export interface ResolvedVercelBlobStoreConfig extends VercelBlobStoreConfig {
   access: "private" | "public"
-  token: string
+  /** Absent at runtime when the store uses Vercel OIDC with `BLOB_STORE_ID`. */
+  token?: string
+  /** Preserves explicit token precedence when build-time masking hides its value. */
+  tokenFromConfig?: boolean
 }
 
 export interface ResolvedMinioBlobStoreConfig extends MinioBlobStoreConfig {
@@ -579,8 +618,8 @@ export interface BlobStoresConfig extends BlobModuleBaseOptions {
 export type BlobModuleOptions =
   | false
   | BlobStoresConfig
-  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName" | "jurisdiction">>)
-  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<NetlifyBlobsStoreConfig, "name">>)
+  | (BlobModuleBaseOptions & HostedBlobStoreConfig & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName" | "jurisdiction">>)
+  | (BlobModuleBaseOptions & HostedBlobStoreConfig & { driver?: undefined } & Partial<Pick<NetlifyBlobsStoreConfig, "name">>)
   | (BlobModuleBaseOptions & BlobStoreConfig)
 
 export interface ResolvedBlobModuleOptions {

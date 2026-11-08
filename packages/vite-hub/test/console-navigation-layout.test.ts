@@ -41,7 +41,7 @@ describe("shared Console navigation layout", () => {
   it("shows appearance and sign-out inside one avatar menu", () => {
     const rail = component("console-rail")
     expect(rail).toContain("inject(consoleAppearanceKey, undefined)")
-    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu[\s\S]*?v-if="appearance \|\| signedIn"[\s\S]*?<UAvatar/)
+    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu[\s\S]*?v-if="appearance \|\| signedIn \|\| tokenSignedIn"[\s\S]*?<UAvatar/)
     expect(rail).toMatch(/type: "checkbox",[\s\S]*?checked: appearance\?\.preference\.value === option/)
     expect(rail).toContain('label: signOutFailed.value ? "Retry sign out" : "Sign out"')
     expect(rail).toContain("userIdentity.value")
@@ -142,7 +142,7 @@ describe("shared Console navigation layout", () => {
     // A record Schedule runs from its detail panel.
     expect(definitions).toMatch(/<article v-if="selectedRecord"[\s\S]*?<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"/)
     expect(definitions).toContain("Boolean(props.scheduleRunBase && registeredOperations.value.includes(\"schedule.run\") && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))")
-    expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run")')
+    expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: "/api/_vitehub/console/schedule-run"')
   })
 
   it("opens the Database table route in data mode", () => {

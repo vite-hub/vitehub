@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { DatabaseSync } from "node:sqlite"
+import { H3Event } from "h3"
 
 import { defineAuth } from "@vite-hub/auth"
 import { handleAuthRequest, withAuthorization } from "@vite-hub/auth/server"
@@ -25,6 +26,7 @@ import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
@@ -32,8 +34,9 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // Page shells, static assets, and OAuth discovery carry no protected project data.
-// The Schedule run route runs a signed dispatch and nothing else; it does not read Console data.
-const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
+// The Schedule run route checks Console access only for a bearer call. Signed dispatches and other requests read no
+// Console data. The preflight plugin answers only CORS preflights.
+const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
@@ -398,8 +401,13 @@ describe("Connections manager from Console access", () => {
     installConsoleAccess({ mode: "auth", check: async () => undefined })
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local" }, method: "POST" })
-    const requestEvent: ConsoleRequestEvent = { method: "POST", req: request }
-    const response = await createConnectionsHandler({ actor: () => consoleConnectionsActor(requestEvent, async () => undefined), runtime })(request, requestEvent)
+    const requestEvent = new H3Event(request)
+    const actor = vi.fn((_request: Request, event?: ViteHubContext) => {
+      expect(event).toBe(requestEvent)
+      return consoleConnectionsActor(requestEvent, async () => undefined)
+    })
+    const response = await createConnectionsHandler({ actor, runtime })(requestEvent)
+    expect(actor).toHaveBeenCalledWith(request, requestEvent)
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_MANAGER_REQUIRED", fix: expect.stringContaining("sign in again"), ok: false })
     expect(runtime).not.toHaveBeenCalled()
@@ -412,8 +420,11 @@ describe("Connections manager from Console access", () => {
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const call = (headers: Record<string, string>) => {
       const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local", ...headers }, method: "POST" })
-      const requestEvent: ConsoleRequestEvent = { method: "POST", req: request }
-      return createConnectionsHandler({ actor: () => consoleConnectionsActor(requestEvent), runtime })(request, requestEvent)
+      const requestEvent = new H3Event(request)
+      return createConnectionsHandler({ actor: (_request, event) => {
+        expect(event).toBe(requestEvent)
+        return consoleConnectionsActor(requestEvent)
+      }, runtime })(requestEvent)
     }
     expect((await call({})).status).toBe(403)
     expect(runtime).not.toHaveBeenCalled()
@@ -454,6 +465,12 @@ describe("generated Console access", () => {
 
   it("installs the local policy for the development shorthand", async () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
+  })
+
+  it("installs the Console origins even when the list is empty, so a reload revokes removed origins", async () => {
+    await expect(generatedPlugin({ console: { auth: "token", origins: [] } }, "build")).resolves.toContain("vitehubInstallConsoleOrigins([])")
+    await expect(generatedPlugin({ console: { auth: "token" } }, "build")).resolves.toContain('vitehubInstallConsoleOrigins(["https://console.vitehub.dev"])')
+    await expect(generatedPlugin({}, "serve")).resolves.toContain("vitehubInstallConsoleOrigins([])")
   })
 
   it("serves development operations and the Setup-only page", async () => {

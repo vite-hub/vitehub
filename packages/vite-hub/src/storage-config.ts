@@ -6,6 +6,7 @@ import type { ViteHubOptions } from "./index.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { requireOptionalOwner } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
+import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 
 /** An explicit Node data directory selects local storage; the host owns durability. */
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
@@ -38,13 +39,20 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(blob ? { blob: Object.hasOwn(blob, "stores")
       ? { ...blob, stores: Object.fromEntries(Object.entries((blob as { stores: Record<string, BlobStoreConfig> }).stores).map(([name, store]) => [name, blobStore(store, name)])) }
       : !(blob as { driver?: string }).driver || (blob as { driver?: string }).driver === "fs" ? { ...blob, driver: "fs" as const, base: Object.hasOwn(blob, "base") ? (blob as { base?: string }).base ?? join(root, "blob") : join(root, "blob") } : blob } : {}),
-    ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
-      agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
+    ...(agent ? {
+      agent: {
+        ...agent,
+        ...(state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
+          providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
+        } : {}),
+        ...(isDefaultAgentJournal(agent.invocations) ? {
+          invocations: { ...agent.invocations, databaseUrl: agent.invocations?.databaseUrl ?? file("agent-invocations.sqlite") },
+        } : {}),
+      },
     } : {}),
     ...(consoleOptions === undefined ? {} : {
       console: consoleOptions === false ? false : {
         ...consoleOptions,
-        databaseUrl: consoleOptions.databaseUrl ?? file("console.sqlite"),
         auth: consoleOptions.auth instanceof Object && "provider" in consoleOptions.auth && consoleOptions.auth.provider === "github" ? {
           ...consoleOptions.auth,
           databasePath: consoleOptions.auth.databasePath ?? join(root, "console-auth.sqlite"),
@@ -58,14 +66,11 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   }
 }
 
-/** Where the Console stores Agent invocations when no Agent Definition configures a journal. */
-export type ConsoleJournal = { databaseUrl: string } | { d1Binding: string }
-
 /**
- * The D1 binding of the Database primitive on Cloudflare.
+ * The D1 binding of the Database primitive on Cloudflare, where the default Agent Invocation journal lives.
  * Read the binding of the default or only Database Definition before integration defaults.
  */
-export function consoleD1Binding(
+export function defaultDatabaseD1Binding(
   preset: string,
   database: ViteHubOptions["database"],
   definitions?: {
@@ -91,24 +96,16 @@ export function consoleD1Binding(
     ?? (options?.driver === "d1" ? options.binding?.trim() || "DB" : undefined)
 }
 
-/** An explicit libSQL URL wins. Production builds use the D1 binding. Development keeps the local libSQL file. */
-export function resolveConsoleJournal(databaseUrl: string | undefined, d1Binding: string | undefined, build: boolean): ConsoleJournal | undefined {
-  if (databaseUrl) return { databaseUrl }
-  if (build && d1Binding) return { d1Binding }
-}
-
 /**
- * Comments is on with the Console, unless `comments: false`. It keeps threads in the Database, so it enables `database`
- * when it is unset. `database: false` with Comments on fails.
+ * The `comments` option turns Comments on. It keeps threads in the Database, so it enables `database` when it is unset.
+ * `database: false` with Comments on fails. The Console does not turn Comments on.
  */
 export function withComments(options: ViteHubOptions): ViteHubOptions {
-  const comments = options.comments ?? (options.console ? true : undefined)
-  if (!comments) return options
+  if (!options.comments) return options
   if (options.database === false) {
-    const why = options.comments ? "the `comments` option turns Comments on" : "the Console turns Comments on"
-    throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: `[vitehub] Comments keeps its threads in the Database, and ${why}, but \`database\` is false. Remove \`database: false\`, or set \`comments: false\`.` })
+    throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: "[vitehub] Comments keeps its threads in the Database, and the `comments` option turns Comments on, but `database` is false. Remove `database: false`, or set `comments: false`." })
   }
-  return { ...options, comments, database: options.database ?? true }
+  return { ...options, database: options.database ?? true }
 }
 
 /**
@@ -121,11 +118,4 @@ export function withConnectionsDatabase(options: ViteHubOptions): ViteHubOptions
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections requires database because grants and activity are stored in the app database. Remove `database: false`." })
   }
   return options.database ? options : { ...options, database: true }
-}
-
-/** Resolve the journal path without changing the development-only Console shorthand. */
-export function consoleDatabaseUrl(options: ViteHubOptions): string | undefined {
-  if (!options.console) return undefined
-  return (options.console === true ? undefined : options.console.databaseUrl)
-    ?? (options.dataDir ? pathToFileURL(resolve(options.dataDir, "console.sqlite")).href : undefined)
 }

@@ -55,7 +55,7 @@ vitehub({
 })
 ```
 
-Enabled integrations use `agent-state.sqlite`, `console.sqlite`, `kv/`, `blob/`, and `workspaces/` under this directory. Inline Console Auth uses `console-auth.sqlite`. Named local KV and Blob stores get separate subdirectories. Explicit paths and remote providers take precedence; disabled services stay disabled. Relative paths resolve from the configuration process's working directory.
+Enabled integrations use `agent-state.sqlite`, `agent-invocations.sqlite`, `kv/`, `blob/`, and `workspaces/` under this directory. Inline Console Auth uses `console-auth.sqlite`. Named local KV and Blob stores get separate subdirectories. Explicit paths and remote providers take precedence; disabled services stay disabled. Relative paths resolve from the configuration process's working directory.
 
 The host must provide a persistent, writable filesystem at this path. The option does not create a volume or make an ephemeral filesystem durable, and it is rejected for other presets. Keep the existing provider configuration for hosted storage.
 
@@ -119,4 +119,4 @@ vitehub({
 
 ViteHub leaves routing to you when `nitro.cloudflare.wrangler` or the project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` sets `route`, `routes`, or `workers_dev`. Nitro merges these keys from both places, so set all routing in one place. Without `publicUrl`, or with a `workers.dev` origin, the Worker keeps its `workers.dev` host.
 
-Use `agent.providers.state.url`, `console.databaseUrl`, `console.auth.databasePath`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.
+Use `agent.providers.state.url`, `agent.invocations.databaseUrl`, `console.auth.databasePath`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.

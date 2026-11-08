@@ -197,32 +197,38 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
 
   const turnedOff = featureIds.filter(id => enabled(status, id).enabled === "on" && enabled(after.status, id).enabled !== "on")
   const remaining = featureIds.filter(id => enabled(after.status, id).enabled !== "off")
+  const beforeEnabled = new Set(status.features.filter(item => item.enabled !== "off").map(item => item.id))
+  const afterEnabled = new Set(remaining)
   const afterKeys = after.code && project.configFile ? locateViteHubConfig(project.configFile, after.code) : project.config
   const valueOf = (source: typeof project.config, id: FeatureId): JsonValue | undefined => {
     const key = source?.ok ? source.site.keys[id] : undefined
     return key?.kind === "literal" ? key.value : undefined
   }
-  const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset) => {
-    const packages = featurePackages(id, value, preset)
+  const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset, enabled: ReadonlySet<FeatureId>) => {
+    const packages = featurePackages(id, value, preset, enabled)
     return [...packages.prod, ...packages.dev]
   }
-  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host)))
+  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host, afterEnabled)))
 
   // Starter Definitions go; other files in a Definition folder are uses of the feature.
   const starters = new Map<string, string>()
   const edited: string[] = []
   for (const id of turnedOff) {
     const starter = features[id].definition
-    if (!starter || !existsSync(join(project.root, starter.dir))) continue
-    for (const file of listMatchingFiles(join(project.root, starter.dir), () => true)) {
-      const path = relative(project.root, file)
-      const content = await readFile(file, "utf8")
-      if (isStarter(starter, path, content)) {
-        starters.set(path, content)
-      }
-      else {
-        blocking.push({ feature: id, file: path })
-        edited.push(path)
+    if (!starter) continue
+    for (const directory of directories) {
+      const folder = join(directory, relative("server", starter.dir))
+      if (!existsSync(folder)) continue
+      for (const file of listMatchingFiles(folder, () => true)) {
+        const path = relative(project.root, file)
+        const content = await readFile(file, "utf8")
+        if (isStarter(starter, join("server", relative(directory, file)), content)) {
+          starters.set(path, content)
+        }
+        else {
+          blocking.push({ feature: id, file: path })
+          edited.push(path)
+        }
       }
     }
   }
@@ -230,7 +236,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const modules = new Map<string, FeatureId>()
   for (const id of turnedOff) {
     modules.set(runtimeModule(id), id)
-    for (const name of packagesOf(id, valueOf(project.config, id), host)) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
+    for (const name of packagesOf(id, valueOf(project.config, id), host, beforeEnabled)) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
   }
   const imported = new Set<string>()
   for (const file of listMatchingFiles(project.root, name => sourceFile.test(name) && !declarationFile.test(name))) {
@@ -260,7 +266,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const prod: string[] = []
   const dev: string[] = []
   for (const id of turnedOff) {
-    const packages = featurePackages(id, valueOf(project.config, id), host)
+    const packages = featurePackages(id, valueOf(project.config, id), host, beforeEnabled)
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
     for (const name of packages.prod) if (removable(name) && project.declared(name, true)) prod.push(name)
     for (const name of packages.dev) if (removable(name) && project.declared(name, true)) dev.push(name)
