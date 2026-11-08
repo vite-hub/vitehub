@@ -32,9 +32,13 @@ import {
 } from "@vite-hub/comments/client";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
+import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
-/** Each switch shows one kind of thread. Resolved threads stay hidden until `resolved` is on. */
+/**
+ * Each switch shows one kind of thread. Resolved threads stay hidden until `resolved` is on. A resolved thread with a
+ * reply since it was resolved also counts as open, so the reply is seen.
+ */
 export interface CommentFilterState {
   open: boolean;
   resolved: boolean;
@@ -223,8 +227,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const listOpen = ref(false);
   const blocked = ref(0);
 
+  const isOpen = (thread: CommentThread): boolean => thread.status === "open" || repliedSinceResolved(thread);
   const passes = (thread: CommentThread): boolean => {
-    if (thread.status === "open" ? !filters.open : !filters.resolved) return false;
+    const shown = (filters.open && isOpen(thread)) || (filters.resolved && thread.status === "resolved");
+    if (!shown) return false;
     return !filters.mine || thread.author.id === user.value?.id;
   };
   const onPage = (thread: CommentThread): boolean => sameSubject(thread.subject, subject.value);
@@ -235,7 +241,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const counts = computed(() => {
     const scoped = threads.value.filter(thread => scope.value === "site" || onPage(thread));
     return {
-      open: scoped.filter(thread => thread.status === "open").length,
+      open: scoped.filter(isOpen).length,
       resolved: scoped.filter(thread => thread.status === "resolved").length,
     };
   });

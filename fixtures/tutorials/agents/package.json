@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
     "h3": "catalog:unjs",
     "vite-hub": "workspace:*",
     "vite": "catalog:vite"

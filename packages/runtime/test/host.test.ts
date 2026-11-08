@@ -32,7 +32,7 @@ describe("getHostBinding", () => {
     expect(binding).toBeUndefined()
     expect(error).toMatchObject({
       code: "RUNTIME_HOST_BINDINGS_UNAVAILABLE",
-      docs: "https://vitehub.dev/docs/frameworks-hosts/cloudflare#runtime_host_bindings_unavailable",
+      docs: "https://vitehub.dev/docs/development/diagnostics/runtime_host_bindings_unavailable",
     })
     expect(error?.why).toContain("\"VIDEOS\"")
   })

@@ -32,7 +32,7 @@ const hostBindingCodes = {
 }
 
 const hostBindingErrors: ErrorCatalog<typeof hostBindingCodes> = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/frameworks-hosts/cloudflare",
+  docs: "https://vitehub.dev/docs/development/diagnostics",
   codes: hostBindingCodes,
 })
 
