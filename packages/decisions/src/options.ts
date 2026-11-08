@@ -2,6 +2,7 @@ import type { ChoiceOption, ChoiceValue } from "./types.ts"
 
 export interface ToOptionsMap<TItem, TValue extends ChoiceValue> {
   aliases?: (item: TItem) => readonly string[] | undefined
+  description?: (item: TItem) => string | undefined
   label: (item: TItem) => string
   value: (item: TItem) => TValue
 }
@@ -10,6 +11,7 @@ export interface ToOptionsMap<TItem, TValue extends ChoiceValue> {
 export function toOptions<TItem, TValue extends ChoiceValue>(items: readonly TItem[], map: ToOptionsMap<TItem, TValue>): ChoiceOption<TValue>[] {
   return items.map((item) => {
     const aliases = map.aliases?.(item)
-    return { label: map.label(item), value: map.value(item), ...(aliases?.length ? { aliases } : {}) }
+    const description = map.description?.(item)?.trim()
+    return { label: map.label(item), value: map.value(item), ...(aliases?.length ? { aliases } : {}), ...(description ? { description } : {}) }
   })
 }

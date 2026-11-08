@@ -1,9 +1,7 @@
-import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
-
 import databaseEntries from "#vitehub/database/databases"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
-import { createLocalSqliteClient } from "./local-client.ts"
+import { localLibsql } from "./local-client.ts"
 import { resolveLocalSqliteUrl } from "./local-url.ts"
 import { createTestDatabaseClient } from "./test-database.ts"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
@@ -44,7 +42,7 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
   }
 
   return createDrizzleSqliteAdapter(config, schema, {
-    libsql: { createClient: createLocalSqliteClient, drizzle: drizzleLibsql as never },
+    libsql: localLibsql,
     missingConnection: "a Cloudflare D1 binding or `connection.url`",
     requireRemoteUrl: false,
     resolveLocalUrl: resolveLocalSqliteUrl,
@@ -69,7 +67,7 @@ function withTestDatabase<TSchema extends Record<string, unknown>>(
       const directory = migrationsDir ?? (name === "default" ? "server/databases/migrations" : `server/databases/${name}/migrations`)
       const client = createTestDatabaseClient(test.root, directory)
       // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
-      return drizzleLibsql({ client, schema }) as unknown as RuntimeDrizzleDatabase<TSchema>
+      return localLibsql.drizzle(client, { schema }) as RuntimeDrizzleDatabase<TSchema>
     }, db => (Reflect.get(db, "$client") as { close: () => void }).close())
   }
   // SAFETY: Every read goes to the current database, so the proxy has the full database shape.

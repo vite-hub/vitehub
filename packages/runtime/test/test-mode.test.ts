@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 
@@ -61,5 +61,21 @@ it("keeps temporary folders under each app root in the same process", async () =
     await first.reset()
     await second.reset()
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each(["kv", "blob"])("keeps %s stores with different punctuation separate", async (primitive) => {
+  const mode = enableViteHubTestMode()
+  try {
+    const first = await mode.directory(`${primitive}-foo/bar`)
+    const second = await mode.directory(`${primitive}-foo:bar`)
+    await writeFile(join(first, "value"), "first store")
+
+    expect(existsSync(join(second, "value"))).toBe(false)
+    expect(await mode.directory(`${primitive}-foo/bar`)).toBe(first)
+    expect(await mode.directory(`${primitive}-foo:bar`)).toBe(second)
+  }
+  finally {
+    await mode.reset()
   }
 })

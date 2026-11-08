@@ -72,8 +72,8 @@ function createViteHubTestMode(root: string): ViteHubTestMode {
         const [{ mkdtemp }, { join }] = await Promise.all([import("node:fs/promises"), import("node:path")])
         return await mkdtemp(join(await processTemporaryRoot(root), "test-"))
       })()
-      const [{ mkdir }, { join }] = await Promise.all([import("node:fs/promises"), import("node:path")])
-      const directory = join(await temporaryRoot, key.replace(/[^\w.-]/g, "_"))
+      const [{ createHash }, { mkdir }, { join }] = await Promise.all([import("node:crypto"), import("node:fs/promises"), import("node:path")])
+      const directory = join(await temporaryRoot, createHash("sha256").update(key).digest("hex"))
       await mkdir(directory, { recursive: true })
       return directory
     },

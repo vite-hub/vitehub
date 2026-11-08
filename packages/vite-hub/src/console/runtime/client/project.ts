@@ -51,3 +51,22 @@ export function projectHeaders(headers: Record<string, string> = {}): Record<str
 export function projectFetch(path: string, init: Omit<RequestInit, "credentials" | "headers"> & { headers?: Record<string, string> } = {}): Promise<Response> {
   return fetch(projectUrl(path), { ...init, credentials: "same-origin", headers: projectHeaders(init.headers) })
 }
+
+/**
+ * Whether the project is on another origin than the Console page, such as in a hosted Console. Cookies, frames, and
+ * WebSockets of the app do not work then, so features that need them show a note instead.
+ */
+export function isRemoteProject(): boolean {
+  // Read the page origin without depending on DOM types in the package's server build.
+  const location: unknown = Reflect.get(globalThis, "location")
+  const pageOrigin: unknown = location instanceof Object ? Reflect.get(location, "origin") : undefined
+  return active.origin !== "" && active.origin !== pageOrigin
+}
+
+/**
+ * The URL of a page of the Console that the app serves, such as `/kv` → `https://app.example.com/portal/_vitehub/kv`.
+ * Features that need the app origin link there.
+ */
+export function projectConsoleUrl(path = "/"): string {
+  return projectUrl(`/_vitehub${path}`)
+}
