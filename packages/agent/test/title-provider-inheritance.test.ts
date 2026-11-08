@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest"
-import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { title } from "../src/capabilities/title.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
@@ -20,7 +21,7 @@ it("uses the enclosing provider configuration when generating a title", async ()
     invocations,
     runtime: false,
   })
-  await runAgent(agent, { memo: vi.fn(), run: { runId: "inherit-provider" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Explain agent titles." })
+  await runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "inherit-provider" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Explain agent titles." })
   expect(createProviderAgentAdapter).toHaveBeenCalledWith(expect.objectContaining({
     kind: "provider", provider: "codex", model: "title-model", env,
   }))
@@ -51,7 +52,7 @@ it("redacts provider-generated credentials before persisting title metadata", as
     invocations,
     runtime: false,
   })
-  await runAgent(agent, { memo: vi.fn(), run: { runId: "secret-title" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Explain agent titles." })
+  await runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "secret-title" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Explain agent titles." })
   const invocation = await invocations.getByRunId("secret-title")
   expect(invocation?.observations).toContainEqual(expect.objectContaining({
     name: "agent.title.recorded",

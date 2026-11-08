@@ -19,6 +19,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import type { BlobStorage } from "@vite-hub/blob"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleDocumentActions, ConsoleMediaAccess } from "../src/console/runtime/server/documents.ts"
+import { requestEvent } from "./console-event.ts"
 
 // SAFETY: Console state uses the same optional symbol keys in runtime and tests.
 const scope = globalThis as ConsoleInvocationScope
@@ -71,7 +72,7 @@ function install(sections: readonly string[] = ["content", "blob"]): void {
 }
 
 async function respond(request: Request): Promise<{ body: Record<string, unknown>, status: number }> {
-  const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })({ req: request })
+  const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })(requestEvent(request))
   return { body: Object(await response.json()), status: response.status }
 }
 
@@ -203,7 +204,7 @@ describe("Console media library", () => {
       await expect(media("info")).resolves.toMatchObject({ body: { value: { served: "/media/", store: "media" } }, status: 200 })
       await expect(upload({ file: file("Hero.txt", "hero"), folder: "guides" })).resolves.toMatchObject({ body: { value: { file: { pathname: "guides/hero.txt", url: "/media/guides/hero.txt" } } }, status: 200 })
       await expect(media("list", { folder: "guides" })).resolves.toMatchObject({ body: { value: { items: [{ pathname: "guides/hero.txt" }], store: "media" } }, status: 200 })
-      expect(await storage.head("guides/hero.txt")).toEqual([null, null])
+      expect(await storage.head("guides/hero.txt")).toEqual([undefined, null])
     }
     finally {
       await rm(siteDirectory, { force: true, recursive: true })

@@ -13,14 +13,14 @@ while it runs. Use it when a parent Agent, a Capability tool, or host code must
 control child work after it starts.
 
 Use [`runAgent()`](/docs/agents/invocations) when you only need the result.
-`runAgent()` follows the configured runtime: an inline runtime returns the
-Agent output, and a Workflow runtime returns a Workflow Run. The controller
+`runAgent()` runs the child inline and returns `[error, result]` when it
+finishes. The controller
 from `startAgentInvocation()` does not return a final result that you can
 await. It gives control and inspection.
 
 ## Start and inspect a child
 
-```ts
+```ts fragment
 import { startAgentInvocation } from 'vite-hub/agent'
 import researcher from '../agents/researcher'
 
@@ -45,7 +45,7 @@ cannot look one up by id later.
 
 ## Cancel active work
 
-```ts
+```ts fragment
 const cancellation = await child.cancel('The parent no longer needs this work.')
 
 if (cancellation.outcome === 'accepted') {
@@ -62,7 +62,7 @@ finished returns `invalid-state`.
 Check `child.support` before you send input. Then check the result, because
 support can change with the lifecycle state.
 
-```ts
+```ts fragment
 if (child.support.respond) {
   const result = await child.sendInput(
     { messages: [responseMessage] },
@@ -91,15 +91,15 @@ The model can call a named application tool. Trusted code selects the Agent
 Definition, and ViteHub assigns the child id. Do not let model input choose
 which Agent runs.
 
-When a tool uses `runAgent()` instead, handle its runtime-specific return
-value. Do not assume that every runtime returns a completed result.
+When a tool uses `runAgent()` instead, check `error` before it reads
+`result.text` or `result.output`.
 
 ## Hand off input resources
 
 A host integration that allocates input resources, such as uploaded files, can
 pass `onInputHandoff` in the fourth argument:
 
-```ts
+```ts fragment
 const child = await startAgentInvocation(researcher, runtimeContext, input, {
   onInputHandoff() {
     markUploadsAsOwnedByRuntime()

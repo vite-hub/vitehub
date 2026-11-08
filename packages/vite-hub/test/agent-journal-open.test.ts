@@ -32,6 +32,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   installAgentInvocations({})
   vi.unstubAllEnvs()
   await rm(directory, { force: true, recursive: true })
@@ -39,6 +40,8 @@ afterEach(async () => {
 
 describe("Default Agent journal open", () => {
   it("opens the libSQL journal on first use, once for concurrent first uses", async () => {
+    // Keep cold module loading independent of the store operation deadline.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const file = join(directory, ".vitehub/data/agent-invocations.sqlite")
     const invocations = createDefaultAgentInvocations({ projectRoot: directory })
     expect(opens.count).toBe(0)

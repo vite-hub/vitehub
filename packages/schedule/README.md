@@ -89,7 +89,7 @@ export default defineConfig({
 
 Then export a definition from `server/schedules/<name>.ts` or `src/<name>.schedule.ts`.
 
-```ts
+```ts fragment
 // server/schedules/daily-report.ts
 import { defineSchedule } from "@vite-hub/schedule";
 
@@ -102,19 +102,42 @@ export default defineSchedule({
 });
 ```
 
-Static Schedule Definitions use five-field cron expressions. The cron uses UTC unless the definition sets `timeZone` to an IANA name, such as `Europe/Madrid`. Only the Process Runtime evaluates `timeZone`. Provider cron output supports only UTC, so a build that generates Provider Output fails with `SCHEDULE_R0003` when a definition sets a `timeZone` other than `UTC`.
+Static Schedule Definitions use five-field cron expressions. The cron uses UTC unless the definition sets `timeZone` to an IANA name, such as `Europe/Madrid`. `timeZone` works with the Process Runtime and with every host's cron output.
 
 The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
 
 Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
 
-Direct Nuxt projects can register `@vite-hub/schedule/nuxt` instead of `hubSchedule()`. The module installs the Vite integration and merges Schedule output into Nitro config.
+Nuxt projects enable Schedule with `vite-hub/nuxt` and `vitehub: { schedule: true }`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
 ## Understand time zones
 
-`timeZone` can be any expression, such as a shared constant. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets such as `+01:00` are rejected. To use a local clock time, use the Process Runtime. Otherwise, remove `timeZone` and write the cron in UTC. Provider cron output reads `timeZone` from the source file, so a build that generates it fails with `SCHEDULE_R0003` when a definition sets `timeZone` to anything but the literal `'UTC'`.
+The value of `timeZone` must be an IANA name. Abbreviations such as `PST` and numeric offsets such as `+01:00` are rejected. The Process Runtime accepts any expression, such as a shared constant. Host cron output reads `timeZone` from the source file at build time, so write it as a string literal there. A dynamic value fails the build with `SCHEDULE_R0003`.
 
-During a daylight-saving gap, a local time that does not exist does not run that day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
+Cloudflare, Vercel, Netlify, and Deno read cron in UTC only. For a Schedule with a `timeZone`, the build writes a UTC cron that covers every offset of the time zone in the next two years, and the runtime checks the local time on each wake. `0 8 * * *` in `Europe/Madrid` becomes `0 6,7 * * *`: the host wakes the Schedule twice a day, and the Schedule runs at the wake that is 08:00 in Madrid. When a local time moves to another UTC day, the UTC cron wakes every day, or on the shifted weekdays, and the runtime checks the local date. A `cron` override in the build config replaces both the cron and the time zone: the host runs the override in UTC. Rebuild when a time zone changes its rules.
+
+On daylight saving time changes, every host and the Process Runtime behave the same:
+
+- A local time that the clock skips runs once, shifted by the length of the gap, as RFC 5545 and `Temporal` read it. `30 2 * * *` in `Europe/Madrid` runs at 03:30 on the spring-forward day.
+- A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
+
+## Run a Schedule once per occurrence
+
+Each run gets `idempotencyKey`, `schedule:<name>:<scheduledAt ISO>`. Cloudflare supplies the scheduled timestamp, and the Process Runtime records each occurrence. Repeated deliveries of those occurrences keep the same key. Pass the key to Email, a Channel `send()`, or a Queue on Vercel or the local driver to dedupe work with the same key:
+
+```ts fragment
+export default defineSchedule({
+  cron: "0 7 * * *",
+  timeZone: "Europe/Stockholm",
+  async handler({ idempotencyKey }) {
+    await email.send({ from, to, subject: "Today's lesson", text, idempotencyKey });
+  },
+});
+```
+
+The Process Runtime also stores one run per occurrence, so it does not run a repeated wake again. Host cron output does not store runs.
+
+Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. They estimate `scheduledAt` as the latest host UTC cron match within the previous day, or the current minute when none matches. A late delivery or retry after another host cron match can get a different key. Time-zone filtering uses that estimate too: a summer Madrid 06:00 wake delivered after the extra 07:00 wake can be skipped. These hosts cannot guarantee occurrence identity or dedupe across that boundary. Use an application business key for side effects that must dedupe across delays and retries.
 
 ## Run schedules in one process
 

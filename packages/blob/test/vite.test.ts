@@ -30,17 +30,19 @@ async function temporaryDirectory(prefix: string) {
 
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
-async function serveRouteRequest(artifactFile: string, routeBase = "", priorCacheControl?: string) {
+/** Mount the generated Fetchable route like Nitro: Standard Context first, then middleware, then the route. */
+async function serveRouteRequest(artifactFile: string, routeBase = "", priorCacheControl?: string, baseURL = "", requestBase = routeBase) {
+  routeBase = routeBase.replace(/\/+$/, "").replace(/\[([^\]]+)\]/g, ":$1")
+  requestBase = requestBase.replace(/\/+$/, "")
   const artifact = await import(pathToFileURL(artifactFile).href) as {
-    default: (event: unknown) => Promise<Response>
+    default: { fetch: (request: Request) => Promise<Response> }
   }
-  const app = new H3()
-  app.all("/**", (event) => {
+  const app = new H3({ onRequest: event => installStandardContext(event) })
+  app.use((event) => {
     if (priorCacheControl) setResponseHeader(event, "Cache-Control", priorCacheControl)
-    event.context.params = { _: event.url.pathname.slice(routeBase.length + 1) }
-    return artifact.default(event)
   })
-  return (pathname: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://localhost${routeBase}/${pathname}`, { headers, method }))
+  app.all(`${baseURL}${routeBase}/**`, artifact.default)
+  return (pathname: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://localhost${baseURL}${requestBase}/${pathname}`, { headers, method }))
 }
 
 function driverImports(source: string) {
@@ -1003,11 +1005,12 @@ describe("hubBlob", () => {
     expect(handler).toContain("headers: {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
     expect(handler).not.toMatch(/from ['"]h3['"]/)
     expect(handler).not.toContain("node.res")
-    expect(handler).toContain("blob.store(storeName).serve(event, pathname, options)")
-    expect(handler).toContain("export default serveBlob")
+    expect(handler).toContain("blob.store(storeName).serve(request, pathname, options)")
+    expect(handler).toContain("const routeSegments: string[] = [\"assets\"]")
+    expect(handler).toContain("export default { fetch: serveBlob }")
   })
 
-  const serveCacheCases: Array<{ expectedCacheControl: string, headers: Record<string, string> | undefined, name: string }> = [
+  const serveCacheCases: Array<{ baseURL?: string, expectedCacheControl: string, headers?: Record<string, string>, name: string, requestRoute?: string, route?: string }> = [
     {
       expectedCacheControl: "public, max-age=0, s-maxage=0",
       headers: undefined,
@@ -1033,13 +1036,22 @@ describe("hubBlob", () => {
       headers: { "cache-control": "public, max-age=300", "Cache-Control": "private, max-age=60" },
       name: "duplicate canonical last",
     },
+    ...[
+      { name: "root route behind a base URL", route: "/", baseURL: "/app" },
+      { name: "route repeated in the base URL", route: "/assets", baseURL: "/assets" },
+      { name: "overlapping route segments", route: "/api/files", baseURL: "/api/files/api" },
+      { name: "literal space in the route", route: "/my files", baseURL: "/app" },
+      { name: "encoded space in the route", route: "/my%20files", baseURL: "/app" },
+      { name: "parameterized route", route: "/files/:tenant", baseURL: "/files/acme", requestRoute: "/files/acme" },
+      { name: "bracket parameter route", route: "/files/[tenant]", baseURL: "/files/acme", requestRoute: "/files/acme" },
+    ].map(test => ({ ...test, expectedCacheControl: "public, max-age=0, s-maxage=0" })),
   ]
-  it.each(serveCacheCases)("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headers }) => {
+  it.each(serveCacheCases)("preserves the Blob path and response with $name", async ({ expectedCacheControl, headers, route: serveRoute = "/api/_vitehub/blob", baseURL = "", requestRoute = serveRoute }) => {
     const root = await temporaryDirectory("vitehub-blob-cached-route-")
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers },
+        serve: { headers, route: serveRoute },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
@@ -1069,6 +1081,7 @@ describe("hubBlob", () => {
                 "const storage = createBlobStorage({",
                 "  name: 'blob-route-test',",
                 "  async head(pathname) {",
+                "    globalThis.__vitehubBlobHeadPaths?.push(pathname)",
                 "    if (pathname === 'missing.bin') return null",
                 "    return { pathname, contentType: 'application/octet-stream', size: 5, httpEtag: '\"binary-v1\"', uploadedAt: new Date(0), httpMetadata: {}, customMetadata: {} }",
                 "  },",
@@ -1087,7 +1100,7 @@ describe("hubBlob", () => {
         target: "node24",
       })
 
-      const request = await serveRouteRequest(artifactFile)
+      const request = await serveRouteRequest(artifactFile, serveRoute, undefined, baseURL, requestRoute)
       const response = await request("binary.bin")
 
       expect(response.headers.get("Cache-Control")).toBe(expectedCacheControl)
@@ -1128,6 +1141,23 @@ describe("hubBlob", () => {
       const missing = await request("missing.bin", { "If-None-Match": "*" })
       expect(missing.status).toBe(404)
       expect(missing.headers.get("Cache-Control")).toBeNull()
+
+      // The router keeps the raw catch-all after the baseURL; `serve()` decodes it once.
+      const paths: string[] = []
+      Reflect.set(globalThis, "__vitehubBlobHeadPaths", paths)
+      const withBase = await serveRouteRequest(artifactFile, serveRoute, undefined, baseURL || "/app", requestRoute)
+      expect((await withBase("dir/a%20b%2Fc.bin", {}, "HEAD")).status).toBe(200)
+      expect(paths).toEqual(["dir/a b/c.bin"])
+      expect((await withBase("")).status).toBe(404)
+
+      // Outside Nitro, the route copies the status and the headers that `serve()` sets to the Response.
+      const { default: route } = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
+      const direct = await route.fetch(new Request(`http://localhost${requestRoute.replace(/\/+$/, "")}/binary.bin`, { headers: { Range: "bytes=1-2" } }))
+      expect(direct.status).toBe(206)
+      expect(direct.headers.get("Content-Range")).toBe("bytes 1-2/5")
+      expect(direct.headers.get("Cache-Control")).toBe(expectedCacheControl)
+      expect(new Uint8Array(await direct.arrayBuffer())).toEqual(new Uint8Array([128, 255]))
+      Reflect.deleteProperty(globalThis, "__vitehubBlobHeadPaths")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1219,7 +1249,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("withAuthorization(true, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
 
         const request = await bundleServeRoute(root, "public, max-age=3600")
         const anonymous = await request("u1/meal.jpg")
@@ -1272,7 +1302,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain(`import { authorize } from ${JSON.stringify(join(root, "server", `blob${extension}`))}`)
-        expect(handler).toContain("withAuthorization(authorize, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAuthorization(authorize, (request: Request) => serveBlob(request)) }")
 
         const request = await bundleServeRoute(root)
         const own = await request("u1/meal.jpg", { cookie: "session=u1" })
@@ -1311,7 +1341,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("withAnonymousAuthorization(authorize, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }")
 
         const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
         const shared = await request("public/meal.jpg")
@@ -1397,7 +1427,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).not.toContain(JSON.stringify(join(root, "server", "blob.ts")))
-        expect(handler).toContain("withAuthorization(true, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
       }
       finally {
         await rm(root, { force: true, recursive: true })
@@ -1434,6 +1464,21 @@ describe("hubBlob in vite dev", () => {
     await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, command, nitro, plugins: [{ name: "nitro:main" }], root } as never)
     return root
   }
+
+  it.each(["build", "serve"] as const)("keeps Blob resources and development definitions inspectable in %s", async (command) => {
+    const plugin = hubBlob({ bucketName: "uploads" })
+    await resolveConfig(plugin, command, { preset: "cloudflare_module" })
+
+    const inspection = plugin.vitehub.inspect!()
+    expect(await inspection.resources?.()).toEqual([
+      { binding: "BLOB", definition: "default", host: "cloudflare", kind: "cloudflare-r2-bucket", name: "uploads", owner: "blob", source: "name" },
+    ])
+    const [definitions] = inspection.definitions!
+    expect(definitions?.kind).toBe("blob")
+    expect(await definitions?.list()).toMatchObject([
+      { fields: [{ label: "Development", value: expect.stringContaining("Local.") }], name: "default" },
+    ])
+  })
 
   it.each([
     ["vercel", { driver: "vercel-blob" }, false],
@@ -1524,7 +1569,7 @@ describe("hubBlob in vite dev", () => {
 
       const [error] = await runtime.blob.put("hello.txt", "hello")
 
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await readFile(join(base, "hello.txt"), "utf8")).toBe("hello")
     }
     finally {

@@ -17,6 +17,7 @@ import {
 
 import type { WorkspaceDevTokenOptions } from "./server.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
+import { workspaceHooksNamespace } from "./hooks-cli.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
@@ -391,6 +392,6 @@ export function createWorkspaceCliContributor(): WorkspaceCliContributor {
         usage: "vitehub workspace dev <workspace> [exec <command...>]",
       }],
       name: "workspace",
-    }, ...workspaceCheckoutFeatures().map(feature => ({ defaultFeature: feature.name, description: feature.description, features: [feature], name: feature.name }))],
+    }, ...workspaceCheckoutFeatures().map(feature => ({ defaultFeature: feature.name, description: feature.description, features: [feature], name: feature.name })), workspaceHooksNamespace()],
   }
 }

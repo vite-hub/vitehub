@@ -84,7 +84,7 @@ Each `channels` value is a Channel definition, such as `webChat()`, or a factory
 
 ## Typed questions
 
-`driver.ask` answers typed questions with TypeSafe Jev. Questions are sent in deterministic sequential batches when their combined request would exceed the provider budget; an empty question map skips Jev. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes, otherwise the Invocation fails. The answers are the Invocation output, and `runAgent()` infers their type from the questions:
+`driver.ask` answers typed questions with TypeSafe Jev. Questions are sent in deterministic sequential batches when their combined request would exceed the provider budget; an empty question map skips Jev. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes, otherwise the Invocation fails. The answers are the Invocation output, and `runAgent()` infers the type of `result.output` from the questions:
 
 ```ts
 // server/agents/labeller.ts
@@ -115,19 +115,31 @@ See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` an
 
 ## Direct invocations
 
-Use `runAgent(agent, input)` in a script to get `[null, result]` or `[Error, null]`. ViteHub creates an isolated memo cache and run ID, then drains background work before returning. Results retain their inline output or Workflow Run shape. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. Non-Error failures are wrapped with their original value as the cause.
+`runAgent(agent, input, options?)` runs the Agent in the calling process and returns `[error, result]`. It does not throw for a failed run. `result.text` has the final text, and `result.output` has the typed Agent output: the `driver.output` schema value, the `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns. `runAgent()` consumes streamed output and `Response` bodies before it returns. `error.code` is `AGENT_RUN_FAILED` or `AGENT_RUN_CANCELLED`, and `error.cause` has the original failure.
 
-Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it at server startup, and the generated Deno server and Netlify function are that module, so the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+```ts fragment
+const [error, result] = await runAgent(agent, { prompt: "Summarize the policy." }, {
+  runtimeContext: getRuntimeContext(event),
+})
+if (error) throw error
+console.log(result.text)
+```
 
-`runAgent(agent, runtimeContext, input)` keeps the host context, returns the result directly, and throws failures. The context needs `runtime` and `waitUntil`. When it has no `memo`, ViteHub creates a fresh memo cache for the Invocation. `streamAgent()` and `startAgentInvocation()` accept the same context. Use this form for request metadata, runtime configuration, and streams that require a host background lifetime. Errors during later stream or Response-body consumption are outside the two-argument tuple. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
+`runtimeContext` is the host Runtime Context, such as `getRuntimeContext(event)` from `@vite-hub/runtime/h3`. It is not `input.context`, which holds the Invocation context values. Without `runtimeContext`, ViteHub creates an isolated memo cache and run ID and waits for background work before it returns. When `runtimeContext.waitUntil` is set, the host keeps background work alive.
 
-Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, output: 'drained' })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. Both options select inline execution. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
+Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it on its first request. An Invocation that starts before any request, such as a Schedule on a new Worker, loads it before the Invocation starts. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+
+`runAgent()` and `streamAgent()` run the Agent inline, whatever its `runtime`. The generated routes and Channels start Workflow runs. Use `startAgentInvocation()` to start a run that you inspect or cancel later.
+
+`streamAgent(agent, input, options?)` returns `[error, events]`, where `events` is an `AsyncIterable<StreamEvent>`. With `output: "ui-message-stream"`, it returns `[error, response]` with an AI SDK UI message stream `Response`. Errors during stream consumption reach the reader. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
+
+Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, schedule })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
 
 ## Structured data and interception
 
 Set `defineAgent({ data })` to a Standard Schema to validate `input.data` before Capabilities, hooks, and the Driver run. Invalid data fails the Invocation. Call sites use the schema input type; hooks and `intercept` receive the schema output type. Model and provider Drivers do not read `data`, so pass model text in `prompt` or `messages`.
 
-Set `defineAgent({ intercept })` to finish an Invocation before the Driver runs. Return `undefined` to continue, or a value to use as the Invocation output. `runAgent()` types its output as the union of the `intercept` return type and the `driver.output` schema output. `agent:finish` hooks receive the intercepted value, and the finish trace event records `agent.intercepted: true`. See [Agent Definitions](https://vitehub.dev/docs/agents/agent-definitions#finish-before-the-driver).
+Set `defineAgent({ intercept })` to finish an Invocation before the Driver runs. Return `undefined` to continue, or a value to use as the Invocation output. `runAgent()` types `result.output` as the union of the `intercept` return type and the `driver.output` schema output. `agent:finish` hooks receive the intercepted value, and the finish trace event records `agent.intercepted: true`. See [Agent Definitions](https://vitehub.dev/docs/agents/agent-definitions#finish-before-the-driver).
 
 ## Custom Capability tools
 
@@ -212,7 +224,7 @@ The `output` token limit is passed to AI SDK model calls as `maxOutputTokens` wh
 
 Set `driver.capacity` when one Agent Definition must bound concurrent Driver work inside a process:
 
-```ts
+```ts fragment
 export default defineAgent({
   driver: {
     capacity: {
@@ -245,7 +257,7 @@ Import the same `agentCapacity` object into each Agent Definition that should sh
 
 Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
-```ts
+```ts fragment
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
   await runAgent({ cwd: path, env, signal })
   await push()
@@ -386,7 +398,7 @@ for the code format and an application catalog example.
 
 `teams()` builds its Chat SDK adapter from `env.server.teams` (`TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, `TEAMS_API_URL`) and needs `@chat-adapter/teams`. `adapter` options such as `{ userName }` take precedence over Env; an adapter or factory is used as given.
 
-`teams.connector()`, `slack.connector({ adapter })`, `discord.connector()`, and `telegram.connector()` are outbound connectors for `defineOutboundChannel()` with one contract: `send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their adapter from Server Env like their Agent Channel; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
+`teams()`, `slack({ adapter })`, `discord()`, and `telegram()` also send, as the adapter of a `defineChannel()` from `vite-hub/channels`, with one contract: `useChannel(name).send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })` (`ChatSendOptions`). `recipient` is a Chat SDK thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message; Teams and Slack support it, and Discord and Telegram throw a `TypeError`. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` requires `idempotencyKey` and names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. A message that the platform no longer has counts as deleted. Teams, Discord, and Telegram build their Chat SDK adapter for sends from Server Env; Slack needs your adapter. Roots and receipts live in `@vite-hub/kv` under the channel name, such as `teams:`. Sends with the same key serialize within one process only.
 
 To replace a temporary message in a channel thread, set `thread.root` on the first send so the temporary message is a reply. Replacing the root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
 
@@ -408,6 +420,8 @@ Chat History and the Concurrent Invocation Guard need an Agent State Provider wh
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite"
+
 export default defineConfig({
   agent: {
     providers: {
@@ -446,6 +460,7 @@ A queued delivery gets three execution attempts. When the queue stops retrying i
 You can also wire the adapter manually when `chat({ state })` should own the state provider:
 
 ```ts
+import { chat } from "@vite-hub/agent/capabilities"
 import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite";
 
 chat({
@@ -509,7 +524,7 @@ See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for bindi
 
 Use `extends` to make one Agent Definition the default for another:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import bot from '../bot/agent'
 
@@ -528,7 +543,7 @@ Child configuration overrides parent defaults. Channels, Sources, and Skills mer
 
 Three options compose with the parent, so the child does not restate it:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import bot from '../bot/agent'
@@ -570,7 +585,7 @@ Each key is a Skill name, and each value is its `SKILL.md` content. The result k
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
 
-```ts
+```ts fragment
 import { defineAgent } from "@vite-hub/agent"
 import { notetaker } from "@example/agents"
 
@@ -589,6 +604,8 @@ Preset packages must declare `@vite-hub/agent` as a peer dependency so their def
 A preset can expose typed options with the same `defineAgent()` function:
 
 ```ts
+import { codexDriver, defineAgent } from "@vite-hub/agent"
+
 export const notetaker = defineAgent({
   options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
   configure: ({ format }) => defineAgent({
@@ -599,7 +616,7 @@ export const notetaker = defineAgent({
 
 Consumers select the definition and override only the options they need:
 
-```ts
+```ts fragment
 const notes = defineAgent({
   preset: "notetaker",
   presets: { notetaker },
@@ -641,7 +658,7 @@ from `@vite-hub/agent/runtime/process` combines capacity, invocation storage and
 recovery, provider-session storage, and a draining reconciler. Its data directory
 must belong exclusively to this host. It is not a distributed lease.
 
-```ts
+```ts fragment
 export default await createProcessAgentHost({
   name: 'reviewer',
   dataDir: '.vitehub',
@@ -663,6 +680,8 @@ The host can also live beside an Agent Definition as a named export. Keep the
 Agent Definition as the module's default export and select the host in Vite:
 
 ```ts
+import { processAgentHost } from "@vite-hub/agent/vite"
+
 processAgentHost({ entry: './server/agents/babysitter/agent.ts', exportName: 'host' })
 ```
 
@@ -715,6 +734,8 @@ Keep host inspection configuration beside an Agent Definition. `agentHostRoutes`
 from `vite-hub/agent/vite` generates GET/HEAD routes from named function exports:
 
 ```ts
+import { agentHostRoutes } from "@vite-hub/agent/vite"
+
 agentHostRoutes({
   entry: './server/agents/support/agent.ts',
   health: 'health',
@@ -723,7 +744,7 @@ agentHostRoutes({
 ```
 
 The defaults are `/api/health` and
-`/api/_vitehub/console/invocations/:id/workspace`. Each option also accepts
+`/_vitehub/api/invocations/:id/workspace`. Each option also accepts
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
 `(invocationId, path?)` and return a Response; for GitHub checkouts, use
 `createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.
@@ -756,7 +777,7 @@ The generated host code creates the Chat and webhook route handlers when the ser
 
 For a Nitro host, set `agent.preparation` in `vitehub()` to start Workspace preparation with the server and stop it on shutdown:
 
-```ts
+```ts fragment
 agent: {
   preparation: {
     workspace: "support",
@@ -786,6 +807,8 @@ Webhook `secretToken` accepts a string, `false`, `undefined`, a callback, or an 
 For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:
 
 ```ts
+import { hubAgent } from "@vite-hub/agent/vite"
+
 hubAgent({
   routes: {
     aliases: {
@@ -816,6 +839,8 @@ An Agent can reserve one place for extending instructions. Define a template in
 `driver.instructions` with exactly one `{{{ instructions }}}` marker outside code:
 
 ```ts
+import { codexDriver, defineAgent } from "@vite-hub/agent"
+
 const base = defineAgent({
   driver: codexDriver({
     instructions: {

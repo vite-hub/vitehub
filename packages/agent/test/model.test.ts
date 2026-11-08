@@ -43,7 +43,8 @@ describe("Agent model materialization", () => {
     const createGateway = vi.fn(() => selectModel)
     vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
     const instrumentation = vi.fn(({ model }) => model)
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       driver: {
         execution: { instrumentation: { model: instrumentation } },
@@ -51,7 +52,7 @@ describe("Agent model materialization", () => {
       },
     })
 
-    await runAgent(agent, runtime, { prompt: "hello" })
+    await runAgentWithContext(agent, runtime, { prompt: "hello" })
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "ambient-token" })
     expect(selectModel).toHaveBeenCalledWith("zai/glm-5v-turbo")
     expect(instrumentation).toHaveBeenCalledWith(expect.objectContaining({ model }))
@@ -88,7 +89,8 @@ describe("Agent model materialization", () => {
   it("resolves descriptor credentials for each invocation", async () => {
     const createGateway = vi.fn(() => vi.fn(() => languageModel()))
     vi.doMock("@ai-sdk/gateway", () => ({ createGateway }))
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent<{ gatewayKey: string }>({
       driver: {
         model: ({ runtimeConfig }) => ({
@@ -98,7 +100,7 @@ describe("Agent model materialization", () => {
       },
     })
 
-    await runAgent(agent, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
+    await runAgentWithContext(agent, { ...runtime, capabilities: {}, runtimeConfig: { gatewayKey: "tenant-token" } }, { prompt: "hello" })
 
     expect(createGateway).toHaveBeenCalledWith({ apiKey: "tenant-token" })
   })

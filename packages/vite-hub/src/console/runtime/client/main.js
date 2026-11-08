@@ -32,8 +32,10 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleProjects } from "./project-session";
-import { browserProjectStorage } from "./projects";
+import { takeConsoleOAuthCallback } from "./oauth";
+import { consoleProjectReady, finishConsoleOAuthSignIn, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
+import { takeConsoleLinkHash } from "./pending-links";
+import { browserProjectStorage, openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
@@ -43,34 +45,48 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
+// A browser that blocks or fills storage keeps the projects in memory until the page reloads.
+const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
+// The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
+const session = openConsoleStorage(() => window.sessionStorage);
+
+// A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
+const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+// The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
+const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
+
 startConsoleProjects({
   base: hostBase,
   home: consoleBase,
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
-  storage: browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile),
+  storage,
+  sessionStorage: session.durable ? session.storage : undefined,
+  durableStorage: storage.persistent !== false,
+  pendingLinkLocks: navigator.locks,
 });
-const sectionsBase = "/api/_vitehub/console/sections";
-const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
+if (linkHash !== undefined) startConsoleLink(linkHash);
+else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
+const sectionsBase = "/_vitehub/api/sections";
+const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
 
 const router = createRouter({
   history: createWebHistory(consoleBase),
   routes: [
-    { component: ConsoleLogs, name: "vitehub-console-logs", path: "/logs", meta: { consoleSection: "logs", title: "Logs · ViteHub Console" }, props: { logsBase: "/api/_vitehub/console/logs", sectionsBase } },
-    { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/api/_vitehub/console/agents", definitionsBase: "/api/_vitehub/console/definitions", kvBase: "/api/_vitehub/console/kv", envBase: "/api/_vitehub/console/env", managementBase: "/_vitehub/env/manage", searchBase: "/api/_vitehub/console/search", sectionsBase } },
+    { component: ConsoleLogs, name: "vitehub-console-logs", path: "/logs", meta: { consoleSection: "logs", title: "Logs · ViteHub Console" }, props: { logsBase: "/_vitehub/api/logs", sectionsBase } },
+    { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/_vitehub/api/agents", definitionsBase: "/_vitehub/api/definitions", kvBase: "/_vitehub/api/kv", envBase: "/_vitehub/api/env", managementBase: "/_vitehub/env/manage", searchBase: "/_vitehub/api/search", sectionsBase } },
     {
       component: ConsoleConnections,
       name: "vitehub-console-connections",
       path: "/connections",
       meta: { consoleSection: "connections", title: "Connections · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
         managementBase: "/_vitehub/connections",
-        searchBase: "/api/_vitehub/console/search",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     },
@@ -80,10 +96,10 @@ const router = createRouter({
       path: "/mcp-client",
       meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     },
@@ -94,10 +110,10 @@ const router = createRouter({
       path: "/mcp-client/callback",
       meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     },
@@ -106,10 +122,10 @@ const router = createRouter({
       name: "vitehub-console",
       path: "/",
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
       meta: { title: "ViteHub Console" },
@@ -120,10 +136,10 @@ const router = createRouter({
       path: "/connect",
       meta: { title: "Connect an agent · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     },
@@ -133,14 +149,14 @@ const router = createRouter({
       path: "/agents",
       meta: { consoleSection: "agents", title: "Agents · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        apiBase: "/api/_vitehub/console/invocations",
+        agentsBase: "/_vitehub/api/agents",
+        apiBase: "/_vitehub/api/invocations",
         capabilitiesBase,
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
-        usageBase: "/api/_vitehub/console/usage",
+        usageBase: "/_vitehub/api/usage",
       },
     },
     {
@@ -149,14 +165,14 @@ const router = createRouter({
       path: "/agents/:agent",
       meta: { consoleSection: "agents", title: "Agents · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        apiBase: "/api/_vitehub/console/invocations",
+        agentsBase: "/_vitehub/api/agents",
+        apiBase: "/_vitehub/api/invocations",
         capabilitiesBase,
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
-        usageBase: "/api/_vitehub/console/usage",
+        usageBase: "/_vitehub/api/usage",
       },
     },
     {
@@ -165,14 +181,14 @@ const router = createRouter({
       path: "/agents/:agent/invocations/:invocation",
       meta: { consoleSection: "agents", title: "Agents · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        apiBase: "/api/_vitehub/console/invocations",
+        agentsBase: "/_vitehub/api/agents",
+        apiBase: "/_vitehub/api/invocations",
         capabilitiesBase,
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
-        usageBase: "/api/_vitehub/console/usage",
+        usageBase: "/_vitehub/api/usage",
       },
     },
     {
@@ -181,11 +197,11 @@ const router = createRouter({
       path: "/blob",
       meta: { consoleSection: "blob", title: "Blob · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        blobBase: "/api/_vitehub/console/blob",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        blobBase: "/_vitehub/api/blob",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     },
@@ -195,11 +211,11 @@ const router = createRouter({
       path: "/skills",
       meta: { consoleSection: "skills", title: "Skills · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
-        skillsBase: "/api/_vitehub/console/skills",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
+        skillsBase: "/_vitehub/api/skills",
         sectionsBase,
       },
     },
@@ -209,11 +225,11 @@ const router = createRouter({
       path: "/channels",
       meta: { consoleSection: "channels", title: "Channels · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        channelsBase: "/api/_vitehub/console/channels",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        channelsBase: "/_vitehub/api/channels",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     },
@@ -223,10 +239,10 @@ const router = createRouter({
       path: "/kv",
       meta: { consoleSection: "kv", title: "KV · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     },
@@ -236,14 +252,14 @@ const router = createRouter({
       path: "/usage",
       meta: { consoleSection: "usage", title: "Usage · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        apiBase: "/api/_vitehub/console/invocations",
+        agentsBase: "/_vitehub/api/agents",
+        apiBase: "/_vitehub/api/invocations",
         capabilitiesBase,
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
-        usageBase: "/api/_vitehub/console/usage",
+        usageBase: "/_vitehub/api/usage",
       },
     },
     {
@@ -252,11 +268,11 @@ const router = createRouter({
       path: consoleDatabasesSchemaPath,
       meta: { consoleSection: "databases", title: "Schema · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        databaseBase: "/api/_vitehub/console/database",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        databaseBase: "/_vitehub/api/database",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
         view: "schema",
       },
@@ -267,11 +283,11 @@ const router = createRouter({
       path: consoleDatabasesTablePath,
       meta: { consoleSection: "databases", title: "Databases · ViteHub Console" },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        databaseBase: "/api/_vitehub/console/database",
-        definitionsBase: "/api/_vitehub/console/definitions",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        agentsBase: "/_vitehub/api/agents",
+        databaseBase: "/_vitehub/api/database",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         view: "data",
         sectionsBase,
       },
@@ -302,12 +318,12 @@ function addContributedRoutes(navigation) {
     }
     if (details.view.kind === "document-editor") {
       const props = {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
         details,
-        documentsBase: "/api/_vitehub/console/documents",
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        documentsBase: "/_vitehub/api/documents",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       };
       // The main view and every page render the same component, so the section sidebar stays mounted between them.
@@ -333,7 +349,7 @@ function addContributedRoutes(navigation) {
         name,
         path: `/${section}`,
         meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
-        props: { definitionsBase: "/api/_vitehub/console/definitions", details, sectionsBase },
+        props: { definitionsBase: "/_vitehub/api/definitions", details, sectionsBase },
       });
       continue;
     }
@@ -343,14 +359,14 @@ function addContributedRoutes(navigation) {
       path: `/${section}`,
       meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
       props: {
-        agentsBase: "/api/_vitehub/console/agents",
-        definitionsBase: "/api/_vitehub/console/definitions",
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
         details,
-        ...(section === "rate-limits" ? { rateLimitBase: "/api/_vitehub/console/rate-limit" } : {}),
-        ...(section === "schedules" ? { scheduleRunBase: "/api/_vitehub/console/schedule-run" } : {}),
-        ...(section === "workflows" ? { workflowBase: "/api/_vitehub/console/workflow" } : {}),
-        kvBase: "/api/_vitehub/console/kv",
-        searchBase: "/api/_vitehub/console/search",
+        ...(section === "rate-limits" ? { rateLimitBase: "/_vitehub/api/rate-limit" } : {}),
+        ...(section === "schedules" ? { scheduleRunBase: "/_vitehub/api/schedule-run" } : {}),
+        ...(section === "workflows" ? { workflowBase: "/_vitehub/api/workflow" } : {}),
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
         sectionsBase,
       },
     });

@@ -4,6 +4,7 @@ import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { normalizeHistoryPath } from "../core/history.ts"
 import { contentToBytes } from "../core/path.ts"
 import { useWorkspaceFiles } from "../core/use.ts"
+import { readDerivedFrom, staleDerivedFiles } from "../lineage.ts"
 import { workspaceHistoryDefaultLimit } from "../results.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
@@ -18,6 +19,7 @@ import type {
   WorkspaceHistoryList,
   WorkspaceHistoryRefs,
   WorkspaceHistoryRevision,
+  WorkspaceStaleList,
 } from "../results.ts"
 
 // Invalid paths, refs, cursors, and limits.
@@ -25,9 +27,14 @@ const invalidRequestCodes = new Set(["WORKSPACE_HISTORY_INVALID", "WORKSPACE_PAT
 
 /** A history read failure with its HTTP status. */
 class WorkspaceOperationError extends Error {
-  constructor(readonly code: string, readonly status: number, message: string) {
+  readonly details?: Record<string, unknown>
+  readonly fix?: string
+
+  constructor(readonly code: string, readonly status: number, message: string, options: { details?: Record<string, unknown>, fix?: string } = {}) {
     super(message)
     this.name = "WorkspaceOperationError"
+    if (options.details) this.details = options.details
+    if (options.fix) this.fix = options.fix
   }
 }
 
@@ -167,6 +174,12 @@ export interface WorkspaceCommitInput {
   put?: Record<string, { content: string, encoding: "base64" | "utf8" }>
   ref?: string
   workspace: string
+  /**
+   * `override`: write files that someone else holds an edit lease on. The revision records `lease: "override"` in its
+   * metadata, and the plugin that keeps the leases, such as Content, lets the write through. An Agent or an MCP client
+   * may pass it only when the developer allowed it with `operations({ overrideLeases: true })`.
+   */
+  lease?: "override"
 }
 
 function decodeContent(file: { content: string, encoding: "base64" | "utf8" }): string | Uint8Array {
@@ -246,9 +259,19 @@ function callerMetadata(context: OperationContext): Record<string, unknown> {
   }
 }
 
+/** An Agent tool or an MCP client: a model decides the call, for the person it works for. */
+function modelSurface(context: OperationContext): boolean {
+  return context.surface === "agent" || context.surface === "mcp"
+}
+
 async function commitChanges(workspace: string, request: WorkspaceCommitInput, context: OperationContext): Promise<WorkspaceCommitResult> {
   const remove = request.delete ?? []
   if (!Object.keys(request.put ?? {}).length && !remove.length) throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The commit has no changes. Pass `put` or `delete`.")
+  if (request.lease === "override" && modelSurface(context) && !context.overrideLeases) {
+    throw new WorkspaceOperationError("WORKSPACE_FORBIDDEN", 403, "An Agent may not write past an edit lease that a person holds.", {
+      fix: "Tell the person you work for who is editing the files, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true }).",
+    })
+  }
   const { history } = useWorkspaceFiles(workspace, { mode: "write" })
   const ref = request.ref ?? "main"
   const forkRef = request.ifHead === null ? await history.forksFrom?.(ref) : undefined
@@ -265,7 +288,7 @@ async function commitChanges(workspace: string, request: WorkspaceCommitInput, c
       ...(forkRef ? { ifHeads: { [forkRef]: startFrom ?? null } } : {}),
       changes: { put, delete: remove },
       message: request.message ?? `Push ${Object.keys(put).length + remove.length} files`,
-      metadata: callerMetadata(context),
+      metadata: { ...callerMetadata(context), ...(request.lease === "override" ? { lease: "override" } : {}) },
     })
     const view = await history.open(revision.id)
     const normalized: NonNullable<WorkspaceCommitResult["normalized"]> = {}
@@ -279,6 +302,34 @@ async function commitChanges(workspace: string, request: WorkspaceCommitInput, c
   catch (error) {
     if (errorCode(error) !== "WORKSPACE_CONFLICT") throw error
     throw new WorkspaceOperationError("WORKSPACE_CONFLICT", 409, `Ref "${request.ref ?? "main"}" of Workspace "${workspace}" moved after revision ${request.ifHead ?? "(none)"}. Pull, then push again.`)
+  }
+}
+
+// Files that can carry `derivedFrom`. Other files are read only when a derived file names them as its source.
+const derivedExtensions = /\.(?:json|markdown|md|mdx|ya?ml)$/i
+
+async function listStale(workspace: string, history: WorkspaceHistoryReader, ref: string): Promise<WorkspaceStaleList> {
+  const head = await history.head({ ref })
+  if (!head) return { workspace, ref, head: null, stale: [] }
+  const view = await history.open(head.id)
+  const paths = new Set((await view.list("", { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path))
+  const files = new Map<string, Uint8Array>()
+  for (const path of paths) if (derivedExtensions.test(path)) files.set(path, await view.readFile(path, { encoding: "binary" }))
+  // Sources added here are visited too, so a file derived from a derived file also finds its source.
+  for (const [path, bytes] of files) {
+    const source = readDerivedFrom(path, bytes)?.path
+    if (source && !files.has(source) && paths.has(source)) files.set(source, await view.readFile(source, { encoding: "binary" }))
+  }
+  return { workspace, ref, head: head.id, stale: staleDerivedFiles(files) }
+}
+
+/** The derived files on a ref whose source changed or is gone since they were made. */
+export async function runWorkspaceStale(input: { ref?: string, workspace: string }): Promise<WorkspaceStaleList> {
+  try {
+    return await listStale(input.workspace, useWorkspaceFiles(input.workspace).history, input.ref ?? "main")
+  }
+  catch (error) {
+    throw describeFailure(input.workspace, error)
   }
 }
 
@@ -325,7 +376,7 @@ export async function runWorkspaceOperation(operation: "history" | "refs" | "sho
 }
 
 function describeFailure(workspace: string, error: unknown): WorkspaceOperationError {
-  if (error instanceof WorkspaceOperationError) return new WorkspaceOperationError(error.code, error.status, redactInspectionText(error.message))
+  if (error instanceof WorkspaceOperationError) return new WorkspaceOperationError(error.code, error.status, redactInspectionText(error.message), { ...(error.details ? { details: error.details } : {}), ...(error.fix ? { fix: error.fix } : {}) })
   const code = errorCode(error)
   if (code === "WORKSPACE_R0069") {
     return new WorkspaceOperationError(code, 409, `Workspace "${workspace}" has no retained history because its Store does not keep revisions. Use the Blob + Database Store, createBlobDatabaseWorkspaceStore() from @vite-hub/workspace/blob-database, to keep refs and revisions.`)
@@ -334,6 +385,17 @@ function describeFailure(workspace: string, error: unknown): WorkspaceOperationE
   if (code === "WORKSPACE_NOT_FOUND" && error instanceof Error && error.message.includes(`Workspace "${workspace}" is not registered.`)) {
     return new WorkspaceOperationError(code, 404, `Unknown Workspace: ${workspace}.`)
   }
+  const message = redactInspectionText(error instanceof Error ? error.message : String(error))
+  // A plugin hook that refuses the write, such as a held edit lease, sets its own client status, fix, and details.
+  const own: unknown = Object(error) === error ? Reflect.get(Object(error), "status") : undefined
+  if (code && hasRuntimeType(own, "number") && own >= 400 && own < 500) {
+    const fix: unknown = Reflect.get(Object(error), "fix")
+    const details: unknown = Reflect.get(Object(error), "details")
+    return new WorkspaceOperationError(code, own, message, {
+      ...(hasRuntimeType(fix, "string") && fix ? { fix } : {}),
+      ...(Object(details) === details && !Array.isArray(details) ? { details: { ...Object(details) } } : {}),
+    })
+  }
   const status = code === "WORKSPACE_NOT_FOUND" ? 404 : code === "WORKSPACE_CONFLICT" ? 409 : code && invalidRequestCodes.has(code) ? 400 : 500
-  return new WorkspaceOperationError(code ?? "WORKSPACE_HISTORY_FAILED", status, redactInspectionText(error instanceof Error ? error.message : String(error)))
+  return new WorkspaceOperationError(code ?? "WORKSPACE_HISTORY_FAILED", status, message)
 }

@@ -409,7 +409,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
   })
 }
 
-/** Reads `/api/_vitehub/console/definitions` content for one section, or returns undefined when it does not match. */
+/** Reads `/_vitehub/api/definitions` content for one section, or returns undefined when it does not match. */
 export function parseConsoleSectionContent(value: unknown, section: string): ConsoleSectionContent | undefined {
   const source = record(value)
   if (source?.section !== section) return undefined
