@@ -1,5 +1,19 @@
 [
   {
+    "id": "validators-api",
+    "repo": "nimiq/validators-api",
+    "commit": "88877653f54cfdee4b91ea5e0bd530154f433a2f",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "nuxt-safe-runtime-config"
+      ],
+      "report": [
+        "skips empty values as || did"
+      ]
+    }
+  },
+  {
     "id": "godot-asset-store",
     "repo": "adamscott/godot-asset-store-front-end",
     "commit": "a81749ef3953a14743c5d6ab03979ef5624fd62b",
