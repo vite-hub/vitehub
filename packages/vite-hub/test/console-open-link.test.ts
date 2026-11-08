@@ -142,8 +142,9 @@ describe("opening an /open link", () => {
     expect(state.current.value).toMatchObject({ url: shop.url, token: "secret" })
     expect(state.gate.value).toEqual({ kind: "ready" })
     const project = await import("../src/console/runtime/client/project.ts")
-    expect(project.projectUrl("/_vitehub/rpc/__call")).toBe(`${shop.url}/_vitehub/rpc/__call`)
-    expect(project.projectHeaders()).toEqual({ authorization: "Bearer secret" })
+    const request = await project.projectRequest("/_vitehub/rpc/__call")
+    expect(request.url).toBe(`${shop.url}/_vitehub/rpc/__call`)
+    expect(request.headers).toEqual({ authorization: "Bearer secret" })
   })
 
   it("reloads the requested page when another project is already open", async () => {
