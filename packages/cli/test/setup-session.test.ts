@@ -1,10 +1,11 @@
+import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
 import { createSetupSession, setupRequestArgs } from "../src/setup/index.ts"
-import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
+import { createProject, fakePackageManager, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
 
 import type { SetupCommandRunner } from "../src/setup/index.ts"
 
@@ -26,6 +27,45 @@ async function project(): Promise<string> {
 }
 
 describe("createSetupSession", () => {
+  it.each(["vite", "nuxt"])("finishes removal before writing the %s config that restarts the server", async (framework) => {
+    const configFile = `${framework}.config.ts`
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      [configFile]: framework === "vite" ? viteConfig('{ preset: "node" }') : 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "node" }]] })\n',
+    })
+    const added = await runSetup(["add", "schedule", "--name", "nightly", "--option", "schedule.runtime.driver=process", "--yes", "--json"], root, {}, { spawn: fakePackageManager(root).spawn })
+    expect(added.exitCode, added.stdout).toBe(0)
+    const before = await readFile(join(root, configFile), "utf8")
+    let uninstalled = false
+    const session = createSetupSession({ env: {}, root, run: async () => {
+      expect(await readFile(join(root, configFile), "utf8")).toBe(before)
+      expect(existsSync(join(root, "server/schedules/nightly.ts"))).toBe(false)
+      uninstalled = true
+      return { exitCode: 0 }
+    } })
+    const planned = await session.plan({ action: "remove", features: ["schedule"] })
+    expect(planned.exitCode, JSON.stringify(planned.body)).toBe(0)
+    const applied = await session.apply(planned.body.planId)
+    expect(applied.exitCode, JSON.stringify(applied.body)).toBe(0)
+    expect(uninstalled).toBe(true)
+    expect(await readFile(join(root, configFile), "utf8")).not.toBe(before)
+  })
+
+  it("keeps the restart-triggering config when uninstall fails", async () => {
+    const before = viteConfig('{ preset: "node", realtime: true }')
+    const root = await createProject({
+      "package.json": JSON.stringify({ name: "app", packageManager: "pnpm@10.0.0", dependencies: { "@vite-hub/realtime": "1.0.0" } }),
+      "vite.config.ts": before,
+    })
+    const session = createSetupSession({ env: {}, root, run: async () => ({ exitCode: 1 }) })
+    const planned = await session.plan({ action: "remove", features: ["realtime"] })
+    expect(planned.exitCode).toBe(0)
+    const applied = await session.apply(planned.body.planId)
+    expect(applied.exitCode).toBe(1)
+    expect(applied.body.error).toMatchObject({ code: "SETUP_UNINSTALL_FAILED" })
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(before)
+  })
+
   it("plans the same document as `vitehub add --dry-run --json`, with a plan id and the CLI command", async () => {
     const root = await project()
     const session = createSetupSession({ env: {}, root, run: fakeRunner().run })

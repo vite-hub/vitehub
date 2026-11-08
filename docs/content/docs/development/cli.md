@@ -340,9 +340,13 @@ Another enabled feature turns the feature on, such as Agent for Workflow, so del
 
 The app still uses the feature. `references` lists each file, with the line and the module for an import. Delete or move them and run the command again, or pass `--force` to turn the feature off and keep the files.
 
+### `SETUP_FEATURE_REQUIRED`
+
+An enabled feature's options require the feature, such as `cache: { driver: "kv" }` requiring KV. Remove both features in one command, or change the dependent options first. `--force` cannot remove these prerequisites.
+
 ### `SETUP_UNINSTALL_FAILED`
 
-The package manager exited with an error after ViteHub changed the config and deleted the starter files. Run the uninstall command by hand to see the error.
+The package manager exited with an error after ViteHub deleted the starter files. The terminal command changes the config before uninstalling. The development Setup page keeps the config unchanged until cleanup succeeds, so a config-triggered restart cannot interrupt cleanup. Run the uninstall command by hand to see the error, then plan the removal again.
 
 ## Use Setup in the development Console
 

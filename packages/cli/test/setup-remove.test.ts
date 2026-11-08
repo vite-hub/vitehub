@@ -31,6 +31,27 @@ async function enabled(root: string, id: string): Promise<string | undefined> {
 
 describe("vitehub remove", () => {
   it.each([
+    { feature: "kv", dependent: "cache", options: 'kv: true, cache: { driver: "kv" }' },
+    { feature: "console", dependent: "connections", options: 'console: { auth: false }, connections: { management: true }' },
+    { feature: "env", dependent: "observability", options: 'env: true, observability: { posthog: true }' },
+    { feature: "agent", dependent: "observability", options: 'agent: true, console: { auth: false }, observability: { papercuts: true }' },
+    { feature: "console", dependent: "observability", options: 'agent: true, console: { auth: false }, observability: { papercuts: true }' },
+    { feature: "database", dependent: "agent", options: 'database: true, agent: { invocations: "database" }' },
+    { feature: "database", dependent: "agent", options: 'database: true, agent: { invocations: { store: "database" } }' },
+  ])("refuses to remove $feature while $dependent requires it ($options)", async ({ feature, dependent, options }) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", ${options} }`) })
+    const before = await snapshot(root)
+    for (const flags of [[], ["--force"]]) {
+      const refused = await remove([feature, "--yes", ...flags], root)
+      expect(refused.exitCode, refused.stdout).toBe(3)
+      expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_REQUIRED" })
+      expect(await snapshot(root)).toEqual(before)
+    }
+    const together = await remove([feature, dependent, "--dry-run", "--force"], root)
+    expect(together.exitCode, together.stdout).toBe(0)
+  })
+
+  it.each([
     { config: 'rootDir: "app",', file: "app/server/schedules/hello.ts" },
     { config: 'serverDir: "backend",', file: "backend/schedules/hello.ts" },
   ])("removes a starter from the configured Nuxt directory ($config)", async ({ config, file }) => {

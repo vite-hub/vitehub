@@ -134,6 +134,17 @@ function isStarter(starter: FeatureStarter, path: string, content: string): bool
   return name !== undefined && [starter.template, ...starter.previousTemplates ?? []].some(template => template(name) === content)
 }
 
+/** Features required by selected options, even without a static implication. */
+function optionPrerequisites(id: FeatureId, value: JsonValue | undefined): FeatureId[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return []
+  if (id === "cache" && value.driver === "kv") return ["kv"]
+  if (id === "connections" && value.management) return ["console"]
+  if (id === "observability") return [...(value.posthog ? ["env" as const] : []), ...(value.papercuts ? ["agent" as const, "console" as const] : [])]
+  const invocations = id === "agent" ? value.invocations : undefined
+  if (invocations === "database" || (invocations && typeof invocations === "object" && !Array.isArray(invocations) && invocations.store === "database")) return ["database"]
+  return []
+}
+
 /** A `vitehub remove` plan with the file contents that applying it checks and writes. */
 export interface PlannedRemove {
   plan: SetupRemovePlan
@@ -203,6 +214,10 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const valueOf = (source: typeof project.config, id: FeatureId): JsonValue | undefined => {
     const key = source?.ok ? source.site.keys[id] : undefined
     return key?.kind === "literal" ? key.value : undefined
+  }
+  for (const id of turnedOff) {
+    const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent)).includes(id))
+    if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_REQUIRED({ by: by.join(", "), feature: id }), setupExitCodes.conflict)
   }
   const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset, enabled: ReadonlySet<FeatureId>) => {
     const packages = featurePackages(id, value, preset, enabled)
@@ -326,8 +341,8 @@ async function deleteStarter(root: string, path: string): Promise<void> {
   }
 }
 
-/** Applies a `vitehub remove` plan: writes the config first, deletes the starter Definitions, then uninstalls. */
-export async function applySetupRemove(project: SetupProject, planned: PlannedRemove, args: Pick<SetupRemoveArgs, "uninstall">, context: Pick<ViteHubCliContext, "env" | "spawn">): Promise<void> {
+/** Applies a removal. In-server sessions defer the restart-triggering config until cleanup finishes. */
+export async function applySetupRemove(project: SetupProject, planned: PlannedRemove, args: Pick<SetupRemoveArgs, "uninstall">, context: Pick<ViteHubCliContext, "env" | "spawn">, options: { configLast?: boolean } = {}): Promise<void> {
   // Check every file before the first write, so a stale plan writes nothing.
   if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
@@ -337,17 +352,18 @@ export async function applySetupRemove(project: SetupProject, planned: PlannedRe
       throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: file.path }), setupExitCodes.stalePlan)
     }
   }
-  // The config goes first, so the app stops using the feature before its files and packages go.
-  if (planned.configFile) await writeFile(join(project.root, planned.configFile.path), planned.configFile.after)
+  // The terminal command disables the feature first; an in-server session must finish cleanup before restarting.
+  if (planned.configFile && !options.configLast) await writeFile(join(project.root, planned.configFile.path), planned.configFile.after)
   for (const file of planned.deletes) await deleteStarter(project.root, file.path)
   if (args.uninstall && planned.uninstall.length) {
     const commandArgs = uninstallArgs(project.packageManager, planned.uninstall)
     // The package manager logs to stderr, so `--json` keeps one document on stdout.
     const result = await context.spawn(project.packageManager, commandArgs, { cwd: project.root, env: context.env, stdout: "stderr" })
     if (result.exitCode !== 0) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_UNINSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_UNINSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), configWritten: !options.configLast, exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
     }
   }
+  if (planned.configFile && options.configLast) await writeFile(join(project.root, planned.configFile.path), planned.configFile.after)
 }
 
 function writePlan(plan: SetupRemovePlan, context: ViteHubCliContext): void {

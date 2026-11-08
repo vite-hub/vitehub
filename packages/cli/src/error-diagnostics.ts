@@ -58,22 +58,22 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
     SETUP_FEATURE_IMPLIED: {
-      docs: "https://vitehub.dev/docs/development/cli#setup_feature_implied",
       fix: ({ by, feature }: { by?: unknown, feature?: unknown }) => `Remove ${String(by)} too, or pass --force to write \`${String(feature)}: false\`.`,
       why: ({ by, feature }: { by?: unknown, feature?: unknown }) => `${String(feature)} stays on because ${String(by)} turns it on.`,
     },
+    SETUP_FEATURE_REQUIRED: {
+      fix: ({ by, feature }: { by?: unknown, feature?: unknown }) => `Remove ${String(by)} too, or change its options before removing ${String(feature)}. --force cannot remove a required feature.`,
+      why: ({ by, feature }: { by?: unknown, feature?: unknown }) => `${String(feature)} is required by the configured options of ${String(by)}.`,
+    },
     SETUP_FEATURE_IN_USE: {
-      docs: "https://vitehub.dev/docs/development/cli#setup_feature_in_use",
       fix: "Delete or move the files in `references`, then run the command again. Pass --force to turn the feature off and keep the files.",
       why: ({ features, references }: { features?: unknown, references?: unknown }) => `The app still uses ${String(features)}:\n${String(references)}`,
     },
     SETUP_UNINSTALL_FAILED: {
-      docs: "https://vitehub.dev/docs/development/cli#setup_uninstall_failed",
-      fix: "Run the uninstall command by hand to see the error. ViteHub already changed the config and deleted the starter files.",
+      fix: ({ configWritten }: { configWritten?: unknown }) => `Run the uninstall command by hand to see the error. ${configWritten === false ? "ViteHub kept the config unchanged; starter files may already be deleted. Plan the removal again after fixing the uninstall." : "ViteHub already changed the config and deleted the starter files."}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
     SETUP_PLAN_UNKNOWN: {
-      docs: "https://vitehub.dev/docs/development/cli#setup_plan_unknown",
       fix: "Plan the change again. A plan applies once, and only on the dev server that made it.",
       why: () => "The dev server has no plan with this id. It was applied already, or the server restarted.",
     },

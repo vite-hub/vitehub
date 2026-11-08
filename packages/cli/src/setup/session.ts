@@ -221,7 +221,7 @@ export function createSetupSession(options: SetupSessionOptions): SetupSession {
       const spawn: ViteHubCliSpawn = async (command, args, spawnOptions) => await options.run(command, args, { cwd: spawnOptions?.cwd ?? project.root, env: spawnOptions?.env ?? options.env, onOutput })
       const context = { env: options.env, spawn }
       if (stored.action === "add") await applySetupAdd(project, stored.planned, stored.args, context)
-      else await applySetupRemove(project, stored.planned, stored.args, context)
+      else await applySetupRemove(project, stored.planned, stored.args, context, { configLast: true })
       const { planId: _planId, ...fields } = stored.fields
       return { body: { schemaVersion: 1, ...stored.planned.plan, status: "applied", ...fields }, exitCode: setupExitCodes.done }
     }

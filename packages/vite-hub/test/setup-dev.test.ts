@@ -72,7 +72,7 @@ async function start(allowedHosts: readonly string[] | true = [], listenHost = "
           headers: Object.fromEntries(Object.entries(req.headers).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : [])),
           method: "POST",
         })
-        const response = await handleConsoleRpcRequest(request)
+        const response = await handleConsoleRpcRequest(request, { remoteAddress: req.socket.remoteAddress })
         res.statusCode = response.status
         res.end(await response.text())
       })().catch((error: unknown) => res.destroy(error instanceof Error ? error : undefined))
