@@ -90,7 +90,7 @@ describe("workflow operations", () => {
     // A folder Workflow: each step file runs through the step runner.
     const folder = (fail: boolean) => async () => ({
       default: {
-        handler: async (context: WorkflowExecutionContext) => {
+        handler: async (_payload: unknown, context: WorkflowExecutionContext) => {
           const steps = createWorkflowSteps(context, [
             { name: "01-load.ts", run: async () => ({ user: "ada" }) },
             { name: "02-send.ts", run: async () => { if (fail) throw new Error("SMTP rejected Bearer abc.def.ghi"); return { sent: true } } },
