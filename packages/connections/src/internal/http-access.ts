@@ -2,13 +2,14 @@ import * as v from "valibot"
 
 import { managementErrorBody } from "./http-diagnostics.ts"
 
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { ConnectionsRuntime } from "../runtime.ts"
 
 /**
  * Authenticates one management request and returns the manager as `user:<id>`.
  * Return `undefined` to deny the request with `403`, or a `Response` to deny it with that response.
  */
-export type ConnectionsActor = (request: Request, event?: unknown) => string | Response | undefined | Promise<string | Response | undefined>
+export type ConnectionsActor = (request: Request, event?: ViteHubContext) => string | Response | undefined | Promise<string | Response | undefined>
 
 /**
  * Access policy of the Connections management routes.
@@ -61,7 +62,7 @@ export async function checkConnectionsAccess(
   // JavaScript callers can omit the policy.
   policy: ConnectionsAccessPolicy | undefined,
   request: Request,
-  event: unknown,
+  event: ViteHubContext | undefined,
   runtime: () => ConnectionsRuntime,
   agentName?: string,
 ): Promise<ConnectionsAccessCheck> {

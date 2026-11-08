@@ -7,7 +7,9 @@ import { createDriver as createR2Driver } from "../src/drivers/cloudflare-native
 import { createBundledVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode } from "../src/types.ts"
 
 // An in-memory Vercel Blob that, like the service, has no custom metadata and can forbid overwrites.
 const vercel = vi.hoisted(() => {
@@ -63,8 +65,8 @@ const vercel = vi.hoisted(() => {
 
 vi.mock("@vercel/blob", async importOriginal => ({ ...vercel.module, BlobNotFoundError: (await importOriginal<typeof import("@vercel/blob")>()).BlobNotFoundError }))
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 
