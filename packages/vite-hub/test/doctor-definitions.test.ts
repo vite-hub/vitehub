@@ -9,7 +9,7 @@ import {
   noDestructureNonTuples,
   noModuleScopeDispatch,
   queuePayloadOptions,
-  validOutboundChannel,
+  validChannel,
   validScheduleCron,
   workflowStepNames,
 } from "../src/doctor/rules/definitions.ts"
@@ -185,9 +185,9 @@ describe("vitehub/no-destructure-non-tuples", () => {
         "export async function run(agent, options) {",
         '  const run = await runWorkflow("onboard", {})',
         '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
-        '  const [failure, text] = await runAgent(agent, { prompt: "hi" }, { output: "drained" })',
+        '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
         '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { run, error, answer, failure, text, unknown, value }",
+        "  return { run, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -294,17 +294,20 @@ describe("vitehub/manual-schedule-run", () => {
   })
 })
 
-describe("vitehub/valid-outbound-channel", () => {
-  it("reports empty connectors, connectors without send, and an unknown default", async () => {
-    expect(await codes(validOutboundChannel, {
-      "server/channels/a.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nexport default defineOutboundChannel({ connectors: {} })\n',
-      "server/channels/b.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nexport default defineOutboundChannel({ connectors: { slack: { url: "x" } }, defaultConnector: "email" })\n',
-    })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023"])
+describe("vitehub/valid-channel", () => {
+  it("reports a missing adapter, an adapter without kind, and handlers on adapters that do not receive webhooks", async () => {
+    expect(await codes(validChannel, {
+      "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ on: {} })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { send: async () => ({}) }, on: { webhook: event => event } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
+    })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023", "VHUB0023"])
   })
 
-  it("accepts configured connectors", async () => {
-    expect(await codes(validOutboundChannel, {
-      "server/channels/a.ts": 'import { defineOutboundChannel } from "vite-hub/channels"\nimport { slack } from "./slack"\nexport default defineOutboundChannel({ connectors: { slack: slack(), log: { send: async () => ({}) } }, defaultConnector: "log" })\n',
+  it("accepts webhook adapters with handlers and chat adapters with triggers", async () => {
+    expect(await codes(validChannel, {
+      "server/channels/a.ts": 'import { defineChannel, stripe } from "vite-hub/channels"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { defineChannelTrigger, teams } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { kind: "log", send: async () => ({}) } })\n',
     })).toEqual([])
   })
 })
@@ -359,9 +362,9 @@ describe("second review regressions", () => {
 })
 
 describe("pullfrog review regressions", () => {
-  it("accepts destructured Agent output from runAgent with a Runtime Context", async () => {
+  it("accepts the destructured runAgent tuple with a Runtime Context", async () => {
     expect(await codes(noDestructureNonTuples, {
-      "server/api/ask.post.ts": 'import { runAgent } from "vite-hub/agent"\nexport default defineEventHandler(async (event) => { const [first, second] = await runAgent(agent, ctx, { prompt: "hi" }); return { first, second } })\n',
+      "server/api/ask.post.ts": 'import { runAgent } from "vite-hub/agent"\nexport default defineEventHandler(async (event) => { const [error, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: ctx }); return { error, result } })\n',
     })).toEqual([])
   })
 

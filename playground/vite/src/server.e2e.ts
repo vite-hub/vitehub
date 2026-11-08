@@ -282,7 +282,7 @@ app.get("/api/tests/queue", async (event) => {
     ? `queue-e2e:${marker}`
     : ""
 
-  const [error, seen] = key ? await kv.has(key) : [null, false] as const
+  const [error, seen] = key ? await kv.has(key) : [undefined, false] as const
   if (error) throw error
   return {
     ok: true,

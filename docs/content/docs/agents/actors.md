@@ -25,7 +25,7 @@ receive the same value as `actor` and `invoker`.
 
 Authenticate first. Then pass only validated identity facts:
 
-```ts [server/api/support.post.ts]
+```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
@@ -36,7 +36,7 @@ export default defineEventHandler(async (event) => {
 
   const runtime = getRuntimeContext(event)
   try {
-    return await runAgent(support, runtime, {
+    const [error, result] = await runAgent(support, {
       prompt,
       context: {
         invoker: {
@@ -46,7 +46,9 @@ export default defineEventHandler(async (event) => {
           meta: { customer: user.customerId },
         },
       },
-    })
+    }, { runtimeContext: runtime })
+    if (error) throw error
+    return { text: result.text }
   }
   finally {
     await runtime.flushWaitUntil().catch(console.error)

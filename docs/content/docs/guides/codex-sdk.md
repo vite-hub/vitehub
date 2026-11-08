@@ -1,6 +1,6 @@
 ---
 title: Run the Codex SDK in production with ViteHub
-description: Run OpenAI Codex as a ViteHub Agent. Define it in one file with codexDriver(), call it from a route or a Channel, inspect each run, and deploy it to a Node.js host.
+description: "Run OpenAI Codex as a ViteHub Agent. Define it with codexDriver(), call it from a route or a Channel, inspect each run, and deploy it to a Node.js host."
 navigation.title: Codex SDK
 navigation.order: 5
 navigation.group: Agents
@@ -110,13 +110,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Send a non-empty prompt.' })
   }
 
-  const [error, text] = await runAgent(reviewer, { prompt: body.prompt }, { output: 'drained' })
+  const [error, result] = await runAgent(reviewer, { prompt: body.prompt })
   if (error) throw error
-  return { text }
+  return { text: result.text }
 })
 ```
 
-`{ output: 'drained' }` waits for the run to end and returns `[error, text]`. Read [Invocations](/docs/agents/invocations) to stream the events instead.
+`runAgent()` waits for the run to end and returns `[error, result]`. Read [Invocations](/docs/agents/invocations) to stream the events instead.
 
 This route has no sign-in. Each request starts Codex on your server and uses your API key. Add [Auth](/docs/auth) before you deploy it.
 

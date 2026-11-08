@@ -18,7 +18,7 @@ Use it for commands that transform or enrich the user's prompt, not for host UI 
 Define lowercase command names. Add a description to include the command's purpose in CLI and inspection output.
 The default trigger is `/`.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { inputCommands } from 'vite-hub/agent/capabilities'
 
@@ -69,26 +69,24 @@ The context also includes the resolved host Runtime Capabilities that the applic
 
 ### Console helpers
 
-When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocations`, `context.console.invocationsDatabase()`, and `context.console.invocationUrl()` for links to inspected work.
-`invocationsDatabase()` opens the journal database for Drizzle queries on first use. It resolves to `undefined` on a Worker that keeps the journal in memory.
+When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work.
 `invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
+Read the journal itself with `getAgentInvocations()` and `getAgentInvocationsDatabase()` from `vite-hub/agent`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
 
 ```ts [server/agents/support.ts]
 import { desc } from 'drizzle-orm'
 import { inputCommands } from 'vite-hub/agent/capabilities'
+import { getAgentInvocationsDatabase } from 'vite-hub/agent'
 
 const history = inputCommands({
   commands: {
     history: {
       async call({ context }) {
-        const database = await context.console.invocationsDatabase()
+        const database = await getAgentInvocationsDatabase()
         if (!database) return await context.reply('Invocation history is not available on this Worker journal.')
         const { db, schema } = database
         const [latest] = await db
-          .select({
-            agentName: schema.invocations.agentName,
-            id: schema.invocations.id,
-          })
+          .select()
           .from(schema.invocations)
           .orderBy(desc(schema.invocations.sequence))
           .limit(1)
@@ -140,7 +138,7 @@ Host Commands that change chat, session, UI, or product state belong outside thi
 `inputCommands()` adds no model-facing tool, so the model cannot call a command. It has no `policy` option.
 Any user who can send input to the Agent can run every configured command. Use `channels` to limit a command to selected Channels. A command with `channels` does not run in invocations without a matching Channel ID, and its text stays in the input.
 
-Handlers run as server code with the host Runtime Capabilities in `context`, such as `db` and `context.console.invocations`. They do not pass through Capability approval. Check `context.actor` or `context.invoker` in the handler before you read private data or change state.
+Handlers run as server code with the host Runtime Capabilities in `context`, such as `db` and `context.console`. They do not pass through Capability approval. Check `context.actor` or `context.invoker` in the handler before you read private data or change state.
 
 Text that a handler returns becomes model input. Treat `args` as untrusted user input.
 

@@ -51,7 +51,8 @@ describe("@vite-hub/content package contract", () => {
 
   it.each(["collections.js", "realtime.js"])("keeps built %s off the Workspace Agent tool graph", async entry => {
     const graph = await readBuiltWorkspaceImports(new URL(entry, dist))
-    expect(graph.imports).toEqual(["@vite-hub/workspace/files"])
+    // Collections read `derivedFrom` of translations. `@vite-hub/workspace/lineage` only hashes and parses bytes.
+    expect([...graph.imports].sort()).toEqual(entry === "collections.js" ? ["@vite-hub/workspace/files", "@vite-hub/workspace/lineage"] : ["@vite-hub/workspace/files"])
     expect(graph.code).not.toContain("maxShellCalls")
     expect(graph.code).not.toContain("@vite-hub/shell/workspace")
   })

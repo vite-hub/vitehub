@@ -47,6 +47,9 @@ Concurrent requests in different locales do not share a locale. ViteHub turns on
 ## t
 
 ```ts
+import { t } from "vite-hub/i18n"
+
+const name = "Ada"
 t`Payment received`
 t`Hello ${name}`
 t({ message: "Open", context: "button", comment: "Opens the file" })
@@ -63,6 +66,11 @@ Returns the message in the active locale. A message without a translation return
 ## plural, selectOrdinal, and select
 
 ```ts
+import { plural, select, selectOrdinal } from "vite-hub/i18n"
+
+const count = 3
+const place = 2
+const role = "admin"
 plural(count, { 0: "No files", one: "# file", other: "# files" })
 selectOrdinal(place, { one: "#st", two: "#nd", few: "#rd", other: "#th" })
 select(role, { admin: "Admin", other: "Member" })
@@ -75,6 +83,8 @@ select(role, { admin: "Admin", other: "Member" })
 ## msg and translate
 
 ```ts
+import { msg, translate } from "vite-hub/i18n"
+
 const label = msg`Draft`
 translate(label)
 ```
@@ -96,6 +106,8 @@ A `t` call at the top level of a module runs once, before any request. It does n
 ## getLocale and getLocales
 
 ```ts
+import { getLocale, getLocales } from "vite-hub/i18n"
+
 getLocale() // "es"
 getLocales() // ["en", "es", "pt-BR"]
 ```
@@ -105,6 +117,8 @@ getLocales() // ["en", "es", "pt-BR"]
 ## setLocale
 
 ```ts
+import { setLocale } from "vite-hub/i18n"
+
 const [error, locale] = await setLocale("es")
 if (error) console.error(error.code, error.fix)
 ```
@@ -128,9 +142,12 @@ Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vi
 | Export | Meaning |
 | --- | --- |
 | `createI18n()` | Picks the browser locale, loads its catalog, and returns the Vue plugin: `createApp(App).use(await createI18n())`. |
+| `i18nPlugin({ i18n })` | Installs a supplied instance. Messages and `useLocale().setLocale()` use the same instance. |
 | `useLocale()` | Returns `{ locale, locales, setLocale }`. `locale` is a read-only ref. Templates that read it re-render when it changes. |
 | `t` in templates | ``{{ t`Save` }}`` and `:placeholder="t`Search`"`, with no import. |
 | `<Trans>` | A message with markup: `<Trans>Read the <a href="/docs">docs</a>.</Trans>`. The component is global, with no import. |
+
+Message macros in component setup keep the app's instance, including in computed values and callbacks. Shared module functions called during Vue setup or render use the current app. Outside Vue and server request contexts, runtime functions use the default instance.
 
 ## Types
 

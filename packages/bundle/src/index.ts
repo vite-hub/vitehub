@@ -3,6 +3,7 @@ import { createBundleReport, explainBundle } from "./report.ts"
 
 import type { BundleExplanation, BundleReport } from "./types.ts"
 
+export { compareBundleReports, readSavedBundleReport } from "./compare.ts"
 export { bundleReportDir, readEnvironmentReports } from "./files.ts"
 export { moduleGroup } from "./groups.ts"
 export { createBundleReport, explainBundle } from "./report.ts"

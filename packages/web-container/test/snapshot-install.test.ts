@@ -17,9 +17,11 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "snapshot-install-"))
   await writeFile(join(dir, "package.json"), manifest)
   npm.mockReset()
-  npm.mockImplementation(async () => {
+  npm.mockImplementation(async (_command: string, args: string[]) => {
     const installed = JSON.parse(await readFile(join(dir, "package.json"), "utf8"))
-    for (const name of Object.keys(installed.dependencies)) {
+    const config = await readFile(join(dir, ".npmrc"), "utf8").catch(() => "")
+    const omitOptional = (config.includes("optional=false") || config.includes("omit=optional") && !args.some(arg => arg.startsWith("--omit="))) && !args.includes("--include=optional")
+    for (const name of Object.keys({ ...installed.dependencies, ...omitOptional ? {} : installed.optionalDependencies })) {
       const path = join(dir, "node_modules", name)
       await mkdir(path, { recursive: true })
       await writeFile(join(path, "package.json"), JSON.stringify({ name: name.startsWith("vitehub-wasm-") ? "esbuild-wasm" : name, version: "0.28.2" }))
@@ -32,7 +34,10 @@ afterEach(() => rm(dir, { recursive: true, force: true }))
 describe.skipIf(process.platform === "win32")("snapshot installs", () => {
   it("installs a wasm alias and restores the caller's exact manifest", async () => {
     const result = await createNodeModulesSnapshot({ dir })
-    expect(JSON.parse(result.lockfile).packages[""].dependencies).toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2", "npm:esbuild-wasm@0.28.2")
+    const root = JSON.parse(result.lockfile).packages[""]
+    // Optional, so npm doesn't check the alias's `cpu` against this machine.
+    expect(root.optionalDependencies).toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2", "npm:esbuild-wasm@0.28.2")
+    expect(root.dependencies).not.toHaveProperty("vitehub-wasm-esbuild-wasm-0.28.2")
     expect(JSON.parse(await readFile(join(dir, "node_modules/esbuild/package.json"), "utf8")).name).toBe("esbuild-wasm")
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
     const pinned = await createNodeModulesSnapshot({ dir, lockfile: result.lockfile })
@@ -49,6 +54,22 @@ describe.skipIf(process.platform === "win32")("snapshot installs", () => {
     }).mockRejectedValueOnce(error)
     await expect(createNodeModulesSnapshot({ dir })).rejects.toBe(error)
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
+  })
+
+  it.each([
+    { config: "omit=optional", dev: false },
+    { config: "omit=optional", dev: true },
+    { config: "optional=false", dev: false },
+    { config: "optional=false", dev: true },
+  ])("installs wasm aliases despite .npmrc setting $config (dev: $dev), including with npm ci", async ({ config, dev }) => {
+    await writeFile(join(dir, ".npmrc"), `${config}\n`)
+    const result = await createNodeModulesSnapshot({ dir, dev })
+    expect(JSON.parse(await readFile(join(dir, "node_modules/esbuild/package.json"), "utf8")).name).toBe("esbuild-wasm")
+    const pinned = await createNodeModulesSnapshot({ dir, dev, lockfile: result.lockfile })
+    expect(npm.mock.calls.at(-1)?.[1][0]).toBe("ci")
+    expect(pinned.snapshot).toEqual(result.snapshot)
+    expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
+    expect(await readFile(join(dir, ".npmrc"), "utf8")).toBe(`${config}\n`)
   })
 
   it("reports a confirmed wasm alias mismatch separately", async () => {

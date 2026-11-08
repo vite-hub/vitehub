@@ -38,6 +38,8 @@ The app builds the server with Nitro 2. i18n needs Nitro 3, which runs each requ
 `setLocale()` got a locale that is not in `i18n.locales`. Pass one of the configured locales, or add the locale to `i18n.locales`.
 
 ```ts
+import { setLocale } from "vite-hub/i18n"
+
 const [error] = await setLocale("fr")
 if (error?.code === "I18N_UNKNOWN_LOCALE") console.warn(error.fix)
 ```
