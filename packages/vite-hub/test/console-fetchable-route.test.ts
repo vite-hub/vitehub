@@ -9,6 +9,7 @@ import statusRoute from "../src/console/runtime/server/status.get.ts"
 afterEach(() => {
   installConsoleAccess({ mode: "open" })
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("Fetchable Console routes", () => {
@@ -21,6 +22,20 @@ describe("Fetchable Console routes", () => {
     await expect(value.json()).resolves.toEqual({ ok: 1 })
     const own = new Response("raw", { status: 418 })
     expect(await consoleRoute(() => own).fetch(new Request("http://app.test/x"))).toBe(own)
+  })
+
+  it("preserves an access Response created before the host replaces the global constructor", async () => {
+    const rejection = new Response("Sign in", { headers: { "www-authenticate": "Bearer" }, status: 401 })
+    // A server can replace the global Response after an integration captures the native constructor.
+    class ServerResponse extends Response {}
+    vi.stubGlobal("Response", ServerResponse)
+    installConsoleAccess({ mode: "open", authorize: () => rejection })
+
+    const response = await statusRoute.fetch(new Request("http://app.test/api/_vitehub/console/status"))
+    expect(response).toBe(rejection)
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe("Bearer")
+    await expect(response.text()).resolves.toBe("Sign in")
   })
 
   it("gives the handler the Request, with a Standard Context when the host set none", async () => {

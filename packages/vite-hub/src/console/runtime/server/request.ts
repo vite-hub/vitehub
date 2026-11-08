@@ -1,6 +1,7 @@
 import { consoleDiagnostic, consoleDiagnosticBody, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { installRequestStandardContext } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/h3"
+import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
@@ -148,7 +149,7 @@ export function consoleRoute(handler: (event: ConsoleRequestEvent) => unknown): 
       installRequestStandardContext(request)
       try {
         const result = await handler(request)
-        return result instanceof Response ? result : Response.json(result, { headers: consoleResponseHeaders })
+        return isRuntimeResponse(result) ? result : Response.json(result, { headers: consoleResponseHeaders })
       }
       catch (error) {
         return consoleErrorResponse(error)
