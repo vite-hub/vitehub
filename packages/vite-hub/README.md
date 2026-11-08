@@ -97,6 +97,8 @@ ViteHub derives one deployment identity from the nearest `package.json` name, fa
 Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: true,
   blob: true,
@@ -228,6 +230,8 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify preset and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: {
     invocations: {
@@ -286,6 +290,8 @@ All Console paths use the application base: an explicit ViteHub application base
 The Console RPC transport accepts browser requests only from its own origin, including in development, except for the token calls from `console.origins` above. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. The built-in Console client adds this header to its RPC calls. Server clients must add it too and still require the configured authentication. Each Console operation is one stateless `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`, so hosts such as Cloudflare Workers can send consecutive calls to different instances. The `project.get` operation (`vitehub project info`) returns `{ protocol: 1, name, vitehub, sections, operations }`: the `vite-hub` version, and the installed sections and operations that `authorize` allows for the caller. It works without Agents. See [Read the project](https://vitehub.dev/docs/development/console#read-the-project).
 
 One Console build can open many projects. The Console that an app serves opens that app, and asks for the token when the app uses `auth: "token"`. A Console on another origin links each app by its URL, reads `project.get`, and keeps the project list and tokens in `localStorage` (`vitehub-console:projects`) of its own origin. The app must use `auth: "token"` and list that origin in `console.origins`. Features that need the app origin or its cookies, such as live editing, the Content preview, impersonation, Env management, and the Connections connect flow, work only in the Console that the app serves. See [Use one Console for many projects](https://vitehub.dev/docs/development/console#use-one-console-for-many-projects).
+
+[console.vitehub.dev](https://console.vitehub.dev) hosts that Console build as a static site. It keeps no server state, and the browser calls each project directly, so ViteHub never receives tokens or project data. An app with `auth: "token"` and the default `console.origins` can link there. To self-host the same build, run `pnpm --dir packages/vite-hub run build:console-hosted` in a repository clone and serve `.vitehub/console-hosted` with its `_headers` file; `console.hosted.wrangler.jsonc` is the Cloudflare configuration of console.vitehub.dev. See [Hosted Console](https://vitehub.dev/docs/development/console#hosted-console).
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 

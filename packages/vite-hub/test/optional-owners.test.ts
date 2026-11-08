@@ -41,3 +41,8 @@ it("names the packages of the Console MCP client and of the Console components",
   expect(missingFeaturePackagesError(["console mcp-client"]).message).toContain("The console mcp-client feature needs @modelcontextprotocol/sdk.")
   expect(missingFeaturePackagesError(["console ui"]).message).toContain("The console ui feature needs @vite-hub/ui, @json-render/core, @json-render/vue, @vueuse/core.")
 })
+
+it("names the packages of the Console MCP client and of the Console components", () => {
+  expect(missingFeaturePackagesError(["console mcp-client"]).message).toContain("The console mcp-client feature needs @modelcontextprotocol/sdk.")
+  expect(missingFeaturePackagesError(["console ui"]).message).toContain("The console ui feature needs @vite-hub/ui, @json-render/core, @json-render/vue, @vueuse/core.")
+})

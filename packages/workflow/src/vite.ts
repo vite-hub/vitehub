@@ -281,6 +281,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     })
   }
 
+
   return {
     name: "@vite-hub/workflow/vite",
     // Nuxt replays plugins by enforcement order; reserve this before its runtime bootstraps too.
@@ -429,6 +430,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           }] : [],
           providerOutput: (() => {
           const rootDir = resolveViteHubProjectRoot(resolved?.root ?? process.cwd())
+          const nitro = Reflect.get(resolved ?? {}, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+          const cloudflareInNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
+          if (outputs.cloudflare && cloudflareInNitro) return [{ description: "Cloudflare Workflow bindings in Nitro's Wrangler config", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json") }]
           if (outputs.cloudflare) return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
           if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
           return []

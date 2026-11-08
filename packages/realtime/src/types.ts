@@ -1,6 +1,6 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
-import type { H3Event } from "h3"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -134,10 +134,16 @@ export interface RealtimeVerifyResult {
 /** Why a connection is read-only: `access` (authorization denied write) or `document` (the codec cannot edit it losslessly). */
 export type RealtimeReadOnlyReason = "access" | "document"
 
+/**
+ * The request event of a WebSocket upgrade or HTTP request. Read the request, its cookies, and the platform bindings
+ * from `event["~standard"]`. `context` is the H3 event context, such as the session that a middleware set.
+ */
+export type RealtimeRequestEvent = ViteHubContext<{ context: Record<string, unknown> }>
+
 export interface RealtimeRequestContext {
   definition: string
-  /** The H3 event of the WebSocket upgrade or HTTP request, for reading cookies, context, and platform bindings. */
-  event: H3Event
+  /** The request event of the WebSocket upgrade or HTTP request. */
+  event: RealtimeRequestEvent
   request: Request
 }
 

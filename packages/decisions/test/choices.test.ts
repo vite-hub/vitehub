@@ -1,3 +1,4 @@
+import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it } from "vitest"
 
 import { defineChoices, toOptions } from "../src/index.ts"
@@ -99,6 +100,48 @@ describe("defineChoices().resolve()", () => {
     })
     await choices.resolve("mtop")
     expect(calls[0]?.questions).toEqual(plan?.questions)
+  })
+})
+
+describe("defineChoices() with a model", () => {
+  it("asks an AI SDK model instead of a gateway", async () => {
+    const prompts: unknown[] = []
+    const model = new MockLanguageModelV3({
+      doGenerate: async (options) => {
+        prompts.push(options.prompt)
+        return {
+          content: [{ text: JSON.stringify({ g0: { choice: "Console", confidence: 0.9 } }), type: "text" }],
+          finishReason: { raw: "stop", unified: "stop" },
+          usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+          warnings: [],
+        }
+      },
+    })
+    const inbox = defineChoices({
+      groups: {
+        project: {
+          infer: true,
+          label: "Project",
+          multiple: false,
+          options: [
+            { description: "The docs site.", label: "Docs", value: "docs" },
+            { description: "Runs, queues, and logs.", label: "Console", value: "console" },
+          ],
+        },
+      },
+      model,
+    })
+
+    const [error, selection] = await inbox.resolve("the queue tab crashes")
+    expect(error).toBeUndefined()
+    expect(selection?.project).toMatchObject({ confidence: expect.closeTo(0.8, 5), value: "console" })
+    expect(JSON.stringify(prompts[0])).toContain("Console: Runs, queues, and logs.")
+  })
+
+  it("needs exactly one of gateway or model", () => {
+    const groups = { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }] } }
+    expect(() => defineChoices({ groups })).toThrow(/one of gateway or model/)
+    expect(() => defineChoices({ gateway: wordGateway(), groups, model: new MockLanguageModelV3() })).toThrow(/one of gateway or model/)
   })
 })
 
