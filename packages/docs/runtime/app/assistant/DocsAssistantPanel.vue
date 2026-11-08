@@ -174,12 +174,11 @@ async function restart() {
   <DefineBody>
     <div id="docs-assistant" class="vh-assistant flex h-full min-h-0 flex-col bg-default">
       <header class="flex h-10 shrink-0 items-center gap-0.5 border-b border-default pr-1.5 pl-3 pointer-coarse:h-12 pointer-coarse:pr-0.5">
-        <h2 :id="headingId" ref="heading" tabindex="-1" class="flex-1 text-sm font-medium text-highlighted focus:outline-none">
+        <h2 :id="headingId" ref="heading" tabindex="-1" class="flex-1 text-sm font-medium text-highlighted">
           Ask the docs
         </h2>
         <UButton
           icon="i-lucide-square-pen"
-          color="neutral"
           variant="ghost"
           size="xs"
           class="justify-center pointer-coarse:size-11"
@@ -187,7 +186,7 @@ async function restart() {
           :disabled="!chat.messages.value.length"
           @click="restart"
         />
-        <UButton icon="i-lucide-x" color="neutral" variant="ghost" size="xs" class="justify-center pointer-coarse:size-11" aria-label="Close" @click="toggle(false)" />
+        <UButton icon="i-lucide-x" variant="ghost" size="xs" class="justify-center pointer-coarse:size-11" aria-label="Close" @click="toggle(false)" />
       </header>
       <Chat v-if="chat.messages.value.length" :messages="chat.messages.value" :status="chat.status.value" class="min-h-0 flex-1" />
       <p v-else class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 text-sm text-muted">
@@ -205,7 +204,6 @@ async function restart() {
           <UButton
             :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
             :label="copied ? 'Copied' : 'Copy'"
-            color="neutral"
             variant="ghost"
             size="xs"
             class="shrink-0 pointer-coarse:h-11"
@@ -281,7 +279,7 @@ async function restart() {
   border-left: 1px solid var(--ui-border);
 }
 
-/* An 8px strip over the left border. The border line shows the hover, focus, and drag state. */
+/* An 8px strip over the left border. The border line shows the hover and drag state; the theme draws focus. */
 .vh-assistant-resize {
   position: absolute;
   z-index: 1;
@@ -301,18 +299,8 @@ async function restart() {
   transition: background-color 150ms ease-out;
 }
 
-.vh-assistant-resize:hover::after,
-.vh-assistant-resize:focus-visible::after {
+.vh-assistant-resize:hover::after {
   background: var(--ui-border-accented);
-}
-
-.vh-assistant-resize:focus-visible {
-  outline: none;
-}
-
-.vh-assistant-resize:focus-visible::after {
-  width: 2px;
-  background: var(--ui-primary);
 }
 </style>
 

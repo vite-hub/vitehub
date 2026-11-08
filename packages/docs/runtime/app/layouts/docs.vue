@@ -32,19 +32,18 @@ const docsShellUi = {
         <!-- Narrow screens open the navigation from the header menu and keep the code inline, so the button shows only on wide screens. -->
         <!-- A toggle keeps one name, and `aria-pressed` says whether the navigation shows. -->
         <UTooltip v-if="hasCodePanel" :text="tutorialNavigation ? 'Hide navigation' : 'Show navigation'" :content="{ side: 'bottom', sideOffset: 6 }" :delay-duration="150">
-          <button
-            type="button"
+          <UButton
+            icon="i-lucide-panel-left"
+            variant="ghost"
             class="vh-tutorial-toggle"
             :class="{ 'beside-navigation': showsNavigation }"
             aria-label="Show navigation"
             :aria-pressed="tutorialNavigation"
             @click="tutorialNavigation = !tutorialNavigation"
-          >
-            <UIcon name="i-lucide-panel-left" class="size-4" />
-          </button>
+          />
         </UTooltip>
         <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
-        <div v-if="banner" class="flex min-h-10 items-center justify-center border-b border-[var(--ui-border)] bg-default px-4 py-2 text-center text-sm/5">
+        <div v-if="banner" class="flex min-h-10 items-center justify-center border-b border-default bg-default px-4 py-2 text-center text-sm/5">
           <span class="text-muted">{{ banner }}</span>
         </div>
       </div>
@@ -61,6 +60,7 @@ const docsShellUi = {
   z-index: 60;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--ui-border);
+  border-radius: calc(var(--ui-radius) * 1.5);
   background: var(--ui-bg);
   color: var(--ui-text-highlighted);
   font-size: 0.875rem;
@@ -77,40 +77,22 @@ const docsShellUi = {
 }
 
 @media (min-width: 64rem) {
-  /* The button stays in the top left corner of the page column while the tutorial scrolls. At the top it is the first cell of the banner row. */
+  /* The button stays in the top left corner of the page column while the tutorial scrolls, centered in the 40px banner row. */
   .vh-tutorial-toggle {
     position: fixed;
     z-index: 10;
-    top: 0;
-    left: 0;
-    display: flex;
-    width: 2.5rem;
-    height: 2.5rem;
-    align-items: center;
-    justify-content: center;
-    border-right: 1px solid var(--ui-border);
-    border-bottom: 1px solid var(--ui-border);
-    background: var(--ui-bg);
-    color: var(--ui-text-dimmed);
-    transition: color 150ms ease, background-color 150ms ease;
+    top: 0.25rem;
+    left: 0.25rem;
+    display: inline-flex;
   }
 
   .vh-tutorial-toggle.beside-navigation {
-    left: var(--vh-sidebar-width);
+    left: calc(var(--vh-sidebar-width) + 0.25rem);
   }
 
   .vh-tutorial-toggle[aria-pressed="true"] {
     background: var(--ui-bg-elevated);
     color: var(--ui-text-highlighted);
-  }
-
-  .vh-tutorial-toggle:hover {
-    color: var(--ui-text-highlighted);
-  }
-
-  .vh-tutorial-toggle:focus-visible {
-    outline: 2px solid var(--ui-text-highlighted);
-    outline-offset: -2px;
   }
 
   /* Beside a tutorial the navigation is a short page list, so its panel is narrower and the prose and code keep the width. */

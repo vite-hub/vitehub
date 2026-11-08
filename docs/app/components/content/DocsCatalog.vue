@@ -174,11 +174,10 @@ function offset(index: number) {
   transition: background-color 200ms ease;
 }
 
+/* The theme draws the focus ring. The focused tile sits above its neighbors, so they do not cover the ring. */
 .vh-docs-catalog-tile:focus-visible {
   position: relative;
   z-index: 1;
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
 }
 
 .vh-docs-catalog-tile-visual {

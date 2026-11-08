@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-const themeUrl = new URL("../../packages/docs/runtime/theme/vercel.css", import.meta.url);
+const themeUrl = new URL("../../packages/docs/runtime/theme/shell.css", import.meta.url);
 
 describe("docs search overlay", () => {
   it("anchors expanding desktop results below the viewport top", async () => {

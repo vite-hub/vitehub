@@ -93,15 +93,15 @@ const rail = ["i-lucide-bot", "i-lucide-database", "i-lucide-file-text", "i-luci
       </div>
     </div>
 
-    <button
+    <UButton
       v-if="animated"
-      type="button"
       class="vh-cms-toggle"
+      variant="ghost"
+      size="xs"
+      :icon="paused ? 'i-lucide-play' : 'i-lucide-pause'"
       :aria-label="paused ? 'Play the animation' : 'Pause the animation'"
       @click="paused = !paused"
-    >
-      <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3.5" />
-    </button>
+    />
   </figure>
 </template>
 
@@ -119,7 +119,7 @@ const rail = ["i-lucide-bot", "i-lucide-database", "i-lucide-file-text", "i-luci
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg);
   color: var(--ui-text);
   font-size: 0.75rem;
@@ -289,7 +289,7 @@ const rail = ["i-lucide-bot", "i-lucide-database", "i-lucide-file-text", "i-luci
 
 .vh-cms-tag {
   border: 1px solid var(--ui-border);
-  border-radius: 999px;
+  border-radius: calc(var(--ui-radius) * 1.5);
   padding: 0 0.375rem;
 }
 
@@ -339,7 +339,7 @@ const rail = ["i-lucide-bot", "i-lucide-database", "i-lucide-file-text", "i-luci
   gap: 0.5rem;
   border: 1px solid var(--ui-border);
   border-bottom: 0;
-  border-radius: var(--ui-radius) var(--ui-radius) 0 0;
+  border-radius: calc(var(--ui-radius) * 1.5) calc(var(--ui-radius) * 1.5) 0 0;
   background: var(--ui-bg-elevated);
   padding: 0 0.5rem;
   color: var(--ui-text-dimmed);
@@ -428,9 +428,9 @@ const rail = ["i-lucide-bot", "i-lucide-database", "i-lucide-file-text", "i-luci
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  background: var(--ui-bg-elevated);
+  border-radius: calc(var(--ui-radius) * 2);
+  background: var(--vh-floating);
+  box-shadow: var(--vh-shadow-floating);
   padding: 0.375rem 0.625rem;
   color: var(--ui-text-highlighted);
   font-weight: 500;
@@ -449,25 +449,12 @@ const rail = ["i-lucide-bot", "i-lucide-database", "i-lucide-file-text", "i-luci
   position: absolute;
   bottom: 0.375rem;
   left: 0.375rem;
-  display: inline-flex;
-  width: 1.75rem;
-  height: 1.75rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--ui-radius);
-  color: var(--ui-text-muted);
   opacity: 0;
-  transition: opacity 150ms ease;
 }
 
 .vh-cms-demo:hover .vh-cms-toggle,
 .vh-cms-toggle:focus-visible {
   opacity: 1;
-}
-
-.vh-cms-toggle:hover {
-  background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
 }
 
 @media (pointer: coarse) {

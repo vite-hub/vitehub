@@ -447,7 +447,8 @@ function renderNode(node: SceneNode, id: string): string {
   return `<g${classAttribute}${mask}>${node.children.map((child) => renderNode(child, id)).join("")}</g>`;
 }
 
-// The fade steps one pixel row at a time, so the edge stays on the grid.
+// The fade steps one pixel row at a time, so the edge stays on the grid. The mask is a luminance mask, so white shows
+// the scene and the fill opacity sets how much.
 const fadeRows = [0.25, 0.5, 0.75];
 
 /** Returns the inner markup of a scene. `id` keeps mask ids unique when several scenes share a page. */
@@ -457,6 +458,6 @@ export function renderPrimitiveScene(name: string, id: string): string {
   const nodes = scene.nodes.map((node) => renderNode(node, id)).join("");
   if (!scene.nodes.some((node) => !("cells" in node) && node.fade)) return nodes;
   const bands = fadeRows.map((opacity, index) =>
-    `<rect y="${4 + index * 2}" width="58" height="2" fill="#fff" fill-opacity="${opacity}"/><rect y="${34 - index * 2}" width="58" height="2" fill="#fff" fill-opacity="${opacity}"/>`).join("");
-  return `<defs><mask id="${id}-fade" maskUnits="userSpaceOnUse" x="-8" y="0" width="74" height="40">${bands}<rect x="-8" y="10" width="74" height="20" fill="#fff"/></mask></defs>${nodes}`;
+    `<rect y="${4 + index * 2}" width="58" height="2" fill="white" fill-opacity="${opacity}"/><rect y="${34 - index * 2}" width="58" height="2" fill="white" fill-opacity="${opacity}"/>`).join("");
+  return `<defs><mask id="${id}-fade" maskUnits="userSpaceOnUse" x="-8" y="0" width="74" height="40">${bands}<rect x="-8" y="10" width="74" height="20" fill="white"/></mask></defs>${nodes}`;
 }

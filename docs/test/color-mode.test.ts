@@ -10,17 +10,16 @@ describe("docs color mode", () => {
     expect(header).toContain("<UColorModeButton");
   });
 
-  it("defines browser schemes and a theme-owned dark palette", async () => {
-    const styles = await readFile(new URL("theme/vercel.css", packageRuntime), "utf8");
-    const lightRule = styles.match(/:root\.light \{(?<body>[^}]+)\}/)?.groups?.body;
-    const darkRule = styles.match(/:root\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
+  it("takes the browser schemes and the dark palette from the shared theme", async () => {
+    const theme = await readFile(new URL("../../packages/ui/theme.css", import.meta.url), "utf8");
+    const shell = await readFile(new URL("theme/shell.css", packageRuntime), "utf8");
+    const darkRule = theme.match(/:root\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
 
-    expect(lightRule).toContain("color-scheme: light");
+    expect(theme).toMatch(/:root \{[^}]*color-scheme: light/);
     expect(darkRule).toContain("color-scheme: dark");
-    expect(darkRule).toContain("--ui-bg: var(--vh-ink)");
-    expect(darkRule).toContain("--ui-bg-elevated: #18181b");
-    expect(darkRule).toContain("--ui-border: #27272a");
-    expect(darkRule).toContain("--ui-text: #e4e4e7");
-    expect(darkRule).toContain("--ui-text-highlighted: var(--vh-paper)");
+    expect(darkRule).toContain("--ui-bg:");
+    expect(darkRule).toContain("--ui-text-highlighted:");
+    // The docs shell lays the page out and leaves every color to the theme.
+    expect(shell).not.toMatch(/--ui-(bg|text|border)[\w-]*:/);
   });
 });

@@ -41,9 +41,9 @@ const groups = computed(() => {
         <li v-for="page in group.pages" :key="page.path">
           <NuxtLink
             :to="page.path"
-            class="group flex items-center gap-3 py-3 transition-colors hover:bg-elevated/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-inverted sm:gap-4"
+            class="group flex items-center gap-3 py-3 transition-colors hover:bg-elevated sm:gap-4"
           >
-            <span class="grid size-8 shrink-0 place-items-center border border-default bg-elevated/60 text-muted transition-colors group-hover:text-highlighted">
+            <span class="grid size-8 shrink-0 place-items-center rounded-md border border-default bg-elevated/60 text-muted transition-colors group-hover:text-highlighted">
               <UIcon :name="page.icon || 'i-ph-squares-four-light'" class="size-4" aria-hidden="true" />
             </span>
             <span class="min-w-0 flex-1">

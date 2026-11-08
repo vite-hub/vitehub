@@ -16,22 +16,27 @@ const { site } = useDocsConfig()
       <span>{{ site.name }}</span>
       <span v-if="site.badge" class="vh-docs-panel-brand-badge">{{ site.badge.label }}</span>
     </NuxtLink>
-    <UContentSearchButton
-      :collapsed="false"
-      class="vh-sidebar-search"
-      :ui="{
-        base: 'h-10 rounded-none border-0 border-b border-default bg-muted/20 ps-5 pe-5 text-muted hover:bg-muted/40 hover:text-highlighted',
-        // Touch screens have no keyboard shortcut to show.
-        trailing: 'ms-auto flex items-center gap-1 pointer-coarse:hidden',
-      }"
-    />
+    <!-- 40px including the border, so its rule lines up with the banner's. -->
+    <div class="vh-sidebar-search">
+      <UContentSearchButton
+        :collapsed="false"
+        variant="outline"
+        :ui="{
+          // Touch screens have no keyboard shortcut to show.
+          trailing: 'ms-auto flex items-center gap-1 pointer-coarse:hidden',
+        }"
+      />
+    </div>
   </div>
 </template>
 
 <style scoped>
 .vh-sidebar-search {
+  display: flex;
   height: 2.5rem;
-  font-size: 0.875rem;
+  align-items: center;
+  border-bottom: 1px solid var(--ui-border);
+  padding-inline: 0.5rem;
 }
 
 .vh-docs-panel-brand {
@@ -44,11 +49,6 @@ const { site } = useDocsConfig()
   color: var(--ui-text-highlighted);
   font-size: 0.875rem;
   font-weight: 650;
-}
-
-.vh-docs-panel-brand:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 .vh-docs-panel-brand-mark {

@@ -1,3 +1,4 @@
+import { vitehubTheme } from "@vite-hub/ui/theme"
 import { defu } from "defu"
 
 /** Nuxt UI app config of a theme: color aliases, icons, and slot classes per component. */
@@ -12,32 +13,24 @@ export function docsAppConfigUi(theme: DocsThemeUi, current: DocsThemeUi | undef
   return [...configured, theme, current].reduce<DocsThemeUi>((merged, layer) => defu(merged, layer ?? {}), {})
 }
 
-// The theme keeps the docs black, white, and zinc. Nuxt UI tints callout text, code, and links with the callout color,
-// and amber or green text on the callout background is below 4.5:1 contrast, so every callout uses body colors.
-const monochromeCallout = {
-  base: [
-    "border-default bg-muted/30 text-default dark:text-default [&>ul]:marker:text-muted",
-    "[&_code]:text-default dark:[&_code]:text-default [&_code]:border-default",
-    "[&_a]:text-default [&_a]:hover:text-default [&_a]:focus-visible:text-default [&_a]:hover:border-default [&_a]:outline-inverted",
-    "[&_a]:[&>code]:outline-inverted [&_a]:hover:[&>code]:border-default [&_a]:hover:[&>code]:text-default",
-    "[&_a]:focus-visible:[&>code]:border-default [&_a]:focus-visible:[&>code]:text-default",
-  ].join(" "),
-  icon: "text-muted",
+// Nuxt UI tints callout text, code, and links with the callout color, and amber or green text on a 10% tint is below
+// 4.5:1. Callouts keep body text, and only the icon carries the status color.
+function callout(icon: string) {
+  return {
+    base: "border-default bg-muted text-default dark:text-default [&>ul]:marker:text-muted [&_code]:text-default dark:[&_code]:text-default [&_code]:border-default [&_a]:text-default [&_a]:hover:text-highlighted [&_a]:hover:border-default [&_a]:hover:[&>code]:border-default [&_a]:hover:[&>code]:text-highlighted",
+    icon,
+  }
 }
 
-/** Slot classes of the `vercel` theme: square corners, hairline borders, and the docs shell grid. */
-export function vercelTheme(siteName: string): DocsThemeUi {
-  return {
-    // Thin Phosphor icons for the color mode control, like the rest of the sidebar.
-    icons: {
-      light: "i-ph-sun-light",
-      dark: "i-ph-moon-light",
-    },
-    colors: {
-      primary: "neutral",
-      neutral: "zinc",
-      warning: "amber",
-    },
+// Code groups and tabs are one framed box: the underline tabs of the theme sit on the top rule, and the panel fills the rest.
+const framedTabs = "my-5 gap-0 rounded-lg border border-default"
+
+/**
+ * The docs theme: the ViteHub design system (`vitehubTheme`) plus the slots that only the docs shell has, such as the
+ * header, the page grid, search, the outline, and prose.
+ */
+export function docsTheme(siteName: string): DocsThemeUi {
+  return defu({
     container: {
       base: "w-full max-w-none mx-0 px-0 sm:px-0 lg:px-0",
     },
@@ -87,7 +80,7 @@ export function vercelTheme(siteName: string): DocsThemeUi {
       },
       slots: {
         root: "space-y-0",
-        link: "text-sm text-muted transition-colors hover:text-highlighted rounded-none px-4 py-2 data-[active=true]:bg-muted",
+        link: "text-sm text-muted transition-colors hover:text-highlighted px-4 py-2 data-[active=true]:bg-elevated",
         linkLeadingIcon: "size-4 mr-2 text-muted",
         linkTitle: "truncate",
         linkTrailing: "hidden",
@@ -112,7 +105,7 @@ export function vercelTheme(siteName: string): DocsThemeUi {
         root: "relative border-b-0 px-4 pt-4 pb-6 sm:px-8 lg:px-8 xl:px-12 lg:pt-14",
         container: "flex flex-col",
         wrapper: "contents lg:flex lg:items-start lg:justify-between lg:gap-4",
-        title: "order-1 text-[28px] leading-[42px] text-pretty font-semibold text-highlighted",
+        title: "order-1 text-[28px] leading-[42px] text-pretty font-semibold tracking-[-0.015em] text-highlighted",
         description: "order-2 text-lg leading-7 text-pretty text-muted",
         links: "order-3 mt-5 flex flex-wrap items-center gap-1.5 lg:mt-0",
       },
@@ -121,20 +114,7 @@ export function vercelTheme(siteName: string): DocsThemeUi {
       base: "mt-0 px-4 pb-24 sm:px-8 lg:px-8 xl:px-12",
     },
     pageGrid: {
-      base: "grid-cols-1 gap-px border border-default bg-[var(--ui-border)] sm:grid-cols-2 lg:grid-cols-2",
-    },
-    pageCard: {
-      defaultVariants: {
-        variant: "ghost",
-      },
-      slots: {
-        root: "group rounded-none bg-default",
-        container: "gap-0 p-4 sm:p-5",
-        leading: "mb-3 size-8 items-center justify-center border border-default bg-muted/30",
-        leadingIcon: "size-4 text-muted transition-colors group-hover:text-highlighted",
-        title: "text-sm font-semibold",
-        description: "mt-1 text-sm/6 text-muted",
-      },
+      base: "grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2",
     },
     contentSearchButton: {
       defaultVariants: {
@@ -142,10 +122,9 @@ export function vercelTheme(siteName: string): DocsThemeUi {
         label: "Search",
         variant: "ghost",
         color: "neutral",
-        size: "sm",
       },
       slots: {
-        base: "w-full justify-start rounded-none border-b border-default px-4 py-3 text-muted hover:text-highlighted",
+        base: "w-full justify-start text-muted hover:text-highlighted",
         trailing: "ms-auto flex items-center gap-0.5",
       },
     },
@@ -156,7 +135,7 @@ export function vercelTheme(siteName: string): DocsThemeUi {
         transition: false,
       },
       slots: {
-        modal: "vh-docs-search-modal w-[calc(100vw-1rem)] !max-w-[640px] !h-auto rounded-sm border border-default shadow-none max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
+        modal: "vh-docs-search-modal w-[calc(100vw-1rem)] !max-w-[640px] !h-auto max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
         input: "[&>input]:h-14 [&>input]:text-lg",
       },
     },
@@ -181,49 +160,54 @@ export function vercelTheme(siteName: string): DocsThemeUi {
       },
       callout: {
         slots: {
-          base: "rounded-none border border-dashed bg-default",
+          base: "rounded-lg",
         },
         variants: {
           color: {
-            info: monochromeCallout,
-            warning: monochromeCallout,
-            error: monochromeCallout,
-            success: monochromeCallout,
-            neutral: { base: "border-s-stone-500/50" },
+            info: callout("text-info"),
+            warning: callout("text-warning"),
+            error: callout("text-error"),
+            success: callout("text-success"),
           },
+        },
+      },
+      card: {
+        slots: {
+          base: "rounded-lg",
         },
       },
       h2: {
         slots: {
-          base: "relative text-2xl/8 tracking-[-0.015em] text-highlighted font-semibold mt-12 mb-3 scroll-mt-[calc(48px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
+          base: "relative text-2xl/8 tracking-[-0.015em] text-highlighted font-semibold mt-12 mb-3 scroll-mt-[calc(48px+var(--ui-header-height))]",
           leading: "hidden",
           link: "group",
         },
       },
       h3: {
         slots: {
-          base: "relative text-lg/7 tracking-[-0.01em] text-highlighted font-semibold mt-8 mb-2 scroll-mt-[calc(32px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
+          base: "relative text-lg/7 tracking-[-0.01em] text-highlighted font-semibold mt-8 mb-2 scroll-mt-[calc(32px+var(--ui-header-height))]",
           leading: "hidden",
           link: "group",
         },
       },
+      // Prose tabs render `UTabs`, so the triggers and the underline come from the theme. Only the frame is added.
+      // The theme's list sits 1px into the panel, where the panel's first block would paint over the rule.
       tabs: {
         slots: {
-          root: "rounded-none border border-default gap-0 my-5",
-          list: "rounded-none border-0 border-b border-default bg-default p-0",
-          indicator: "rounded-none bg-default shadow-none border-b border-highlighted",
-          trigger: "rounded-none px-4 py-2 text-sm text-muted data-[state=active]:text-highlighted hover:bg-transparent",
+          root: framedTabs,
+          list: "mb-0 px-2",
         },
       },
       tabsItem: {
         base: "p-0",
       },
+      // Code groups render their own tab list. It copies the underline tabs of the theme.
       codeGroup: {
         slots: {
-          root: "rounded-none border border-default gap-0 my-5",
-          list: "rounded-none border-0 border-b border-default bg-default p-0",
-          indicator: "rounded-none bg-default shadow-none border-b border-highlighted",
-          trigger: "rounded-none px-4 py-2 text-sm text-muted data-[state=active]:text-highlighted hover:bg-transparent",
+          root: framedTabs,
+          list: "gap-1 border-0 border-b border-default rounded-t-lg bg-transparent px-2 py-0",
+          indicator: "inset-y-auto -bottom-px h-px bg-(--ui-text-highlighted) shadow-none",
+          trigger: "h-8 px-2.5 py-0 text-muted data-[state=active]:text-highlighted hover:bg-transparent hover:text-highlighted",
         },
       },
       // Inline code wraps with the sentence. As an inline block, a long path pushed the page wider than a phone
@@ -235,9 +219,9 @@ export function vercelTheme(siteName: string): DocsThemeUi {
         slots: {
           root: "relative my-5 group",
           // The copy button sits over the end of the header, so long file names wrap before it.
-          header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-none ps-4 pe-12 py-3",
+          header: "flex items-center gap-1.5 border border-default bg-muted border-b-0 relative rounded-t-lg ps-4 pe-12 py-3",
           filename: "min-w-0 wrap-anywhere",
-          base: "group font-mono text-sm/6 border border-default bg-muted rounded-none px-4 py-3 whitespace-pre-wrap wrap-break-word overflow-x-auto focus:outline-none",
+          base: "group font-mono text-sm/6 border border-default bg-muted rounded-lg px-4 py-3 whitespace-pre-wrap wrap-break-word overflow-x-auto",
           // Touch screens cannot reveal the hover-only copy button, so keep it visible and larger.
           copy: "pointer-coarse:opacity-100 pointer-coarse:size-9 pointer-coarse:justify-center pointer-coarse:top-[5px] pointer-coarse:end-[5px]",
         },
@@ -246,5 +230,5 @@ export function vercelTheme(siteName: string): DocsThemeUi {
         base: "vh-docs-steps ms-4 border-s border-default ps-8 [counter-reset:step]",
       },
     },
-  }
+  }, vitehubTheme)
 }

@@ -117,10 +117,9 @@ function blur() {
   background: var(--ui-bg);
 }
 
+/* Lift the focused tile so its neighbors do not cover the focus ring. */
 .primitive-tile:focus-visible {
   z-index: 1;
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 .primitive-focus {

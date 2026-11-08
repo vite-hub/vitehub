@@ -9,10 +9,8 @@ const { github, site, socials } = useDocsConfig()
       v-if="github"
       :to="github.url"
       target="_blank"
-      icon="i-ph-github-logo-light"
-      color="neutral"
+      icon="i-simple-icons-github"
       variant="ghost"
-      size="sm"
       class="pointer-coarse:size-10 pointer-coarse:justify-center"
       :aria-label="`${site.name} on GitHub`"
     />
@@ -22,14 +20,12 @@ const { github, site, socials } = useDocsConfig()
       :to="link.to"
       target="_blank"
       :icon="link.icon"
-      color="neutral"
       variant="ghost"
-      size="sm"
       class="pointer-coarse:size-10 pointer-coarse:justify-center"
       :aria-label="link.label"
     />
     <ClientOnly>
-      <UColorModeButton color="neutral" variant="ghost" size="sm" class="ms-auto pointer-coarse:size-10 pointer-coarse:justify-center" />
+      <UColorModeButton class="ms-auto pointer-coarse:size-10 pointer-coarse:justify-center" />
       <template #fallback>
         <div class="ms-auto size-7 pointer-coarse:size-10" />
       </template>

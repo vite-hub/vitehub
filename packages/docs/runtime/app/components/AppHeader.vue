@@ -72,10 +72,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
             :to="link.to"
             :label="link.label"
             :active="isActiveLink(link.to)"
-            color="neutral"
             variant="ghost"
             active-variant="soft"
-            size="sm"
           />
         </nav>
       </template>
@@ -83,11 +81,13 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
       <template #right>
         <!-- Empty here: an app adds its own items with a `DocsHeaderActions` component, such as the package a playground shows. -->
         <DocsHeaderActions />
+        <!-- Outlined like the search in the docs sidebar. -->
         <UContentSearchButton
           :collapsed="false"
           :kbds="['meta', 'K']"
+          variant="outline"
           :ui="{
-            base: 'hidden h-8 !w-56 rounded-md border-0 bg-elevated/60 px-2.5 text-sm text-muted hover:bg-elevated hover:text-highlighted lg:inline-flex',
+            base: 'hidden !w-56 lg:inline-flex',
             trailing: 'ms-auto flex items-center gap-0.5',
           }"
         />
@@ -95,7 +95,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           collapsed
           :kbds="[]"
           :ui="{
-            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated pointer-coarse:!size-11 max-[22.5rem]:pointer-coarse:!w-10 lg:hidden',
+            base: '!w-8 shrink-0 justify-center !p-1.5 text-default pointer-coarse:!size-11 max-[22.5rem]:pointer-coarse:!w-10 lg:hidden',
             label: 'sr-only',
             trailing: 'hidden',
           }"
@@ -106,7 +106,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           target="_blank"
           icon="i-simple-icons-github"
           variant="ghost"
-          color="neutral"
           :aria-label="`${site.name} on GitHub`"
           :class="touchIconButton"
         />
@@ -115,8 +114,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
           <template #fallback>
             <span :class="['inline-flex size-8 items-center justify-center text-default', touchIconButton]" aria-hidden="true">
-              <UIcon name="i-ph-sun-light" class="size-5 dark:hidden" />
-              <UIcon name="i-ph-moon-light" class="hidden size-5 dark:block" />
+              <UIcon name="i-lucide-sun" class="size-4 dark:hidden" />
+              <UIcon name="i-lucide-moon" class="hidden size-4 dark:block" />
             </span>
           </template>
         </ClientOnly>
@@ -130,9 +129,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
               :key="link.to"
               :to="link.to"
               :label="link.label"
-              color="neutral"
               variant="ghost"
-              size="sm"
               class="pointer-coarse:h-11"
             />
           </nav>
@@ -144,7 +141,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
             :key="link.to"
             :to="link.to"
             :label="link.label"
-            color="neutral"
             variant="ghost"
             block
             class="justify-start"

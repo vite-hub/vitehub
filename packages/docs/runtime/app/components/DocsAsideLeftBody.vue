@@ -234,7 +234,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 
 .vh-docs-sidebar-page-group,
 .vh-docs-sidebar-category {
-  border-top: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
+  border-top: 1px solid var(--ui-border-muted);
 }
 
 .vh-docs-sidebar-page-group:first-child,
@@ -245,7 +245,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 /* The site areas lead Get started, or the whole list without a rail. A rule separates them from the section pages. */
 .vh-docs-sidebar-site-areas {
   margin-bottom: 0.5rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
+  border-bottom: 1px solid var(--ui-border-muted);
   padding-bottom: 0.5rem;
 }
 
@@ -273,18 +273,18 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 }
 
 /* A long title wraps instead of being cut off. The icon stays on its first line.
-   The padding takes out the 2px rule, so the icons line up with the group headings at 1.25rem. */
+   The row is inset by 0.5rem, so with its padding the icons line up with the group headings at 1.25rem. */
 .vh-docs-sidebar-link {
   display: flex;
   align-items: flex-start;
   gap: 0.625rem;
-  border-left: 2px solid transparent;
-  padding: 0.25rem 1.25rem 0.25rem calc(1.25rem - 2px);
+  margin-inline: 0.5rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
+  padding: 0.25rem 0.75rem;
   color: var(--ui-text-muted);
   font-size: 0.875rem;
   line-height: 1.25rem;
   transition:
-    border-color 150ms ease,
     background-color 150ms ease,
     color 150ms ease;
 }
@@ -318,7 +318,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 }
 
 .vh-docs-sidebar-link.is-nested {
-  padding-left: calc(2.875rem - 2px);
+  padding-left: 2.375rem;
 }
 
 /* A folded group: the summary is its heading, and its chevron points right while the group is shut. */
@@ -340,8 +340,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 }
 
 /* A shut group's heading is muted like the links. An open or hovered one takes the text color. */
-.vh-docs-sidebar-fold[open] > summary,
-.vh-docs-sidebar-fold > summary:focus-visible {
+.vh-docs-sidebar-fold[open] > summary {
   color: var(--ui-text);
 }
 
@@ -374,22 +373,16 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   margin-top: 0.125rem;
 }
 
-/* Hover and focus only tint the row. The left rule marks the current page, so a hovered row never looks current. */
-.vh-docs-sidebar-link:focus-visible {
-  background: color-mix(in srgb, var(--ui-text-highlighted) 4%, transparent);
-  color: var(--ui-text);
-}
-
+/* Hover tints the row and keeps the muted text. The current page also takes the highlighted text, so a hovered row never looks current. */
 @media (hover: hover) {
   .vh-docs-sidebar-link:hover {
-    background: color-mix(in srgb, var(--ui-text-highlighted) 4%, transparent);
+    background: var(--ui-bg-elevated);
     color: var(--ui-text);
   }
 }
 
 .vh-docs-sidebar-link.is-active {
-  border-left-color: var(--ui-text-highlighted);
-  background: color-mix(in srgb, var(--ui-text-highlighted) 7%, transparent);
+  background: var(--ui-bg-elevated);
   color: var(--ui-text-highlighted);
 }
 

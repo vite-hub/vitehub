@@ -127,7 +127,8 @@ onBeforeUnmount(() => {
 .vh-docs-rail :deep(.vh-primitive-rail__body[data-fade-bottom]) {
   --vh-docs-rail-fade-top: 0px;
   --vh-docs-rail-fade-bottom: 0px;
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--vh-docs-rail-fade-top), #000 calc(100% - var(--vh-docs-rail-fade-bottom)), transparent);
+  /* A mask reads only alpha, so any opaque color works. */
+  mask-image: linear-gradient(to bottom, transparent, black var(--vh-docs-rail-fade-top), black calc(100% - var(--vh-docs-rail-fade-bottom)), transparent);
 }
 
 .vh-docs-rail :deep(.vh-primitive-rail__body[data-fade-top]) {

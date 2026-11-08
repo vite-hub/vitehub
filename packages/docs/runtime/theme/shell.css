@@ -1,7 +1,9 @@
-/* The `vercel` theme: Geist, black and white with zinc grays, square corners, and hairline borders. */
+/*
+ * The docs shell: column widths, prose layout, highlighted code, and the search modal. Colors, radii, fonts, and focus
+ * come from the ViteHub design system (`@vite-hub/ui/theme.css`), which the module imports before this file.
+ */
 
 :root {
-  --ui-radius: 0.125rem;
   --ui-header-height: 44px;
   --ui-container: 90rem;
   /* The rail is 3.5rem wide. The page panel sits next to it. The page uses the rest of the viewport. */
@@ -11,77 +13,10 @@
   --vh-toc-width: 12rem;
   /* The reading measure of prose. Code, tables, and examples are wider. */
   --vh-content-width: 46rem;
-  /* @nuxt/fonts serves both families. */
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --vh-ink: #09090b;
-  --vh-paper: #fafafa;
-}
-
-/* Nuxt UI dims text with zinc-400, 2.5:1 on white. Zinc-500 is 4.6:1 or more on the page and muted backgrounds. */
-:root:not(.dark) {
-  --ui-text-dimmed: #71717a;
-}
-
-:root.light {
-  color-scheme: light;
-}
-
-:root.dark {
-  color-scheme: dark;
-  --ui-bg: var(--vh-ink);
-  --ui-bg-muted: #18181b;
-  --ui-bg-elevated: #18181b;
-  --ui-bg-accented: #27272a;
-  --ui-bg-inverted: var(--vh-paper);
-  --ui-border: #27272a;
-  --ui-border-muted: #18181b;
-  --ui-border-accented: #3f3f46;
-  --ui-border-inverted: var(--vh-paper);
-  /* 5.2:1 on the muted background, where zinc-500 is 3.7:1. */
-  --ui-text-dimmed: #8a8a93;
-  --ui-text-muted: #a1a1aa;
-  --ui-text-toned: #d4d4d8;
-  --ui-text: #e4e4e7;
-  --ui-text-highlighted: var(--vh-paper);
-  --ui-text-inverted: var(--vh-ink);
-}
-
-html {
-  background: var(--ui-bg);
 }
 
 body {
   background: var(--ui-bg);
-}
-
-/*
- * One focus ring for every control. Nuxt UI draws a 3px outline at 25% alpha, about 2:1 against the page. The
- * theme is unlayered, so this rule wins over the outline utilities of Nuxt UI.
- */
-:where(a, button, input[type="checkbox"], input[type="radio"], select, summary, [role="menuitem"], [role="option"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 2px;
-}
-
-/* Menu items and tabs fill a box that clips its overflow, so their ring sits inside. */
-:where([role="menuitem"], [role="option"], [role="tab"]):focus-visible {
-  outline-offset: -2px;
-}
-
-/*
- * Nuxt UI also rings the `::before` of a focused link, the code in it, or the card and list around it. The ring
- * above is enough, so those second rings go.
- */
-:where([class*="focus-visible:before:outline"]):focus-visible::before,
-:where(a:focus-visible > code),
-:where([class*="has-focus-visible:outline"]):has(:is(a, button, [role="menuitem"], [role="option"], [role="tab"]):focus-visible) {
-  outline: none;
-}
-
-::selection {
-  background: var(--ui-text-highlighted);
-  color: var(--ui-bg);
 }
 
 /* Highlighted code carries the light colors inline and the dark colors in variables. */
@@ -135,10 +70,6 @@ html.dark .shiki span {
 .docs-content th {
   color: var(--ui-text-highlighted);
   font-weight: 600;
-}
-
-.docs-content .code-block-wrapper {
-  border-radius: 0.125rem;
 }
 
 /* The tabs frame the panel, so a code block inside it drops its own border and margin. */
@@ -220,14 +151,13 @@ html.dark .shiki span {
   width: min(640px, calc(100vw - 1rem)) !important;
   margin: 0 !important;
   overflow: hidden;
-  box-shadow: none !important;
 }
 
 .vh-docs-search-modal button[aria-label="Close"] {
   width: 2.5rem;
   height: 2rem;
   border: 1px solid var(--ui-border);
-  border-radius: 0;
+  border-radius: calc(var(--ui-radius) * 1.5);
   color: var(--ui-text-muted);
   font-size: 0;
 }
@@ -292,7 +222,7 @@ html.dark .shiki span {
 }
 
 .vh-docs-search-modal mark {
-  border-radius: 2px;
+  border-radius: var(--ui-radius);
   background: color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
   color: inherit;
 }

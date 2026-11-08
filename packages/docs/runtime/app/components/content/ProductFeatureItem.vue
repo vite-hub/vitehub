@@ -38,23 +38,16 @@ defineProps<{
   align-content: start;
   gap: 0.5rem 0.75rem;
   padding: 0.5rem 0;
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 1.5);
   transition: background-color 150ms ease;
 }
 
 .vh-feature-item:hover {
-  background: color-mix(in srgb, var(--ui-bg-muted) 35%, var(--ui-bg));
+  background: var(--ui-bg-muted);
 }
 
 .vh-feature-item:hover .landing-cta-arrow {
   transform: translateX(0.25rem);
-}
-
-.vh-feature-item:focus-visible {
-  position: relative;
-  z-index: 1;
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 .vh-feature-item-title {

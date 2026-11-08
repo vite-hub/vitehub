@@ -32,7 +32,6 @@ function copyCode() {
     <!-- After the filename bar, so the tutorial code panel still finds the bar as the first child. -->
     <UButton
       :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-      color="neutral"
       variant="ghost"
       size="xs"
       aria-label="Copy code"
@@ -50,7 +49,7 @@ function copyCode() {
   min-width: 0;
   margin-block: 1rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
 }
 
 .vh-code-filename {
@@ -59,6 +58,9 @@ function copyCode() {
   align-items: center;
   gap: 0.5rem;
   border-bottom: 1px solid var(--ui-border);
+  /* The bar fills the top of the frame, so it follows the frame's corners. */
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
   background: var(--ui-bg-muted);
   /* The copy button sits over the end of the bar, so a long name wraps before it. */
   padding: 0.375rem 2.75rem 0.375rem 0.75rem;
