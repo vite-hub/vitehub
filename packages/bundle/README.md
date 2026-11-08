@@ -21,6 +21,17 @@ vitehub bundle --json              # the full report
 vitehub bundle why @libsql/client  # the import chain from the entry to the package
 ```
 
+To prove that a change makes the bundle smaller, or not bigger, save the report first and compare after the next build:
+
+```sh
+vitehub bundle --json > .vitehub/bundle-before.json
+# change the code, then build again
+vitehub bundle --against .vitehub/bundle-before.json         # side and startup deltas, groups that changed
+vitehub bundle --against .vitehub/bundle-before.json --json  # the same as JSON
+```
+
+`--against` also takes a copy of `.vitehub/bundle/` or the root of another checkout with a build.
+
 The commands read `.vitehub/bundle/` and need no dev server. Development builds are not measured.
 
 ## What the report says
@@ -28,6 +39,7 @@ The commands read `.vitehub/bundle/` and need no dev server. Development builds 
 - **Client and server.** Bytes and gzip bytes of the JavaScript that the build wrote, and the files that load at startup: the entries and every file that they import statically. On the server, startup code runs before the first request. Client startup combines all page entries, counting shared files once; a single page can load less.
 - **Groups.** Each module counts toward one group: a ViteHub package (`@vite-hub/agent`, `vite-hub/console`), a framework package (`nitro`, `h3`, `vue`), a dependency, an app folder (`server/api`), or generated code (`.vitehub`, `#nitro/virtual`). A module gets its share of the bytes of the file it is in, so the groups add up to the file sizes.
 - **Why.** The shortest import chain from an entry to a package, a file, or a group.
+- **Against.** The delta from a saved report: bytes, gzip, and startup bytes of each side, and the groups that grew, shrank, were added, or were removed.
 
 The report joins the build environments. In Nuxt 5, Nitro bundles the SSR output, so the server part shows the SSR modules inside it instead of one large file.
 
@@ -40,8 +52,9 @@ Each Vite build command starts a fresh report. All environments of a Vite builde
 Read the report in code:
 
 ```ts
-import { explainBundleTarget, readBundleReport } from "@vite-hub/bundle"
+import { compareBundleReports, explainBundleTarget, readBundleReport, readSavedBundleReport } from "@vite-hub/bundle"
 
 const report = readBundleReport(process.cwd())
 const why = explainBundleTarget(process.cwd(), "zod")
+const diff = compareBundleReports(readSavedBundleReport(".vitehub/bundle-before.json")!, report!)
 ```
