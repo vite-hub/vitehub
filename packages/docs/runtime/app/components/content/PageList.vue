@@ -12,6 +12,7 @@ const props = defineProps<{
 const manifest = useDocsManifest()
 const current = useDocsSection()
 const page = useDocsPage()
+const icons = useDocsIcons()
 const groups = computed(() => {
   const section = props.section ? manifest.sections.find(candidate => candidate.id === props.section) : current.value
   const exclude = new Set((props.exclude ?? "").split(",").map(name => name.trim()).filter(Boolean))
@@ -33,7 +34,7 @@ const groups = computed(() => {
         <li v-for="item in group.pages" :key="item.path">
           <NuxtLink :to="item.path" class="vh-page-list-link">
             <span class="vh-page-list-icon">
-              <UIcon :name="item.icon || 'i-lucide-file-text'" class="size-4" aria-hidden="true" />
+              <UIcon :name="icons.page(item)" class="size-4" aria-hidden="true" />
             </span>
             <span class="vh-page-list-text">
               <span class="vh-page-list-title">{{ item.title }}</span>
