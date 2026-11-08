@@ -11,7 +11,7 @@ import { prepareViteHubProviderSources } from "@vite-hub/internal/build/vite"
 
 import { hubAgent } from "../src/vite.ts"
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 it.each(["default-expression", "default-binding", "default-reexport", "named-channel", "named-channel-const", "named-channel-satisfies"])("preserves discovered Skills when a built Schedule directly extends an Agent (%s)", async (exportForm) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-colocated-skills-"))

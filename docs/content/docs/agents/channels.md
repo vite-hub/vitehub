@@ -81,6 +81,10 @@ curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
   -d '{"id":"try-1","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"Hello"}]}]}'
 ```
 
+Open the Channel's webhook URL in a browser, such as `http://localhost:3000/api/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
+
+`pnpm vitehub channels list` marks each simulated Channel and prints the path of its chat page. The `channels.list` operation returns them as `simulated: true` and `simulator`.
+
 Point an AI SDK `useChat` client at the same route to chat from a page. The Agent still runs as that Channel, with its instructions and message settings. Simulated delivery runs inline within the HTTP request, even with `messages.durable: true` or an active Workflow runtime. A simulated Channel is a direct message with one user: mentions, threads, cards, and buttons are not simulated. Webhook verification, Telegram polling, and the Discord Gateway are off.
 
 The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
@@ -297,7 +301,7 @@ ViteHub compares a `bearer` token in constant time, and the `Bearer` scheme is c
 
 `secret` also accepts a Server Env secret. ViteHub calls `unseal()` when it verifies the request:
 
-```ts [server/channels/prefect.ts]
+```ts [server/channels/prefect.ts] fragment
 import { defineChannel, webhook } from 'vite-hub/channels'
 import { useServerEnv } from '#vitehub/env/server'
 
@@ -397,7 +401,7 @@ operations({ include: ['channels.*', 'conversations.export'], conversations: 'pa
 
 | Operation | Input | Answer |
 | --- | --- | --- |
-| `channels.list` | none | Each Agent and Channel with its provider and retention. |
+| `channels.list` | none | Each Agent and Channel with its provider and retention, and `simulated`. A simulated Channel also has its chat page path in `simulator`. |
 | `channels.threads` | `agent`, `channel`, `cursor?`, `limit?` | Threads from the journal, most recent first, with title, people, last activity, and number of runs. It reads no conversation, so it has no message count. |
 | `channels.conversation` | `agent`, `channel`, `thread`, `cursor?`, `limit?` | The messages in order, each with `role`, `author`, `text`, `attachments`, `at`, and `invocationId`, and the `messageCount`. |
 | `conversations.export` | `agent`, `channel`, `thread`, `format`, `media?` | `text` in `markdown` or `json`, and the attachment files when `media` is on. |
@@ -432,7 +436,7 @@ Add `history` to a Channel to run an Agent on messages that arrived before the A
 
 To join legacy Invocations without `vitehub.channel.key`, add `history.invocationItem(invocation): TItem | undefined | Promise<TItem | undefined>`. This read-only hook receives the retained `AgentInvocationRecord` and reconstructs an item for `key()` and optional `thread()`. Existing key annotations take precedence. The journal does not retain raw trigger input or `input.context`, so return `undefined` when observations and annotations cannot identify the item. Hook errors also leave the record unjoined.
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/labeller.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
 import { defineCollection } from 'vite-hub/source'
