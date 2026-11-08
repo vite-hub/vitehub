@@ -92,7 +92,7 @@ Agent Evals expose those values through `observation.extensions.get(capabilityId
 
 ## Finish without the Driver
 
-A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types its output as the union of that value and the Driver output.
+A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types `result.output` as the union of that value and the Driver output.
 
 ```ts [server/agents/labeller.ts] fragment
 export default defineAgent({
