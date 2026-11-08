@@ -19,6 +19,8 @@ export interface DocsPage {
   description: string | null
   /** Text under the heading: `tagline`, else `description`. */
   tagline: string | null
+  /** A short label above the title, from the `eyebrow` field. */
+  eyebrow: string | null
   /** Inline Markdown at the end of the page. The page route returns it parsed. */
   credits: string | null
   /** Search words besides the page's own text. */
@@ -28,7 +30,7 @@ export interface DocsPage {
   tutorial?: "project" | "quickstart"
   codePanel?: boolean
   /** Search result title and description, when they differ from the page heading. */
-  seo?: { title?: string, description?: string, image?: string | false }
+  seo?: { title?: string, description?: string, image?: string | false, index?: boolean }
   /** Whether the navigation sidebar shows on this page. */
   sidebar: boolean
   /** Whether the "On this page" outline shows on this page. */
@@ -37,6 +39,8 @@ export interface DocsPage {
   group: string | null
   /** `false` when the page sets `navigation: false`. It still renders but is not listed. */
   navigation: boolean
+  /** `true` on the Overview of a folder with `navigation.panel: true`. Its folder is a panel of its own. */
+  panel?: true
   order: number
 }
 

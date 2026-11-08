@@ -1,6 +1,6 @@
 ---
-title: Comments limits and errors
-description: Size limits, numbering, and the errors that comments raise.
+title: Comments operations limits and errors
+description: "Message, mention, and attachment limits of comments operations, how threads get their numbers, and each COMMENTS error code."
 navigation.title: Operations limits and errors
 navigation.order: 24
 icon: i-lucide-circle-alert

@@ -16,7 +16,7 @@ An operation is a named ability of your app, such as `content.publish` or `invoc
 
 ## Define an operation
 
-```ts [src/operations.ts]
+```ts [src/operations.ts] fragment
 import * as v from 'valibot'
 import { defineOperation } from 'vite-hub/operations'
 
@@ -55,6 +55,8 @@ export const reportOperations = [
 `run` gets a context with these fields:
 
 ```ts
+import type { OperationAccess, OperationActor, OperationUser } from 'vite-hub/operations'
+
 interface OperationContext {
   access: OperationAccess // the checked Console access of the call
   user: OperationUser | null // the signed-in user

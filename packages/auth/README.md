@@ -77,7 +77,7 @@ The owned core tables have fixed columns. `authDatabase()` rejects `additionalFi
 
 ## First admin
 
-`VITEHUB_ADMIN_EMAILS` is a comma-separated list of emails. A new account with one of them, from an email and password sign-up or a first social sign-in, gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default). Existing accounts keep their role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. This bootstrap rule does not prove email ownership: restrict access until you create the admin account, then unset the variable before opening public sign-up. Email verification alone cannot protect an account someone else registered with their own password.
+`VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
 ## Sessions without a database
 
@@ -162,6 +162,8 @@ Each Auth request or route guard resolves its Definition and `runtime` callbacks
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   access: {
     routes: [
@@ -178,13 +180,13 @@ export default defineAuth({
 });
 ```
 
-Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from `@vite-hub/auth/server`. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Manual hosts can use the same handler with a Web `Request`, `{ req: Request }`, or an H3 1 event such as a Nuxt 4 server event. Its route metadata must follow the Definition's `access.routes` order; set `authorize: true` for each route that requires a callback so a missing runtime callback returns `403`. Unmatched requests do not resolve Auth.
+Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from `@vite-hub/auth/server`. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Manual hosts can use the same handler with a Web `Request` or a request event with Standard Context properties, such as an H3 2 event in a ViteHub app. Its route metadata must follow the Definition's `access.routes` order; set `authorize: true` for each route that requires a callback so a missing runtime callback returns `403`. Unmatched requests do not resolve Auth.
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host. Only `true` grants access. ViteHub sends a `Response` unchanged when it is a Response of this runtime: the native `Response.prototype.status` getter accepts it. Create it with the global `Response`. Every other value gets `403`, including a Response from another Fetch implementation such as the `undici` package, a proxy, and an object shaped like a Response.
 
 Guard your own server handlers with `withAuth(handler, definition?)` or `withAuthorization(authorize, handler, definition?)` from `@vite-hub/auth/server`. The guard returns a new handler. That handler checks the request first and calls your handler only when the check passes. Your handler receives the input and a frozen `authorization` with the checked `request`, `session`, and `user`. Otherwise the guard returns the rejection `Response`, so a missed `if` cannot run the protected action.
 
-```ts
+```ts fragment
 import { withAuth, withAuthorization } from "@vite-hub/auth/server";
 import type { H3Event } from "h3";
 
@@ -205,7 +207,7 @@ Annotate the input type when the host does not infer it, for example inside `def
 
 Better Auth extends a stored session when the session passes `session.updateAge`. Use `session.onRefresh` to check the user again at that time, for example against a ban list.
 
-```ts
+```ts fragment
 export default defineAuth({
   session: {
     updateAge: 60 * 60,
@@ -230,7 +232,7 @@ The hook receives the `session` and `user` as stored before the refresh. To chan
 `onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. Without one, Auth fails with `AUTH_C0042`, because Better Auth refreshes a stateless cookie cache (`session.cookieCache.refreshCache`) without a hook. With a cookie cache in front of a database, the hook runs only when Better Auth reads the database. It does not run when `session.disableSessionRefresh` is set or for a session created without "remember me". With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
 On H3 2, you can guard a route with middleware instead. `requireAuth(definition?)` rejects like `withAuth()`, and `requireAuthorization(authorize, definition?)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`. The route handler reads the checked `request`, `session`, and `user` with `getAuthorization(event)`.
 
-```ts
+```ts fragment
 import { getAuthorization, requireAuth, requireAuthorization } from "@vite-hub/auth/server";
 import { H3 } from "h3";
 
@@ -243,7 +245,7 @@ const app = new H3()
   });
 ```
 
-`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with an own `req` request.
+`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with Standard Context properties. Auth reads the request and the Cloudflare bindings from `event["~standard"]`.
 
 ## Vite Integration
 
@@ -252,6 +254,8 @@ Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when
 Set `route: false` only when a host integration mounts Auth itself.
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   route: false,
 });
@@ -270,6 +274,8 @@ Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `dat
 `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   basePath: "/auth",
   database: { name: "auth", dedicated: true },
@@ -278,6 +284,20 @@ export default defineAuth({
 ```
 
 `database: true`, `database: { name }`, and `secondaryStorage` are placement metadata. ViteHub removes metadata-shaped values before calling `betterAuth()`, so they do not create Database or KV adapters. Use `authDatabase()` for the app Database, or return another Better Auth `database` or `secondaryStorage` adapter from the Definition callback or `runtime`.
+
+## Nuxt
+
+Enable Auth in a Nuxt app through `vite-hub/nuxt`:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { auth: true },
+})
+```
+
+`@vite-hub/auth/nuxt` is internal. `vite-hub/nuxt` loads it, and it can change in any release. Do not add it to Nuxt `modules`.
 
 ## Client-side Auth
 
@@ -316,7 +336,7 @@ The exported `createAuthClient` keeps Better Auth's option and plugin inference 
 
 The client loads `better-auth/vue` the first time you use it, not when you create it. An app can create its client in a plugin, and only the pages that sign in or read the session download Better Auth. Calls such as `signIn.social()` wait for the load. `useSession()` and `useUserSession()` return their refs at once: they are pending until the client loads in the browser, and stay pending during server rendering. For a member that is not a call or a hook, such as `$store`, get Better Auth's own client with `loadAuthClient()`:
 
-```ts
+```ts fragment
 import { loadAuthClient } from "@vite-hub/auth/vue";
 import { authClient } from "./auth-client";
 
@@ -330,7 +350,7 @@ Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-starte
 
 `isGitHubOrgMember(accessToken, org, { cacheMs, timeoutMs })` from `@vite-hub/auth` returns `true` only for an active membership. The token needs `read:org`. A pending invitation, a non-2xx response, a network error, or a timeout (default 5 seconds) returns `false`. There is no cache by default. With `cacheMs`, a successful check is kept in memory for that time per token and organization, under a SHA-256 key.
 
-```ts
+```ts fragment
 import { isGitHubOrgMember } from "@vite-hub/auth";
 
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
