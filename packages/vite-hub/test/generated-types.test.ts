@@ -1002,7 +1002,7 @@ export const content = defineContent(${options})
     expect(Reflect.get(Object(contribution), "nitro")).toEqual({
       handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), lazy: true, route: "/api/content/**" }],
       modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
-      plugins: [join(root, ".vitehub/content/preview.mjs")],
+      plugins: [join(root, ".vitehub/content/preview.mjs"), join(root, ".vitehub/content/types.mjs")],
     })
   })
 
