@@ -70,11 +70,6 @@
     "error": "TS18046 'message' is of type 'unknown'.\nTS18046 'message' is of type 'unknown'.\nTS2307 Cannot find module '../lib/mailbox' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/agents/gmail.md#52ea1118141f",
-    "label": "vite.config.ts",
-    "error": "TS2554 Expected 1 arguments, but got 0."
-  },
-  {
     "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineAgentInvocations'.\nTS7006 Parameter 'error' implicitly has an 'any' type.\nTS7006 Parameter 'observation' implicitly has an 'any' type."
@@ -383,11 +378,6 @@
     "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
     "label": "nuxt.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'.\nTS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
-  },
-  {
-    "id": "docs/content/docs/development/operations.md#5d5bf17d544a",
-    "label": "vite.config.ts",
-    "error": "TS2554 Expected 1 arguments, but got 0."
   },
   {
     "id": "docs/content/docs/development/operations.md#e4b8751bd4fb",
