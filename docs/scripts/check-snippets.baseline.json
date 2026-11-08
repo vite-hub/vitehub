@@ -1,28 +1,13 @@
 [
   {
-    "id": "docs/content/docs/agents/agent-definitions.md#d6828f9cd407",
-    "label": "server/lib/sync.ts",
-    "error": "TS2304 Cannot find name 'email'.\nTS2304 Cannot find name 'email'.\nTS2304 Cannot find name 'email'.\nTS2304 Cannot find name 'email'."
-  },
-  {
     "id": "docs/content/docs/agents/agent-drivers.md#7b95e16bdad4",
     "label": "server/agents/review/agent.ts",
     "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'.\n  Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type '(context: AgentProviderCredentialContext<AgentRuntimeConfig>) => MaybePromise<AgentProviderCredentialValue>'.\n    Type 'Promise<unknown>' is not assignable to type 'MaybePromise<AgentProviderCredentialValue>'.\n      Type 'Promise<unknown>' is not assignable to type 'Promise<AgentProviderCredentialValue>'.\n        Type 'unknown' is not assignable to type 'AgentProviderCredentialValue'."
   },
   {
-    "id": "docs/content/docs/agents/agent-drivers.md#b020c6949bc2",
-    "label": null,
-    "error": "TS2304 Cannot find name 'labeller'.\nTS2304 Cannot find name 'runAgent'."
-  },
-  {
     "id": "docs/content/docs/agents/agent-drivers.md#6943e3700cbc",
     "label": "server/agents/labeller.ts",
     "error": "TS2571 Object is of type 'unknown'.\nTS7006 Parameter 'label' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/agents/build-a-chat-app.md#04d5b39f0192",
-    "label": "server/api/chat.post.ts",
-    "error": "TS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'."
   },
   {
     "id": "docs/content/docs/agents/capabilities/budget.md#338de8c4dfe8",
@@ -70,11 +55,6 @@
     "error": "TS18046 'message' is of type 'unknown'.\nTS18046 'message' is of type 'unknown'.\nTS2307 Cannot find module '../lib/mailbox' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/agents/gmail.md#52ea1118141f",
-    "label": "vite.config.ts",
-    "error": "TS2554 Expected 1 arguments, but got 0."
-  },
-  {
     "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineAgentInvocations'.\nTS7006 Parameter 'error' implicitly has an 'any' type.\nTS7006 Parameter 'observation' implicitly has an 'any' type."
@@ -83,16 +63,6 @@
     "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
     "label": "server/invocations.ts",
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
-  },
-  {
-    "id": "docs/content/docs/agents/invocations.md#8e00ed37ba5b",
-    "label": "server/api/support.post.ts",
-    "error": "TS2307 Cannot find module '../utils/auth' or its corresponding type declarations.\nTS2339 Property 'prompt' does not exist on type '{ prompt: string; } | undefined'."
-  },
-  {
-    "id": "docs/content/docs/agents/invocations.md#79bc67c0ddca",
-    "label": "server/api/support-stream.post.ts",
-    "error": "TS2339 Property 'prompt' does not exist on type '{ prompt: string; } | undefined'."
   },
   {
     "id": "docs/content/docs/agents/invocations.md#40697317b08d",
@@ -108,11 +78,6 @@
     "id": "docs/content/docs/agents/sandboxes.md#a900a524eaf8",
     "label": "server/agents/review/agent.ts",
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/agents/triggers.md#856b11e9e183",
-    "label": "server/api/support.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/auth/configure.md#16e92a450295",
@@ -385,11 +350,6 @@
     "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'.\nTS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
   },
   {
-    "id": "docs/content/docs/development/operations.md#5d5bf17d544a",
-    "label": "vite.config.ts",
-    "error": "TS2554 Expected 1 arguments, but got 0."
-  },
-  {
     "id": "docs/content/docs/development/operations.md#e4b8751bd4fb",
     "label": "server/agents/editor.ts",
     "error": "TS2304 Cannot find name 'defineAgent'."
@@ -598,11 +558,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
     "label": "nuxt.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'hub' does not exist in type 'NuxtConfigInput<NuxtConfig>'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
-  },
-  {
-    "id": "docs/content/docs/reference/runtime-context.md#e2744450c63d",
-    "label": "server/api/support.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2304 Cannot find name 'useRuntimeConfig'.\nTS2307 Cannot find module '../agents/support' or its corresponding type declarations.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/sandbox/configure.md#c19c21559f74",
