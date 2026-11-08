@@ -8,13 +8,16 @@ icon: i-lucide-files
 ---
 
 ::product-hero{tagline="Save uploads and other files from your server, then read or serve them on any host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::product-files{feature="blob"}
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
-    // On Node, files are saved in .vitehub/data/blob
-    vitehub: { preset: 'node', blob: true },
+    vitehub: {
+      preset: 'node',
+      // On Node, files are saved in .vitehub/data/blob
+      blob: true,
+    },
   })
   ```
   ::::
@@ -26,8 +29,11 @@ icon: i-lucide-files
 
   export default defineConfig({
     plugins: [
-      // On Node, files are saved in .vitehub/data/blob
-      vitehub({ preset: 'node', blob: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, files are saved in .vitehub/data/blob
+        blob: true,
+      }),
       nitro(),
     ],
   })
@@ -40,8 +46,11 @@ icon: i-lucide-files
 
   export default defineConfig({
     plugins: [
-      // On Node, files are saved in .vitehub/data/blob
-      vitehub({ preset: 'node', blob: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, files are saved in .vitehub/data/blob
+        blob: true,
+      }),
     ],
   })
   ```

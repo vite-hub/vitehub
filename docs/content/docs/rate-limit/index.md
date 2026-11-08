@@ -9,13 +9,16 @@ icon: i-lucide-gauge
 ---
 
 ::product-hero{tagline="Cap how many requests each client or user can make, and reject the extra ones with a 429 error." hosts="Node, Docker, Cloudflare"}
-  :::product-files
+  :::product-files{feature="rateLimit"}
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
-    // On Node, counts stay in memory
-    vitehub: { preset: 'node', rateLimit: true },
+    vitehub: {
+      preset: 'node',
+      // On Node, counts stay in memory
+      rateLimit: true,
+    },
   })
   ```
   ::::
@@ -27,8 +30,11 @@ icon: i-lucide-gauge
 
   export default defineConfig({
     plugins: [
-      // On Node, counts stay in memory
-      vitehub({ preset: 'node', rateLimit: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, counts stay in memory
+        rateLimit: true,
+      }),
       nitro(),
     ],
   })
@@ -41,8 +47,11 @@ icon: i-lucide-gauge
 
   export default defineConfig({
     plugins: [
-      // On Node, counts stay in memory
-      vitehub({ preset: 'node', rateLimit: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, counts stay in memory
+        rateLimit: true,
+      }),
     ],
   })
   ```
@@ -64,13 +73,13 @@ icon: i-lucide-gauge
   ```
 
   ```ts [server/api/messages.post.ts]
-  import { defineEventHandler } from 'h3'
+  import { defineEventHandler, type H3Event } from 'h3'
   import { withAuth } from 'vite-hub/auth/server'
   import { requireRateLimit } from 'vite-hub/rate-limit'
 
   // Count per signed-in user, not per address
   export default defineEventHandler(
-    withAuth(async (event, { user }) => {
+    withAuth(async (event: H3Event, { user }) => {
       await requireRateLimit(event, 'send-message', {
         key: user.id,
         limit: 10,

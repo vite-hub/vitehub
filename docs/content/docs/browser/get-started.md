@@ -21,7 +21,7 @@ In this tutorial, you write a browser task that gets the HTML of `https://exampl
 Add ViteHub, Nitro, and Wrangler, the Cloudflare development tool, to your app:
 
 ```bash pm [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/browser nitro h3
 pnpm add -D vite wrangler
 ```
 

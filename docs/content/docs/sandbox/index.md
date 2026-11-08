@@ -8,7 +8,7 @@ icon: i-lucide-terminal-square
 ---
 
 ::product-hero{tagline="Run code in an isolated cloud machine on Vercel or Cloudflare, and get the result in your route." hosts="Vercel, Cloudflare"}
-  :::product-files
+  :::product-files{feature="sandboxTask"}
   ```ts [server/sandbox-tasks/pixels/index.ts]
   type ImageSize = { width: number, height: number }
 
@@ -58,7 +58,11 @@ icon: i-lucide-terminal-square
 
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
-    vitehub: { preset: 'vercel', sandboxTask: true },
+    vitehub: {
+      preset: 'vercel',
+      // Each run starts a Vercel Sandbox
+      sandboxTask: true,
+    },
   })
   ```
   ::::
@@ -72,7 +76,11 @@ icon: i-lucide-terminal-square
   // Use preset 'cloudflare' for Cloudflare Sandbox.
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'vercel', sandboxTask: true }),
+      vitehub({
+        preset: 'vercel',
+        // Each run starts a Vercel Sandbox
+        sandboxTask: true,
+      }),
       nitro(),
     ],
   })
@@ -83,11 +91,13 @@ icon: i-lucide-terminal-square
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
 
-  // The Vercel preset uses Vercel Sandbox.
-  // Use preset 'cloudflare' for Cloudflare Sandbox.
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'vercel', sandboxTask: true }),
+      vitehub({
+        preset: 'vercel',
+        // Each run starts a Vercel Sandbox
+        sandboxTask: true,
+      }),
     ],
   })
   ```

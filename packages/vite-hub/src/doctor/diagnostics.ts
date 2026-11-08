@@ -25,7 +25,7 @@ const entries = [
   { code: "VHUB0020", ruleId: "vitehub/workflow-step-names" },
   { code: "VHUB0021", ruleId: "vitehub/valid-schedule-cron" },
   { code: "VHUB0022", ruleId: "vitehub/manual-schedule-run" },
-  { code: "VHUB0023", ruleId: "vitehub/valid-outbound-channel" },
+  { code: "VHUB0023", ruleId: "vitehub/valid-channel" },
   { code: "VHUB0024", ruleId: "vitehub/realtime-carets" },
   { code: "VHUB0025", ruleId: "vitehub/realtime-persistence" },
   { code: "VHUB0026", ruleId: "vitehub/forge-error-imports" },

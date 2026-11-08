@@ -311,6 +311,8 @@ Required empty inputs fail even when a default exists. Optional empty strings re
 The default prefix is `VITEHUB_`. Only keys beginning with `VITEHUB_PUBLIC_` enter Public Env. They must be explicitly non-sensitive. Marking a private field `@public` clears sensitivity but keeps it on the server. This rule prevents a metadata annotation alone from moving a value into the browser.
 
 ```ts
+import { envSchema } from '@vite-hub/env/vite'
+
 env: envSchema(new URL('./.env.example', import.meta.url), {
   prefix: 'APP_',
   paths: { APP_DATABASE_URL: 'database.url' },

@@ -17,10 +17,10 @@ In this tutorial, you write a daily report that runs every day at 08:00 UTC. The
 ::tutorial-step{title="Turn on Schedule"}
 ## Turn on Schedule
 
-Schedule is a separate package. Add it to your app:
+Schedule and KV are separate packages. Add them to your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/schedule
+pnpm add @vite-hub/schedule @vite-hub/kv
 ```
 
 Then add `kv` and `schedule` to the ViteHub options. Keep the other options of your app.
@@ -146,7 +146,7 @@ pnpm vitehub schedule run daily-report --at 2026-01-31T08:00:00Z
 ::tutorial-step{title="See the runs"}
 ## See the runs
 
-ViteHub saves each run, with its status and its time. List the runs of `daily-report`, newest first:
+ViteHub saves each manual run and Process Runtime run, with its status and its time. List the runs of `daily-report`, newest first:
 
 ```bash [commands/runs]
 pnpm vitehub schedule runs daily-report
@@ -158,7 +158,7 @@ srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg  succ
 srun_manual_daily-report_2026-01-31T08:00:00.000Z_manual_mw6dwbtr_3xkimura  succeeded  2026-01-31T08:00:00.000Z  1         -
 ```
 
-A run that throws shows `failed` and its error.
+A saved run that throws shows `failed` and its error. Provider cron executions do not create saved runs.
 
 To see the same runs in a page, with a button to run the schedule, turn on the [Console](/docs/development/console).
 
@@ -169,7 +169,7 @@ To see the same runs in a page, with a button to run the schedule, turn on the [
 You keep the schedule file. You change the `schedule` option for the host:
 
 - **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. Keep exactly one process running. Two processes would both run it, and a stopped process runs nothing.
-- **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. With `runtime`, the server process starts the schedules, and the build writes no cron settings.
+- **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
 
 For example, on Vercel:
 

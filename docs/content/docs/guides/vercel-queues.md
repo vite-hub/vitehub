@@ -20,7 +20,7 @@ ViteHub writes the topic name, the consumer function, and its trigger for you. Y
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add vite-hub @vercel/queue
+pnpm add vite-hub @vite-hub/queue @vercel/queue
 pnpm add -D @types/node @types/ws
 ```
 

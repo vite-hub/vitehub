@@ -1,6 +1,7 @@
 ---
 title: What is durable execution? Steps, retries, replay, and idempotency
-description: Durable execution saves the result of each step, so a failed job continues from the failed step. See a worked example and what ViteHub Workflows store on each host.
+seo.title: "What is durable execution? Steps, retries, replay"
+description: "Durable execution saves the result of each step, so a failed job continues from that step. See an example and what ViteHub Workflows store on each host."
 navigation.title: Durable execution
 navigation.order: 41
 navigation.group: Concepts
@@ -185,11 +186,12 @@ export default async function sendReceipt(order: { orderId: string, chargeId: st
 Start the run with an id that comes from the order:
 
 ```ts [server/api/checkout.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readBody } from 'h3'
 import { runWorkflow } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
+  if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
   return runWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
 })
 ```

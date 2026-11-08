@@ -11,7 +11,7 @@ Set up an app with ViteHub, then check that it answers a request. Every tutorial
 
 ## Prerequisites
 
-- Node.js 22.22 or newer on 22.x, or 24.11 or newer. Node.js 23 and Node.js 24 before 24.11 are not supported.
+- Node.js 22.22 or newer on 22.x, 24.11 or newer on 24.x, or 26 or newer. Node.js 23, Node.js 24 before 24.11, and Node.js 25 are not supported.
 - pnpm. The examples use pnpm.
 - For Nuxt: an app on Nuxt 5, which uses Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
 - For Nitro: a Nitro 3 app that adds `nitro()` in `vite.config.ts`.
@@ -186,28 +186,43 @@ Each feature is off until you turn it on in the ViteHub options, for example `kv
 - [First Server Primitive](/docs/getting-started/first-server-primitive): save a setting and read it back.
 - [First Agent](/docs/getting-started/first-agent): run an Agent that answers without a model account.
 
-Some features need one more package. When you turn on a feature and its package is missing, the build stops and prints the install command:
+Each feature other than Env, Source, Logs, and the Console needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
 
 ```text [output/missing-package.txt]
-[vitehub] The agent feature needs @vite-hub/agent. Install the missing packages in your app with: pnpm add @vite-hub/agent
+[vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
 ::details{summary="Which features need their own package?"}
-`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels, Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Add the packages below before you turn on the other features. This is the same for Nuxt, Nitro, and Vite.
+`vite-hub` includes Env, Source, Logs, and the Console. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent` |
+| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
 | `auth` | `@vite-hub/auth better-auth` |
+| `blob` | `@vite-hub/blob` |
+| `browser` | `@vite-hub/browser` |
+| `channels` | `@vite-hub/channels` |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `email` | `@vite-hub/email` |
+| `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
+| `queue` | `@vite-hub/queue` |
+| `rateLimit` | `@vite-hub/rate-limit` |
 | `realtime` | `@vite-hub/realtime` |
+| `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
 | `server/comments.ts` | `@vite-hub/comments` |
+| `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
+| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 

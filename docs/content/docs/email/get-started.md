@@ -18,10 +18,10 @@ In this tutorial, you send a real welcome email through Resend from an API route
 ::tutorial-step{title="Install the email dependencies"}
 ## Install the email dependencies
 
-Install ViteHub. Nitro is the server that runs your API routes. The Resend driver comes with ViteHub, so you install no other package.
+Install ViteHub, Email, and Nitro. Nitro is the server that runs your API routes. The Resend driver is part of the Email package.
 
 ```bash pm [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/email nitro h3
 pnpm add -D vite
 ```
 
