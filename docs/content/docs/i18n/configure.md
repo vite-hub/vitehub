@@ -229,6 +229,8 @@ To add a locale, add it to `i18n.locales`. It starts with every message untransl
 By default, translations are files in your repository, and a new translation needs a deploy. To change translations without a deploy, store them in a [Workspace](/docs/workspace) with retained history, such as the Blob and Database store or the GitHub store:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({ i18n: { locales: ['en', 'es'], workspace: 'translations' } })
 ```
 
