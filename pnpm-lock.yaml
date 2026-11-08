@@ -866,6 +866,9 @@ importers:
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email
+      '@vite-hub/channels':
+        specifier: workspace:*
+        version: link:../channels
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env

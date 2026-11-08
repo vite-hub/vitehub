@@ -1,101 +1,66 @@
-import type { ChannelConnectorMap, ChannelDefinition } from "./types.ts"
+import type { ChannelAdapter, ChannelDefinition, ChannelDefinitionOptions } from "./types.ts"
+import { channelDefinitionBrand } from "./brand.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 
-function isConnector(value: unknown): value is { send: unknown } {
-  try {
-    if (value === null || typeof value !== "object") return false
-    // SAFETY: The object guard permits reading the optional send member, whose callable representation is checked below.
-    const connector = value as { send?: unknown }
-    return typeof connector.send === "function"
-  }
-  catch {
-    return false
-  }
+function isObject(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
-function formatDiagnosticValue(value: unknown): string {
-  try {
-    return String(value)
-  }
-  catch {
-    return "<unrepresentable>"
-  }
+/** Whether `value` came from `defineChannel()`. */
+export function isChannelDefinition(value: unknown): value is ChannelDefinition {
+  return isObject(value) && value[channelDefinitionBrand] === true
 }
 
-function validateChannelDefinition(value: unknown): asserts value is ChannelDefinition {
-  const definition = value as ChannelDefinition
-  if (!definition || typeof definition !== "object") {
-    throw channelsErrorDiagnostics.CHANNELS_C0001({ message: "`defineOutboundChannel()` expects an object with connectors." })
-  }
+/** Whether the adapter receives webhooks from an HTTP sender, such as `webhook()` or `stripe()`. */
+export function isWebhookChannelAdapter(adapter: unknown): adapter is ChannelAdapter & { webhook: Record<string, unknown> } {
+  return isObject(adapter) && isObject(adapter.webhook)
+}
 
-  let connectors: ChannelDefinition["connectors"]
-  try {
-    connectors = definition.connectors
+export function validateChannelDefinition(value: unknown): asserts value is ChannelDefinitionOptions {
+  if (!isObject(value)) {
+    throw channelsErrorDiagnostics.CHANNELS_C0001({ message: "`defineChannel()` expects an object with an `adapter`." })
   }
-  catch {
-    throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
+  const adapter = value.adapter
+  if (!isObject(adapter) || typeof adapter.kind !== "string" || !adapter.kind.trim()) {
+    throw channelsErrorDiagnostics.CHANNELS_C0007({ message: "`defineChannel()` needs an `adapter` with a non-empty `kind`, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`." })
   }
-
-  let validConnectors = false
-  try {
-    validConnectors = Boolean(connectors) && typeof connectors === "object" && !Array.isArray(connectors)
+  if (adapter.send !== undefined && typeof adapter.send !== "function") {
+    throw channelsErrorDiagnostics.CHANNELS_C0008({ message: `The "${adapter.kind}" adapter \`send\` must be a function.` })
   }
-  catch {
-    validConnectors = false
+  if (value.on === undefined) return
+  if (!isObject(value.on)) {
+    throw channelsErrorDiagnostics.CHANNELS_C0009({ message: "`defineChannel({ on })` expects an object of targets by event name." })
   }
-  if (!validConnectors) {
-    throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
-  }
-
-  let connectorNames: string[]
-  try {
-    connectorNames = Object.keys(connectors)
-  }
-  catch {
-    throw channelsErrorDiagnostics.CHANNELS_C0002({ message: "`defineOutboundChannel()` expects a connectors object." })
-  }
-  if (connectorNames.length === 0) {
-    throw channelsErrorDiagnostics.CHANNELS_C0003({ message: "`defineOutboundChannel()` requires at least one connector." })
-  }
-
-  for (const name of connectorNames) {
-    if (!name) {
-      throw channelsErrorDiagnostics.CHANNELS_C0006({ message: "Channel connector names must be non-empty." })
+  for (const [name, target] of Object.entries(value.on)) {
+    if (!name.trim()) {
+      throw channelsErrorDiagnostics.CHANNELS_C0009({ message: "`defineChannel({ on })` event names must be non-empty." })
     }
-    let connector: unknown
-    try {
-      connector = connectors[name]
+    if (typeof target === "function") {
+      if (!isWebhookChannelAdapter(adapter)) {
+        throw channelsErrorDiagnostics.CHANNELS_C0010({ message: `The \`on\` handler "${name}" needs an adapter that receives webhooks, such as \`webhook()\` or \`stripe()\`. The "${adapter.kind}" adapter sends its messages to the Agent that lists the Channel. Use \`defineChannelTrigger()\` for a custom trigger.` })
+      }
+      continue
     }
-    catch {
-      connector = undefined
+    if (!isObject(target) || typeof target.invoke !== "function") {
+      throw channelsErrorDiagnostics.CHANNELS_C0009({ message: `The \`on\` target "${name}" must be a function or a trigger from \`defineChannelTrigger()\`.` })
     }
-    if (!isConnector(connector)) {
-      throw channelsErrorDiagnostics.CHANNELS_C0004({ message: `Channel connector "${name}" must expose a send function.` })
-    }
-  }
-
-  let defaultConnector: ChannelDefinition["defaultConnector"]
-  try {
-    defaultConnector = definition.defaultConnector
-  }
-  catch {
-    throw channelsErrorDiagnostics.CHANNELS_C0005({ message: "Channel default connector could not be read." })
-  }
-  if (defaultConnector !== undefined && !connectorNames.includes(defaultConnector)) {
-    throw channelsErrorDiagnostics.CHANNELS_C0005({ message: `Channel default connector "${formatDiagnosticValue(defaultConnector)}" is not configured.` })
   }
 }
 
 /**
- * Defines an outbound Channel: a named destination that sends text through one of its connectors.
- * Agent Channel Kinds use `defineChannel()` from `@vite-hub/agent/channels` instead.
+ * Defines a Channel: one connection to a platform, in both directions. Put it in `server/channels/<name>.ts`.
+ * Inbound events go to the targets in `on`, or to the Agent that lists the Channel. `useChannel(name).send()` sends
+ * through the adapter.
+ *
+ * @example
+ * export default defineChannel({
+ *   adapter: stripe(),
+ *   on: { 'checkout.session.completed': event => runQueue('fulfil', event.data) },
+ * })
  */
-export function defineOutboundChannel<
-  TConnectors extends ChannelConnectorMap,
-  TDefault extends keyof TConnectors & string = never,
->(
-  definition: ChannelDefinition<TConnectors, TDefault>,
-): ChannelDefinition<TConnectors, TDefault> {
+export function defineChannel<TAdapter extends ChannelAdapter<never>>(
+  definition: ChannelDefinitionOptions<TAdapter>,
+): ChannelDefinition<TAdapter> {
   validateChannelDefinition(definition)
-  return definition
+  return Object.defineProperty({ ...definition }, channelDefinitionBrand, { value: true }) as ChannelDefinition<TAdapter>
 }
