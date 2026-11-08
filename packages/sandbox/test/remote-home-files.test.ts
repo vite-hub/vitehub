@@ -62,6 +62,14 @@ function fixture(count = 20) {
   return { events, files, initialize, input, open, runtime };
 }
 
+function createDeferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe("remote Sandbox Home files", () => {
   it("overlaps independent uploads within a bounded batch before checking requirements", async () => {
     const { events, files, open, runtime } = fixture();
@@ -94,8 +102,8 @@ describe("remote Sandbox Home files", () => {
 
   it("waits for active uploads before cleaning up a failed boot", async () => {
     const { events, initialize, open, runtime } = fixture();
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
+    const entered = createDeferred();
+    const release = createDeferred();
     const failed = new Error("upload failed");
     let active = 0;
     runtime.writeBinaryFile = async ({ path }) => {
@@ -121,8 +129,8 @@ describe("remote Sandbox Home files", () => {
 
   it("settles uploads and preserves the caller's abort reason before cleanup", async () => {
     const { events, initialize, open, runtime } = fixture();
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
+    const entered = createDeferred();
+    const release = createDeferred();
     const controller = new AbortController();
     const reason = new Error("cancel Sandbox startup");
     let active = 0;
