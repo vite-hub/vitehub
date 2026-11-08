@@ -71,10 +71,10 @@ const items = computed(() => {
         :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
         :loading="copying"
         color="neutral"
-        variant="soft"
+        variant="outline"
         aria-label="Copy page as Markdown"
         class="vh-page-action"
-        :ui="{ leadingIcon: 'text-neutral size-3.5' }"
+        :ui="{ leadingIcon: 'text-muted size-3.5' }"
         @click="copyPage"
       >
         <!-- Both labels share one grid cell, so "Copied" does not change the width or move the menu button. -->
@@ -93,9 +93,9 @@ const items = computed(() => {
         <UButton
           icon="i-lucide-chevron-down"
           color="neutral"
-          variant="soft"
+          variant="outline"
           aria-label="More page actions"
-          class="vh-page-action vh-page-action-more border-l border-muted"
+          class="vh-page-action vh-page-action-more"
         />
       </UDropdownMenu>
     </UFieldGroup>

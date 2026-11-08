@@ -17,6 +17,7 @@ import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vit
 import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import { allowed } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const usageHandler = allowed(usageHandlerRoute)
 
@@ -262,7 +263,7 @@ describe("Default Agent D1 journal read by the Console", () => {
       return { DB: database }
     })
     installD1Journal("/console-d1-usage-cache", { binding: "DB", env })
-    const request = () => usageHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/usage" } })
+    const request = () => usageHandler(consoleEvent({ url: "http://localhost/_vitehub/api/usage" }))
     const requests = [request(), request()]
     try {
       await vi.waitFor(() => expect(env).toHaveBeenCalledTimes(2))
@@ -296,7 +297,7 @@ describe("Default Agent D1 journal read by the Console", () => {
       observations: [observation(5)],
     }
     await db.insert(schema.invocations).values({ id: record.id, status: record.status, agentName: record.agentName, search: "", summary: record, updatedAt: now, record }).run()
-    const request = () => usageHandler({ method: "GET", req: { url: `http://localhost/api/_vitehub/console/usage?agent=${record.agentName}` } })
+    const request = () => usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?agent=${record.agentName}` }))
     let release: (() => void) | undefined
     const ready = new Promise<void>(resolve => { release = resolve })
     const query = index.query.bind(index)

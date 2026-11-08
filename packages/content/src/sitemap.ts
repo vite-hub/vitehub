@@ -28,6 +28,8 @@ export interface ContentSitemapEntry {
   id: string
   /** Absolute URL when a site is known, otherwise the document path. */
   loc: string
+  /** The locale of the page, in a collection with `locales`. */
+  locale?: string
   /** When the published document last changed, as an ISO timestamp. */
   lastmod?: string
 }
@@ -83,33 +85,38 @@ export interface ContentSitemapSource {
 
 /**
  * The sitemap entries of every routable collection: published documents with a URL, without `noindex` and without a
- * canonical URL that points elsewhere. Singletons with a `url` are included. Then the documents of every Source with a
- * `url`.
+ * canonical URL that points elsewhere. A collection with locales lists each published translation, but not the pages
+ * that show the source locale as a fallback. Singletons with a `url` are included. Then the documents of every Source
+ * with a `url`.
  */
 export async function contentSitemapEntries(collections: readonly AnyContentCollection[], site: string | undefined, sources: readonly ContentSitemapSource[] = []): Promise<ContentSitemapEntry[]> {
   const entries: ContentSitemapEntry[] = []
   const seen = new Set<string>()
   for (const collection of collections) {
     if (!collection.routable) continue
-    let cursor: string | undefined
-    do {
-      const page = await collection.list({ ref: "published", limit: 1_000, ...(cursor ? { cursor } : {}) })
-      for (const document of page.items) {
-        if (String(document.url) !== document.url) continue
-        const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
-        const noindex = seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true
-        if (noindex) continue
-        const loc = absolute(document.url, site)
-        const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
-        if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
-        if (seen.has(loc)) continue
-        seen.add(loc)
-        const entry: ContentSitemapEntry = { collection: collection.name, id: document.id, loc }
-        if (document.updatedAt) entry.lastmod = document.updatedAt
-        entries.push(entry)
-      }
-      cursor = page.nextCursor ?? undefined
-    } while (cursor)
+    for (const locale of collection.locales ?? [undefined]) {
+      let cursor: string | undefined
+      do {
+        const page = await collection.list({ ref: "published", limit: 1_000, ...(cursor ? { cursor } : {}), ...(locale === undefined ? {} : { locale }) })
+        for (const document of page.items) {
+          // A locale without a translation shows the source locale page, whose own URL is the one to index.
+          if (document.fallback || String(document.url) !== document.url) continue
+          const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
+          const noindex = seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true
+          if (noindex) continue
+          const loc = absolute(document.url, site)
+          const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
+          if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
+          if (seen.has(loc)) continue
+          seen.add(loc)
+          const entry: ContentSitemapEntry = { collection: collection.name, id: document.id, loc }
+          if (document.locale !== undefined) entry.locale = document.locale
+          if (document.updatedAt) entry.lastmod = document.updatedAt
+          entries.push(entry)
+        }
+        cursor = page.nextCursor ?? undefined
+      } while (cursor)
+    }
   }
   for (const source of sources) {
     for (const document of await source.list()) {
@@ -188,7 +195,7 @@ async function absoluteLinks(markdown: string, site: string | undefined): Promis
 const trimRoute = (route: string) => route.replace(/\/+$/, "") || "/"
 
 /** Find a public Markdown URL when `resolve()` misses a singleton or selects an ineligible collection. */
-async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string } | null> {
+async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string, locale?: string } | null> {
   for (const collection of collections) {
     if (!collection.routable || collection.format !== "markdown") continue
     let cursor: string | undefined
@@ -216,7 +223,7 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   if (!resolved) return null
   const collection = runtime.collection(resolved.collection)
   if (!collection.routable || collection.format !== "markdown") return null
-  const document = await collection.get(resolved.id, { ref: "published" })
+  const document = await collection.get(resolved.id, { ref: "published", ...(resolved.locale === undefined ? {} : { locale: resolved.locale }) })
   if (!document) return null
   const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
   const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)

@@ -170,6 +170,8 @@ export interface AgentInvocationListOptions {
   search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
   triggeredBy?: string
+  /** ISO timestamp; keeps invocations whose `updatedAt` is at or after it. Stores without an index for it may ignore it. */
+  updatedSince?: string
 }
 
 export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">

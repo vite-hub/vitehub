@@ -22,6 +22,7 @@ import { installConsoleDefinitions } from "../src/console/runtime/server/definit
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
+import { requestEvent } from "./console-event.ts"
 
 // SAFETY: Console state uses the same optional symbol keys in runtime and tests.
 const scope = globalThis as ConsoleInvocationScope
@@ -83,7 +84,7 @@ async function call(operation: string, input: Record<string, unknown>, headers: 
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   })
-  const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })({ req: request })
+  const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })(requestEvent(request))
   const body: Record<string, unknown> = Object(await response.json())
   return { body, status: response.status }
 }
@@ -354,7 +355,7 @@ describe("Console access user", () => {
     installConsoleAccess(policy)
     const { readConsoleAccessUser } = await import("../src/console/runtime/server/access.ts")
     const route = withConsoleAccess(async (_event, access) => [await readConsoleAccessUser(access), await readConsoleAccessUser(access)], { anySection: true })
-    await expect(route({ req: new Request("http://localhost/_vitehub") })).resolves.toEqual([{ id: "ada" }, { id: "ada" }])
+    await expect(route(requestEvent(new Request("http://localhost/_vitehub")))).resolves.toEqual([{ id: "ada" }, { id: "ada" }])
     expect(readUser).toHaveBeenCalledOnce()
     await expect(readConsoleAccessUser(Object.freeze({ mode: "auth", sections: "all", user: { id: "forged" } }) as never)).resolves.toBeUndefined()
   })

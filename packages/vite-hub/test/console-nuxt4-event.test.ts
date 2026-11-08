@@ -12,12 +12,15 @@ import envManage from "../src/console/runtime/server/env-manage.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import scheduleRun from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installStandardContext } from "../src/runtime/h3.ts"
+import type { ViteHubStandardProps } from "../src/runtime/h3.ts"
 
 /** The H3 1 event that Nitro 2 gives a Nuxt 4 handler: an own `node` field, a `req` getter that is the Node request, and no `url`. */
 class H3V1Event {
   readonly __is_event__ = true
   readonly context: Record<string, unknown> = {}
   readonly node: { req: Record<string, unknown>, res: Record<string, unknown> }
+  declare readonly "~standard": ViteHubStandardProps
 
   constructor(url: string, init: { body?: string, headers?: Record<string, string>, method?: string } = {}) {
     const body = init.body
@@ -25,6 +28,8 @@ class H3V1Event {
       req: { headers: { host: "app.example.com", ...init.headers }, method: init.method ?? "GET", socket: {}, url, async* [Symbol.asyncIterator]() { if (body) yield new TextEncoder().encode(body) } },
       res: {},
     }
+    // The ViteHub Nitro plugin sets Standard Context on each H3 1 event of Nuxt 4.
+    installStandardContext(this)
   }
 
   get req(): Record<string, unknown> {
@@ -32,7 +37,7 @@ class H3V1Event {
   }
 }
 
-const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }, { authorize: false, index: 1, method: "GET", route: "/api/_vitehub/console/**" }]
+const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }, { authorize: false, index: 1, method: "GET", route: "/_vitehub/api/status" }]
 
 function appAccess() {
   const requireAuthAccessRoutes = vi.fn(async () => undefined)
@@ -54,11 +59,12 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     expect("url" in rpc).toBe(false)
     await access.check(rpc)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(rpc, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
-    await access.check(new H3V1Event("/api/_vitehub/console/status"))
-    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [1], undefined, [], { redirectToSignIn: false, reuse: true })
-    // A route with a method matches only that method; any other Console path needs a session.
-    await access.check(new H3V1Event("/api/_vitehub/console/status", { method: "POST" }))
-    expect(requireSession).toHaveBeenCalledTimes(1)
+    await access.check(new H3V1Event("/_vitehub/api/status"))
+    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [0, 1], undefined, [0], { redirectToSignIn: false, reuse: true })
+    // A route with a method matches only that method.
+    await access.check(new H3V1Event("/_vitehub/api/status", { method: "POST" }))
+    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [0], undefined, [0], { redirectToSignIn: false, reuse: true })
+    expect(requireSession).not.toHaveBeenCalled()
   })
 
   it("reads the Console user from the headers of the Node request", async () => {
@@ -70,7 +76,8 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
 
   it("still reads an H3 2 event", async () => {
     const { access, requireAuthAccessRoutes } = appAccess()
-    const event = { req: new Request("https://app.example.com/_vitehub/rpc/__call", { method: "POST" }), url: new URL("https://app.example.com/_vitehub/rpc/__call") }
+    const event = { req: new Request("https://app.example.com/_vitehub/rpc/__call", { method: "POST" }), res: { headers: new Headers() }, url: new URL("https://app.example.com/_vitehub/rpc/__call") }
+    installStandardContext(event)
     await access.check(event)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
   })
@@ -83,9 +90,9 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     expect(verify).not.toHaveBeenCalled()
     expect((await handleCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub/rpc/__call", { method: "POST" }), settings, "/", verify))?.status).toBe(401)
     expect(await handleCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub", { headers }), settings, "/", verify)).toBeUndefined()
-    const identity = await handleCloudflareAccessConsoleRequest(new H3V1Event("/portal/api/_vitehub/console/auth/identity", { headers }), settings, "/portal/", verify)
+    const identity = await handleCloudflareAccessConsoleRequest(new H3V1Event("/portal/_vitehub/api/auth/identity", { headers }), settings, "/portal/", verify)
     expect(await identity?.json()).toMatchObject({ email: "maintainer@example.com" })
-    expect(await verifyCloudflareAccessConsoleRequest(new H3V1Event("/api/_vitehub/console/status"), settings, verify)).toMatchObject({ status: 401 })
+    expect(await verifyCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub/api/status"), settings, verify)).toMatchObject({ status: 401 })
   })
 
   it("generates a Console plugin that does not read event.url", async () => {
