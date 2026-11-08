@@ -1,9 +1,10 @@
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { AuthAuthorization, AuthDefinition, AuthRequestInput, ViteHubAuth } from "./types.ts"
 
 // The Vite plugin resets this state without loading Better Auth. Keep this module free of provider imports.
 const authRuntimeStateKey = Symbol.for("vitehub.auth.runtime")
 
-export type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
+export type AuthRuntimeEnvResolver = (event?: ViteHubContext) => Record<string, unknown>
 export type AuthAccessIdentityResolver = (request: Request, event: AuthRequestInput, hasSession: boolean) => Promise<AuthAuthorization["user"] | Response | undefined>
 
 export interface AuthRuntimeState {

@@ -13,7 +13,7 @@ export type KVCursorProblem = keyof typeof cursorProblems
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/kv/limits-and-errors",
+  docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
     // Runtime errors. KV operations return them as `[error, undefined]`.
     KV_INVALID_CURSOR: {
@@ -75,6 +75,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
       fix: "Set `kv.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"upstash\", or \"fs-lite\".",
+    },
+    KV_INVALID_STORE_MODE: {
+      why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,
+      fix: "Pass `{ mode: 'read' }` for a read-only handle, or omit `mode` for a writable one.",
     },
     KV_MISSING_DEFAULT_STORE: {
       why: "`kv.stores.default` is missing.",

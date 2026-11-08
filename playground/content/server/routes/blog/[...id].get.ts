@@ -4,8 +4,7 @@ import { contentHead } from "vite-hub/content"
 import { contentField } from "vite-hub/content/client"
 
 import { content } from "../../content"
-
-import type { ContentHead } from "vite-hub/content"
+import { attributes, escape, renderHead } from "../../html"
 
 // The site's own components for the ones that posts declare in server/content.ts.
 const renderMarkdown = createHtmlRenderer({
@@ -53,23 +52,3 @@ ${post.data.summary ? `<p class="summary" ${field("summary")}>${escape(post.data
     headers: { "content-type": "text/html; charset=utf-8" },
   })
 })
-
-/** Without a framework, render the tags that useHead() would add. */
-function renderHead(head: ContentHead): string {
-  const tag = (entry: Record<string, string | undefined>) => Object.entries(entry).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}="${escape(value!)}"`).join(" ")
-  return [
-    head.title ? `<title>${escape(head.title)}</title>` : "",
-    ...head.meta.map(meta => `<meta ${tag({ ...meta })}>`),
-    ...head.link.map(link => `<link ${tag({ ...link })}>`),
-    ...(head.script ?? []).map(script => `<script type="${script.type}">${script.innerHTML}</script>`),
-  ].join("\n")
-}
-
-/** `contentField()` marks the element that renders a Content field. */
-function attributes(record: Record<string, string>): string {
-  return Object.entries(record).map(([name, value]) => `${name}="${escape(value)}"`).join(" ")
-}
-
-function escape(value: string): string {
-  return value.replace(/[&<>"']/g, character => `&#${character.charCodeAt(0)};`)
-}

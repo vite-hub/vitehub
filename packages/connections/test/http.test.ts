@@ -1,3 +1,4 @@
+import { Request as WorkerRequest } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConnectionsRuntime } from "../src/runtime.ts";
@@ -25,10 +26,39 @@ function streamedPost(body: ReadableStream<Uint8Array>): Request {
 }
 
 describe("createConnectionsHandler", () => {
+  it("accepts a host's Web Request without exposing it as an actor event or consuming its body", async () => {
+    const request = new WorkerRequest(`${origin}/_vitehub/connections`, {
+      body: JSON.stringify({ action: "list" }),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    });
+    expect(request).not.toBeInstanceOf(Request);
+    const actor = vi.fn(async () => {
+      expect(request.bodyUsed).toBe(false);
+      await expect(request.clone().json()).resolves.toEqual({ action: "list" });
+      return "user:local" as const;
+    });
+    const handler = createConnectionsHandler({ actor, runtime: () => createTestRuntime().runtime });
+    // SAFETY: Miniflare implements the Web Request API with its host's Fetch types.
+    const response = await handler(request as unknown as Request);
+    expect(response.status).toBe(200);
+    expect(actor).toHaveBeenCalledWith(request, undefined);
+    await expect(response.json()).resolves.toMatchObject({ connections: [{ name: "mail" }] });
+  });
+
   it.each(["", "   ", "/", "//", "connections", "  /  ", "/portal?x", "/portal#section"])("rejects invalid base path %s during setup", (basePath) => {
     expect(() => createConnectionsHandler({ actor: () => "user:local", basePath, runtime: () => createTestRuntime().runtime }))
       .toThrow("Connections basePath")
   })
+
+  it("reads the request of a request event through Standard Context and passes the event to the actor", async () => {
+    const request = post({ action: "unknown" });
+    const event = { "~standard": { vendor: "test", req: request, res: { headers: new Headers() } } };
+    const actor = vi.fn(() => undefined);
+    const handler = createConnectionsHandler({ actor, runtime: () => createTestRuntime().runtime });
+    expect((await handler(event)).status).toBe(403);
+    expect(actor).toHaveBeenCalledWith(request, event);
+  });
 
   it.each([
     () => undefined,
@@ -237,7 +267,7 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_INVALID_STORED_DATA",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
@@ -259,7 +289,7 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_INVALID_STORED_DATA",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
@@ -292,7 +322,7 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_INVALID_STORED_DATA",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not terminate.",
       },
@@ -364,7 +394,7 @@ describe("createConnectionsHandler", () => {
       error: {
         code: "CONNECTIONS_ORIGIN_REJECTED",
         details: { expectedOrigin: "http://agent.example.com", receivedOrigin: "https://agent.example.com" },
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_origin_rejected",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_origin_rejected",
         fix: expect.stringContaining("TLS-terminating proxy"),
         message: "The request Origin https://agent.example.com does not match the server origin http://agent.example.com.",
       },
@@ -607,7 +637,7 @@ describe("createConnectionsHandler", () => {
       expect(html).toContain("<h1>Connection cancelled</h1>");
       expect(html).toContain("Connect again and approve the access that the Connection asks for.");
       expect(html).toContain("CONNECTIONS_AUTHORIZATION_CANCELLED · 400");
-      expect(html).toContain('href="https://vitehub.dev/docs/connections/limits-and-errors#connections_authorization_cancelled"');
+      expect(html).toContain('href="https://vitehub.dev/docs/connections/diagnostics/connections_authorization_cancelled"');
       expect(html).toContain('href="/portal/_vitehub/connections">Back to Connections');
       // A failure waits for the user and never shows the provider's free text.
       expect(html).not.toContain("http-equiv");

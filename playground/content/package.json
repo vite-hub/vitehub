@@ -19,6 +19,7 @@
     "zod": "catalog:runtime"
   },
   "devDependencies": {
+    "@types/node": "catalog:tooling",
     "@vite-hub/cli": "workspace:*",
     "drizzle-kit": "catalog:database",
     "vite": "catalog:vite"

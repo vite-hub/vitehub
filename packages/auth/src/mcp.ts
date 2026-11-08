@@ -17,7 +17,7 @@ import type { BetterAuthPlugin } from "better-auth"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 const mcpErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/auth/limits-and-errors",
+  docs: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
     // Config errors. They throw because the Auth must change.
     AUTH_MCP_OAUTH_MISSING: {
@@ -68,6 +68,12 @@ export interface McpOAuthOptions {
   /** Other `oauthProvider()` options, such as `codeExpiresIn`. They win over the defaults of `mcpOAuth()`. */
   provider?: Partial<OAuthProviderOptions>
 }
+
+/**
+ * The plugins of {@link mcpOAuth}, with their own types, so the typed Auth of a Definition that spreads them has the
+ * JWT and OAuth provider endpoints, such as `api.getJwks`.
+ */
+export type McpOAuthPlugins = [ReturnType<typeof jwt>, ReturnType<typeof oauthProvider>, BetterAuthPlugin]
 
 const baseScopes = ["openid", "profile", "email", "offline_access"]
 const registerPath = "/oauth2/register"
@@ -140,8 +146,8 @@ function registrationLimits(options: McpOAuthOptions): BetterAuthPlugin {
  * access tokens for the resource, and `oauthProvider()` registers clients, shows the login and consent pages, and issues
  * the tokens. Clients register themselves with no `application_type`, and a loopback or private-use redirect makes them
  * native clients. Registration is open, so its body and its fields are bounded. Better Auth's limiter allows 5
- * registrations per minute and IP when it is on, which it is in production. DPoP-bound client registration is refused;
- * these helpers support bearer tokens.
+ * registrations per minute for each client IP. `defineAuth()` turns it on outside a development server, on every host.
+ * DPoP-bound client registration is refused; these helpers support bearer tokens.
  *
  * ```ts [server/auth.ts]
  * import { defineAuth } from "vite-hub/auth"
@@ -153,7 +159,7 @@ function registrationLimits(options: McpOAuthOptions): BetterAuthPlugin {
  * }))
  * ```
  */
-export function mcpOAuth(options: McpOAuthOptions): BetterAuthPlugin[] {
+export function mcpOAuth(options: McpOAuthOptions): McpOAuthPlugins {
   const resources = typeof options.resource === "string" ? [options.resource] : [...options.resource]
   return [
     // By default the plugin signs a token on every session read, which MCP sign-in never uses.
@@ -216,7 +222,7 @@ async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
 const pathOf = (url: string) => new URL(url).pathname.replace(/\/+$/, "")
 
 // SAFETY: `getAuthForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
-const appAuth = (request: Request) => getAuthForRequest(request) as unknown as McpOAuthAuth
+const appAuth = (request: Pick<Request, "headers" | "url">) => getAuthForRequest(request) as unknown as McpOAuthAuth
 
 /** Options of {@link serveMcpOAuthDiscovery}. */
 export interface McpOAuthDiscoveryOptions {
@@ -304,11 +310,14 @@ function banned(user: Record<string, unknown>): boolean {
  * Check the OAuth access token of an MCP request. The signing keys come from the Auth in-process, with no request to the
  * authorization server. The signature algorithm is pinned to the keys, and the issuer, the audience (the resource), and
  * the expiry are checked with 30 seconds of tolerance. The client must still be enabled and, when the token names a
- * session, that session must still exist and be unexpired. Sender-constrained tokens, including DPoP-bound tokens, are
- * rejected even when presented as bearer tokens. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
+ * session, that session must still exist and be unexpired, unless the person granted `offline_access`: that grant is for
+ * use while they are signed out, and Better Auth's refresh grant copies the session of the first sign-in into every
+ * access token it mints. Sender-constrained tokens, including DPoP-bound tokens, are rejected even when presented as
+ * bearer tokens. It reads only the URL and the headers, so pass H3's `event.req` or any value with `url` and `headers`,
+ * and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
  * `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
-export async function verifyMcpRequest(request: Request, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
+export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
   if (!token) return [mcpErrors.AUTH_MCP_TOKEN_MISSING(), undefined]
   const auth = options.auth ?? appAuth(request)
@@ -340,15 +349,16 @@ export async function verifyMcpRequest(request: Request, options: VerifyMcpReque
   const clientId = typeof payload.azp === "string" ? payload.azp : typeof payload.client_id === "string" ? payload.client_id : undefined
   const client = clientId ? await context.adapter.findOne({ model: "oauthClient", where: [{ field: "clientId", value: clientId }] }) : undefined
   if (!isRecord(client) || client.disabled) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the OAuth client does not exist or is disabled." }), undefined]
-  if (typeof payload.sid === "string") {
+  const scope = payload.scope
+  const scopes = typeof scope === "string" ? scope.split(/\s+/).filter(Boolean) : Array.isArray(scope) ? scope.filter((entry): entry is string => typeof entry === "string") : []
+  if (typeof payload.sid === "string" && !scopes.includes("offline_access")) {
     const session = await context.adapter.findOne({ model: "session", where: [{ field: "id", value: payload.sid }] })
     if (!isRecord(session) || !(session.expiresAt instanceof Date) || session.expiresAt.getTime() <= Date.now()) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the session does not exist or has expired." }), undefined]
   }
-  const scope = payload.scope
   return [undefined, {
     clientId,
     clientName: typeof client.name === "string" && client.name ? client.name : undefined,
-    scopes: typeof scope === "string" ? scope.split(/\s+/).filter(Boolean) : Array.isArray(scope) ? scope.filter((entry): entry is string => typeof entry === "string") : [],
+    scopes,
     // SAFETY: `findUserById` returns the Auth user record, and its `id` is checked above.
     user: user as McpCaller["user"],
   }]

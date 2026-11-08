@@ -10,7 +10,7 @@ import { expect, it } from "vitest"
 import { runAgentChannelReplayCli } from "../../agent/src/internal/channel-replay-cli.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../../agent/src/invocation-stream.ts"
 
-it("journals authenticated Vite SSR dry-run replays in the host Console database", async () => {
+it("journals authenticated Vite SSR dry-run replays in the configured Agent journal", async () => {
   // Load the built host integration, as an application does, without typechecking unrelated primitives here.
   const hostEntry = fileURLToPath(new URL("../dist/index.js", import.meta.url))
   const nitroEntry = createRequire(import.meta.url).resolve("nitro/vite")
@@ -18,7 +18,7 @@ it("journals authenticated Vite SSR dry-run replays in the host Console database
   const { vitehub } = await import(hostEntry) as { vitehub: (options: Record<string, unknown>) => PluginOption }
   const root = await mkdtemp(join(tmpdir(), "vitehub-replay-console-"))
   const packageRoot = fileURLToPath(new URL("../../agent", import.meta.url))
-  const databaseUrl = `file:${join(root, "configured-console.sqlite")}`
+  const databaseUrl = `file:${join(root, "configured-journal.sqlite")}`
   let server: Awaited<ReturnType<typeof createServer>> | undefined
   const client = createClient({ url: databaseUrl })
   try {
@@ -46,8 +46,8 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
 `)
     await writeFile(join(root, "authorize.ts"), "export default () => ({ actor: { id: 'test', name: 'Test' }, mode: 'admin' })\n")
     server = await createServer({ root, configFile: false, appType: "custom", logLevel: "silent",
-      plugins: [vitehub({ preset: "node", agent: true, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
-        console: { databaseUrl, auth: false, authorize: "./authorize.ts" },
+      plugins: [vitehub({ preset: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
+        console: { auth: false, authorize: "./authorize.ts" },
       }), nitro()],
       // Initial published SSR-cycle behavior is covered by the separate CLI-discovery PR.
       resolve: { alias: {

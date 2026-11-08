@@ -16,7 +16,6 @@ export interface SandboxTaskRuntimeProvider {
       local: SandboxTaskDefinitionOptions
       provider: SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider }
     } | any,
-    context?: any,
   ) => Promise<ResolvedTaskSandbox>
 }
 

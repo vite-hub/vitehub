@@ -39,7 +39,7 @@ content/
   docs/
     index.md                  → /docs
     guide/
-      .navigation.yml         section title, icon, order, category
+      .navigation.yml         section title, icon, order, category, group, fold
       index.md                → /docs/guide
       install.md              → /docs/guide/install
 ```
@@ -48,6 +48,31 @@ content/
 
 The module reads the folder at build time. In development it watches the folder: a body edit shows on the next page load, and a new page, title, or order restarts the app.
 
+### Multiple sources and Markdown components
+
+Read pages from their original folders with `sources`. It replaces `dir`. Each source can set a public `mount` path, exclude file globs, and adapt frontmatter before schema validation. The module watches every source in development and serves its original Markdown through Nitro server assets.
+
+`sources` configures the site pages, search, and Markdown resources. It does not configure the app-owned `docsAssistant` Agent, whose default Workspace reads `content/**/*.md`. To let the assistant read mapped pages, configure its Workspace sources too, as described in [Docs assistant](#docs-assistant).
+
+```ts
+export default defineNuxtConfig({
+  modules: ["@vite-hub/docs/nuxt"],
+  docs: {
+    base: "/",
+    sources: [
+      { dir: "pages", exclude: ["partials/**"] },
+      { dir: "../packages/zoom/docs", mount: "/zoom" },
+    ],
+    sections: { zoom: { category: "Packages", order: 1 } },
+    components: "./markdown-components.ts",
+  },
+})
+```
+
+`sections` overrides `.navigation.yml` fields by section id. A source's synchronous `frontmatter(data, { file, path, markdown })` callback can supply generated titles or migrate legacy fields. Its return value still passes the full docs schema. `file` stays relative to the source directory; `path` is the public page path.
+
+The `components` module exports a default map of Comark tags to Vue components. Components passed directly to `DocsMarkdown` override that map. Blocks in `components/content/` continue to load on demand, so adding a package's component map needs no renderer override.
+
 ### Frontmatter
 
 | Field | Default | Use |
@@ -55,6 +80,7 @@ The module reads the folder at build time. In development it watches the folder:
 | `title` | Required | Page heading and browser title. |
 | `description` | None | Text under the heading, the meta description, and the llms.txt entry. |
 | `tagline` | `description` | Text under the heading, when it must differ from the meta description. |
+| `eyebrow` | none | A short label above the title, such as the package that the page documents. |
 | `credits` | None | Inline Markdown at the end of the page, such as `Icons from [Lucide](https://lucide.dev).` |
 | `keywords` | None | Words that find the page in search besides its own text: a list, or one string with commas. They rank below the page title and with headings. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
@@ -63,8 +89,8 @@ The module reads the folder at build time. In development it watches the folder:
 | `toc` | `true`, `false` on `landing` | `false` hides the "On this page" outline. |
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
-| `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind }`. |
-| `seo` | None | `{ title, description, image }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. |
+| `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind, panel }`. See [Panels](#panels). |
+| `seo` | None | `{ title, description, image, index }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. `index: false` asks search engines not to index the page. See [Pages that search engines skip](#pages-that-search-engines-skip). |
 
 Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DocsContentError`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
 
@@ -76,7 +102,30 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 | `icon` | Section icon. |
 | `order` | Position in the rail. Lower comes first. |
 | `category` | Rail group and catalog group. List the categories in the `categories` option to order them. |
+| `group` | Title of the group of the section. See `groups`. |
+| `fold` | `true` folds each page group of the sidebar. The group of the current page opens itself. |
 | `related` | Section ids listed under Related in the sidebar. |
+
+### Panels
+
+A long list of pages, such as one page for each error code, would bury the other pages of a section. Set `navigation.panel: true` on the `index.md` of a folder inside the section, and the folder becomes a panel:
+
+- The section sidebar shows one link to the panel, with the number of its pages, after the section pages.
+- On a page of the panel, the sidebar lists only the panel: a link back to the section, the panel Overview, and its pages by `navigation.group`. Each group folds. A page title that is a code, such as `QUEUE_DISABLED`, shows in monospace on one line. Search finds the panel pages by title, so the panel has no filter of its own.
+- The rail keeps the reader in the panel. On `/docs/queue/diagnostics/queue_disabled`, the KV item opens `/docs/kv/diagnostics` when that folder is a panel too, and `/docs/kv` when it is not.
+- Previous and next stay inside the panel.
+
+```md [content/docs/queue/diagnostics/index.md]
+---
+title: Queue diagnostics
+navigation.title: Diagnostics
+navigation.panel: true
+---
+```
+
+### Pages that search engines skip
+
+`seo.index: false` adds `<meta name="robots" content="noindex, follow">` and leaves the page out of `sitemap.xml`, llms.txt, `llms-full.txt`, and the share images. The site search lists it by its title and description only. The build does not prerender the page: the server renders it on request, so a site with thousands of generated pages builds as fast as before. Links to the page stay valid for the link checker, and its raw Markdown copy stays at `/raw/...`. Use it for long tails of thin pages, such as one page for each error code, and keep the page that lists them indexed.
 
 ## Layouts and rails
 
@@ -114,14 +163,17 @@ Most changes are options in `nuxt.config.ts`:
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
+| `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
-| `socials` | `[]` | Community links at the foot of the sidebar. |
+| `socials` | `[]` | Community links in the header on every page, or in its menu on narrow screens. |
+| `footer` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy. |
 | `banner` | None | One line above every docs page. |
-| `github` | `false` | `{ repo, branch, dir }`. Adds GitHub links to the header and the sidebar. |
+| `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link to the header, with the star count when available. |
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
-| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
+| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
+| `seoAudit` | Off | `true` turns on the search check of prerendered pages. The build stops with `DocsSeoError` when a sitemap URL is not a prerendered page, a title or description is missing, shared, or outside 10 to 60 and 70 to 160 characters, a page has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
@@ -134,9 +186,9 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 
 | Component | Part |
 | --- | --- |
-| `AppHeader` | Site header on narrow screens and on pages outside the docs. |
+| `AppHeader` | Site header on every page, with search, GitHub, social links, and the color mode button. |
 | `AppSearch` | The search dialog. |
-| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The section rail, the page sidebar, and its footer. |
+| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The section rail, the page sidebar, and its title. |
 | `DocsPage`, `DocsArticle`, `DocsLanding`, `DocsMarkdown` | The page and its layouts. |
 | `DocsHeaderActions` | Empty. Replace it to add items to the site header, before search. |
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
@@ -161,12 +213,16 @@ export default { plugins: [tabs()] } satisfies DocsParserOptions
 
 Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert`, replaces it. A plugin that adds a tag needs a component for it in `app/components/content/`.
 
-### Theme
+### Design
 
-The theme is black, white, and zinc, with Geist, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
-- `app.config.ts` `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
-- CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--font-sans`, and the Nuxt UI `--ui-*` colors.
+- `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
+- CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
+
+The build also checks cross-page fragments in the final HTML output. Routes excluded by `routeRules` with `prerender: false` or `nitro.prerender.ignore`, including the enabled ViteHub Console, do not need output files: the server can answer them at request time. Files that do exist still have their fragments checked. More specific `prerender: true` rules remain checked.
+
+`docs.linkChecker` accepts `excludeLinks` for intentionally unchecked URLs, `excludePages` for embedded documents, `ignoreFragments` for pages that use the hash as application state, and `redirect(url)` for application redirects. Lists accept exact public paths, globs such as `/blog/**`, or regular expressions; include `app.baseURL` when it is not `/`. The app's `linkChecker.excludeLinks` and `docs.linkChecker.excludeLinks` are combined. `linkChecker: false` disables both checks. For a standalone output check, use `checkDocsLinks({ dir, siteUrl, appBase?, excludeLinks?, excludePages?, ignoreFragments?, redirect?, isRuntimePath? })` from `@vite-hub/docs/server`; `isRuntimePath(pathname)` identifies server routes whose output files may be absent.
 
 ## Agent resources
 
@@ -205,14 +261,14 @@ The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Dat
 - `@` suggests the users of ViteHub Auth when the app has Auth, else the people who wrote in the threads.
 - The Console's Comments section lists the threads.
 
-Turn it off with `docs: { comments: false }`, which also keeps the Console from turning it on. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DocsCommentsSetupError`.
+Turn it off with `docs: { comments: false }`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DocsCommentsSetupError`.
 
 ## Docs assistant
 
 The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs on your ChatGPT plan, so you need no API key: with Codex on Node.js, and with a model-backed Driver in a Cloudflare Worker build.
 
 ```sh
-pnpm add vite-hub @vite-hub/agent @vite-hub/database drizzle-orm @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm @openai/codex
 ```
 
 ```ts
@@ -257,7 +313,9 @@ The Agent and the Connection are app files on purpose. ViteHub discovers Agents 
 
 Set `VITEHUB_CONNECTIONS_KEY` to 32 random bytes in `.env`, start the app, and sign in once with `pnpm vitehub connections connect chatgpt --url http://localhost:3000`. Every page then shows an **Ask** button. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. On wide screens the panel is a column beside the page that you resize from its left edge. On narrow screens it is a sheet. `useDocsAssistant().toggle()` opens the panel from your own control.
 
-The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name. The preset reads `content/` also when `dir` names another folder; then set `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`.
+The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
+
+The preset does not inherit `docs.dir` or `docs.sources`. With another `dir`, import `glob` from `@vite-hub/workspace` and override `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`. With mapped sources, replace the default `pages` Source and add a glob for each mapped folder. Mirror each source's `exclude` as `ignore`, and set each glob's Workspace `mount` to `pages` plus its public mount, such as `pages/zoom`. This keeps file paths aligned with the assistant's page-link instructions. All glob folders must be inside the Workspace's `sourceRootDir`; use a common project root when pages live outside the Nuxt app. Frontmatter adapters apply to site metadata only; the assistant reads the source Markdown.
 
 Limits:
 

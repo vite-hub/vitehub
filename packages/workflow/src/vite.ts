@@ -33,6 +33,7 @@ interface WorkflowNitroConfigOptions {
   projectRoot: string
   serverDirs?: string[]
   transformRegistry?: (code: string, id: string) => string | Promise<string>
+  viteConfig?: UserConfig
 }
 
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
@@ -273,6 +274,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined) {
     return await writeWorkflowDevRegistryFiles({
       definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
+      dev: !startupBuild,
       importBase: internalOptions.importBase,
       projectRoot: rootDir,
       pluginPath: devStartupPlugin,
@@ -280,31 +282,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     })
   }
 
-  /**
-   * A Vite build with Nitro deploys Nitro's Worker, so its Wrangler config needs the Workflow bindings and its entry
-   * the Workflow classes. The Nuxt module does the same through `vitehub.workflow.createNitroConfig`.
-   */
-  let cloudflareInNitro = false
-  async function addCloudflareWorkflowsToNitro(config: UserConfig, nitro: Record<string, unknown>, rootDir: string): Promise<Record<string, unknown>> {
-    if (Reflect.get(config, VITEHUB_NITRO_CONFIG_CONTEXT) === true || !normalizeHosting(internalOptions.hosting).includes("cloudflare")) return nitro
-    const input = { ...nitro, preset: nitro.preset ?? internalOptions.hosting }
-    const configured = await createCloudflareWorkflowNitroConfig({
-      agentImportBase: internalOptions.agentImportBase,
-      includeUserAppEntry: internalOptions.includeUserAppEntry,
-      nitro: input,
-      rootDir,
-      serverDirs,
-      workflow,
-      workflowImportBase: internalOptions.importBase,
-      workspaceDependencyRuntimeImports: internalOptions.workspaceDependencyRuntimeImports,
-      workspaceImportBase: internalOptions.workspaceImportBase,
-    })
-    // No Workflow Definition: keep Nitro's config as it was.
-    if (configured === input) return nitro
-    if (nitro.preset === undefined) delete configured.preset
-    cloudflareInNitro = true
-    return configured
-  }
 
   return {
     name: "@vite-hub/workflow/vite",
@@ -331,7 +308,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         devStartupPlugin = plugin
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addPlugin(plugin, "start")
-        Reflect.set(config, "nitro", startupBuild ? await addCloudflareWorkflowsToNitro(config, kit.config, devRootDir) : kit.config)
+        Reflect.set(config, "nitro", kit.config)
       },
     },
     configureServer(server) {
@@ -454,6 +431,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           }] : [],
           providerOutput: (() => {
           const rootDir = resolveViteHubProjectRoot(resolved?.root ?? process.cwd())
+          const nitro = Reflect.get(resolved ?? {}, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+          const cloudflareInNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
           if (outputs.cloudflare && cloudflareInNitro) return [{ description: "Cloudflare Workflow bindings in Nitro's Wrangler config", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json") }]
           if (outputs.cloudflare) return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
           if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
@@ -462,19 +441,24 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }
       },
       workflow: {
-        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry }: WorkflowNitroConfigOptions) {
-          return await createCloudflareWorkflowNitroConfig({
+        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry, viteConfig }: WorkflowNitroConfigOptions) {
+          if (viteConfig && (Reflect.get(viteConfig, VITEHUB_NITRO_CONFIG_CONTEXT) === true || !normalizeHosting(internalOptions.hosting).includes("cloudflare"))) return nitro
+          const input = viteConfig ? { ...nitro, preset: nitro.preset ?? internalOptions.hosting } : nitro
+          const configured = await createCloudflareWorkflowNitroConfig({
             agentImportBase: internalOptions?.agentImportBase,
-            nitro,
+            nitro: input,
             rootDir: projectRoot,
             serverDirs: nitroServerDirs,
             includeUserAppEntry: internalOptions?.includeUserAppEntry,
-            workflow,
+            workflow: viteConfig ? viteConfig.workflow === undefined ? defaultWorkflow : viteConfig.workflow : workflow,
             workflowImportBase: internalOptions?.importBase,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
             workspaceImportBase: internalOptions?.workspaceImportBase,
             transformRegistry,
           })
+          if (configured === input) return nitro
+          if (viteConfig && nitro.preset === undefined) delete configured.preset
+          return configured
         },
         prepareScheduleRuntime,
       },
@@ -552,6 +536,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }
         const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
         const outputs = resolveWorkflowProviderOutputs(workflowOptions, internalOptions?.hosting)
+        // Read this build's Nitro output instead of retaining an early provider decision across builds.
+        // SAFETY: createNitroConfig installs the named Rollup plugin when Nitro owns the Workflow classes.
+        const nitro = Reflect.get(config, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+        const cloudflareInNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
         // Only Provider Output bundles read retained sources, and a snapshot of every alias root is slow in large apps.
         const retainedSources = !outputs.cloudflare && !outputs.vercel ? { resolve: (path: string) => path } : await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { editViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds, featureSupport } from "@vite-hub/internal/features"
 import { describe, expect, it } from "vitest"
 
@@ -57,13 +58,21 @@ const developerInputs: Record<string, readonly string[]> = {
   "blob.driver": ["--option", "blob.driver=s3", "--option", "blob.bucket=app-assets"],
   "console.auth": ["--option", "console.auth=false"],
   "database.connection": ["--option", "database.connection.url=libsql://example.com"],
+  "logs.source": ["--option", "logs.source=./server/logs.ts"],
   "workspace.store": ["--option", "workspace.store.provider=github", "--option", "workspace.store.repository=owner/repo"],
 }
 
 type AddResult = SetupAddPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string }
 
-async function project(form: HostForm): Promise<string> {
-  return await createProject({ "package.json": manifest, [form.configFile]: await form.config() })
+async function project(form: HostForm, id?: FeatureId): Promise<string> {
+  let code = await form.config()
+  // Netlify supports request Observability, but not Observability for its Agents.
+  if (id === "observability" && form.host === "netlify") {
+    const edited = editViteHubConfig(form.configFile, code, [{ key: "agent", op: "set", value: false }])
+    if (!edited.ok) throw new Error(edited.reason)
+    code = edited.code
+  }
+  return await createProject({ "package.json": manifest, [form.configFile]: code })
 }
 
 async function add(args: readonly string[], root: string) {
@@ -117,7 +126,7 @@ describe.each(forms)("setup commands on $host ($framework)", (form) => {
     const results: Record<string, string> = {}
     for (const id of featureIds) {
       const support = featureSupport(id, form.host)
-      const root = await project(form)
+      const root = await project(form, id)
       const before = await readFile(join(root, form.configFile), "utf8")
 
       if (support.level === "unsupported") {

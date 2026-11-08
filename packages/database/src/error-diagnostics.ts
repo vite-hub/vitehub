@@ -51,7 +51,7 @@ function describeContributionTarget({ choices = [], database, dialect, reason, s
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/database/limits-and-errors",
+  docs: "https://vitehub.dev/docs/database/diagnostics",
   codes: {
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
     DATABASE_D1_INVALID_RESPONSE: {
@@ -143,6 +143,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_INVALID_OPTIONS: {
       why: ({ path }: { path: string }) => `\`${path}\` must be a plain object.`,
       fix: "Pass an object literal, for example `defineDatabase({ schema: { notes } })`.",
+    },
+    DATABASE_INVALID_REMOTE: {
+      why: "`defineDatabase().remote` must be `true` or `false`.",
+      fix: "Set `remote: true` to query the real D1 database in `vite dev`, or remove `remote` to keep local SQLite.",
+    },
+    DATABASE_REMOTE_CONFLICT: {
+      why: ({ database }: { database: string }) => `The database "${database}" sets \`remote: false\`, but \`cloudflare.http\` sends \`vite dev\` queries to the remote D1 database.`,
+      fix: "Remove `remote: false` to keep D1 over HTTP, or remove `cloudflare.http` from the Definition and the integration to use local SQLite in `vite dev`.",
     },
     DATABASE_UNKNOWN_OPTION: {
       why: ({ dialect, option }: { dialect?: "postgresql", option: string }) => dialect

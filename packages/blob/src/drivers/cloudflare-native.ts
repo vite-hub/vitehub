@@ -57,6 +57,8 @@ function toDriverMultipartUpload(upload: R2MultipartUploadLike): BlobDriverMulti
 }
 
 export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike | undefined {
+  // With `remote: true`, `vite dev` uses the real bucket through the R2 API, not the dev runner's local binding.
+  if (options.remote) return undefined
   // SAFETY: Cloudflare installs configured R2 buckets as globals; Object.hasOwn excludes inherited values before accessing that binding.
   return getActiveCloudflareBinding<R2BucketLike>(options.binding)
     || (Object.hasOwn(globalThis, options.binding) ? (globalThis as Record<string, unknown>)[options.binding] as R2BucketLike | undefined : undefined)
@@ -169,6 +171,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       }
       catch (error) {
         // R2 throws InvalidRange (10039) for a range past the end. The caller answers 416 from the size.
+        // provider-message-match: the R2 binding has no code property. Its code is only at the end of the message.
         if (!range || !(error instanceof Error) || !error.message.includes("(10039)")) throw error
         object = await getBucket(options).head(pathname)
         if (!object) return null
