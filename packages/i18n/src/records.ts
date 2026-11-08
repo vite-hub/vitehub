@@ -146,7 +146,7 @@ export function saveTranslation(root: string, locale: string, message: MessageRe
 export function importTranslation(root: string, locale: string, message: MessageRef, text: string, input: ReviewInput & { expected: string | null }): Promise<ReviewTransition> {
   return review(root, locale, message, (current, segment) => {
     // Repeated imports may have an older baseline. Decide whether they change anything under the same lock as edits.
-    if (current && isVisible(current) && current.text === text) return { ok: false, code: "unchanged", message: "The translation is unchanged." }
+    if (current && isVisible(current) && current.text === text) return { ok: false, code: "unchanged", message: "The translation is unchanged.", errors: [] }
     return editRecord(current, { ...input, segment, text })
   })
 }

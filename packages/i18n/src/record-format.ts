@@ -32,11 +32,21 @@ export interface MessageSegment {
 
 const positionalRe = /(?<!\\)\{(\d+)\}/g
 
+type TagCounts = Map<string, { min: number, max: number }>
+
+/** Sequential messages add occurrences; ICU alternatives take their minimum and maximum. */
+function addTagCounts(target: TagCounts, counts: TagCounts) {
+  for (const [tag, count] of counts) {
+    const previous = target.get(tag)
+    target.set(tag, { min: (previous?.min ?? 0) + count.min, max: (previous?.max ?? 0) + count.max })
+  }
+}
+
 /** Read ICU arguments and rich-text components from the messages that Lingui will render. */
 function messagePlaceholders(message: string) {
   const names = new Set<string>()
-  const visit = (tokens: CompiledMessage, parents: string[]): { parents: string[], tags: Set<string> } => {
-    const tags = new Set<string>()
+  const visit = (tokens: CompiledMessage, parents: string[]): { parents: string[], tags: TagCounts } => {
+    const tags: TagCounts = new Map()
     for (const token of tokens) {
       if (typeof token === "string") {
         for (const [, closing, name, empty] of token.matchAll(/<(\/?)(\d+)(\/?)>/g)) {
@@ -46,7 +56,7 @@ function messagePlaceholders(message: string) {
           else {
             const placeholder = empty ? `Rich-text tag <${name}/>` : `Rich-text tag <${name}>...</${name}>`
             names.add(placeholder)
-            tags.add(placeholder)
+            addTagCounts(tags, new Map([[placeholder, { min: 1, max: 1 }]]))
             if (!empty) parents.push(name!)
           }
         }
@@ -55,16 +65,23 @@ function messagePlaceholders(message: string) {
       names.add(`ICU argument {${token[0]}}`)
       if (token[1] === "plural" || token[1] === "select" || token[1] === "selectordinal") {
         let next: string[] | undefined
-        let common: Set<string> | undefined
+        const branches: TagCounts[] = []
         for (const branch of Object.values(token[2] as CompiledIcuChoices)) {
           if (!Array.isArray(branch)) continue
           const result = visit(branch, [...parents])
           if (next && next.join(",") !== result.parents.join(",")) throw new Error("Unbalanced rich-text tags across ICU choices")
           next = result.parents
-          common = common ? new Set([...common].filter(tag => result.tags.has(tag))) : result.tags
+          branches.push(result.tags)
         }
         parents = next ?? parents
-        for (const tag of common ?? []) tags.add(tag)
+        const choices: TagCounts = new Map()
+        for (const tag of new Set(branches.flatMap(branch => [...branch.keys()]))) {
+          choices.set(tag, {
+            min: Math.min(...branches.map(branch => branch.get(tag)?.min ?? 0)),
+            max: Math.max(...branches.map(branch => branch.get(tag)?.max ?? 0)),
+          })
+        }
+        addTagCounts(tags, choices)
       }
     }
     return { parents, tags }
@@ -82,8 +99,11 @@ export function validateMessagePlaceholders(source: string, text: string): Valid
     return [
       ...[...required.names].filter(name => !translated.names.has(name)).map((name): ValidationIssue => ({ code: "missing-placeholder", message: `${name} is missing` })),
       ...[...translated.names].filter(name => !required.names.has(name)).map((name): ValidationIssue => ({ code: "unknown-placeholder", message: `Unknown ${name}` })),
-      // A tag present on every source path must survive every translated choice, too.
-      ...[...required.tags].filter(tag => translated.names.has(tag) && !translated.tags.has(tag)).map((tag): ValidationIssue => ({ code: "missing-placeholder", message: `${tag} is missing from an ICU choice` })),
+      // Preserve occurrence counts, both on every source path and on paths that repeat a component.
+      ...[...required.tags].filter(([tag, count]) => {
+        const actual = translated.tags.get(tag)
+        return actual && (actual.min < count.min || actual.max < count.max)
+      }).map(([tag]): ValidationIssue => ({ code: "missing-placeholder", message: `${tag} has missing occurrences` })),
     ]
   }
   catch (error) {
