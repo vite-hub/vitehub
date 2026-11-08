@@ -389,7 +389,7 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
  */
 export interface ContentRuntimeList {
   <TName extends keyof ContentRegistry & string>(names: TName | readonly TName[]): Promise<ContentListFile<SourceData<TName>>[]>
-  <TData extends Record<string, unknown> = RegistryData>(names?: string | readonly string[]): Promise<ContentListFile<TData>[]>
+  (names?: string | readonly string[]): Promise<ContentListFile<RegistryData>[]>
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
