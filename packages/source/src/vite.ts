@@ -31,6 +31,9 @@ const contentPreviewEntry = ".vitehub/content/preview.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
 const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
+const contentTypesPluginEntry = ".vitehub/content/types.mjs"
+// The Content types plugin writes this file in development. `.vitehub/types.d.ts` references every file in `.vitehub/types`.
+const contentTypesEntry = ".vitehub/types/content.d.ts"
 // Auth owns this virtual module. Generated routes import it only when Auth is enabled.
 const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
@@ -141,6 +144,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentTypesPluginEntry,
   ]
   for (const entry of fixedEntries) {
     const path = resolve(projectRoot, entry)
@@ -175,6 +179,7 @@ async function restoreGeneratedSourceArtifacts(
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentTypesPluginEntry,
   ]) {
     const path = resolve(projectRoot, entry)
     if (!snapshot.files.has(path)) await rm(path, { force: true })
@@ -1152,8 +1157,10 @@ async function writeContentArtifact(
   const sitemap = resolve(options.projectRoot, contentSitemapEntry)
   const robots = resolve(options.projectRoot, contentRobotsEntry)
   const markdown = resolve(options.projectRoot, contentMarkdownEntry)
+  const typesPlugin = resolve(options.projectRoot, contentTypesPluginEntry)
+  const types = resolve(options.projectRoot, contentTypesEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, typesPlugin, types].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -1181,6 +1188,17 @@ async function writeContentArtifact(
     handlers.push({ handler: preview, plugin: true })
   }
   else await rm(preview, { force: true })
+  // A Nitro plugin: writes the types of `content.get()`, `content.list()`, and `content.query()` in development.
+  await writeFileIfChanged(typesPlugin, [
+    `import { defineContentTypesPlugin } from ${importBase}`,
+    "",
+    "// A production build drops this branch, so the server does not load Content at startup.",
+    `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).content, ${JSON.stringify(types)}, { moduleName: ${importBase} }) : () => {}`,
+    "",
+  ].join("\n"))
+  handlers.push({ handler: typesPlugin, plugin: true })
+  // Until the first development server writes the types, an empty file keeps the reference in `.vitehub/types.d.ts`.
+  if (!await readFile(types, "utf8").then(() => true, () => false)) await writeFileIfChanged(types, "export {}\n")
   if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
   // `defineContent({ seo: { sitemap, robots, markdown } })` adds the site-wide SEO routes. Markdown copies sit at
   // every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware.

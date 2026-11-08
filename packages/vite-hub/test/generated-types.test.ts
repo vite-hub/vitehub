@@ -725,6 +725,9 @@ describe("framework generated types", () => {
       handler: join(root, ".vitehub/content/preview.mjs"),
       plugin: true,
     }, {
+      handler: join(root, ".vitehub/content/types.mjs"),
+      plugin: true,
+    }, {
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
     }])
@@ -755,7 +758,18 @@ describe("framework generated types", () => {
     const nitroApp = { fetch: () => "next" }
     previewPlugin(nitroApp)
     expect(nitroApp.fetch()).toBe("next")
-    const generatedModule: unknown = await import(pathToFileURL(handlers[1]!.handler).href)
+    await expect(readFile(join(root, ".vitehub/content/types.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineContentTypesPlugin } from "vite-hub/content"`,
+        ``,
+        `// A production build drops this branch, so the server does not load Content at startup.`,
+        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).content, ${JSON.stringify(join(root, ".vitehub/types/content.d.ts"))}, { moduleName: "vite-hub/content" }) : () => {}`,
+        ``,
+      ].join("\n"),
+    )
+    // Until a development server writes the types, `.vitehub/types.d.ts` references an empty file.
+    await expect(readFile(join(root, ".vitehub/types/content.d.ts"), "utf8")).resolves.toBe("export {}\n")
+    const generatedModule: unknown = await import(pathToFileURL(handlers[2]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
     if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
     const nodeRequest = new IncomingMessage(new Socket())

@@ -17,6 +17,7 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
+import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
 import { contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
@@ -63,6 +64,10 @@ import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
+export { defineContentTypesPlugin, generateContentTypes } from "./types.ts"
+export type { ContentTypesHost, ContentTypesOptions } from "./types.ts"
+/** Comark's registry interfaces. Generated Content types extend them through this module. */
+export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBase } from "comark-content"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
@@ -378,9 +383,18 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
 }
 
+/**
+ * `content.list()` with one name or a list of names. Generated Content types in `.vitehub/types/content.d.ts` type the
+ * `data` of a named source or collection.
+ */
+export interface ContentRuntimeList {
+  <TName extends keyof ContentRegistry & string>(names: TName | readonly TName[]): Promise<ContentListFile<SourceData<TName>>[]>
+  <TData extends Record<string, unknown> = RegistryData>(names?: string | readonly string[]): Promise<ContentListFile<TData>[]>
+}
+
 /** Named-source operations retained across the Comark instance API migration. */
 export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search" | "media"> & {
-  list(names?: string | string[]): ReturnType<ContentHub["list"]>
+  list: ContentRuntimeList
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
@@ -627,7 +641,8 @@ export function defineContent<
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts)) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
     handler: fresh((target, request: Request) => target.handler(request)),
-    list: fresh((target, names?: string | string[]) => target.list(Array.isArray(names) ? names : names ? [names] : undefined)),
+    // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
+    list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat())) as ContentRuntimeList,
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
     async dispose() {
       documentsRuntime?.dispose()
