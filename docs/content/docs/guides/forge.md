@@ -9,7 +9,7 @@ icon: i-lucide-git-pull-request
 
 `useForge()` gives server code one Forge identity. With a GitHub App, it signs the App JWT, finds the installation of a repository, and mints installation tokens. You do not write JWT or token code.
 
-`useForge()` reads the same env names as the GitHub Channel, the Workspace GitHub store, and GitHub Sources. Set the names once, and every part of the app acts as the same App.
+`useForge()` and the GitHub Channel read the same App credentials. The Workspace GitHub store and GitHub Sources read only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`); they do not mint App installation tokens. Set a token separately when these consumers need private-repository access.
 
 ## Install
 
@@ -31,7 +31,7 @@ pnpm add @vite-hub/forge
 | `VITEHUB_GITLAB_TOKEN`, `VITEHUB_GITLAB_BASE_URL` | GitLab. |
 | `VITEHUB_FORGEJO_TOKEN`, `VITEHUB_FORGEJO_BASE_URL` | Forgejo and Gitea. |
 
-When `VITEHUB_GITHUB_APP_ID` is set, GitHub calls use the App. Otherwise they use `VITEHUB_GITHUB_TOKEN`. Each variable also has a `FORGES_` name, such as `FORGES_GITHUB_APP_ID`, which the `forges` library reads. `GH_TOKEN` and `GITHUB_TOKEN` are not read.
+When `VITEHUB_GITHUB_APP_ID` is set, `useForge()` uses the App. Otherwise it uses `VITEHUB_GITHUB_TOKEN`. Each variable also has a `FORGES_` name, such as `FORGES_GITHUB_APP_ID`, which the `forges` library reads. `GH_TOKEN` and `GITHUB_TOKEN` are not read.
 
 `useForge()` reads the bindings of the active Cloudflare request, then `process.env`. To read another source, pass `env`, for example `useForge({ env: process.env })`.
 
@@ -48,7 +48,7 @@ export default defineEventHandler(async () => {
   if (error) throw createError({ status: 502, message: error.why })
 
   const { data } = await github.request<{ html_url: string }>('POST', '/repos/acme/web/issues', {
-    json: { title: 'Nightly build failed' },
+    body: { title: 'Nightly build failed' },
   })
   return { url: data.html_url }
 })

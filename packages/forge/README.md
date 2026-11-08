@@ -7,6 +7,8 @@
 
 `@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab or Forgejo token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link).
 
+The GitHub Channel can use the same App credentials. The Workspace GitHub store and GitHub Sources use only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`); they do not mint App installation tokens.
+
 ## Use it in an app
 
 ```bash
@@ -21,7 +23,7 @@ import { useForge } from "vite-hub/forge"
 const forge = useForge()
 const [error, github] = await forge.provider({ repository: "acme/web" })
 if (error) throw error
-await github.request("POST", "/repos/acme/web/issues", { json: { title: "Nightly build failed" } })
+await github.request("POST", "/repos/acme/web/issues", { body: { title: "Nightly build failed" } })
 ```
 
 | Call | Returns |

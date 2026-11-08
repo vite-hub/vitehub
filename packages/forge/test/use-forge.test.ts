@@ -170,7 +170,7 @@ describe("useForge() with a GitHub App", () => {
     expect(error).toMatchObject({
       code: "FORGE_APP_NOT_INSTALLED",
       why: "The GitHub App is not installed on acme/private.",
-      docs: "https://vitehub.dev/docs/guides/forge#forge_app_not_installed",
+      docs: "https://vitehub.dev/docs/agents/diagnostics/forge_app_not_installed",
     })
   })
 
