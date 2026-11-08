@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed } from "vue";
+import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
 
 const props = defineProps<{
   cost?: string;
@@ -31,28 +32,6 @@ defineEmits<{
   refresh: [];
   toggleDetails: [];
 }>();
-
-const linkCopy = ref<"copied" | "failed">();
-let linkCopyTimer: ReturnType<typeof setTimeout> | undefined;
-const linkCopyLabel = computed(() =>
-  linkCopy.value === "copied" ? "Link copied" : linkCopy.value === "failed" ? "Could not copy link" : "Copy session link",
-);
-
-async function copySessionLink(): Promise<void> {
-  try {
-    if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(window.location.href);
-    linkCopy.value = "copied";
-  } catch {
-    linkCopy.value = "failed";
-  }
-  if (linkCopyTimer) clearTimeout(linkCopyTimer);
-  linkCopyTimer = setTimeout(() => (linkCopy.value = undefined), 2_000);
-}
-
-onBeforeUnmount(() => {
-  if (linkCopyTimer) clearTimeout(linkCopyTimer);
-});
 </script>
 
 <template>
@@ -88,17 +67,7 @@ onBeforeUnmount(() => {
       </UTooltip>
     </template>
     <template #right>
-      <span class="sr-only" role="status" aria-live="polite">{{ linkCopy ? linkCopyLabel : "" }}</span>
-      <UTooltip v-if="hasSelection" :text="linkCopyLabel">
-        <UButton
-          :icon="linkCopy === 'copied' ? 'i-lucide-check' : 'i-lucide-link'"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-label="linkCopyLabel"
-          @click="copySessionLink"
-        />
-      </UTooltip>
+      <ConsoleSessionCopyLink v-if="hasSelection" />
       <UTooltip v-if="externalUrl && externalTarget" :text="externalTarget.label">
         <UButton
           :to="externalUrl"

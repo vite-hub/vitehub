@@ -21,6 +21,14 @@ const sessionNavbar = readFileSync(
   new URL("../src/console/runtime/components/console-session-navbar.vue", import.meta.url),
   "utf8",
 );
+const sessionCopyLink = readFileSync(
+  new URL("../src/console/runtime/components/console-session-copy-link.vue", import.meta.url),
+  "utf8",
+);
+const agentSession = readFileSync(
+  new URL("../src/console/runtime/components/console-agent-session.vue", import.meta.url),
+  "utf8",
+);
 
 it("uses the Usage Agent filter when opening the sessions panel", () => {
   expect(consolePage).toContain("resolveUsageSessionsAgent(route.query, selectedAgentName.value)");
@@ -51,9 +59,10 @@ it("loads session filter values only for the filter menu or an active filter", (
 });
 
 it("copies the session link and jumps from tool rows to calls", () => {
-  expect(sessionNavbar).toContain('<UTooltip v-if="hasSelection" :text="linkCopyLabel">');
-  expect(sessionNavbar).toContain("navigator.clipboard.writeText(window.location.href)");
-  expect(sessionNavbar).toContain('role="status" aria-live="polite"');
+  expect(sessionNavbar).toContain('<ConsoleSessionCopyLink v-if="hasSelection" />');
+  expect(agentSession).toContain("<ConsoleSessionCopyLink />");
+  expect(sessionCopyLink).toContain("navigator.clipboard.writeText(window.location.href)");
+  expect(sessionCopyLink).toContain('role="status" aria-live="polite"');
   expect(sessionInspector).toContain(`<AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" @select-activity="emit('focusActivity', $event)" />`);
 });
 

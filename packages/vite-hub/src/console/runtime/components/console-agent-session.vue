@@ -7,6 +7,7 @@ import {
 } from "@vite-hub/ui/agent-session";
 import { computed, onMounted, ref, watch } from "vue";
 import { AgentInvocation, invocationActivities, type AgentInvocationView } from "./invocation";
+import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSessionLoading from "./console-session-loading.vue";
 import ConsoleState from "./console-state.vue";
@@ -134,6 +135,7 @@ const changedFiles = computed(() => {
     </template>
 
     <template #actions>
+      <ConsoleSessionCopyLink />
       <slot name="actions" />
     </template>
 
