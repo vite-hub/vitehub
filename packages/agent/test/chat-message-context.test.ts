@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { telegram } from "../src/channels.ts"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMessage } from "../src/messages.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 
@@ -273,7 +274,7 @@ describe("chat trigger message context", () => {
     const overBudgetHistory = vi.fn(async () => new Uint8Array([7, 8, 9, 10]))
     const current = vi.fn(async () => new Uint8Array([1, 2, 3]))
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       context: { channel: { message: { id: "current", text: "" } } },
       messages: [
         createMessage({ id: "older", parts: [{ fetchData: failingHistory, mediaType: "image/jpeg", type: "image" }, { text: "older", type: "text" }], role: "user" }),
