@@ -1507,7 +1507,8 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.runDevToolsCustomTabsHook()).toEqual([])
   })
 
-  // Nitro's Vercel preset turns each route into a function path, so `//_vitehub/...` became the absolute path `/_vitehub`.
+  // Nitro adds its `baseURL`, which Nuxt sets to `app.baseURL`, to every route, asset, and route rule. A route that
+  // already has the base answers at `/portal/portal/_vitehub`. The Vercel preset turned `//_vitehub/...` into `/_vitehub`.
   it.each([["/", ""], ["/portal/", "/portal"]])("mounts every Console route once below Nuxt app.baseURL %s", async (baseURL, mount) => {
     const production = createNuxt(false)
     Object.assign(production.nuxt.options, { app: { baseURL } })
@@ -1517,8 +1518,41 @@ describe("ViteHub Nuxt integration", () => {
     const { handlers, publicAssets } = nitroOptions(production.nuxt) as { handlers: Array<{ route: string }>, publicAssets: Array<{ baseURL?: string }> }
     const paths = [...handlers.map(handler => handler.route), ...publicAssets.map(asset => asset.baseURL)]
     expect(paths.filter(path => path?.includes("//"))).toEqual([])
-    expect(handlers).toContainEqual(expect.objectContaining({ route: `${mount}/_vitehub/page/session` }))
-    expect(publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${mount}/_vitehub/page/assets` }))
+    if (mount) expect(paths.filter(path => path?.startsWith(mount))).toEqual([])
+    expect(handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/page/session" }))
+    expect(handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
+    expect(publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/page/assets" }))
+    expect(Object.keys(production.nuxt.options.routeRules ?? {})).toEqual(expect.arrayContaining(["/_vitehub", "/_vitehub/**"]))
+    // Nitro's prerender crawler can see a link with its base, so that form stays ignored too.
+    expect(nitroOptions(production.nuxt).prerender).toMatchObject({ ignore: expect.arrayContaining([`${mount}/_vitehub`]) })
+  })
+
+  it.each([false, true])("preserves Console token preflights below the Nuxt base after config replay (dev: %s)", async (dev) => {
+    const application = createNuxt(dev)
+    Object.assign(application.nuxt.options, { app: { baseURL: "/portal/" } })
+    await viteHubNuxtModule({
+      console: { auth: "token", origins: ["https://console.example.com"] },
+      preset: "node",
+    }, application.nuxt)
+
+    const config = nitroOptions(application.nuxt)
+    const assertRoutes = () => {
+      const plugins = config.plugins as string[]
+      expect(plugins.filter(plugin => plugin.endsWith("/server/console-preflight.js"))).toHaveLength(1)
+      expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/_vitehub/rpc/**", "/_vitehub/mcp", "/_vitehub"]))
+      expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/portal"))).toEqual([])
+      expect(config.prerender).toMatchObject({ ignore: expect.arrayContaining(["/_vitehub", "/portal/_vitehub"]) })
+    }
+    try {
+      assertRoutes()
+      await application.runNitroConfigHook(config)
+      assertRoutes()
+      await application.runNitroConfigHook(config)
+      assertRoutes()
+    }
+    finally {
+      await application.runCloseHook()
+    }
   })
 
   it("keeps resolved Nuxt features when applying the effective KV configuration", async () => {
@@ -2676,8 +2710,8 @@ describe("ViteHub Nuxt integration", () => {
       const signIn = handlers.filter(handler => handler.handler.endsWith("/server/sign-in.js"))
       expect(signIn).toHaveLength(2)
       expect(signIn).toEqual(expect.arrayContaining([
-        expect.objectContaining({ middleware: true, route: `${mount}/_vitehub` }),
-        expect.objectContaining({ middleware: true, route: `${mount}/_vitehub/**` }),
+        expect.objectContaining({ middleware: true, route: "/_vitehub" }),
+        expect.objectContaining({ middleware: true, route: "/_vitehub/**" }),
       ]))
       for (const handler of signIn) {
         expect(handlers.indexOf(handler)).toBeLessThan(handlers.findIndex(candidate => candidate.handler === authHandler.handler))
@@ -2690,7 +2724,7 @@ describe("ViteHub Nuxt integration", () => {
         expect(handler).not.toHaveProperty("method")
         expect(handlers.indexOf(handler)).toBeLessThan(handlers.findIndex(candidate => candidate.handler === authHandler.handler))
       }
-      expect(handlers).toContainEqual(expect.objectContaining({ route: `${mount}/_vitehub/rpc/**` }))
+      expect(handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
       await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('signInPage: "/sign-in"')
     }
     finally {
@@ -2779,7 +2813,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(config.alias).toMatchObject({ "#vitehub/console/connections-actor": actor })
   })
 
-  it("mounts independent Console Auth below the Nuxt app base URL", async () => {
+  it("mounts independent Console Auth below the Nitro base, which is the Nuxt app base URL", async () => {
     const production = createNuxt(false)
     Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
     await viteHubNuxtModule({
@@ -2802,11 +2836,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(middleware).toContain('const mountBase = "/portal"')
     expect(middleware).toContain("path === '/_vitehub/sign-in'")
     expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env"], true)`)
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/_vitehub/api/auth/**")
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/_vitehub/sign-in")
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/api/auth/**")
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
     // The routes load on their first request; the middleware runs on every request, so it loads at startup.
     const handlers = nitroOptions(production.nuxt).handlers as Array<{ route: string, lazy?: boolean, middleware?: boolean }>
-    for (const route of ["/portal/_vitehub/sign-in", "/portal/_vitehub/api/auth/**", "/portal/_vitehub/api/client.js"])
+    for (const route of ["/_vitehub/sign-in", "/_vitehub/api/auth/**", "/_vitehub/api/client.js"])
       expect(handlers.filter(handler => handler.route === route)).toEqual([expect.objectContaining({ lazy: true })])
     expect(handlers.find(handler => handler.middleware)).not.toHaveProperty("lazy", true)
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toEqual(expect.arrayContaining([
@@ -2817,7 +2851,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     ]))
   })
 
-  it("mounts the standalone Console page and assets below the Nuxt app base URL", async () => {
+  it("mounts the standalone Console page and assets below the Nitro base, which is the Nuxt app base URL", async () => {
     const production = createNuxt(false)
     Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
     await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, production.nuxt)
@@ -2826,8 +2860,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const config = nitroOptions(production.nuxt)
     expect(production.nuxt.options.vite).toHaveProperty("__vitehubAppBaseURL", "/portal/")
     expect(mocks.objectHook).toHaveBeenCalledWith(expect.objectContaining({ __vitehubAppBaseURL: "/portal/" }), expect.anything())
-    expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/portal/_vitehub", "/portal/_vitehub/**"]))
-    expect(config.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }))
+    expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/_vitehub", "/_vitehub/**"]))
+    expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/portal"))).toEqual([])
+    expect(config.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/assets" }))
     const plugin = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(plugin).toContain('installConsolePageTool(nitroApp, { base: "/portal/" })')
   })
