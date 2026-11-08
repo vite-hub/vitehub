@@ -186,7 +186,7 @@ export async function viteHubDevPeerDevHandler(event: DevPeerEvent): Promise<voi
 }
 
 /**
- * Sign a WebSocket upgrade in the front process. Nitro 2 and Nitro 3 dev servers hand an upgrade to the worker without
+ * Sign a WebSocket upgrade in the front process. Nitro 3 dev servers hand an upgrade to the worker without
  * their dev handlers, and Node calls `upgrade` listeners one after another without waiting, so this signs at once with
  * `node:crypto`. It signs only in a process that {@link addViteHubDevPeerDevHandler} gave a key.
  */

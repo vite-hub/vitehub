@@ -446,7 +446,7 @@ async function publishAll(): Promise<void> {
 }
 
 .vitehub-dashboard-row:focus-visible {
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--vitehub-console-focus);
   outline-offset: -2px;
 }
 
