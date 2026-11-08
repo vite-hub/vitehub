@@ -33,6 +33,8 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | Codemod | Moves |
 | --- | --- |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
+| `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
+| `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 
 ## `nuxt-safe-runtime-config`
 
@@ -54,6 +56,22 @@ The report lists what Env cannot express and what the codemod could not rewrite:
 ```sh
 corepack pnpm exec vp run codemods:e2e
 ```
+
+## `t3-env`
+
+The codemod finds the file that calls `createEnv()` from `@t3-oss/env-nuxt`, loads its Valibot, Zod 3, Zod 4, or ArkType schemas without validating the current environment, and declares one value per variable under `vitehub.env`. Each declaration reads the original variable with `env.source()`. `DATABASE_URL` becomes `useServerEnv().databaseUrl`, and `NUXT_PUBLIC_SITE_URL` becomes `usePublicEnv().siteUrl`. Credential-like server names become `secret: true`.
+
+It rewrites `env.KEY` reads in files that import the env module, through relative paths or the `~`, `~~`, `@`, `@@`, `#shared`, and `#server` aliases. Server reads become `useServerEnv().key`, with `.unseal()` on required secrets and `?.unseal()` on optional secrets so the code keeps the raw string or `undefined`, and public reads become `usePublicEnv().key`. It removes the `import './env'` that validated the env module from `nuxt.config`.
+
+When no file imports the env module after the rewrite, the codemod deletes it and removes `@t3-oss/env-nuxt`. A file that runs outside Nuxt, such as `drizzle.config.ts`, keeps both, and the report names it. The report also lists what Env does not keep: formats, lengths, patterns, transforms, unions, server reads in browser code, template reads, and `createEnv()` options such as `skipValidation`.
+
+The migration copies the schema's value shape. Parser behavior needs manual review. The report always asks you to check every migrated variable with missing and invalid values. Coercion, catch fallbacks, refinements, and transforms need manual review, including wrappers that the codemod does not recognize. For example, `z.coerce.boolean()` turns `"false"` into `true`, while `env.boolean()` returns `false`; schema `catch()` fallbacks on invalid values are not kept. Keep equivalent parsing and fallback handling where code reads the value.
+
+## `resend`
+
+The codemod rewrites `emails.send()` on `useResend()` clients of `nuxt-resend` and on `new Resend()` clients in server code to `email.send()` from `vite-hub/email/server`. It renames `reply_to` to `replyTo` and turns `const { data, error } = await ...send()` into `const [error, data] = await email.send()`. It replaces `nuxt-resend` with `vite-hub/nuxt` and sets `vitehub.email` to the Resend driver. The API key is Secret Env read from `NUXT_RESEND_API_KEY`, or from the variables that `runtimeConfig.resend.apiKey` and `new Resend()` read.
+
+Code that checks `runtimeConfig.resend.apiKey` keeps working: the codemod preserves existing runtime config and declares the module's key when it removes `nuxt-resend`, even when it cannot detect readers. Dynamic runtime config needs a manual declaration. Credential inference follows global Env reads and proven runtime-config bindings; unknown sources need manual migration. `nuxt-resend` stays while a `useResend()` call is left that the codemod does not rewrite, such as a class field, and the `resend` package stays while code uses `batch`, contacts, audiences, or CommonJS imports. The report lists literal or dynamic API keys to move to Env, clients with different credential sources, `react` payloads, fields outside the portable Email message, and results that code reads in another shape. All migrated sends share one Email credential. Check that the sources refer to the same account; keep clients with different credentials on the SDK or configure them separately by hand. In `vite dev`, Email keeps messages in the development outbox unless `vitehub.email.remote` is `true`.
 
 ## Check real apps
 

@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands 
 Install ViteHub and Nitro. Add the plugins below to your existing Vite config, keeping its other plugins.
 
 ```bash [commands/install]
-pnpm add vite-hub @vite-hub/agent nitro h3 vite
+pnpm add vite-hub @vite-hub/channels @vite-hub/agent @vite-hub/workflow nitro h3 vite
 ```
 
 `channels: true` discovers the files below `server/channels`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers. Inbound webhooks run on the Agent webhook route, so a Channel that receives webhooks also needs `agent: true`.
