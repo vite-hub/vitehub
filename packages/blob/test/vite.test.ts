@@ -1458,6 +1458,21 @@ describe("hubBlob in vite dev", () => {
     return root
   }
 
+  it.each(["build", "serve"] as const)("keeps Blob resources and development definitions inspectable in %s", async (command) => {
+    const plugin = hubBlob({ bucketName: "uploads" })
+    await resolveConfig(plugin, command, { preset: "cloudflare_module" })
+
+    const inspection = plugin.vitehub.inspect!()
+    expect(await inspection.resources?.()).toEqual([
+      { binding: "BLOB", definition: "default", host: "cloudflare", kind: "cloudflare-r2-bucket", name: "uploads", owner: "blob", source: "name" },
+    ])
+    const [definitions] = inspection.definitions!
+    expect(definitions?.kind).toBe("blob")
+    expect(await definitions?.list()).toMatchObject([
+      { fields: [{ label: "Development", value: expect.stringContaining("Local.") }], name: "default" },
+    ])
+  })
+
   it.each([
     ["vercel", { driver: "vercel-blob" }, false],
     ["vercel", { driver: "vercel-blob" }, true],
@@ -1547,7 +1562,7 @@ describe("hubBlob in vite dev", () => {
 
       const [error] = await runtime.blob.put("hello.txt", "hello")
 
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await readFile(join(base, "hello.txt"), "utf8")).toBe("hello")
     }
     finally {

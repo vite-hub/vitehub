@@ -69,7 +69,7 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   const context = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
     ...(actor ? { actor } : {}),
-    capabilities: { ...getConsoleAgentCapabilities(), console },
+    capabilities: { ...await getConsoleAgentCapabilities(), console },
     memo: memo(),
     request: consoleRequest(event),
     runtime: "unknown" as const,

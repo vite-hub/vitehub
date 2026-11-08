@@ -204,7 +204,7 @@ describe("Console media library", () => {
       await expect(media("info")).resolves.toMatchObject({ body: { value: { served: "/media/", store: "media" } }, status: 200 })
       await expect(upload({ file: file("Hero.txt", "hero"), folder: "guides" })).resolves.toMatchObject({ body: { value: { file: { pathname: "guides/hero.txt", url: "/media/guides/hero.txt" } } }, status: 200 })
       await expect(media("list", { folder: "guides" })).resolves.toMatchObject({ body: { value: { items: [{ pathname: "guides/hero.txt" }], store: "media" } }, status: 200 })
-      expect(await storage.head("guides/hero.txt")).toEqual([null, null])
+      expect(await storage.head("guides/hero.txt")).toEqual([undefined, null])
     }
     finally {
       await rm(siteDirectory, { force: true, recursive: true })

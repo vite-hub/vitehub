@@ -40,7 +40,7 @@ const vercelFunctionsMock = vi.hoisted(() => ({
 it("identifies a missing generated Queue Definition", () => {
   expect(missingQueueDefinitionError("welcome")).toMatchObject({
     code: "QUEUE_DEFINITION_NOT_FOUND",
-    docs: "https://vitehub.dev/docs/queue/limits-and-errors#queue_definition_not_found",
+    docs: "https://vitehub.dev/docs/queue/diagnostics/queue_definition_not_found",
     why: "No Queue Definition has the name \"welcome\".",
   })
 })
