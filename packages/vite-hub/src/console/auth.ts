@@ -82,7 +82,7 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
         access: {
           routes: [
             { route: consoleAuthPath(mountBaseURL, "/_vitehub/**"), authorize: definition.authorize },
-            { route: consoleAuthPath(mountBaseURL, "/api/_vitehub/console/**"), authorize: definition.authorize },
+            { route: consoleAuthPath(mountBaseURL, "/_vitehub/api/**"), authorize: definition.authorize },
           ],
           signIn: {
             callbackURL: consoleAuthPath(mountBaseURL, "/_vitehub"),

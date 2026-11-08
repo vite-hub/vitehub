@@ -27,5 +27,187 @@
         "removed nuxt-safe-runtime-config: it had no envSchema and no $schema"
       ]
     }
+  },
+  {
+    "id": "nuxt-admin-template",
+    "repo": "BobbyLin23/nuxt-admin-template",
+    "commit": "085f9b794d0a2a1649223384b7a5562ab0d3585a",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "drizzle.config.ts:2 This file runs outside Nuxt"
+      ]
+    }
+  },
+  {
+    "id": "nuxt-template",
+    "repo": "darkliyznyanlin910/nuxt-template",
+    "commit": "6680ba781efad7749c1a68e3b17b3a048eedd186",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "The codemod deleted shared/env.ts and removed @t3-oss/env-nuxt."
+      ]
+    }
+  },
+  {
+    "id": "essentials-v3",
+    "repo": "SupersaasHQ/essentials-v3",
+    "commit": "e617e275fda7a06506bfcc133c4511bc86c1d0cc",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "The template reads env.KEY"
+      ]
+    }
+  },
+  {
+    "id": "midi-frieldy",
+    "repo": "ChronicStone/midi-frieldy-nuxt3-trpc-drizzle",
+    "commit": "261fa327e8b699a41b0e1a98fc093079c77d0005",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "The codemod deleted server/env.ts"
+      ]
+    }
+  },
+  {
+    "id": "nuxt-auth-demo",
+    "repo": "LeonKohli/nuxt-auth-demo",
+    "commit": "37b165b4866c0dc7460feac4663e4311b18bce6a",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "resend"
+      ],
+      "report": [
+        "moved 1 emails.send() call"
+      ]
+    }
+  },
+  {
+    "id": "photo-gallery",
+    "repo": "jankaderabek/photo-gallery",
+    "commit": "df56d78de48403b4ae810383f797dfb548d121ac",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "resend"
+      ],
+      "report": [
+        "read from NUXT_RESEND_API_KEY, then RESEND_API_KEY"
+      ]
+    }
+  },
+  {
+    "id": "ok8.sh",
+    "repo": "kashalls/ok8.sh",
+    "commit": "0c61346bdca2b0bd14526ad22b3d4b355bfa6177",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "resend"
+      ],
+      "report": [
+        "so the read keeps working"
+      ]
+    }
+  },
+  {
+    "id": "nuxt-frigear-nu",
+    "repo": "Frigear-nu/nuxt-frigear-nu",
+    "commit": "18c27b989d22fa61bf18c29be0840c9522de3ac3",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "resend"
+      ],
+      "report": [
+        "moved 1 emails.send() call"
+      ]
+    }
+  },
+  {
+    "id": "invocloud",
+    "repo": "llanas-web/invocloud",
+    "commit": "a2d0926b89b313495750d0e0c1917fd66f54fd00",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "resend (error)"
+      ],
+      "report": [
+        "useResend() is used in ways the codemod does not rewrite"
+      ]
+    }
+  },
+  {
+    "id": "ziit",
+    "repo": "0PandaDEV/Ziit",
+    "commit": "12296dd1671bb8a6e453526a08c16b82206d887d",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron"
+      ],
+      "report": [
+        "moved 2 cron jobs"
+      ]
+    }
+  },
+  {
+    "id": "clocktracker",
+    "repo": "lindsaykwardell/clocktracker",
+    "commit": "1dbe8d9b1e3c05a68544d097872980a390c8862e",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron"
+      ],
+      "report": [
+        "adds nuxt-cron in a way the codemod cannot remove"
+      ]
+    }
+  },
+  {
+    "id": "helium",
+    "repo": "SrIzan10/helium",
+    "commit": "b0960ed441276feb9abf4e55fd45e57029136c25",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron (error)"
+      ],
+      "report": [
+        "has six fields"
+      ]
+    }
+  },
+  {
+    "id": "headless-sentry",
+    "repo": "pin705/headless-sentry",
+    "commit": "cb4acb3e461f0e6319cef94fc37ee633833b29f4",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron"
+      ],
+      "report": [
+        "moved 4 cron jobs"
+      ]
+    }
   }
 ]
