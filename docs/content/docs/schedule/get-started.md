@@ -130,7 +130,7 @@ pnpm vitehub schedule run daily-report --at 2026-01-31T08:00:00Z
 ::tutorial-step{title="See the runs"}
 ## See the runs
 
-ViteHub saves each run, with its status and its time. List the runs of `daily-report`, newest first:
+ViteHub saves each manual run and Process Runtime run, with its status and its time. List the runs of `daily-report`, newest first:
 
 ```bash [commands/runs]
 pnpm vitehub schedule runs daily-report
@@ -142,7 +142,7 @@ srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg  succ
 srun_manual_daily-report_2026-01-31T08:00:00.000Z_manual_mw6dwbtr_3xkimura  succeeded  2026-01-31T08:00:00.000Z  1         -
 ```
 
-A run that throws shows `failed` and its error.
+A saved run that throws shows `failed` and its error. Provider cron executions do not create saved runs.
 
 To see the same runs in a page, with a button to run the schedule, turn on the [Console](/docs/development/console).
 

@@ -47,6 +47,12 @@ const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts"
 const moduleDependencies = (setup as unknown as { moduleDependencies: (nuxt: unknown) => Promise<Record<string, unknown>> }).moduleDependencies
 const roots: string[] = []
 
+/** The manifest that the generated `docs/manifest.mjs` exports. */
+function manifestTemplate(): unknown {
+  const source = templates.get("docs/manifest.mjs")?.() ?? ""
+  return JSON.parse(JSON.parse(source.replace(/^export default JSON\.parse\(/, "").replace(/\)\s*$/, "")))
+}
+
 afterEach(async () => {
   for (const hook of hooks.get("close") ?? []) await hook()
   vi.useRealTimers()
@@ -215,7 +221,8 @@ describe("docs Nuxt setup", () => {
   it.each(["docs", "/docs/", "/docs"])("shares the normalized base %s with the manifest and discovery", async (base) => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
-    expect(templates.get("docs/manifest.mjs")?.()).toContain('"base":"/docs"')
+    expect(templates.get("docs/manifest.mjs")?.()).toMatch(/^export default JSON\.parse\(/)
+    expect(manifestTemplate()).toMatchObject({ base: "/docs" })
     expect(options.agentDiscovery.routes).toContain("/docs/**")
   })
 
@@ -373,6 +380,50 @@ describe("docs Nuxt setup", () => {
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual(["/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml", "/raw/**", "/raw/**"])
     expect(handlers.filter(handler => handler.route === "/raw/**").map(handler => handler.method)).toEqual(["get", "head"])
+  })
+})
+
+describe("docs search checks", () => {
+  /** Runs the prerender hooks that the docs module adds to Nitro over these routes. */
+  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/") {
+    hooks.clear()
+    await setupDocs(docs, appBase)
+    const nitroHooks = new Map<string, Hook[]>()
+    const nitro = { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    for (const { route, contents } of routes) {
+      const html = route.endsWith(".xml") ? {} : { fileName: `${route}.html`, contentType: "text/html;charset=utf-8" }
+      for (const hook of nitroHooks.get("prerender:generate") ?? []) await hook({ route, contents, ...html } as never)
+    }
+    for (const hook of nitroHooks.get("prerender:done") ?? []) await hook()
+    return nitroHooks
+  }
+  const routes = [
+    { route: "/sitemap.xml", contents: "<urlset><url><loc>http://docs.invalid/guides</loc></url></urlset>" },
+    { route: "/guides", contents: "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/learn\"></head><body></body></html>" },
+  ]
+
+  it("stops the build on a page that fails a check when seoAudit is on", async () => {
+    await expect(prerender({ seoAudit: true }, routes)).rejects.toMatchObject({
+      name: "DocsSeoError",
+      problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
+    })
+    expect([...(await prerender({}, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
+  })
+
+  it.each(["/", "/portal/"])("audits ordinary pages without site.url under %s", async (appBase) => {
+    const pages = ["guides", "learn"].map((name, index, names) => ({
+      route: `/${name}`,
+      contents: `<html><head><title>Docs ${name} overview</title>
+        <meta name="description" content="Read the ${name} overview for practical steps to build, configure, and publish your documentation site.">
+        <link rel="canonical" href="http://docs.invalid${appBase}${name}"></head>
+        <body><h1>${name}</h1><p>${"Useful documentation content. ".repeat(60)}</p>
+        <a href="${appBase}${names[1 - index]}">Related page</a></body></html>`,
+    }))
+    await expect(prerender({ seoAudit: true }, [
+      ...pages,
+      { route: "/sitemap.xml", contents: `<urlset>${pages.map(page => `<url><loc>http://docs.invalid${appBase}${page.route.slice(1)}</loc></url>`).join("")}</urlset>` },
+    ], appBase)).resolves.toBeInstanceOf(Map)
   })
 })
 
