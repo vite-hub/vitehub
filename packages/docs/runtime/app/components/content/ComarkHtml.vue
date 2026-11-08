@@ -3,7 +3,7 @@
 // `block` is its tag, so a page's styles can tell a diff from a screenshot without looking inside. A block inside a
 // paragraph is `inline`, and draws in a `span`, since a `div` would end the paragraph.
 // The parser keeps source children for search. This component renders only `html`, so they do not appear twice.
-const props = defineProps<{ html: string, block?: string, inline?: boolean }>()
+const props = defineProps<{ html: string, block?: string, blockProps?: Record<string, unknown>, inline?: boolean }>()
 const root = ref<HTMLElement>()
 
 // Scripts inserted by v-html are inert. Recreate them after mounting or replacing the HTML; the package runtimes

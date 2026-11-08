@@ -207,12 +207,6 @@ The server parses each page with Comark, and the browser renders the nodes with 
 
 Parser options go in a module that `parser` names, since Comark plugins are functions:
 
-Install the plugin in your app first:
-
-```sh
-pnpm add comark-chips
-```
-
 ```ts
 // docs.parser.ts
 import type { DocsParserOptions } from "@vite-hub/docs/server"

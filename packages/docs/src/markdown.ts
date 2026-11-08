@@ -17,6 +17,7 @@ import markdownLanguage from "shiki/dist/langs/markdown.mjs"
 import mdc from "shiki/dist/langs/mdc.mjs"
 import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
+import { ELEMENT_NODE, parse as parseHtml, walkSync } from "ultrahtml"
 
 import type { ElementNode, MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { PresetOptions } from "comark-ui/vue"
@@ -81,32 +82,46 @@ const phrasing = /^(?:p|h[1-6]|a|span|em|strong|del|s|mark|sup|sub|small|label)$
 /** Draw the page's HTML-only blocks in one context, so styles, fonts, and scripts are emitted once. */
 async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
   const blocks = new Map<ElementNode, ElementNode>()
-  const visit = (nodes: ComarkNode[], from = 0, parent?: string) => {
+  const roots: ElementNode[] = []
+  const visit = (nodes: ComarkNode[], from = 0, parent?: string, insideHtml = false) => {
     for (let at = from; at < nodes.length; at++) {
       const node = nodes[at]!
       if (!isElement(node)) continue
       const tag = node[0]
+      visit(node as ComarkNode[], 2, tag, insideHtml || htmlOnly.has(tag))
       if (htmlOnly.has(tag)) {
-        // Keep the source children for search and heading text. ComarkHtml renders only the HTML prop.
-        const rendered: ElementNode = ["comark-html", parent && phrasing.test(parent) ? { block: tag, inline: true } : { block: tag }, ...node.slice(2) as ComarkNode[]]
+        // Keep the source props and children for app overrides, search, and heading text.
+        const rendered: ElementNode = ["comark-html", { block: tag, blockProps: node[1], ...(parent && phrasing.test(parent) ? { inline: true } : {}) }, ...node.slice(2) as ComarkNode[]]
         blocks.set(rendered, node)
+        if (!insideHtml) roots.push(rendered)
         nodes[at] = rendered
-      } else {
-        visit(node as ComarkNode[], 2, tag)
       }
     }
   }
   visit(nodes)
   if (!blocks.size) return
-  await renderHtmlFromDocument({ nodes: [...blocks.keys()] }, {
+  let assets = ""
+  await renderHtmlFromDocument({ nodes: roots }, {
     components: {
       ...htmlBlocks,
       "comark-html": async (node, state) => {
-        node[1].html = (await state.render([blocks.get(node)!])).trim()
-        return ""
+        let html = (await state.render([blocks.get(node)!])).trim()
+        const ranges: Array<[number, number]> = []
+        walkSync(parseHtml(html), (element) => {
+          if (element.type !== ELEMENT_NODE || !/^(style|script|link)$/.test(element.name)) return
+          const start = element.loc[0].start
+          const end = element.loc[1].end
+          assets += html.slice(start, end)
+          ranges.push([start, end])
+        })
+        for (const [start, end] of ranges.reverse()) html = html.slice(0, start) + html.slice(end)
+        node[1].html = html
+        return html
       },
     },
   })
+  // An app can replace the first block that emitted shared assets. Keep them independent of every block override.
+  if (assets) nodes.push(["comark-html", { html: assets, inline: true }])
 }
 
 /**

@@ -391,12 +391,6 @@ An example shows the first fenced block inside it, rendered with the page's plug
 
 The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. Plugins are functions, so the parser options go in a module that `parser` names, not in `nuxt.config.ts` itself:
 
-Install the plugin in your app first:
-
-```sh
-pnpm add comark-chips
-```
-
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
 
