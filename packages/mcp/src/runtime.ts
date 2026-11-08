@@ -77,16 +77,26 @@ function listedTool(name: string, definition: McpToolDefinition): Omit<McpTool, 
 
 function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefinition, context: McpToolContext): McpTool {
   const { name } = listed
+  let input: unknown
+  let validationFailure: { error: unknown } | undefined
   return {
     ...listed,
-    async handler(arguments_) {
+    async validate(arguments_) {
+      input = arguments_
       try {
-        let input: unknown = arguments_
         if (definition.input) {
           const result = await definition.input["~standard"].validate(arguments_)
-          if (result.issues) return toolError(issuesText(name, result.issues))
+          if (result.issues) return issuesText(name, result.issues)
           input = result.value
         }
+      }
+      catch (error) {
+        validationFailure = { error }
+      }
+    },
+    async handler() {
+      try {
+        if (validationFailure) return failure(name, validationFailure.error)
         // SAFETY: The schema of the definition accepted the input, so it has the type that the handler declares.
         return toMcpToolResult(await (definition.handler as (value: unknown, context: McpToolContext) => unknown)(input, context))
       }

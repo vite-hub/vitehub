@@ -30,6 +30,7 @@ function event(body: unknown, headers: Record<string, string> = {}): H3Event {
 /** The JSON-RPC answer, or the JSON body of a rejection. */
 interface Answer {
   code?: string
+  error?: { code: number, message: string }
   result: { content: Array<{ text: string, type: string }>, isError: boolean, tools: unknown[] }
 }
 
@@ -61,9 +62,31 @@ describe("app MCP server", () => {
   })
 
   it("answers invalid input with a tool error that names the field", async () => {
-    const { body } = await rpc({}, "tools/call", { arguments: { a: "2", b: 3 }, name: "add" })
+    const { body } = await rpc({}, "tools/call", { arguments: { a: "2", b: 3 }, name: "add" }, { "mcp-protocol-version": "2025-11-25" })
     expect(body.result.isError).toBe(true)
     expect(body.result.content[0].text).toMatch(/^Invalid arguments for add: a: /)
+  })
+
+  it("returns a protocol error for invalid arguments from a legacy client", async () => {
+    const handler = vi.fn(() => "valid")
+    const tools = { add: defineMcpTool({ ...add, handler }) }
+    const { body } = await rpc({ tools }, "tools/call", { arguments: { a: "2", b: 3 }, name: "add" }, { "mcp-protocol-version": "2025-06-18" })
+    expect(body.error).toMatchObject({ code: -32602, message: expect.stringMatching(/^Invalid arguments for add: a: /) })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("validates asynchronous schemas once and passes their transformed output", async () => {
+    const validate = vi.fn(async () => ({ value: { a: 4, b: 5 } }))
+    const tools = { add: defineMcpTool({ ...add, input: { ...add.input!, "~standard": { ...add.input!["~standard"], validate } } }) }
+    const { body } = await rpc({ tools }, "tools/call", { arguments: { a: 1, b: 2 }, name: "add" })
+    expect(body.result.content).toEqual([{ text: '{"sum":9}', type: "text" }])
+    expect(validate).toHaveBeenCalledOnce()
+  })
+
+  it("advertises the mounted resource path in the OAuth challenge", async () => {
+    const verify = async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "Missing token." }, undefined] as const
+    const { response } = await rpc({ route: "/portal/mcp", verify }, "tools/list")
+    expect(response.headers.get("www-authenticate")).toBe('Bearer resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/portal/mcp"')
   })
 
   it("turns a 4xx error into a tool error and hides other errors", async () => {

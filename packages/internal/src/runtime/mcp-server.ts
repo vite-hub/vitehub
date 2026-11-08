@@ -39,7 +39,7 @@ export interface McpTool {
    * 2025-11-25 a problem is a tool error, which the Agent reads. Older clients get JSON-RPC `-32602`. A tool without it
    * checks its input in the handler.
    */
-  validate?: (input: Record<string, unknown>) => string | undefined
+  validate?: (input: Record<string, unknown>) => string | undefined | Promise<string | undefined>
   /** The largest `tools/call` request for this tool, in bytes. Without it, the server limit applies. */
   maxRequestBytes?: number
   /** The OAuth scopes that a call needs. A caller without them does not see the tool. */
@@ -184,7 +184,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
       }
       const input = params.arguments === undefined ? {} : record(params.arguments)
       if (!input) return rpcError(id, -32602, `Invalid arguments for ${tool.name}: expected an object.`)
-      const invalid = tool.validate?.(input)
+      const invalid = await tool.validate?.(input)
       // Since 2025-11-25 (SEP-1303), a bad argument is a tool error, so the Agent reads it and calls again.
       if (invalid) return version === "2025-11-25" ? reply(id, { content: [{ type: "text", text: invalid }], isError: true }) : rpcError(id, -32602, invalid)
       return reply(id, await tool.handler(input))

@@ -59,13 +59,15 @@ export default defineAuth(({ requestOrigin }) => ({
 }))
 ```
 
+For a Nuxt application with `app.baseURL: "/portal/"` (or Nitro `baseURL: "/portal/"`), the MCP URL is `/portal/mcp`. Set the resource to `${requestOrigin}/portal/mcp` and connect the client to that URL. OAuth discovery stays at the origin-root `/.well-known/` paths. Include the base in the resource when you set a custom `mcp.route` too.
+
 A request without a valid token gets `401` with `WWW-Authenticate: Bearer resource_metadata="…"`, and the MCP client starts the OAuth flow. The server also answers the discovery documents at `/.well-known/`. `caller` has the `user`, the approved `scopes`, and the `clientName`, such as `Claude Code`. See [MCP OAuth](/docs/auth/configure#sign-in-mcp-clients-with-oauth) for the options of `mcpOAuth()`.
 
 Set `mcp: { auth: false }` for a public server in an app with Auth.
 
 | Option | Default | Use |
 | --- | --- | --- |
-| `route` | `/mcp` | The path of the server. |
+| `route` | `/mcp` | The path of the server below the application base. |
 | `auth` | `true` with `auth` | Require an access token from `mcpOAuth()`. |
 
 ## Connect an Agent

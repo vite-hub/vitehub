@@ -29,6 +29,7 @@ describe("workspace inventory", () => {
       "gateways",
       "kv",
       "markdown-template",
+      "mcp",
       "presets",
       "queue",
       "rate-limit",

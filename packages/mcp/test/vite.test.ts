@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverMcpTools, hubMcp } from "../src/vite.ts"
@@ -33,6 +34,11 @@ describe("MCP tool discovery", () => {
     expect(discoverMcpTools({ rootDir: root }).map(entry => entry.name)).toEqual(["list_drops", "read_drop"])
   })
 
+  it("preserves an explicit empty directory selection", () => {
+    const root = app({ "server/mcp/tools/excluded.ts": tool })
+    expect(discoverMcpTools({ rootDir: root, serverDirs: [] })).toEqual([])
+  })
+
   it("fails the build for a file name that MCP does not allow", () => {
     const root = app({ "server/mcp/tools/admin/stats.ts": tool })
     expect(() => discoverMcpTools({ rootDir: root })).toThrow(expect.objectContaining({ name: "MCP_B0002" }))
@@ -40,9 +46,9 @@ describe("MCP tool discovery", () => {
 })
 
 describe("hubMcp", () => {
-  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}) {
+  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}, host: object = {}) {
     const plugin = hubMcp(options)
-    const config: { root: string, nitro?: { handlers?: unknown[] } } = { root }
+    const config: { root: string, nitro?: { handlers?: unknown[] } } = { root, ...host }
     // SAFETY: The config hook is a plain function in this plugin.
     ;(plugin.config as (config: object) => void)(config)
     return { config, plugin }
@@ -73,11 +79,29 @@ describe("hubMcp", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config } = configure(root, { auth: true, route: "/api/mcp/" })
     expect(config.nitro?.handlers).toEqual([
-      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true, route: "/.well-known/**" },
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
       { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/api/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/discovery.ts"), "utf8")).toContain("serveMcpOAuthDiscovery")
+  })
+
+  it("does not import or inspect tools excluded by the host", async () => {
+    const root = app({ "server/mcp/tools/excluded.ts": tool })
+    const { plugin } = configure(root, {}, { [VITEHUB_SERVER_DIRS]: [] })
+    expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).not.toContain("excluded")
+    const inspect = plugin.vitehub.inspect as () => ViteHubInspectionContributor
+    expect(await inspect().definitions?.[0]?.list()).toEqual([])
+  })
+
+  it("uses the mounted resource path and origin-wide discovery with a non-root Nitro base", () => {
+    const root = app({ "server/mcp/tools/add.ts": tool })
+    const { config } = configure(root, { auth: true }, { nitro: { baseURL: "/portal/" } })
+    expect(config.nitro?.handlers).toEqual([
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
+    ])
+    expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain('route: "/portal/mcp"')
   })
 
   it("rejects a route that is not a path", () => {

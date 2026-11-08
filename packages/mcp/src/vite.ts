@@ -46,7 +46,7 @@ const toolName = /^[\w.-]{1,128}$/
 
 /** Lists the tool files in `mcp/tools/` of each server directory. */
 export function discoverMcpTools(options: { rootDir: string, serverDirs?: readonly string[] }): DiscoveredMcpTool[] {
-  const serverDirs = options.serverDirs?.length ? [...options.serverDirs] : [resolve(options.rootDir, "server")]
+  const serverDirs = options.serverDirs ? [...options.serverDirs] : [resolve(options.rootDir, "server")]
   const tools = discoverDefinitions<DiscoveredMcpTool>("MCP tool", [createDirectoryDefinitionSource("server-mcp-tools", serverDirs, "mcp/tools")])
   for (const tool of tools) {
     if (!toolName.test(tool.name)) {
@@ -113,9 +113,10 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   const imports = { authMcp: options.imports?.authMcp ?? "@vite-hub/auth/mcp", runtime: options.imports?.runtime ?? "@vite-hub/mcp/runtime" }
   let projectRoot = process.cwd()
   let serverDirs: string[] = []
+  let resourceRoute = route
 
   const handlerFile = () => resolve(projectRoot, generatedDir, "handler.ts")
-  const render = () => renderHandler(discoverMcpTools({ rootDir: projectRoot, serverDirs }), { auth, ...imports, name: options.name ?? packageName(projectRoot) ?? "app", route })
+  const render = () => renderHandler(discoverMcpTools({ rootDir: projectRoot, serverDirs }), { auth, ...imports, name: options.name ?? packageName(projectRoot) ?? "app", route: resourceRoute })
 
   return {
     name: MCP_VITE_PLUGIN_NAME,
@@ -126,7 +127,7 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
           kind: "mcp-tool",
           label: "MCP tools",
           list: (): ViteHubDefinitionSummary[] => discoverMcpTools({ rootDir: projectRoot, serverDirs }).map(tool => ({
-            fields: [{ label: "Route", value: route }, { label: "Auth", value: auth ? "OAuth (mcpOAuth)" : "public" }],
+            fields: [{ label: "Route", value: resourceRoute }, { label: "Auth", value: auth ? "OAuth (mcpOAuth)" : "public" }],
             file: relativeDefinitionFile(projectRoot, tool.handler),
             name: tool.name,
             source: "server/mcp/tools",
@@ -138,16 +139,18 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       projectRoot = resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
       // SAFETY: ViteHub writes this string-array metadata through its shared Vite config contract.
       const configured = (config as UserConfig & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      serverDirs = configured?.length ? configured : [resolve(projectRoot, "server")]
+      serverDirs = configured ?? [resolve(projectRoot, "server")]
+      const kit = createNitroServerKit((config as { nitro?: unknown }).nitro)
+      const base = typeof kit.config.baseURL === "string" ? kit.config.baseURL.replace(/\/+$/, "") : ""
+      resourceRoute = `${base}${route}`
       // Nitro reads the generated files when it starts, so they exist before its config hook runs.
       writeFileIfChangedSync(handlerFile(), render())
-      const kit = createNitroServerKit((config as { nitro?: unknown }).nitro)
       kit.addHandler({ handler: handlerFile(), route })
       if (auth) {
         const discoveryFile = resolve(projectRoot, generatedDir, "discovery.ts")
         writeFileIfChangedSync(discoveryFile, renderDiscovery(imports))
-        // Discovery is public and runs before app middleware, such as a global Auth guard.
-        kit.addHandler({ handler: discoveryFile, middleware: true, route: "/.well-known/**" }, "start")
+        // Route-less Nitro 3 middleware also runs outside baseURL, where OAuth discovery must be served.
+        kit.addHandler({ handler: discoveryFile, middleware: true }, "start")
       }
       ;(config as { nitro?: unknown }).nitro = kit.config
     },

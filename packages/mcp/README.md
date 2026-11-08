@@ -18,10 +18,11 @@ Turn it on with `vitehub({ mcp: true })`. User docs: [App MCP server](https://vi
 ## Contract
 
 - The tool name is the file path below `mcp/tools/` without the extension. A name that MCP does not allow fails the build with `MCP_B0002`.
-- `input` is a Standard Schema with a Standard JSON Schema (`~standard.jsonSchema`). `tools/list` shows its input JSON Schema, and the server validates the arguments with it before the handler runs. Invalid arguments are a tool error.
+- `input` is a Standard Schema with a Standard JSON Schema (`~standard.jsonSchema`). `tools/list` shows its input JSON Schema, and the server validates the arguments with it before the handler runs. Invalid arguments are a tool error for protocol `2025-11-25`, or JSON-RPC `-32602` for `2025-06-18`.
 - The handler gets `(input, { event, caller })`. A string is one text block. An object with a `content` array of blocks is the MCP result. Any other value is JSON text, and an object is also `structuredContent`.
 - A thrown error with a 4xx `status` is a tool error with its message. Other errors are logged and the Agent reads `<name> failed on the server.`
 - With `auth: true`, the generated entry calls `verifyMcpRequest()` from `vite-hub/auth/mcp` for every request, answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource<route>"`, and serves `serveMcpOAuthDiscovery()` as middleware for `/.well-known/**`. `vite-hub` turns `auth` on when the app has Auth.
+- With a non-root Nitro `baseURL` (including Nuxt `app.baseURL`), the MCP URL includes that base. Configure the `mcpOAuth()` resource with that full URL. OAuth discovery stays at the origin root through global middleware.
 - The protocol is the stateless JSON subset of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`, from `@vite-hub/internal/runtime/mcp-server`. The Console MCP uses the same server.
 - `vitehub inspect definitions --kind mcp-tool` lists the tools.
 
