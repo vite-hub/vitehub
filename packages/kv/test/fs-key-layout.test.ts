@@ -38,6 +38,12 @@ afterEach(() => {
   interruption.rename = undefined
 })
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 async function withStore(run: (storage: ReturnType<typeof createHostedKVStorage>, base: string) => Promise<void>, prepare?: (base: string) => Promise<void>) {
   const base = await mkdtemp(join(tmpdir(), "vitehub-kv-layout-"))
   await prepare?.(base)
@@ -324,9 +330,9 @@ it("retries when another initializer stages its unpublished workspace", () => wi
 
 it("waits for migration before cleaning up an unpublished workspace", () => withStore(async (storage, base) => {
   const other = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
-  const candidateReady = Promise.withResolvers<void>()
-  const publish = Promise.withResolvers<void>()
-  const retrying = Promise.withResolvers<void>()
+  const candidateReady = deferred<void>()
+  const publish = deferred<void>()
+  const retrying = deferred<void>()
   let candidate = ""
   let publishing = false
   let waitingForRetry = false
