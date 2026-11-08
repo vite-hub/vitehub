@@ -1,6 +1,7 @@
-import { afterEach, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { installAgentRegistry } from "#vitehub/agent/registry"
-import { defineAgent, runAgent, startAgentInvocation } from "../src/index.ts"
+import { defineAgent, runAgent, startAgentInvocation, streamAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
   })
 })
 
-it.each(["runAgent", "startAgentInvocation"] as const)("loads the cold host before %s selects a Workflow", async (method) => {
+it.each(["runAgentWithContext", "startAgentInvocation"] as const)("loads the cold host before %s selects a Workflow", async (method) => {
   const run = vi.fn(() => "inline output")
   const agent = defineAgent({ driver: { run } })
   const context = { agentIdentity: { name: `cold-${method}` }, runtime: "unknown" as const, waitUntil: vi.fn() }
@@ -34,8 +35,8 @@ it.each(["runAgent", "startAgentInvocation"] as const)("loads the cold host befo
   })
   installAgentRegistry({ default: {}, metadata: {}, loadAgentHost })
 
-  if (method === "runAgent") {
-    await expect(runAgent(agent, context, { prompt: "Run before any request" }))
+  if (method === "runAgentWithContext") {
+    await expect(runAgentWithContext(agent, context, { prompt: "Run before any request" }))
       .resolves.toMatchObject({ id: `workflow-${method}`, provider: "openworkflow" })
   }
   else {
@@ -49,15 +50,18 @@ it.each(["runAgent", "startAgentInvocation"] as const)("loads the cold host befo
   expect(run).not.toHaveBeenCalled()
 })
 
-it.each([new Error("Host failed to load"), "Host failed to load"])("returns a standalone error tuple when the host fails to load: %s", async (failure) => {
-  const run = vi.fn(() => "inline output")
-  const agent = defineAgent({ driver: { run }, runtime: false })
-  installAgentRegistry({ default: {}, metadata: {}, loadAgentHost: async () => { throw failure } })
+describe.each(["runAgent", "streamAgent"] as const)("%s", (method) => {
+  it.each([new Error("Host failed to load"), "Host failed to load"])("returns an error tuple when the host fails to load: %s", async (failure) => {
+    const run = vi.fn(() => "inline output")
+    const agent = defineAgent({ driver: { run }, runtime: false })
+    installAgentRegistry({ default: {}, metadata: {}, loadAgentHost: async () => { throw failure } })
 
-  const [error, result] = await runAgent(agent, { prompt: "Run before any request" })
-  expect(result).toBeNull()
-  expect(error?.message).toBe("Host failed to load")
-  if (failure instanceof Error) expect(error).toBe(failure)
-  else expect(error?.cause).toBe(failure)
-  expect(run).not.toHaveBeenCalled()
+    const [error, result] = method === "runAgent"
+      ? await runAgent(agent, { prompt: "Run before any request" })
+      : await streamAgent(agent, { prompt: "Run before any request" })
+    expect(result).toBeUndefined()
+    expect(error?.code).toBe("AGENT_RUN_FAILED")
+    expect(error?.cause).toBe(failure)
+    expect(run).not.toHaveBeenCalled()
+  })
 })

@@ -24,7 +24,7 @@ import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
 import { createFakeGitHub } from "./fake-github.ts"
 
 import type { OperationUser } from "@vite-hub/internal/operations"
-import type { WorkspaceDefinition } from "../src/core/types.ts"
+import type { WorkspaceDefinition, WorkspaceWriteCommit } from "../src/core/types.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
@@ -758,6 +758,62 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     await other.write("posts/hello.md", post("Hello", "Two."))
     expect((await other.run("push")).code).toBe(0)
     expect((await anonymous.history.head({ ref: "draft" }))!.metadata).toEqual({ source: "cli" })
+  })
+
+  it("fails a push that a plugin refuses for a held lease without a retry, and pushes with --override-lease", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/held.md": post("Held", "One."), "posts/free.md": post("Free", "One.") } })
+    const local = await project(remoteApp.fetch, "lease")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    // A plugin like Content: someone edits posts/held*.md, and the lease holds unless the revision metadata overrides it.
+    const commits: WorkspaceWriteCommit[] = []
+    cleanup.push(registerWorkspacePlugin("content", {
+      id: "test.leases",
+      hooks: {
+        "write:validate": (input) => {
+          if (input.ref !== "draft" || !input.commit) return
+          commits.push(input.commit)
+          const held = input.commit.paths.filter(path => path.startsWith("posts/held"))
+          if (!held.length || input.commit.metadata.lease === "override") return
+          throw Object.assign(new Error(`Ana is editing ${held.join(", ")}. Nothing was saved.`), { code: "TEST_LEASE_HELD", status: 409, fix: "Wait for Ana, or pass --override-lease.", details: { paths: held } })
+        },
+      },
+    }))
+    await local.write("posts/held.md", post("Held", "Local."))
+    await local.write("posts/held-2.md", post("Held 2", "Local."))
+    await local.write("posts/free.md", post("Free", "Local."))
+    const head = await remoteApp.history.head({ ref: "draft" })
+
+    const refused = await local.run("push")
+
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toBe("TEST_LEASE_HELD: Ana is editing posts/held-2.md, posts/held.md. Nothing was saved.\nWait for Ana, or pass --override-lease.\n")
+    expect(remoteApp.calls.filter(call => call === "workspace.commit")).toHaveLength(1)
+    expect((await remoteApp.history.head({ ref: "draft" }))!.id).toBe(head!.id)
+    expect(commits[0]).toEqual({ message: "Push 3 files", metadata: { source: "cli" }, paths: ["posts/free.md", "posts/held-2.md", "posts/held.md"] })
+    expect(Object.isFrozen(commits[0]!.metadata) && Object.isFrozen(commits[0]!.paths)).toBe(true)
+    const failure = await runOperation(registry, "workspace.commit", { workspace: "content", ref: "draft", ifHead: head!.id, put: { "posts/held.md": { content: "x", encoding: "utf8" } } }, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    expect(failure).toEqual({ ok: false, code: "TEST_LEASE_HELD", message: "Ana is editing posts/held.md. Nothing was saved.", fix: "Wait for Ana, or pass --override-lease.", details: { paths: ["posts/held.md"] }, status: 409 })
+
+    const pushed = await local.json("push", "--override-lease")
+
+    expect(pushed.code).toBe(0)
+    expect(await remoteApp.read("posts/held.md")).toBe(post("Held", "Local."))
+    expect((await remoteApp.history.head({ ref: "draft" }))!.metadata).toEqual({ lease: "override", source: "cli" })
+  })
+
+  it("lets an Agent or an MCP client override a lease only when the developer allows it", async () => {
+    const remoteApp = await app()
+    const head = await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const input = { workspace: "content", ref: "draft", ifHead: head.id, lease: "override", put: { "posts/hello.md": { content: post("Hello", "Agent."), encoding: "utf8" } } }
+    const context = { access: { mode: "local", sections: "all" }, surface: "agent", user: null } as const
+
+    for (const surface of ["agent", "mcp"] as const) {
+      expect(await runOperation(registry, "workspace.commit", input, { ...context, surface })).toMatchObject({ ok: false, code: "WORKSPACE_FORBIDDEN", fix: expect.stringContaining("operations({ overrideLeases: true })"), status: 403 })
+    }
+    expect((await remoteApp.history.head({ ref: "draft" }))!.id).toBe(head.id)
+    expect(await runOperation(registry, "workspace.commit", input, { ...context, overrideLeases: true })).toMatchObject({ ok: true })
+    expect((await remoteApp.history.head({ ref: "draft" }))!.metadata).toEqual({ lease: "override", source: "agent" })
   })
 
   it.each([
