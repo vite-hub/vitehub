@@ -359,7 +359,7 @@ A row below the content, for example for a Show More button. Has no props. Rende
 
 ### useHighlightedCode
 
-```ts
+```ts fragment
 function useHighlightedCode(
   code: MaybeRefOrGetter<string>,
   language: MaybeRefOrGetter<string>,

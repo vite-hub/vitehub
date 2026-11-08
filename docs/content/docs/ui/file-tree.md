@@ -104,7 +104,7 @@ Other attributes go to the tree element. The component exposes `getModel()` thro
 
 Creates a Pierre `FileTree` model.
 
-```ts
+```ts fragment
 function useFileTree(options: FileTreeOptions): FileTreeModel;
 
 interface FileTreeOptions extends Omit<PierreFileTreeOptions, "paths"> {
@@ -118,7 +118,7 @@ Common options are `initialExpansion`, `initialSelectedPaths`, `search`, `gitSta
 
 Returns the selected paths of a model.
 
-```ts
+```ts fragment
 function useFileTreeSelection(model: FileTreeModel): ShallowRef<readonly string[]>;
 ```
 

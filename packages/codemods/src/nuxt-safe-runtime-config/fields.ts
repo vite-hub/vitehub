@@ -1,8 +1,10 @@
 import { snakeCase } from "scule"
 
+import type { LiteralValue } from "../shared/nuxt-config.ts"
+
 export type EnvFieldKind = "boolean" | "enum" | "number" | "string"
 
-export type LiteralValue = boolean | number | string
+export type { LiteralValue }
 
 /** One runtime config value that moves to an Env declaration. */
 export interface EnvField {

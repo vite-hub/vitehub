@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { getRouterParam, H3 } from "h3"
+import { getRouterParam, H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver as createR2NativeDriver } from "../src/drivers/cloudflare-native.ts"
@@ -50,7 +50,7 @@ describe("blob pathname validation", () => {
   it.each(unsafe)("rejects %j before any driver call", async (pathname) => {
     const driver = spyDriver()
     const storage = createBlobStorage(driver, "default")
-    const event = { req: new Request("https://example.test/x"), res: { headers: new Headers(), status: 200 } }
+    const event = { "~standard": { vendor: "test", req: new Request("https://example.test/x"), res: { headers: new Headers(), status: 200 } } }
 
     await expect(storage.get(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.head(pathname)).rejects.toMatchObject(invalidPathname)
@@ -89,14 +89,14 @@ describe("blob pathname validation", () => {
     expect(driver.list).not.toHaveBeenCalled()
 
     const [error] = await storage.list({ prefix: "uploads/" })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(driver.list).toHaveBeenCalledWith(expect.objectContaining({ prefix: "uploads/" }))
   })
 
   it("accepts normal pathnames with dots, spaces, and percent signs", async () => {
     for (const pathname of ["notes/a.txt", ".env.example", "a/..b/c..", "a/.../b", "50%25 off.txt", "photo%201.png"]) {
       const [error] = await storage.put(pathname, "x")
-      expect(error, pathname).toBeNull()
+      expect(error, pathname).toBeUndefined()
     }
     expect(await readdir(base)).toEqual(expect.arrayContaining([".env.example", "50% off.txt", "a", "notes", "photo 1.png"]))
   })
@@ -125,7 +125,7 @@ describe("HTTP routes", () => {
   it("answers 400 to a serve request that leaves the store", async () => {
     await writeFile(join(root, "secret.txt"), "secret")
     const [error] = await storage.put("public.txt", "public")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
 
     const response = await app().fetch(new Request("http://localhost/blob/..%2Fsecret.txt"))
     expect(response.status).toBe(400)
@@ -147,13 +147,13 @@ describe("handleUpload pathnames", () => {
   function formRequest(names: string[]) {
     const form = new FormData()
     for (const name of names) form.append("files", new File([name], name, { type: "text/plain" }))
-    return { req: new Request("http://localhost/api/files", { body: form, method: "POST" }) }
+    return new H3Event(new Request("http://localhost/api/files", { body: form, method: "POST" }))
   }
 
   it("keeps an encoded file name inside the prefix", async () => {
     const [error, objects] = await storage.handleUpload(formRequest(["..%2Fevil.txt"]), { put: { prefix: "uploads" } })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(objects?.map(object => object.pathname)).toEqual(["uploads/..%2Fevil.txt"])
     expect(await readdir(base)).not.toContain("evil.txt")
     expect(await readdir(join(base, "uploads"))).toEqual(["..%2Fevil.txt"])
@@ -162,7 +162,7 @@ describe("handleUpload pathnames", () => {
   it("stores file names literally instead of decoding them", async () => {
     const [error, objects] = await storage.handleUpload(formRequest(["a%2Fb.txt", "photo%201.png"]), { put: { prefix: "uploads" } })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(objects?.map(object => object.pathname)).toEqual(["uploads/a%2Fb.txt", "uploads/photo%201.png"])
   })
 

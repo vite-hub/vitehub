@@ -14,6 +14,8 @@ Application code keeps importing `blob` from `@vite-hub/blob` when you switch pr
 
 ## Read and write blobs during development
 
+`vite dev` uses a local store unless the store sets `remote: true` or an explicit `driver`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+
 `hubBlob()` contributes the `vitehub blob` CLI namespace. Start the Vite Development Server, then read and write blobs from another terminal.
 
 ```bash [Terminal]
@@ -33,6 +35,8 @@ pnpm vitehub blob variants avatars/ada.png
 Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub add the matching Cloudflare R2 bucket binding to Nitro's generated `wrangler.json`.
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 'cloudflare-r2',
@@ -47,6 +51,8 @@ export default defineConfig({
 Set `jurisdiction` when the bucket uses a [Cloudflare R2 jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions). The values are `eu`, `fedramp`, and `us`.
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 'cloudflare-r2',
@@ -96,6 +102,8 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 ```
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 's3',
@@ -120,6 +128,8 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 ```
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   blob: {
     driver: 'minio',

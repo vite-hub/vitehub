@@ -86,6 +86,9 @@ Content bundles Comark UI's parser and editor implementation and installs the Co
 `components` lists the Comark components that bodies may use, such as `alert` for `::alert`, and the Console editor offers them in its `/` menu. Each prop has a `type`: `string`, `number`, `boolean`, `json`, `image`, or `file`. An `image` or `file` prop opens the same Media picker as `image()` and `file()` fields, limited to `store` when set. It stores the picked file as a string attribute: the served URL, such as `/media/icons/train.webp`, or the Blob pathname when the store is not served. Content stores the Markdown as written and does not check component use.
 
 ```ts
+import { z } from "zod"
+import { documents } from "@vite-hub/content/collections"
+
 documents({
   path: "notes/*.md",
   fields: { title: z.string() },
@@ -129,6 +132,7 @@ content.collections() // [posts], each with name, kind, format, path, fields, an
 `singleton({ path, fields })` defines one document at a fixed path, such as site settings. Its methods take no id, and `publish({ expect })` entries for it may omit `id`. The extension sets the format of a document or collection: `.json` stores an indented JSON object, `.yaml`/`.yml` a block-style YAML mapping, and anything else Markdown with YAML frontmatter. JSON and YAML documents have no body.
 
 ```ts
+import { z } from "zod"
 import { defineContent } from "@vite-hub/content"
 import { documents, singleton } from "@vite-hub/content/collections"
 
@@ -175,7 +179,7 @@ With Realtime enabled on a host with a room authority, ViteHub contributes a `co
 
 `documents({ url: "/blog/:id" })` maps documents to public URLs, and reads carry `document.url`. `content.resolve("/blog/hello")` maps a page back to its `{ collection, id }` with the same `url`, for an Edit button; a collection without `url` resolves the id after a slash, without a trailing `/index`. `seo()` is a field for per-document `{ title, description, image, canonical, noindex }`; pass `seo({ image: image() })` to store a Blob reference. `contentHead(document, { collection, site, defaults })`, also exported from `@vite-hub/content/client`, returns unhead-shaped `{ title, meta, link, script? }` that merge the `seo()` values, the document fields, and site defaults. It finds the `seo()` field of `collection` by its marker, and resolves Blob images with the served route of the generated Blob config. `defineContent({ seo: { site, sitemap: true, robots: true } })` makes ViteHub generate `/sitemap.xml` and `/robots.txt`; `content.sitemap()` and `content.robots()` return the same output. `seo: { markdown: true }` also serves each published Markdown document at its URL plus `.md`, such as `/blog/hello.md` for `/blog/hello` and `/index.md` for `/`. The copy starts with the document's title, unless the body has its own heading, and its description as a quote, and turns root-relative links into absolute ones. Agents read it, and readers paste it into a chat. `content.markdown("/blog/hello.md")` returns the same text, or null. The sitemap also lists the documents of Sources with `contentSource(input, { url })`, without `lastmod`. Markdown copies read `collections` only.
 
-```ts
+```ts fragment
 useHead(contentHead(post, { site: { url: "https://vitehub.dev", name: "ViteHub" }, defaults: { description: settings.data.description } }))
 ```
 

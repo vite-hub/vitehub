@@ -1,0 +1,17 @@
+[
+  {
+    "id": "godot-asset-store",
+    "repo": "adamscott/godot-asset-store-front-end",
+    "commit": "a81749ef3953a14743c5d6ab03979ef5624fd62b",
+    "dir": "apps/front-end",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "nuxt-safe-runtime-config"
+      ],
+      "report": [
+        "removed nuxt-safe-runtime-config: it had no envSchema and no $schema"
+      ]
+    }
+  }
+]

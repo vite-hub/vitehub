@@ -228,6 +228,12 @@ describe("public package export contracts", () => {
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
 
+  it("reads Sandbox Task payloads through Standard Context", () => {
+    const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
+    expect(source).toMatch(/event: ViteHubContext/)
+    expect(source).toContain("getStandardContext(event).req.json()")
+  })
+
   it("points every contract at a built artifact", () => {
     for (const contract of publicPackageExportContracts) {
       const info = packageInfos.find(info => info.packageName === contract.packageName)!

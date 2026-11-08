@@ -101,6 +101,10 @@ The local provider stores each accepted job as a file in `.vitehub/data/queue`, 
 
 ```ts
 // vite.config.ts
+import { nitro } from "nitro/vite"
+import { hubQueue } from "@vite-hub/queue/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   nitro: { preset: "node-server", serverEntry: "./src/server.ts" },
   plugins: [hubQueue(), nitro()],
