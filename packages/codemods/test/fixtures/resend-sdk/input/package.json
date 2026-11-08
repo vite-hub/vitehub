@@ -1,0 +1,9 @@
+{
+  "name": "resend-sdk-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "nuxt": "npm:nuxt-nightly@5x",
+    "resend": "^6.0.0"
+  }
+}
