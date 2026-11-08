@@ -27,15 +27,16 @@ describe("supported framework guidance", () => {
     expect(violations).toEqual([]);
   });
 
-  it("uses the Nuxt 5 nightly alias in the published starter paths", () => {
-    for (const landing of Object.values(primitiveLandings)) {
-      for (const variant of landing.variants) {
-        if (variant.framework !== "nuxt") continue;
-        const source = variant.files.map(file => file.content).join("\n");
-        expect(source, `${landing.slug}/${variant.framework}`).not.toMatch(unsupported);
-        if (["auth", "agents", "content", "database", "queue", "source"].includes(landing.slug)) {
-          expect(source, landing.slug).toContain("npm:nuxt-nightly@5x");
-        }
+  it.each(Object.values(primitiveLandings))("uses the Nuxt 5 nightly alias in published starters ($slug)", (landing) => {
+    for (const variant of landing.variants) {
+      if (variant.framework !== "nuxt") continue;
+      const source = variant.files.map(file => file.content).join("\n");
+      expect(source, `${landing.slug}/${variant.framework}`).not.toMatch(unsupported);
+      // Standalone runtime examples do not install a framework.
+      const hasNuxtSetup = variant.files.some(file => file.path === "nuxt.config.ts"
+        || (file.path === "package.json" && /"nuxt"\s*:/.test(file.content)));
+      if (!variant.illustrative && hasNuxtSetup) {
+        expect(source, landing.slug).toContain("npm:nuxt-nightly@5x");
       }
     }
   });
