@@ -6,15 +6,16 @@ import { snakeCase } from "scule"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
-import { readRuntimeConfig } from "../nuxt-safe-runtime-config/nuxt-config.ts"
+import { readRuntimeConfig, readRuntimeConfigValue } from "../nuxt-safe-runtime-config/nuxt-config.ts"
 import { addViteHubOptions, bindingFree, ConfigEditor, createLineResolver, useViteHubModule } from "../shared/config-editor.ts"
 import { detectNuxtModule, readDependencies } from "../shared/detect.ts"
-import { findModuleEntry, literalValue, objectProperty, readNuxtConfig, unwrapExpression } from "../shared/nuxt-config.ts"
+import { findModuleEntry, objectProperty, readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { CodemodError } from "../types.ts"
-import { rewriteResendCallSites } from "./call-sites.ts"
+import { hasResendClient, rewriteResendCallSites } from "./call-sites.ts"
 
 import type { Node } from "@vite-hub/internal/ast"
+import type { RuntimeConfigValue } from "../nuxt-safe-runtime-config/nuxt-config.ts"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
@@ -32,14 +33,7 @@ function existingEnvImport(config: NuxtConfigFile): string | undefined {
   return undefined
 }
 
-function processEnvName(node: Node | undefined): string | undefined {
-  const value = node ? unwrapExpression(node) : undefined
-  if (value?.type !== "MemberExpression" || value.object.type !== "MemberExpression") return undefined
-  if (value.object.object.type !== "Identifier" || value.object.object.name !== "process" || keyName(value.object.property) !== "env") return undefined
-  return keyName(value.property, value.computed)
-}
-
-/** Files outside nuxt.config that read `runtimeConfig.resend`, which the module filled in. */
+/** Suggest cleanup for recognized readers. Preservation must not depend on this scan. */
 async function runtimeConfigReaders(cwd: string): Promise<FollowUp[]> {
   const followUps: FollowUp[] = []
   for (const file of (await glob(["**/*.{ts,mts,js,mjs,vue}"], { cwd, ignore: [...ignored, "nuxt.config.*"] })).sort()) {
@@ -69,50 +63,55 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const rootEntries = useViteHubModule(editor, config, findModuleEntry(config, moduleName) && !keepModule ? moduleName : undefined)
   const followUps: FollowUp[] = []
   const names: string[] = usesModule ? ["NUXT_RESEND_API_KEY"] : []
+  const reportedKeys = new Set<string>()
+  // Every config credential uses the same classification: known Env source or manual follow-up.
+  const recordApiKey = (value: RuntimeConfigValue | undefined, path: string): void => {
+    if (!value || reportedKeys.has(path)) return
+    reportedKeys.add(path)
+    if (value.processEnv) names.push(value.processEnv.name)
+    const literal = value.literal ?? value.processEnv?.fallback
+    if (typeof literal === "string" && literal) followUps.push({ file: config.fileName, line: value.line, message: `nuxt.config held a literal Resend API key at ${path}. Move it to one of the generated Email Env sources before using the migrated sends, and rotate the key if this file is public.` })
+    else if (value.expression) followUps.push({ file: config.fileName, line: value.line, message: `The Resend API key at ${path} could not be read statically. Declare that value as vitehub.email.options.apiKey by hand before using the migrated sends.` })
+  }
 
   // Module options: `resend: { apiKey }` at the root.
   const moduleOptions = findProperty(config.root, "resend")
   if (moduleOptions && !keepModule) {
-    const apiKey = moduleOptions.value.type === "ObjectExpression" ? findProperty(moduleOptions.value, "apiKey") : undefined
-    const fromEnv = processEnvName(apiKey?.value)
-    if (fromEnv) names.push(fromEnv)
-    const literal = apiKey ? literalValue(apiKey.value) : undefined
-    if (typeof literal === "string" && literal) followUps.push({ file: config.fileName, line: line(moduleOptions), message: "nuxt.config held a literal Resend API key. It was removed. Set NUXT_RESEND_API_KEY where the app runs, and rotate the key if this file is public." })
+    const options = objectProperty(config.root, "resend")
+    const apiKey = options ? findProperty(options, "apiKey") : moduleOptions
+    if (apiKey) recordApiKey(readRuntimeConfigValue(config.code, apiKey), options ? "resend.apiKey" : "resend")
     editor.removeItem(moduleOptions)
     removedRootProperties.add(moduleOptions)
   }
 
   // runtimeConfig.resend.apiKey, which the module also reads.
   const runtimeConfig = objectProperty(config.root, "runtimeConfig")
+  const runtimeProperty = findProperty(config.root, "runtimeConfig")
   const resendProperty = runtimeConfig ? findProperty(runtimeConfig, "resend") : undefined
   const readers = keepModule ? [] : await runtimeConfigReaders(cwd)
-  // Code that checks runtimeConfig.resend.apiKey keeps working: declare the key that the module filled in.
-  // NUXT_RESEND_API_KEY still sets it when the server starts.
-  if (readers.length && !resendProperty) {
-    const declaration = `resend: { apiKey: ${quoteString("", editor.style)} }`
-    if (runtimeConfig) editor.insertProperties(runtimeConfig, [declaration], new Set())
-    else rootEntries.push(`runtimeConfig: { ${declaration} }`)
-  }
-  if (runtimeConfig && resendProperty) {
-    const value = readRuntimeConfig(config).values.get("resend.apiKey")
-    if (value?.processEnv) names.push(value.processEnv.name)
-    if (!readers.length && !keepModule) {
-      const runtimeProperty = findProperty(config.root, "runtimeConfig")
-      if (runtimeConfig.properties.length === 1 && runtimeProperty) {
-        editor.removeItem(runtimeProperty)
-        removedRootProperties.add(runtimeProperty)
-      }
-      else editor.removeItem(resendProperty)
+  // Keep existing runtimeConfig and always declare the module's key when removing it.
+  // Readers can use whole objects, aliases, computed keys, or files this codemod cannot parse.
+  if (usesModule && !keepModule) {
+    const apiKey = `apiKey: ${quoteString("", editor.style)}`
+    const resendConfig = runtimeConfig ? objectProperty(runtimeConfig, "resend") : undefined
+    if (resendConfig) {
+      if (!findProperty(resendConfig, "apiKey")) editor.insertProperties(resendConfig, [apiKey], new Set())
     }
+    else if (runtimeConfig && !resendProperty) editor.insertProperties(runtimeConfig, [`resend: { ${apiKey} }`], new Set())
+    else if (!runtimeProperty) rootEntries.push(`runtimeConfig: { resend: { ${apiKey} } }`)
+    else followUps.push({ file: config.fileName, line: line(resendProperty ?? runtimeProperty), message: "runtimeConfig.resend could not be read statically. Keep runtimeConfig.resend.apiKey declared by hand after removing nuxt-resend so existing reads keep working." })
   }
+  const runtimeValues = readRuntimeConfig(config).values
+  recordApiKey(runtimeValues.get("resend.apiKey") ?? runtimeValues.get("resend"), "runtimeConfig.resend.apiKey")
   followUps.push(...readers)
+  if (new Set(calls.apiKeySources).size > 1) {
+    followUps.push({ message: "Resend clients use different API-key sources. ViteHub Email uses one credential: the first available source. Check that all clients use the same account before using the migrated sends. Keep clients with different credentials on the Resend SDK or configure them separately by hand." })
+  }
   names.push(...calls.apiKeyVariables)
   // `new Resend(useRuntimeConfig().key)`: Nuxt fills `runtimeConfig.key` from NUXT_<KEY> and from the variable it names.
-  const runtimeValues = readRuntimeConfig(config).values
   for (const key of calls.runtimeConfigKeys) {
-    const value = runtimeValues.get(key)
     names.push(`NUXT_${snakeCase(key).toUpperCase()}`)
-    if (value?.processEnv) names.push(value.processEnv.name)
+    recordApiKey(runtimeValues.get(key), `runtimeConfig.${key}`)
   }
   const sources = [...new Set(names)]
   if (!sources.length) sources.push("RESEND_API_KEY")
@@ -140,12 +139,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const lineOf = createLineResolver(configCode)
   if (presetNote) followUps.unshift({ file: config.fileName, line: lineOf(["vitehub", "preset"]), message: presetNote })
 
-  // Keep the resend package while any file still imports it.
+  // Keep ESM, CommonJS, TypeScript import-equals, and dynamic package loads.
   const rewritten = new Map(calls.edits.map(edit => [edit.path, edit.after ?? ""]))
   let resendImported = false
   for (const file of await glob(["**/*.{ts,mts,cts,js,mjs,cjs,vue}"], { cwd, ignore: ignored })) {
     const code = rewritten.get(file) ?? await readFile(join(cwd, file), "utf8")
-    if (/from\s+["']resend["']/.test(code)) resendImported = true
+    if (/\b(?:from\s*|import\s*|(?:require|import)\s*\(\s*)["']resend["']/.test(code)) resendImported = true
   }
   const dependencies = await readDependencies(cwd)
   const remove = [...(keepModule ? [] : [moduleName]), ...(resendImported || keepModule ? [] : ["resend"])].filter(name => dependencies.has(name))
@@ -179,7 +178,7 @@ export const resend: Codemod = {
     if (module) return module
     if (!(await readDependencies(cwd)).has("resend")) return undefined
     for (const file of (await glob(["server/**/*.{ts,mts,js,mjs}"], { cwd, ignore: ignored })).sort()) {
-      if (/new\s+Resend\s*\(/.test(await readFile(join(cwd, file), "utf8"))) return { reason: `${file} creates a Resend client` }
+      if (hasResendClient(file, await readFile(join(cwd, file), "utf8"))) return { reason: `${file} creates a Resend client` }
     }
     return undefined
   },

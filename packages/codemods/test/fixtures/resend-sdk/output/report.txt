@@ -8,12 +8,13 @@ Files to change (5):
   server/utils/resend.ts
   package.json
 
-Manual follow-ups (5):
+Manual follow-ups (6):
   1. nuxt.config.ts:9 ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
-  2. server/api/mail.ts:8 email.send() returns an [error, sent] tuple, where Resend returned { data, error }. Update the code that reads this result.
-  3. server/utils/resend.ts:6 ViteHub Email does not send React elements. Render the element to html first, for example with render() from @react-email/render.
-  4. server/utils/resend.ts:6 email.send() returns an [error, sent] tuple, where Resend returned { data, error }. Update the code that reads this result.
-  5. server/utils/resend.ts:11 resend is used for more than emails.send(), such as batch, contacts, or audiences. Those stay on the Resend SDK.
+  2. Resend clients use different API-key sources. ViteHub Email uses one credential: the first available source. Check that all clients use the same account before using the migrated sends. Keep clients with different credentials on the Resend SDK or configure them separately by hand.
+  3. server/api/mail.ts:8 email.send() returns an [error, sent] tuple, where Resend returned { data, error }. Update the code that reads this result.
+  4. server/utils/resend.ts:6 ViteHub Email does not send React elements. Render the element to html first, for example with render() from @react-email/render.
+  5. server/utils/resend.ts:6 email.send() returns an [error, sent] tuple, where Resend returned { data, error }. Update the code that reads this result.
+  6. server/utils/resend.ts:11 resend is used for more than emails.send(), such as batch, contacts, or audiences. Those stay on the Resend SDK.
 
 Notes:
   - The API key is Secret Env read from RESEND_API_KEY, then NUXT_RESEND_API_KEY, then MAIL_KEY. It resolves on each send, so builds do not need it.

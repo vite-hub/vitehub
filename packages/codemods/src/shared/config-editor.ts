@@ -283,6 +283,18 @@ export function createLineResolver(code: string): LineResolver {
   }
 }
 
+function explicitModules(config: NuxtConfigFile) {
+  const modules = objectPropertyArray(config.root, "modules")
+  if (modules) return modules
+  if (findProperty(config.root, "modules")) {
+    throw new CodemodError(`${config.fileName} sets modules to an expression. Make it an array literal, then run the codemod again.`)
+  }
+  if (config.root.properties.some(property => property.type === "SpreadElement")) {
+    throw new CodemodError(`${config.fileName} has a root spread that may supply modules. Make modules an explicit array literal, then run the codemod again.`)
+  }
+  return undefined
+}
+
 /**
  * Puts `vite-hub/nuxt` in `modules`. When `replace` names a module, its entry becomes `vite-hub/nuxt`, or goes
  * away when `vite-hub/nuxt` is already listed. Returns root properties to add, such as a new `modules` array.
@@ -300,18 +312,12 @@ export function useViteHubModule(editor: ConfigEditor, config: NuxtConfigFile, r
     return []
   }
   if (existingViteHub) return []
-  const modules = objectPropertyArray(config.root, "modules")
+  const modules = explicitModules(config)
   if (modules) {
     const last = modules.elements.at(-1)
     if (last) editor.output.appendLeft(end(last), `, ${moduleText}`)
     else editor.output.appendLeft(end(modules) - 1, moduleText)
     return []
-  }
-  if (findProperty(config.root, "modules")) {
-    throw new CodemodError(`${config.fileName} sets modules to an expression. Make it an array literal, then run the codemod again.`)
-  }
-  if (config.root.properties.some(property => property.type === "SpreadElement")) {
-    throw new CodemodError(`${config.fileName} has a root spread that may supply modules. Make modules an explicit array literal, then run the codemod again.`)
   }
   return [`modules: [${moduleText}]`]
 }
@@ -402,7 +408,10 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
 /** Removes the `modules` entry of `moduleName`. Returns false when `modules` does not list it. */
 export function removeModuleEntry(editor: ConfigEditor, config: NuxtConfigFile, moduleName: string): boolean {
   const entry = findModuleEntry(config, moduleName)
-  if (!entry) return false
+  if (!entry) {
+    explicitModules(config)
+    return false
+  }
   editor.removeItem(entry.element)
   return true
 }

@@ -50,12 +50,14 @@
     "jiti": "catalog:unjs",
     "magic-string": "^0.30.21",
     "scule": "^1.3.0",
+    "semver": "^7.8.5",
     "tinyglobby": "catalog:workspace",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@babel/types": "^7.29.8",
     "@types/node": "catalog:tooling",
+    "@types/semver": "^7.8.0",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",

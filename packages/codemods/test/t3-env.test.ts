@@ -1,12 +1,14 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { afterAll, describe, expect, it } from "vitest"
+import { z } from "zod"
 
 import { formatReport, runCodemod, runMigration } from "../src/index.ts"
 import { classify, resolveSpecifier } from "../src/t3-env/call-sites.ts"
-import { envPathOf } from "../src/t3-env/plan.ts"
+import { envPathOf, planT3Env } from "../src/t3-env/plan.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/t3-env-test/", import.meta.url))
@@ -36,6 +38,79 @@ export const env = createEnv({
 afterAll(() => rm(scratch, { recursive: true, force: true }))
 
 describe("t3-env import safety", () => {
+  it.each([
+    ["modules/check-env.ts", "../env"],
+    ["modules/check-env.server.ts", "../env"],
+    ["modules/check-env/index.ts", "../../env"],
+    ["layers/base/nuxt.config.ts", "../../env"],
+    ["layers/base/modules/check-env.ts", "../../../env"],
+    ["layers/base/layers/nested/modules/check-env.ts", "../../../../../env"],
+  ])("keeps build-time env reads in %s", async (file, specifier) => {
+    const source = `import { env } from "${specifier}"\nexport const databaseUrl = env.DATABASE_URL\n`
+    const cwd = await app({ [file]: source })
+    const run = await runCodemod("t3-env", { cwd })
+    expect(await readFile(join(cwd, file), "utf8")).toBe(source)
+    expect(await readFile(join(cwd, "env.ts"), "utf8")).toContain("createEnv")
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).dependencies).toHaveProperty("@t3-oss/env-nuxt")
+    expect(run.result.followUps).toContainEqual(expect.objectContaining({ file }))
+  })
+
+  it.each([
+    "server/api/modules/status.ts",
+    "app/pages/modules/index.vue",
+    "shared/modules/status.ts",
+    "layers/base/server/api/modules/status.ts",
+    "layers/base/app/pages/modules/index.vue",
+  ])("migrates runtime reads in %s", async (file) => {
+    const specifier = `${"../".repeat(file.split("/").length - 1)}env`
+    const script = `import { env } from "${specifier}"\nexport const appUrl = env.NUXT_PUBLIC_APP_URL\n`
+    const cwd = await app({ [file]: file.endsWith(".vue") ? `<script lang="ts">\n${script}</script>\n` : script })
+    const run = await runCodemod("t3-env", { cwd })
+    expect(await readFile(join(cwd, file), "utf8")).toContain("usePublicEnv().appUrl")
+    await expect(readFile(join(cwd, "env.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    expect(run.result.followUps.some(entry => entry.file === file)).toBe(false)
+  })
+
+  it.each(["optional()", "nullish()", 'default("fallback")'])("guards unsealing a secret with %s", async (wrapper) => {
+    const file = "server/api/token.js"
+    const cwd = await app({
+      "env.ts": `import { createEnv } from "@t3-oss/env-nuxt"\nimport { z } from "zod"\nexport const env = createEnv({ server: { API_TOKEN: z.string().${wrapper} } })\n`,
+      [file]: 'import { env } from "../../env"\nexport const token = env.API_TOKEN\n',
+    })
+    await runCodemod("t3-env", { cwd })
+    const after = await readFile(join(cwd, file), "utf8")
+    const expression = after.split("export const token = ")[1]!
+    expect(runInNewContext(expression, { useServerEnv: () => ({ apiToken: undefined }) })).toBeUndefined()
+    expect(runInNewContext(expression, { useServerEnv: () => ({ apiToken: { unseal: () => "token" } }) })).toBe("token")
+  })
+
+  it.each(["cjs", "cts"])("keeps the env module for require() in a %s file", async (extension) => {
+    const file = `tools/check-env.${extension}`
+    const source = 'const { env } = require("../env")\nconsole.log(env.DATABASE_URL)\n'
+    const cwd = await app({ [file]: source })
+    const run = await runCodemod("t3-env", { cwd })
+    expect(await readFile(join(cwd, file), "utf8")).toBe(source)
+    expect(await readFile(join(cwd, "env.ts"), "utf8")).toContain("createEnv")
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).dependencies).toHaveProperty("@t3-oss/env-nuxt")
+    expect(run.result.followUps).toContainEqual(expect.objectContaining({ file }))
+  })
+
+  it.each([
+    'import { env } from "./env"',
+    'const { env } = await import("./env")',
+    'const { env } = require("./env")',
+  ])("keeps the env module when nuxt.config reads it through %s", async (statement) => {
+    const file = "nuxt.config.ts"
+    const cwd = await app({ [file]: `${statement}\nexport default defineNuxtConfig({ app: { baseURL: env.NUXT_PUBLIC_APP_URL }, vitehub: { preset: "node" } })\n` })
+    const run = await runCodemod("t3-env", { cwd })
+    const after = await readFile(join(cwd, file), "utf8")
+    expect(after).toContain(statement)
+    expect(after).toContain("baseURL: env.NUXT_PUBLIC_APP_URL")
+    expect(await readFile(join(cwd, "env.ts"), "utf8")).toContain("createEnv")
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).dependencies).toHaveProperty("@t3-oss/env-nuxt")
+    expect(run.result.followUps).toContainEqual(expect.objectContaining({ file }))
+  })
+
   it.each(["ts", "tsx", "jsx"])("keeps the env module for a dynamic import in a %s file", async (extension) => {
     const file = `app/components/Env.${extension}`
     const source = 'export const loadEnv = () => import("~~/env")\n'
@@ -119,6 +194,13 @@ describe("t3-env helpers", () => {
     expect(classify("db/index.ts")).toBe("shared")
     expect(classify("drizzle.config.ts")).toBe("outside")
     expect(classify("scripts/seed.ts")).toBe("outside")
+    expect(classify("modules/check-env.ts")).toBe("outside")
+    expect(classify("modules/check-env.server.ts")).toBe("outside")
+    expect(classify("layers/base/nuxt.config.ts")).toBe("outside")
+    expect(classify("layers/base/modules/check-env.ts")).toBe("outside")
+    expect(classify("layers/base/modules/check-env/server/index.ts")).toBe("outside")
+    expect(classify("layers/base/server/api/x.ts")).toBe("server")
+    expect(classify("layers/base/app/pages/index.vue")).toBe("app")
   })
 
   it("resolves ~ and @ to both source directory candidates", () => {
@@ -128,5 +210,33 @@ describe("t3-env helpers", () => {
     expect(resolveSpecifier(cwd, "server/api/a.ts", "../../env")).toEqual(["env"])
     expect(resolveSpecifier(cwd, "server/a.ts", "#shared/env")).toEqual(["shared/env"])
     expect(resolveSpecifier(cwd, "server/a.ts", "zod")).toEqual([])
+  })
+})
+
+describe("t3-env nullable schemas", () => {
+  it.each([
+    ["required", z.string().nullable(), true, undefined],
+    ["optional", z.string().nullish(), false, undefined],
+    ["defaulted", z.string().nullable().default("fallback"), false, "fallback"],
+  ] as const)("preserves missing-value validation for a %s nullable field", async (_label, schema, required, defaultValue) => {
+    const plan = await planT3Env({ exportName: "env", server: { VALUE: schema }, client: {}, shared: {}, otherOptions: [] }, fixtures)
+    expect(plan.fields[0]?.field.required).toBe(required)
+    expect(plan.fields[0]?.field.default).toBe(defaultValue)
+    expect(plan.followUps).toContainEqual(expect.objectContaining({ key: "VALUE", message: expect.stringContaining("null") }))
+  })
+})
+
+describe("t3-env parser compatibility", () => {
+  it.each([
+    ["ordinary string", z.string(), "value", "value"],
+    ["coercing boolean", z.coerce.boolean(), "false", true],
+    ["catch wrapper", z.string().min(3).catch("fallback"), "x", "fallback"],
+    ["nested catch wrapper", z.string().min(3).catch("fallback").optional(), "x", "fallback"],
+  ] as const)("reports unverified parser behavior for a %s", async (_label, schema, input, original) => {
+    expect(schema.parse(input)).toBe(original)
+    const plan = await planT3Env({ exportName: "env", server: { VALUE: schema }, client: {}, shared: {}, otherOptions: [] }, fixtures)
+    expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining("Check every migrated variable") }))
+    expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining('"false" as true') }))
+    expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining("catch() fallbacks") }))
   })
 })

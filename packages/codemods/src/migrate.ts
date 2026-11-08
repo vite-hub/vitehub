@@ -2,9 +2,12 @@ import { existsSync } from "node:fs"
 import { cp, lstat, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path"
 
+import { intersects, validRange } from "semver"
+
 import { codemods } from "./registry.ts"
 import { applyEdit, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
+import { readNuxtConfig } from "./shared/nuxt-config.ts"
 import { CodemodError } from "./types.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
@@ -41,18 +44,12 @@ const skippedFolders = new Set([".git", ".nuxt", ".output", ".data", ".vercel", 
 /** Scratch directory prefix inside the project, so packages and the lockfile resolve as they do from the project. */
 export const scratchFolder = ".vitehub-migrate"
 
-/** The Nuxt major versions that a `nuxt` dependency range allows, when the range is a plain one. */
-function nuxtMajors(range: string): number[] | undefined {
-  if (/nuxt-nightly@5|nuxt-nightly@\^?5/.test(range)) return [5]
-  const matches = [...range.matchAll(/(?:^|[\s|^~>=<v])(\d+)(?:\.|$|\s|x)/g)].map(match => Number(match[1]))
-  return matches.length ? [...new Set(matches)] : undefined
-}
-
 async function projectWarnings(cwd: string): Promise<string[]> {
   const nuxt = (await readDependencies(cwd)).get("nuxt")
   if (!nuxt) return []
-  const majors = nuxtMajors(nuxt)
-  if (majors && majors.every(major => major < 5)) {
+  const options = { includePrerelease: true }
+  const range = validRange(nuxt.replace(/^npm:nuxt(?:-nightly)?@/, ""), options)
+  if (range && !intersects(range, ">=5.0.0-0", options)) {
     return [`ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt "${nuxt}". The migration does not upgrade Nuxt. Move the app to Nuxt 5 before you build it, for example with "nuxt": "npm:nuxt-nightly@5x" until Nuxt 5 is released. Nuxt 5 also stops auto-importing Nitro helpers such as defineEventHandler in server code. Set experimental: { nitroAutoImports: true } to keep them while you migrate, or import them as the Nuxt 5 build error lists.`]
   }
   return []
@@ -104,7 +101,10 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const warnings = await projectWarnings(cwd)
   const found = await detectCodemods(cwd)
   const steps: MigrationStep[] = []
-  if (!found.length) return { cwd, dryRun, steps, edits: [], warnings }
+  if (!found.length) {
+    await readNuxtConfig(cwd)
+    return { cwd, dryRun, steps, edits: [], warnings }
+  }
   const touched = new Set<string>()
   const scratch = await mkdtemp(join(cwd, `${scratchFolder}-`))
   try {
