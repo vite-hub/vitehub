@@ -65,6 +65,7 @@ Vercel Blob provisioning requires `VERCEL_PROJECT_ID` so the provision step can 
 After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
 Vite Integrations may read that file as a binding-id source during dev or build.
 D1 database ids are keyed by Database name under `d1`. Cloudflare KV namespace ids are keyed by KV Store name under `kv`.
+R2 buckets are recorded as `<jurisdiction>/<bucket-name>` (using `default` when no jurisdiction is set), keyed by Blob Store name under `r2`. Cloudflare Queue names are keyed by Queue Definition name under `queue`. Builds do not read `r2` or `queue`, because bucket and Queue names come from config and Definitions. `provision status` uses them to find a bucket or Queue that no Definition declares.
 
 ```json [.vitehub/provision.json]
 {
@@ -74,6 +75,12 @@ D1 database ids are keyed by Database name under `d1`. Cloudflare KV namespace i
     },
     "kv": {
       "default": "namespace-id"
+    },
+    "r2": {
+      "default": "default/bucket-name"
+    },
+    "queue": {
+      "welcome": "queue-name"
     }
   }
 }
@@ -99,6 +106,28 @@ A pending action needs resource creation or provider-side setup. An existing Ver
 If an existing project connection is missing environments, planning fails with `BLOB_R0020`. Correct the connection in Vercel before rerunning status or provisioning. `provision run` cannot modify an existing connection.
 Planning failures exit with code 1 and write the diagnostic to stderr, including with `--json`.
 Without provider credentials, the command still shows recorded ids, but it reports the plan as not checked instead of reporting no pending actions.
+
+### Ids that no Definition declares
+
+When you rename or remove a Database Definition, a KV Store, an R2 Blob Store, or a Queue Definition, its id stays in `.vitehub/provision.json` and its resource stays on the host. `provision status` marks that entry as `not declared` and prints a `fix:` line for it. This check reads only local config, so it also works without credentials.
+
+Status also marks an R2 or Queue entry when its key is still declared but its recorded bucket name, jurisdiction, or Queue name differs from current config.
+
+```txt [Output]
+recorded cloudflare ids (.vitehub/provision.json):
+d1      main     db-main
+d1      primary  db-main  not declared
+kv      cache    ns-cache not declared
+fix: d1 "primary": d1 "main" uses the same id, so keep the resource and only remove the entry from .vitehub/provision.json.
+fix: kv "cache": No Definition declares it. If no deployment uses ns-cache, run `wrangler kv namespace delete --namespace-id ns-cache`, then remove the entry from .vitehub/provision.json.
+```
+
+ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKv()`, is also marked `not declared`.
+
+Status defers deletion guidance when it cannot verify a current Definition's recorded resource against current config. A renamed Definition may reuse the resource recorded under its old key, even when its new key already has an id from an older Definition. D1 and KV ids cannot be matched to configured resource names locally: compare the provider's resource names and bindings with current Definitions before deleting anything. For R2 and Queues, `vitehub provision run --provider cloudflare` refreshes recorded identities that status can compare with config.
+
+R2 shared-resource checks include the bucket's jurisdiction, and deletion hints include `--jurisdiction` when needed. Older R2 entries containing only a bucket name have an unknown jurisdiction, so status never assumes they share a resource and defers their deletion guidance while any R2 Store remains declared. Check the jurisdiction before following deletion hints when no R2 Stores remain declared.
+
 The plan is also not checked when an applicable Provision Step skips its lookup. For example, Vercel Blob requires both `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`.
 
 ## JSON output
@@ -123,10 +152,12 @@ pnpm vitehub provision status --provider cloudflare --json
   "recorded": { "d1": { "default": "database-id" } },
   "schemaVersion": 1,
   "stateFile": ".vitehub/provision.json",
+  "undeclared": [],
   "warnings": []
 }
 ```
 
+`undeclared` lists each recorded id that no Definition declares, as `{ category, key, id, fix }`.
 `provision run --json` returns `mode` (`dry-run` or `apply`), the planned `actions`, the `ids` written by this run, `stateFile` (`null` when nothing was written), and `warnings`.
 An action may include `pending` to report required provider-side setup independently of resource existence. Without this field, an action is pending when `exists` is `false`. Vercel Blob includes the field because an existing store may still need a project connection.
 An action with `update` changes an existing resource. It has `exists: true` and `pending: true`, and `update` describes the change, for example `"read replication: disabled -> auto"`.

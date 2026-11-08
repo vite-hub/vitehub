@@ -36,7 +36,16 @@ async function expectPageToUseFixture(pagePath: string, fixture: string, labels:
 
 describe("documentation tutorials", () => {
   it("adds only the owner packages of opt-in features next to the framework distribution", async () => {
-    for (const [fixture, owners] of [["agents", ["@vite-hub/agent"]], ["first-agent", ["@vite-hub/agent"]], ["server-primitives", []], ["decisions", []]] as const) {
+    for (const [fixture, owners] of [
+      ["agents", ["@vite-hub/agent", "@vite-hub/workflow"]],
+      ["first-agent", ["@vite-hub/agent"]],
+      ["server-primitives", ["@vite-hub/kv"]],
+      ["decisions", ["@vite-hub/decisions", "@vite-hub/gateways"]],
+      ["playground-blob", ["@vite-hub/blob"]],
+      ["playground-cache", []],
+      ["playground-queue", ["@vite-hub/queue"]],
+      ["playground-rate-limit", ["@vite-hub/rate-limit"]],
+    ] as const) {
       const manifest = JSON.parse(
         await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"),
       );

@@ -13,7 +13,7 @@ export type KVCursorProblem = keyof typeof cursorProblems
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/kv/limits-and-errors",
+  docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
     // Runtime errors. KV operations return them as `[error, undefined]`.
     KV_INVALID_CURSOR: {

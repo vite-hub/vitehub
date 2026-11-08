@@ -119,6 +119,15 @@ describe("built docs links", () => {
     );
   });
 
+  it("matches extglob exclusions without hiding neighboring paths", () => {
+    output({ "index.html": '<a href="/guide">Guide</a><a href="/api">API</a>' }, (dir) => {
+      const options = { dir, siteUrl: "https://docs.test", excludeLinks: ["/@(guide|api)"] };
+      expect(checkDocsLinks(options).pages).toBe(1);
+      writeFileSync(join(dir, "index.html"), '<a href="/blog">Blog</a>');
+      expect(() => checkDocsLinks(options)).toThrow(/no page or file/);
+    });
+  });
+
   it("matches an exclusion with glob characters as written too", () => {
     output({ "index.html": '<a href="/files/[id].json">Template</a>' }, (dir) => {
       expect(checkDocsLinks({ dir, siteUrl: "https://docs.test", excludeLinks: ["/files/[id].json"] }).pages).toBe(1);

@@ -33,9 +33,10 @@ export default defineConfig({
 
 `vitehub()` includes the Nitro integration. The preset selects the Queue provider and Nitro output. If you chose Nuxt in Installation, set these same options on the existing `vite-hub/nuxt` module and keep Nuxt's server integration.
 
-Install Wrangler to read the deployed Worker's logs later:
+Install the Queue package, and Wrangler to read the deployed Worker's logs later:
 
 ```bash [commands/install]
+pnpm add @vite-hub/queue
 pnpm add -D wrangler
 ```
 

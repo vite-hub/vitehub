@@ -159,7 +159,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 
 Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from '@vite-hub/auth'
 
 export default defineAuth({
@@ -241,17 +241,19 @@ For a manual host that adapts requests to plain Web `Request` objects, call the 
 
 ## Give the first admin role
 
-Set `VITEHUB_ADMIN_EMAILS` to a comma-separated list of emails. A new account with one of them gets the admin role of Better Auth's `admin()` plugin: an email and password sign-up, or the first sign-in with a social provider. Existing accounts keep their role. The Auth Console shows the rule in its access notes.
+Set `VITEHUB_ADMINS` to the social accounts that get the admin role, separated by commas. Each entry is `<provider>:<account id>`, the pair that Better Auth stores in the `account` table:
 
 ```bash [Terminal]
-VITEHUB_ADMIN_EMAILS=you@example.com pnpm dev
+VITEHUB_ADMINS=github:22072217 pnpm dev
 ```
 
-On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS`. The role is the first entry of `admin({ adminRoles })`, `admin` by default. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+A GitHub entry uses the numeric account id, because someone can rename a login and someone else can take the old one. Find it with `gh api users/<login> --jq .id`.
 
-The assignment runs after an application's `databaseHooks.user.create.before` hook, preserving its other fields and any cancellation. A hook's returned role cannot demote a new account with a listed email.
+When a listed account signs in, or is linked to a user, the user gets the first role of `admin({ adminRoles })`, `admin` by default. The role replaces the default role of `admin()` and joins the user's other roles. An entry added later works on the account's next sign-in. Removing an entry does not remove the role: an admin changes it in the Auth Console, which shows the rule in its access notes.
 
-The first account that signs up with a listed email gets the role. This is a bootstrap rule and does not prove email ownership. For email and password sign-up, restrict access to the deployment until you have created the admin account, then unset `VITEHUB_ADMIN_EMAILS` before opening public sign-up. Email verification alone does not protect this bootstrap: someone else can register the address with their own password, and keep that password if the mailbox owner follows the verification link. If the address has already been registered by someone else, remove that account through your trusted administration process before bootstrapping.
+On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMINS`. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+
+`VITEHUB_ADMINS` takes no emails. An email and password sign-up does not prove that the person owns the email, so the first person to sign up with the admin's email would get the role. An email entry fails with `AUTH_C0058`, and the removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
 ## Sign MCP clients in
 
@@ -373,6 +375,9 @@ To persist Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-datab
 `hubAuth()` accepts `false` to disable Auth integration. The Vite config key `auth` overrides the plugin argument.
 
 ```ts [vite.config.ts]
+import { hubAuth } from '@vite-hub/auth/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubAuth()],
   auth: false,

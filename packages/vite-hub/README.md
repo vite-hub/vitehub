@@ -15,21 +15,36 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
-`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels, Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Other features are optional peers, so an app installs only what it enables. Add their packages before you enable them:
+`vite-hub` includes Env, Source, Logs, and the Console. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent` |
+| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
 | `auth` | `@vite-hub/auth better-auth` |
+| `blob` | `@vite-hub/blob` |
+| `browser` | `@vite-hub/browser` |
+| `channels` | `@vite-hub/channels` |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `email` | `@vite-hub/email` |
+| `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
+| `queue` | `@vite-hub/queue` |
+| `rateLimit` | `@vite-hub/rate-limit` |
 | `realtime` | `@vite-hub/realtime` |
+| `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
 | `server/comments.ts` | `@vite-hub/comments` |
+| `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
+| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
@@ -53,11 +68,11 @@ export default defineConfig({
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation). With the Console enabled, the Nuxt module serves the same standalone Console page as a Vite app, so the host's styles and layouts do not apply to it.
 
-On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Console, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
+On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Agent Invocation journal, Console Auth, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
 
 Set `publicUrl` to the public origin of the deployed application, for example `vitehub({ preset: "node", publicUrl: "https://agents.example.com" })`. Console invocation links, GitHub activity links, telemetry session links, and the default Auth base URL use it. A function receives each discovered Agent name. It applies to builds. In `vite dev`, request-bound Console and Auth flows use the request origin. GitHub activity and telemetry links have no request-origin fallback. Use the GitHub Channel `activity.publicUrl` override or the evlog `sessionUrl` callback to supply links in development. Server code reads the origin with `resolvePublicUrl()` from `vite-hub/runtime`, also in Workflows. A string `publicUrl` is also the default `--url` of `vitehub channels sync` and `channels history`. On the `cloudflare` preset, it adds the custom-domain route and `workers_dev: false` to `wrangler.json` unless the app configures Worker routing.
 
-Explicit store paths, remote URLs, and disabled services remain authoritative. Set `console.databaseUrl` to preserve an existing journal location; `VITEHUB_CONSOLE_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
+Explicit store paths, remote URLs, and disabled services remain authoritative. Set `agent.invocations.databaseUrl` to preserve an existing journal location; `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
 
 ## Run a complete first result
 
@@ -82,6 +97,8 @@ ViteHub derives one deployment identity from the nearest `package.json` name, fa
 Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: true,
   blob: true,
@@ -208,9 +225,29 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 - [Generated files](https://vitehub.dev/docs/development/generated-files)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
 
-## Record Agent invocations in a Database
+## Record Agent invocations
 
-Set `invocations` to record invocations when the Console is disabled:
+An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify preset and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
+
+```ts
+import { vitehub } from "vite-hub"
+
+vitehub({
+  agent: {
+    invocations: {
+      databaseUrl: "file:/var/lib/app/agent-invocations.sqlite",
+      retention: { maxAge: "14d", maxSize: "30%" },
+      observations: { maxCount: 1024 },
+    },
+  },
+})
+```
+
+`databaseUrl` takes a `file:` or libSQL URL, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` overrides it at runtime, with `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated endpoint. `retention` takes `maxAge`, `maxRecords`, and `maxSize`. The SQLite journal keeps every terminal record by default; the D1 journal defaults to 30 days and 10,000 terminal records and does not support `maxSize`. On a Worker without D1 or a remote URL, the journal stays in memory. `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL` are removed and fail with a message that names the new option. ViteHub does not move records from the old `.vitehub/data/console.sqlite` file. See [the default journal](https://vitehub.dev/docs/agents/invocation-storage#use-the-default-journal).
+
+`getAgentInvocations()` from `vite-hub/agent` returns the app-wide journal. `await getAgentInvocationsDatabase()` opens Drizzle over the default journal on first use, for queries and atomic writes such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. It resolves to `undefined` for another journal store, for `agent.invocations: false`, and for the in-memory journal of a Worker.
+
+Set `invocations` on an Agent Definition to record into another journal, such as the app's Database:
 
 ```ts
 import { defineAgent } from "vite-hub/agent"
@@ -244,7 +281,7 @@ Set `console.mcpClient: true` to add the MCP client section. It runs on the serv
 
 `impersonation: true` lets a Console user with the `auth` section open the app as one of its users. It is off by default. It needs app Auth with Better Auth's admin plugin and `events.store`, and the app session must have Better Auth's `impersonate` permission. The session lasts one hour by default, cannot create credentials, and never opens the Console. See [Impersonate users](https://vitehub.dev/docs/development/console#impersonate-users).
 
-All Console paths use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: "/portal/"`, host middleware that you keep in front of the Console must protect `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` and `/api/_vitehub/console/**` at root. Relative bases (`""` or `"./"`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Host middleware is an optional first layer; `authorize` is the check that ViteHub enforces.
+All Console paths use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: "/portal/"`, host middleware that you keep in front of the Console must protect `/portal/_vitehub/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` at root. Relative bases (`""` or `"./"`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Host middleware is an optional first layer; `authorize` is the check that ViteHub enforces.
 
 `auth: "token"` reads `VITEHUB_CONSOLE_TOKEN_SHA256`, the SHA-256 of the token as 64 hex characters, from the host environment on each request, on Cloudflare from the Worker `env`. The server never stores the token. Create one with `openssl rand -hex 32` and store its hash, `printf %s "$TOKEN" | sha256sum`. The server hashes the bearer token and compares the digests in constant time. A missing, short, or wrong token gets `401` with `WWW-Authenticate: Bearer realm="vitehub-console"`. A missing or malformed hash gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`, and so does a raw `VITEHUB_CONSOLE_TOKEN` without the hash. The CLI sends the token with `VITEHUB_CONSOLE_AUTHORIZATION="Bearer <token>"`. The token is a bearer secret. Rotate it by storing the hash of a new token and restarting or redeploying the server. See [Use a Console token](https://vitehub.dev/docs/development/console#use-a-console-token).
 
@@ -254,13 +291,11 @@ The Console RPC transport accepts browser requests only from its own origin, inc
 
 One Console build can open many projects. The Console that an app serves opens that app, and asks for the token when the app uses `auth: "token"`. A Console on another origin links each app by its URL, reads `project.get`, and keeps the project list and tokens in `localStorage` (`vitehub-console:projects`) of its own origin. The app must use `auth: "token"` and list that origin in `console.origins`. Features that need the app origin or its cookies, such as live editing, the Content preview, impersonation, Env management, and the Connections connect flow, work only in the Console that the app serves. See [Use one Console for many projects](https://vitehub.dev/docs/development/console#use-one-console-for-many-projects).
 
+[console.vitehub.dev](https://console.vitehub.dev) hosts that Console build as a static site. It keeps no server state, and the browser calls each project directly, so ViteHub never receives tokens or project data. An app with `auth: "token"` and the default `console.origins` can link there. To self-host the same build, run `pnpm --dir packages/vite-hub run build:console-hosted` in a repository clone and serve `.vitehub/console-hosted` with its `_headers` file; `console.hosted.wrangler.jsonc` is the Cloudflare configuration of console.vitehub.dev. See [Hosted Console](https://vitehub.dev/docs/development/console#hosted-console).
+
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 
-Set `console.observations` to configure the fallback journal's observation count, string length, byte budget, and flush timeout. Set `console.retention` with `maxAge` (such as `'14d'`), `maxRecords`, or `maxSize` (such as `'500MB'` or `'30%'` of the volume) to remove old terminal records. The SQLite and libSQL fallback keeps them all by default; the D1 fallback defaults to 30 days and 10,000 terminal records and does not support `maxSize`. Discovered Agent Definitions with an explicit shared journal retain that journal's settings.
-
-On the `cloudflare` preset, production builds store the fallback journal in the D1 binding of the default or only Database Definition. Its Cloudflare config takes precedence over the `driver: "d1"` integration binding. Without a discovered Definition, the Console keeps libSQL. The D1 store creates its table on first use. Development, `console.databaseUrl`, and `VITEHUB_CONSOLE_DATABASE_URL` keep libSQL. See [Cloudflare journal](https://vitehub.dev/docs/development/console#know-what-the-console-stores).
-
-The server opens the journal database on first use, when an Agent records a run or the Console reads the journal, so libSQL and Drizzle do not load at server start. `console.resolve(context).invocations` is the `AgentInvocations` journal. `await console.resolve(context).invocationsDatabase()` opens the journal database for Drizzle queries and atomic writes, such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. Use `db.batch()` to group D1 writes. On Cloudflare Workers, the default file journal is an in-memory journal, so `invocationsDatabase()` resolves to `undefined`; configure D1 or a remote libSQL URL when Drizzle access is required.
+The Console reads the app-wide Agent journal. It does not configure or store one. See [Record Agent invocations](#record-agent-invocations).
 
 `inputCommands({ debug: true })` from `vite-hub/agent/capabilities` adds a `/debug` input command. It replies with the Console URL of the previous Invocation of the same Agent. When the current Invocation has a Channel thread, it uses the previous Invocation in that thread. The Agent Driver does not run. `/debug` needs `vitehub({ console })`; without it, the command replies that the Console is not enabled. A `debug` entry in `commands` replaces the built-in command.
 

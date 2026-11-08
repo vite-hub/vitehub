@@ -2,7 +2,7 @@ import { defineDiagnostics } from "nostics"
 
 // Each code identifies one failure site. Keep published codes stable.
 export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/comments/diagnostics",
   codes: {
     COMMENTS_R0001: {
       why: ({ target }: { target: string }) => `createAnchor() found nothing to anchor to for ${target}.`,
@@ -101,6 +101,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     COMMENTS_B0002: {
       why: ({ file }: { file: string }) => `${file} must export defineComments(), as \`comments\` or as the default export.`,
       fix: "Write `export default defineComments({ authorize })` in server/comments.ts.",
+    },
+    COMMENTS_B0003: {
+      why: "comments() from @vite-hub/comments/vite is for apps without vitehub(). In this app vitehub() owns the Comments configuration.",
+      fix: "Remove comments() from the plugins and set vitehub({ comments: true }), or add server/comments.ts. See https://vitehub.dev/docs/comments/configure#turn-comments-on-in-a-vitehub-app",
     },
   },
 })
