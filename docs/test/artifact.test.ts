@@ -3,10 +3,16 @@ import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
 
+import type { Unstable_RawConfig } from "wrangler";
+
 const docsRoot = resolve(import.meta.dirname, "..");
+const serverRoot = resolve(docsRoot, ".output/server");
+const workerConfig: Unstable_RawConfig = JSON.parse(readFileSync(resolve(serverRoot, "wrangler.json"), "utf8"));
 const server = createTestHarness({
-  root: docsRoot,
-  workers: [{ configPath: ".output/server/wrangler.json" }],
+  root: serverRoot,
+  // Nitro 3 emits thousands of modules. Bundle them for the local runtime to avoid
+  // Miniflare's slow serialization of the separate modules into its config.
+  workers: [{ config: { ...workerConfig, no_bundle: false, rules: [] } }],
 });
 
 beforeAll(async () => {
