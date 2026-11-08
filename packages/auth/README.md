@@ -330,6 +330,8 @@ Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-starte
 
 In Nuxt, the server reads the session once for each page request that has a Better Auth session cookie and sends it to the browser in the page payload, without the session token. `useUserSession()` and `useSession()` start from it, so a signed-in page renders signed in on the server and does not flash signed out while Better Auth loads. A request without a session cookie skips the lookup, so pages for signed-out visitors do not load Better Auth. A prerendered or cached page was rendered without the visitor's cookie, so its session counts as unknown.
 
+The server session lookup and page guard use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
+
 `definePageMeta({ auth })` guards a page on the server and on client navigation:
 
 | `auth` | Who may open the page | Others go to |

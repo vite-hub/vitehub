@@ -5,7 +5,7 @@ import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useReq
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { authClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useUserSession } from "../vue.ts"
+import { createAuthClient, setNuxtAppResolver, setSessionSeedResolver } from "../vue.ts"
 
 import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
 
@@ -48,7 +48,7 @@ function appendSetCookies(event: EventLike, response: ResponseLike): void {
 }
 
 /** Reads the session of the request once, so server rendering and hydration start signed in or signed out. */
-async function readServerSession(): Promise<unknown> {
+async function readServerSession(basePath: string): Promise<unknown> {
   const event = useRequestEvent() as (EventLike & { req?: { headers?: Headers }, headers?: Headers, node?: { req?: { headers?: Record<string, string | string[] | undefined> } } }) | undefined
   if (!event) return undefined
   // H3 2 (Nuxt 5) keeps the request on `event.req`. H3 1 exposes `event.headers` and the Node request.
@@ -56,7 +56,7 @@ async function readServerSession(): Promise<unknown> {
   // Without a session cookie the request has no session. Skip the lookup, so signed-out pages do not load Better Auth.
   if (!hasSessionCookie(cookie)) return null
   try {
-    const data: unknown = await useRequestFetch()(`${resolveAuthMountPath("/api/auth")}/get-session`, {
+    const data: unknown = await useRequestFetch()(`${basePath}/get-session`, {
       onResponse: ({ response }: { response: ResponseLike }) => appendSetCookies(event, response),
     })
     if (typeof data !== "object" || data === null) return null
@@ -73,24 +73,18 @@ async function readServerSession(): Promise<unknown> {
   }
 }
 
-/**
- * True when a session exists. On the server it answers from the session the plugin read, without awaiting, because
- * Nuxt loses its request context after an `await` in plugin code. In the browser it asks Better Auth when needed.
- */
-function signedIn(): boolean | Promise<boolean> {
-  const { loggedIn } = useUserSession()
-  if (loggedIn.value || !("window" in globalThis)) return loggedIn.value
-  return loadAuthClient(authClient).then(client => client.getSession()).then(result => Boolean(result.data?.session))
-}
-
 // Typed `unknown` because the package build cannot see Nuxt's plugin type. Nuxt only reads the value.
 const viteHubAuthPlugin: unknown = defineNuxtPlugin({
   name: "vitehub:auth",
   enforce: "pre",
   async setup(nuxtApp: NuxtApp) {
     setNuxtAppResolver(() => tryUseNuxtApp() as NuxtApp | undefined)
+    const config = useRuntimeConfig().public?.vitehubAuth as { basePath?: string, redirects?: AuthRedirects } | undefined
+    const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth")
+    const client = createAuthClient({ basePath })
+    const redirects = config?.redirects ?? {}
     const seed = useState(stateKey, () => undefined) as { value: unknown }
-    if (!("window" in globalThis) && seed.value === undefined) seed.value = await readServerSession()
+    if (!("window" in globalThis) && seed.value === undefined) seed.value = await readServerSession(basePath)
     // A prerendered or cached page was rendered without this visitor's cookie, so its session is unknown.
     const stale = "window" in globalThis && Boolean(nuxtApp.payload.prerenderedAt || nuxtApp.payload.isCached)
     setSessionSeedResolver(() => {
@@ -105,7 +99,6 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
-    const redirects: AuthRedirects = useRuntimeConfig().public?.vitehubAuth?.redirects ?? {}
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
       const meta = to.meta.auth
       if (meta === undefined || meta === false) return
@@ -115,7 +108,11 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
         if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
       }
-      const loggedIn = signedIn()
+      // Decide synchronously on the server to keep Nuxt's request context. Browser navigations read the current
+      // session directly, without installing a composable's watchers outside a component scope.
+      const loggedIn = "window" in globalThis
+        ? client.getSession().then(result => Boolean(result.data?.session && result.data?.user))
+        : Boolean(seed.value)
       if (typeof loggedIn === "boolean") return decide(loggedIn)
       // In the browser, keep the Nuxt app for the navigation after Better Auth answers.
       const app = tryUseNuxtApp() as NuxtApp | undefined

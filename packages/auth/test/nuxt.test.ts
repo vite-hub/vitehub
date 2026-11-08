@@ -49,7 +49,7 @@ describe("Auth Nuxt integration", () => {
     const hooks = new Map<string, (input: { declarations: string[] }) => void>()
     const nuxt = { ...createNuxt(), hook: (name: string, handler: (input: { declarations: string[] }) => void) => hooks.set(name, handler) }
     hubAuthNuxt({ env: false, auth: { redirects: { login: "/sign-in" } } }, nuxt as never)
-    expect((nuxt.options as { runtimeConfig?: unknown }).runtimeConfig).toEqual({ public: { vitehubAuth: { redirects: { login: "/sign-in", guest: "/" } } } })
+    expect((nuxt.options as { runtimeConfig?: unknown }).runtimeConfig).toEqual({ public: { vitehubAuth: { basePath: "/api/auth", redirects: { login: "/sign-in", guest: "/" } } } })
     const declarations: string[] = []
     hooks.get("prepare:types")?.({ declarations })
     expect(declarations.join("\n")).toContain('auth?: import("@vite-hub/auth/nuxt").AuthPageMeta')

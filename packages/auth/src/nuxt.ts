@@ -87,19 +87,21 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   const authPlugin = vitePlugins.find(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME) || hubAuth(options.auth)
   if (!vitePlugins.some(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME)) nuxt.options.vite.plugins.push(authPlugin)
 
+  const resolveAuthConfig = () => {
+    const configRoot = resolve(viteRoot)
+    const serverDirs = resolveNuxtServerDirs(nuxt.options)
+    const authOptions = nuxt.options.vite?.auth ?? options.auth
+    return resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
+      ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
+  }
+
   if (options.nitro !== false && !nitroRegistered.has(nuxt)) {
     nitroRegistered.add(nuxt)
     nuxt.hook?.("nitro:config", async (nitroConfig) => {
       // Nitro can run before Vite's configResolved hook. Resolve discovery
       // directly from the Nuxt/Vite inputs so the virtual definition alias is
       // available during Nitro setup.
-      const configRoot = resolve(viteRoot)
-      const serverDirs = resolveNuxtServerDirs(nuxt.options)
-      const authOptions = nuxt.options.vite?.auth ?? options.auth
-      const definitionHandler = (
-        resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
-        ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
-      )?.definition.handler
+      const definitionHandler = resolveAuthConfig()?.definition.handler
       if (definitionHandler) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
@@ -124,11 +126,14 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  // The page guard of `definePageMeta({ auth })` reads its redirects from public runtime config.
+  // The session bridge and page guard share the discovered Auth path and redirects.
   const redirects = options.auth ? options.auth.redirects : undefined
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
-  nuxt.options.runtimeConfig.public.vitehubAuth = { redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" } }
+  nuxt.options.runtimeConfig.public.vitehubAuth = {
+    basePath: resolveAuthConfig()?.basePath ?? "/api/auth",
+    redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
+  }
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
