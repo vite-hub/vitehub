@@ -10,7 +10,7 @@ it("documents each Email error code with a docs heading", async () => {
     expect(page, code).toContain(`\n### ${code}\n`)
   }
   const error = emailErrorDiagnostics.EMAIL_TIMEOUT({ driver: "resend" })
-  expect(error.docs).toBe("https://vitehub.dev/docs/email/limits-and-errors#email_timeout")
+  expect(error.docs).toBe("https://vitehub.dev/docs/email/diagnostics/email_timeout")
   expect(error.why).toBe("Email delivery through resend timed out.")
   expect(error.fix).not.toBe("")
 })

@@ -27,5 +27,61 @@
         "removed nuxt-safe-runtime-config: it had no envSchema and no $schema"
       ]
     }
+  },
+  {
+    "id": "nuxt-admin-template",
+    "repo": "BobbyLin23/nuxt-admin-template",
+    "commit": "085f9b794d0a2a1649223384b7a5562ab0d3585a",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "drizzle.config.ts:2 This file runs outside Nuxt"
+      ]
+    }
+  },
+  {
+    "id": "nuxt-template",
+    "repo": "darkliyznyanlin910/nuxt-template",
+    "commit": "6680ba781efad7749c1a68e3b17b3a048eedd186",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "The codemod deleted shared/env.ts and removed @t3-oss/env-nuxt."
+      ]
+    }
+  },
+  {
+    "id": "essentials-v3",
+    "repo": "SupersaasHQ/essentials-v3",
+    "commit": "e617e275fda7a06506bfcc133c4511bc86c1d0cc",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "The template reads env.KEY"
+      ]
+    }
+  },
+  {
+    "id": "midi-frieldy",
+    "repo": "ChronicStone/midi-frieldy-nuxt3-trpc-drizzle",
+    "commit": "261fa327e8b699a41b0e1a98fc093079c77d0005",
+    "install": "pnpm",
+    "expect": {
+      "codemods": [
+        "t3-env"
+      ],
+      "report": [
+        "The codemod deleted server/env.ts"
+      ]
+    }
   }
 ]
