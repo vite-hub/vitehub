@@ -34,6 +34,8 @@ export interface CheckoutPushResult {
     head: string | null
     files: Array<{ path: string, action: string, note?: string }>
   }
+  /** The pull after the first push to a new ref that inherits files from another ref. */
+  after?: CheckoutPushResult["pull"]
 }
 
 export interface CheckoutPushError {
@@ -170,7 +172,7 @@ export async function pushDeployCheckouts(checkouts: DeployCheckouts, context: P
   }, operation, input)
   const results = await checkouts.module.pushWorkspaces({ call, rootDir: checkouts.root })
   const dirs = new Map(checkouts.statuses.map(status => [status.workspace, status.dir]))
-  const pulled = results.flatMap(result => result.pull.files
+  const pulled = results.flatMap(result => [...result.pull.files, ...(result.after?.files ?? [])]
     .filter(file => file.action !== "kept")
     .map(file => `${dirs.get(result.workspace) ?? result.workspace}/${file.path}`))
   const changed = [...(before === await readLock(checkouts.root) ? [] : [lockFile]), ...pulled]
@@ -200,7 +202,7 @@ export function formatDeployCheckouts(pushed: { results: CheckoutPushResult[], c
   const text = pushed.results.map((result) => {
     const pulled = formatPull(result.pull, result.workspace)
     if (!result.revision) return `${pulled}${result.workspace}: nothing to push.\n`
-    return `${pulled}${result.workspace}: pushed ${result.pushed.length} ${result.pushed.length === 1 ? "file" : "files"} to ${result.ref} (${result.revision})\n${result.pushed.map(path => `  ${path}`).join("\n")}\n`
+    return `${pulled}${result.workspace}: pushed ${result.pushed.length} ${result.pushed.length === 1 ? "file" : "files"} to ${result.ref} (${result.revision})\n${result.pushed.map(path => `  ${path}`).join("\n")}\n${result.after ? formatPull(result.after, result.workspace) : ""}`
   }).join("")
   if (!pushed.changed.length) return text
   return `${text}The push changed these files. Commit them:\n${pushed.changed.map(path => `  ${path}`).join("\n")}\n`

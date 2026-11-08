@@ -59,8 +59,20 @@ export async function pushWorkspaces({ call, rootDir }) {
         results.push({ workspace, ref: entry.ref, pushed: [], pull })
         continue
       }
+      const result = { workspace, ref: entry.ref, revision: commit.value.revision.id, pushed: ["guide.md"], pull }
+      if (entry.head === null && commit.value.revision.parentId !== null) {
+        const changes = await call("workspace.changes", { workspace, ref: entry.ref, since: entry.head }, entry.remote)
+        if (!changes.ok) throw fail(changes)
+        result.after = { workspace, ref: entry.ref, from: entry.head, head: changes.value.head, files: [] }
+        for (const file of changes.value.files) {
+          const target = join(rootDir, entry.dir, file.path)
+          mkdirSync(dirname(target), { recursive: true })
+          writeFileSync(target, file.content)
+          result.after.files.push({ path: file.path, action: "added" })
+        }
+      }
       entry.head = commit.value.revision.id
-      results.push({ workspace, ref: entry.ref, revision: commit.value.revision.id, pushed: ["guide.md"], pull })
+      results.push(result)
     }
   }
   finally {
@@ -102,21 +114,24 @@ function lock(entry: Record<string, unknown> = {}): string {
 
 interface Workspace {
   /** What the fake app answers to `workspace.changes`. */
-  changes?: { head: string, files: Array<{ path: string, content: string }> }
+  changes?: { head: string | null, files: Array<{ path: string, content: string }> }
+  /** Files inherited by a new ref, pulled after its first commit. */
+  after?: Workspace["changes"]
   /** What the fake app answers to `workspace.commit`. */
-  commit?: { ok: true, value: { revision?: { id: string } } } | { ok: false, code: string, message: string, fix?: string }
+  commit?: { ok: true, value: { revision?: { id: string, parentId?: string | null } } } | { ok: false, code: string, message: string, fix?: string }
 }
 
 /** A fake deployed app that serves the Workspace operations, and records each request with the host calls before it. */
 function workspaceApp(hosts: Awaited<ReturnType<typeof fakeHosts>>, workspace: Workspace = {}) {
   const requests: Array<{ url: string, operation: string, hostCallsBefore: number }> = []
+  let pulls = 0
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = String(input)
     const body = JSON.parse(String(init?.body)) as { operation: string }
     requests.push({ hostCallsBefore: (await hosts.calls()).length, operation: body.operation, url })
     if (!url.startsWith(remote)) throw new Error(`unexpected request to ${url}`)
     const answer = body.operation === "workspace.changes"
-      ? { ok: true, value: workspace.changes ?? { files: [], head: "r1" } }
+      ? { ok: true, value: (pulls++ === 0 ? workspace.changes : workspace.after) ?? { files: [], head: "r1" } }
       : workspace.commit ?? { ok: true, value: { revision: { id: "r3" } } }
     return Response.json(answer, { status: answer.ok ? 200 : 409 })
   }
@@ -150,6 +165,31 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     }
     expect((await readLock(root)).workspaces.docs!.head).toBe("r3")
     expect(await readFile(join(root, "content/news.md"), "utf8")).toBe("# News\n")
+  })
+
+  it.each([false, true])("reports files inherited after the first push (json: %s)", async (json) => {
+    const root = await builtProject("cloudflare", { ...checkoutPackage, "content/guide.md": "# Guide\n", "vitehub.lock": lock({ head: null }) })
+    const hosts = await fakeHosts(cloudflareEnv)
+    const app = workspaceApp(hosts, {
+      after: { files: [{ content: "# Inherited\n", path: "inherited.md" }], head: "r3" },
+      changes: { files: [], head: null },
+      commit: { ok: true, value: { revision: { id: "r3", parentId: "default-head" } } },
+    })
+    const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", ...(json ? ["--json"] : [])], root, hosts.env, { fetch: app.fetch })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.commit", "workspace.changes"])
+    expect(await readFile(join(root, "content/inherited.md"), "utf8")).toBe("# Inherited\n")
+    if (json) {
+      expect(result.json.checkouts).toMatchObject({
+        changed: ["vitehub.lock", "content/inherited.md"],
+        results: [{ after: { files: [{ action: "added", path: "inherited.md" }], from: null, head: "r3", ref: "main" } }],
+      })
+    }
+    else {
+      expect(result.stdout).toContain("docs: pulled main (empty) -> r3\n  added    inherited.md\n")
+      expect(result.stdout).toContain("The push changed these files. Commit them:\n  vitehub.lock\n  content/inherited.md\n")
+    }
   })
 
   it("prints the push like `vitehub push` after the deploy line", async () => {
