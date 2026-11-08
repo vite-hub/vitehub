@@ -202,6 +202,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/workflow/runtime/cloudflare-runner",
   "@vite-hub/workflow/runtime/cloudflare-shared",
   "@vite-hub/workflow/runtime/cloudflare-vite",
+  "@vite-hub/workflow/runtime/dev-runs",
   "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/openworkflow-worker",
@@ -375,6 +376,7 @@ describe("framework package contract", () => {
       "./skills",
       "./source/vite",
       "./task",
+      "./test",
       "./ui/vite",
     ]);
 

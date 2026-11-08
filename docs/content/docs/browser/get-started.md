@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, pnpm, a Vite application, and a Cloudflare acco
 Install the app dependencies and Wrangler, the Cloudflare development tool.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3 valibot
+pnpm add vite-hub @vite-hub/browser nitro h3 valibot
 pnpm add -D vite wrangler
 ```
 
