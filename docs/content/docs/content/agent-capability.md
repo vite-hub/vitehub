@@ -33,7 +33,7 @@ export const content = defineContent({
 
 Then add `content()` to the Agent:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { content } from 'vite-hub/agent/capabilities'
 
@@ -54,6 +54,7 @@ ViteHub passes the `content` export of `server/content.ts` to the Capability as 
 | `content_get_document` | `read` | `read` for the document | `allow` | Returns one document with `data`, `body`, `digest`, `updatedAt`, and the field `issues` of a draft. |
 | `content_status` | `read` | `read`, then `read` for each document | `allow` | Compares draft and published documents: `draft`, `published`, `changed`, or `deleted`, with each draft digest, the `issues` count, and the `schedule`. |
 | `content_list_schedules` | `read` | `read` for each document of a schedule | `allow` | Lists pending, overdue, and failed schedules. Filter by `collection`, `id`, and `status`. |
+| `content_list_translations` | `read` | `read`, then `read` for each document | `allow` | Lists the documents whose translation in a locale is `missing` or `stale`. Only when a collection in scope has [locales](/docs/content/configure#locales). |
 | `content_save_draft` | `write` | `write` for the document | `allow` | Saves one document to the `draft` ref. |
 | `content_publish` | `publish` | `publish` for each document | `require-approval` | Copies the listed drafts to the `published` ref, pinned to their digests. |
 | `content_schedule` | `publish` | `publish` for each document | `require-approval` | Publishes the listed drafts at `at`, pinned to their digests. |
@@ -73,6 +74,12 @@ The following Agent-visible definitions are resolved from the real Capability du
 ::
 
 With more than one collection, `data` lists each collection's fields as an alternative whose `title` is the collection name. The runtime validates `data` against the collection named in `collection`. The top level of each input schema stays a plain object, because some model providers reject a top-level `anyOf`. When a singleton is in scope, `id` is optional in the schema. When a JSON or YAML collection is in scope, `body` is optional. The tools then check both for the named collection.
+
+## Translations
+
+When a collection in scope has [locales](/docs/content/configure#locales), `content_list_documents`, `content_get_document`, `content_status`, `content_save_draft`, and the `documents` of `content_publish` take `locale`. `null` is the source locale. `content_schedule` supports only the source locale of each collection; its `documents` accept that locale or `null`. `content_list_collections` lists the `locales` of each collection, source locale first.
+
+To translate, the Agent calls `content_list_translations` with `{ collection, locale }`, reads each source document with `content_get_document` and `ref: 'draft'`, and saves the translation with `content_save_draft`, the `locale`, and `sourceDigest`. `content_get_document` returns `source: { path, digest }` in a collection with locales, and `sourceDigest` is that `source.digest` of the read the Agent translated. Set `ifDigest` to `null` for a missing translation, or to the `digest` that `content_get_document` returns for the stale one with `locale` and `ref: 'draft'`. The save records that source version as `derivedFrom`, so the translation is `current` until the source changes again, and `stale` at once when the source changed while the Agent translated. A save with `sourceDigest: null` keeps the `derivedFrom` of an existing translation. Collections without locales keep the same input schemas as before.
 
 ## Field issues
 
@@ -122,7 +129,7 @@ A person who has a document open in the [Console](/docs/content/console) holds i
 
 To let the Agent save over a held lease, opt in on the Capability. The person's next save then fails with `WORKSPACE_CONFLICT`, because the Console saves with `ifDigest`:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 content({ lease: 'override' })
 ```
 
@@ -138,7 +145,7 @@ Without `authorize`, `content.can()` returns `false`, so the Agent can do nothin
 
 When your users live outside ViteHub Auth, map the Actor yourself with `user`. It replaces the Auth lookup:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 content({
   user: async actor => actor.kind === 'authUser' ? await findMember(actor.id) : null,
 })
@@ -155,7 +162,7 @@ The user follows the Agent's [`invoker`](/docs/agents/actors), so the same Auth 
 | A Channel, such as Discord or Slack | `kind: 'chat'`, with the platform user id | `null`, unless your `invoker` maps it |
 | An Agent without `invoker` | Anonymous, or the trusted `context.invoker` of a custom route | `null`, unless the Actor has `meta.authUserId` |
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { content } from 'vite-hub/agent/capabilities'
 import { authenticated } from 'vite-hub/auth/agent'
@@ -169,7 +176,7 @@ export default defineAgent({
 
 A Channel message has no session. Its Actor names the platform user, and `authorize` receives it with `kind: 'chat'` and `user: null`. To act for an Auth user, map the platform user in `invoker.resolve`, for example through an account the person linked when they signed in:
 
-```ts [server/agents/editor.ts]
+```ts [server/agents/editor.ts] fragment
 invoker: {
   async resolve({ defaultInvoker }) {
     if (defaultInvoker.kind !== 'chat') return
@@ -184,6 +191,8 @@ Do not grant `write` or `publish` from an unmapped chat identity.
 `content_publish`, `content_schedule`, and `content_unschedule` use `policy: 'require-approval'`. The call stops with `APPROVAL_REQUIRED` and an Approval Request that shows the input, such as the listed documents and digests, and runs only after approval. `content_save_draft` runs without approval, because drafts are not served. Set `policy` to replace all four defaults. A function receives `{ name, input }`:
 
 ```ts
+import { content } from 'vite-hub/agent/capabilities'
+
 content({
   policy: ({ name }) => name === 'content_save_draft' ? 'allow' : 'require-approval',
 })
