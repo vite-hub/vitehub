@@ -8,8 +8,9 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { connectSetup } from "../src/console/runtime/client/setup.ts"
 import { setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { installConsoleDevelopment, installConsoleOperations, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { consoleRequest, installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleDevelopment, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { isSetupDevRequestAllowed, setupDevPlugin, setupDevRoute, setupDevTokenNamespace } from "../src/setup-dev.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
@@ -147,7 +148,7 @@ describe("dev Setup endpoints", () => {
     const running = await start()
     installConsoleAccess({
       mode: "auth",
-      check: async event => event.req?.headers instanceof Headers && event.req.headers.get("authorization") === "Bearer writer"
+      check: async event => consoleRequest(event).headers.get("authorization") === "Bearer writer"
         ? undefined
         : new Response("Sign in.", { status: 401 }),
       authorize: () => ({ sections: ["setup"] }),
