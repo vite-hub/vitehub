@@ -8912,7 +8912,8 @@ function createInvocationRuntimeContext<TRuntimeConfig extends AgentRuntimeConfi
   const capabilities = hostCapabilities
     ? { ...hostCapabilities, ...callerContext?.capabilities }
     : callerContext?.capabilities
-  const hostWaitUntil = callerContext?.waitUntil ?? schedule?.waitUntil
+  // The Schedule owns Invocation work even when the caller also provides a host lifetime.
+  const hostWaitUntil = schedule?.waitUntil ?? callerContext?.waitUntil
   const runtime = createRuntimeContext({
     ...callerContext,
     ...(capabilities ? { capabilities } : {}),

@@ -1,4 +1,5 @@
 import { createRuntimeContext } from "@vite-hub/runtime"
+import { createMemoryScheduleRunStore, executeSchedule } from "@vite-hub/schedule/runtime"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
 import { defineAgent, registerResponseConstructor, runAgent, startAgentInvocation, streamAgent, workflow } from "../src/index.ts"
@@ -228,6 +229,59 @@ describe("runAgent()", () => {
       .resolves.toEqual([undefined, expect.objectContaining({ text: "done" })])
     expect(waitUntil).toHaveBeenCalledWith(background.promise)
     background.resolve()
+  })
+
+  it.each(["succeeded", "failed"] as const)("keeps the Schedule running until background work has %s when a host waitUntil is also set", async (status) => {
+    const background = deferred()
+    const invocationFinished = deferred()
+    const failure = new Error("scheduled background work failed")
+    const task = background.promise.then(() => {
+      if (status === "failed") throw failure
+    })
+    const hostWaitUntil = vi.fn((promise: PromiseLike<unknown>) => {
+      void Promise.resolve(promise).catch(() => {})
+    })
+    const agent = defineAgent({
+      driver: { run(context) {
+        context.waitUntil(task)
+        return "done"
+      } },
+      runtime: false,
+    })
+    const runStore = createMemoryScheduleRunStore()
+    let runId = ""
+    const pending = executeSchedule({
+      captureHandlerFailure: true,
+      definition: {
+        cron: "* * * * *",
+        async handler(schedule) {
+          runId = schedule.id
+          const [error, result] = await runAgent(agent, {}, {
+            runtimeContext: { runtime: "vite", waitUntil: hostWaitUntil },
+            schedule,
+          })
+          invocationFinished.resolve()
+          if (error) throw error
+          return result.text
+        },
+      },
+      runStore,
+      scheduleId: "agent-background",
+      target: "agent-background",
+    })
+    try {
+      await invocationFinished.promise
+      await new Promise<void>(resolve => setImmediate(resolve))
+      expect(await runStore.getRun(runId)).toMatchObject({ status: "running" })
+      expect(hostWaitUntil).not.toHaveBeenCalled()
+    }
+    finally {
+      background.resolve()
+      await pending
+    }
+    const record = await pending
+    expect(record.status).toBe(status)
+    if (status === "failed") expect(record.error?.message).toBe(failure.message)
   })
 
   it("consumes streamed output and finishes the Invocation before it returns", async () => {
