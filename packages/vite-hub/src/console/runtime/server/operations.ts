@@ -42,7 +42,7 @@ type ConsoleOperationContext = Omit<OperationContext, "access"> & { access: Cons
 
 function legacyEvent(route: string, method: "GET" | "POST", request: LegacyRequest, context: ConsoleOperationContext): ConsoleRequestEvent {
   const id = request.id ? `/${encodeURIComponent(request.id)}` : ""
-  const url = new URL(`/api/_vitehub/console/${route}${id}`, "http://vitehub.local")
+  const url = new URL(`/_vitehub/api/${route}${id}`, "http://vitehub.local")
   for (const [key, value] of Object.entries(request.query ?? {})) {
     if (value === undefined) continue
     if (Array.isArray(value)) value.forEach(entry => url.searchParams.append(key, entry))

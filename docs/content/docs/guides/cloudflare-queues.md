@@ -20,7 +20,7 @@ ViteHub generates the binding names, the queue names, and the consumer entry fro
 ### Enable Queue with the Cloudflare preset
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub @vite-hub/queue
 pnpm add -D wrangler
 ```
 

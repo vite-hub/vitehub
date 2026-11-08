@@ -1,6 +1,6 @@
 ---
 title: Decisions limits and errors
-description: The limits of Choices and the error code of each failure.
+description: "Default limits of a Choices definition, the thresholds that decide each answer, and the DECISIONS error codes with their fixes."
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -34,7 +34,7 @@ A decision model answers from the options you gave it. It can match names, codes
 
 ### DECISIONS_R0001
 
-The definition is wrong: no gateway with `ask()`, no group, a group without a label, or a threshold outside 0 to 1. Fix the definition.
+The definition is wrong: no gateway with `ask()` and no `model`, or both, no group, a group without a label, or a threshold outside 0 to 1. Fix the definition.
 
 ### DECISIONS_R0002
 
@@ -46,11 +46,11 @@ The text is empty or longer than `limits.text`. Nothing was asked.
 
 ### DECISIONS_R0004
 
-The model says the options cannot express the text. Show the person a message and let them use your normal controls.
+The model says the options cannot express the text. Show the person a message and let them use your normal controls. Groups with `infer: true` never cause this error.
 
 ### DECISIONS_R0005
 
-The gateway request failed. The `cause` has the gateway error, such as a rejected key. See [AI gateways](/docs/agents/ai-gateways#errors).
+The gateway request failed. For known, client-safe gateway diagnostics, the `message` gives the reason, such as a missing or rejected API key or a missing `advocaat` package, and `fix` gives the gateway fix when it has one. Other custom, provider, model, or abort failures use a generic message. The `cause` keeps the original error for server-side inspection; do not send it to the client. See [AI gateways](/docs/agents/ai-gateways#errors).
 
 ### DECISIONS_R0006
 

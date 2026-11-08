@@ -29,7 +29,7 @@ describe("defineErrors", () => {
     expect(error).toMatchObject({
       cause,
       code: "EXAMPLE_NOT_FOUND",
-      docs: "https://vitehub.dev/docs/example#example_not_found",
+      docs: "https://vitehub.dev/docs/example/example_not_found",
       fix: "Write the key before you read it.",
       message: "The key \"settings\" does not exist.",
       name: "EXAMPLE_NOT_FOUND",
@@ -44,7 +44,7 @@ describe("defineErrors", () => {
     expect(JSON.parse(JSON.stringify({ error }))).toEqual({
       error: {
         code: "EXAMPLE_NOT_FOUND",
-        docs: "https://vitehub.dev/docs/example#example_not_found",
+        docs: "https://vitehub.dev/docs/example/example_not_found",
         fix: "Write the key before you read it.",
         name: "EXAMPLE_NOT_FOUND",
         why: "The key \"settings\" does not exist.",
@@ -58,7 +58,7 @@ describe("defineErrors", () => {
 
     expect(normalizeRuntimeDiagnosticError(error)).toMatchObject({
       code: "EXAMPLE_NOT_FOUND",
-      docs: "https://vitehub.dev/docs/example#example_not_found",
+      docs: "https://vitehub.dev/docs/example/example_not_found",
       fix: "Write the key before you read it.",
     })
     expect(formatRuntimeDiagnosticError(error)).toContain("[EXAMPLE_NOT_FOUND]")
@@ -90,7 +90,7 @@ describe("defineErrors", () => {
       name: "EXAMPLE_RETRY",
       why: "Could not read settings.",
       fix: "Retry in 10 seconds.",
-      docs: "https://vitehub.dev/docs/example#example_retry",
+      docs: "https://vitehub.dev/docs/example/example_retry",
     }
     expect(error.toJSON()).toEqual(publicError)
     expect(JSON.parse(JSON.stringify(error))).toEqual(publicError)
