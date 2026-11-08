@@ -23,6 +23,8 @@ interface BundleEsmEntryOptions {
   plugins?: Plugin[]
   preserveSymlinks?: boolean
   rootDir?: string
+  /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
+  resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
   workingDir?: string
 }
@@ -112,7 +114,7 @@ function collectPackageExportCandidates(packageName: string, exportsValue: unkno
   return candidates
 }
 
-function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
+function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string, resolveEntryPackageAliases = true): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
   const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
@@ -174,7 +176,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             ? canonicalSpecifier.startsWith(canonicalAlias)
             : canonicalSpecifier === canonicalAlias)
         }
-        if (!match && isAbsolute(args.path)) {
+        if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) {
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
             const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier
@@ -494,6 +496,7 @@ export async function bundleEsmEntry(
   const resolvedAliasPlugin = createResolvedAliasPlugin(
     Array.isArray(options.alias) ? undefined : options.alias,
     options.workingDir ?? options.rootDir ?? process.cwd(),
+    options.resolveEntryPackageAliases,
   )
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())
