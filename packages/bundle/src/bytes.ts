@@ -11,3 +11,10 @@ export function allocateBytes(weights: readonly number[], bytes: number): number
     return share
   })
 }
+
+/** `1234567` becomes `1.23 MB`, like Vite's build output. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(2)} MB`
+  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} kB`
+  return `${bytes} B`
+}

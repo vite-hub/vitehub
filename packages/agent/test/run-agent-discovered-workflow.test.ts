@@ -4,7 +4,7 @@ import { defineAgent, defineCapability, runAgent, workflow } from "../src/index.
 import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 afterEach(() => {
   setAgentWorkflowRuntimeLoaders({
@@ -66,4 +66,12 @@ it("rejects a named Agent that the host did not discover when it uses a discover
 
   await expect(runAgent(impostor, runtime(), { prompt: "ping" })).rejects.toMatchObject({ code: "AGENT_R0422" })
   expect(started).toEqual([])
+})
+
+it.each(["constructor", "toString", "__proto__"])("starts an inline Workflow named %s when the registry has no own entry", async (name) => {
+  const started = discoveredWorkflowHost()
+  const agent = defineAgent({ runtime: workflow(name), driver: { run: () => "inline" } })
+
+  await expect(runAgent(agent, runtime(), { prompt: "ping" })).resolves.toMatchObject({ id: "hello-run" })
+  expect(started).toEqual([{ inline: true, name }])
 })

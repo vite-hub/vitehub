@@ -65,15 +65,15 @@ type Discover = (root: string, serverDirs: string[]) => Promise<readonly Discove
 // package that the app did not install discovers nothing.
 const discoverers: Record<DefinitionKind, Discover> = {
   agent: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/vite")))?.listAgentDefinitionFiles(root, serverDirs) ?? [],
-  browser: async (root, serverDirs) => (await import("@vite-hub/browser/vite")).discoverBrowserDefinitions({ rootDir: root, serverDirs }),
-  channel: async (root, serverDirs) => (await import("@vite-hub/channels/vite")).discoverChannelDefinitions({ rootDir: root, serverDirs }),
-  connection: async (root, serverDirs) => (await import("@vite-hub/connections/vite")).discoverConnectionDefinitions({ rootDir: root, serverDirs }),
+  browser: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/browser", () => import("@vite-hub/browser/vite")))?.discoverBrowserDefinitions({ rootDir: root, serverDirs }) ?? [],
+  channel: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/channels", () => import("@vite-hub/channels/vite")))?.discoverChannelDefinitions({ rootDir: root, serverDirs }) ?? [],
+  connection: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/vite")))?.discoverConnectionDefinitions({ rootDir: root, serverDirs }) ?? [],
   database: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config")))?.discoverDatabaseDefinitions(root, { serverDirs }) ?? [],
-  queue: async (root, serverDirs) => (await import("@vite-hub/queue/vite")).discoverQueueDefinitions({ rootDir: root, serverDirs }),
+  queue: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/queue", () => import("@vite-hub/queue/vite")))?.discoverQueueDefinitions({ rootDir: root, serverDirs }) ?? [],
   realtime: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/realtime", () => import("@vite-hub/realtime/vite")))?.discoverRealtimeDefinitions(root, serverDirs) ?? [],
-  sandboxTask: async root => (await import("@vite-hub/sandbox/task/vite")).discoverSandboxTaskDefinitions({ rootDir: root }),
+  sandboxTask: async root => (await importOptionalOwner("@vite-hub/sandbox", () => import("@vite-hub/sandbox/task/vite")))?.discoverSandboxTaskDefinitions({ rootDir: root }) ?? [],
   schedule: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")))?.discoverScheduleDefinitions({ rootDir: root, serverDirs }) ?? [],
-  workflow: async (root, serverDirs) => (await import("@vite-hub/workflow/vite")).discoverWorkflowDefinitions({ rootDir: root, serverDirs }),
+  workflow: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/workflow", () => import("@vite-hub/workflow/vite")))?.discoverWorkflowDefinitions({ rootDir: root, serverDirs }) ?? [],
 }
 
 function isDirectory(path: string): boolean {

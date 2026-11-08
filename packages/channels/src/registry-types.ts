@@ -1,4 +1,4 @@
-import type { ChannelConnectorMap, ChannelDefinition } from "./types.ts"
+import type { ChannelSendOptions } from "./types.ts"
 
 declare global {
   interface ViteHubChannelDefinitionModules {}
@@ -11,13 +11,6 @@ export type ChannelRegistryDefinition<TName extends ChannelDefinitionName>
     ? NonNullable<TDefinition>
     : never
 
-type ResolvedChannelDefinition<TDefinition>
-  = TDefinition extends (...args: never[]) => infer TResolved ? TResolved : TDefinition
-
-export type ChannelDefinitionConnectors<TDefinition>
-  = ResolvedChannelDefinition<TDefinition> extends ChannelDefinition<infer TConnectors, infer _TDefault> ? TConnectors : ChannelConnectorMap
-
-export type ChannelDefinitionDefault<TDefinition>
-  = ResolvedChannelDefinition<TDefinition> extends ChannelDefinition<infer TConnectors, infer TDefault>
-    ? TDefault & keyof TConnectors & string
-    : never
+/** The send options of a discovered Channel's adapter. */
+export type ChannelDefinitionSendOptions<TDefinition>
+  = TDefinition extends { adapter: infer TAdapter } ? ChannelSendOptions<TAdapter> : never

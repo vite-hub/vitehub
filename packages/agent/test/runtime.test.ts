@@ -5791,7 +5791,7 @@ describe("agent message protocol", () => {
         telegram: { allowedUserIds: [123] },
       },
       driver: { run: () => "ok" },
-    })).toThrow('Channel "telegram" must be an Agent Channel definition')
+    })).toThrow('Channel "telegram" must be a Channel from defineChannel()')
   })
 
   it("lets usage() request OpenRouter usage metadata", async () => {
@@ -5856,7 +5856,7 @@ describe("agent message protocol", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { support: { messages: false } as never },
       driver: { run: () => "ok" },
-    })).toThrow('Channel "support" must be an Agent Channel definition. Create it with a factory')
+    })).toThrow('Channel "support" must be a Channel from defineChannel()')
   })
 
   it("rejects invalid Channel factory results with the Channel id", async () => {
