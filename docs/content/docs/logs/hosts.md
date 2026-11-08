@@ -1,8 +1,8 @@
 ---
-title: Hosts
+title: Logs hosts
 navigation.title: Hosts
 navigation.order: 5
-description: Hosts for ViteHub Logs, powered by Evlog.
+description: "Where ViteHub Logs captures events: Nitro 3 local capture, Cloudflare Worker observability, and an existing backend on Vercel and other hosts."
 icon: i-lucide-logs
 ---
 

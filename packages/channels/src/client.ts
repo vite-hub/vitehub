@@ -1,15 +1,13 @@
 import { defineOutboundChannel } from "./definition.ts"
 
-import type { ChannelClient, ChannelConnectorMap, ChannelConnectorResult, ChannelDefinition, ChannelSendOptions, ChannelSendOutcome } from "./types.ts"
-import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { ChannelClient, ChannelConnectorMap, ChannelConnectorResult, ChannelDefinition, ChannelErrorCode, ChannelSendOptions, ChannelSendResult } from "./types.ts"
+import { channelErrors } from "./error-diagnostics.ts"
 
 const uninspectableSendErrorMessage = "Channel send failed with an uninspectable value."
 
-function channelError(message: string): Error {
-  return channelsErrorDiagnostics.CHANNELS_R0001({ message: `[vitehub] ${message}` })
-}
-
-export function toChannelSendError(cause: unknown): Error {
+function toError(cause: unknown): Error {
   try {
     const isError = "isError" in Error && typeof Error.isError === "function"
       ? Error.isError(cause) === true
@@ -80,53 +78,51 @@ export function createChannel<
 
   return {
     name,
-    async send(text: string, options: ChannelSendOptions<TConnectors, TDefault>): Promise<ChannelSendOutcome> {
-      let deliveryId: string | undefined
-      let connectorName: string | undefined
+    async send(text: string, options: ChannelSendOptions<TConnectors, TDefault>): Promise<Result<ChannelSendResult, ChannelErrorCode>> {
+      const invalid = (detail: string): Result<ChannelSendResult, ChannelErrorCode> => [channelErrors.CHANNEL_INVALID_SEND({ detail }), undefined]
+      if (typeof text !== "string" || text.trim().length === 0) {
+        return invalid("Channel message text must be a non-empty string.")
+      }
+
+      if (!options || typeof options !== "object" || Array.isArray(options)) {
+        return invalid(`Channel "${name}" send options must select a connector.`)
+      }
+
+      // SAFETY: The object check above establishes that options can carry a connector selector.
+      const requestedConnector = (options as { connector?: unknown }).connector
+      const connectorName = requestedConnector === undefined ? definition.defaultConnector : requestedConnector
+      if (typeof connectorName !== "string" || connectorName.length === 0) {
+        return invalid(`Channel "${name}" requires a connector in send options.`)
+      }
+
+      const connector = Object.hasOwn(definition.connectors, connectorName)
+        ? definition.connectors[connectorName]
+        : undefined
+      if (!connector) {
+        return invalid(`Channel "${name}" does not define connector "${connectorName}".`)
+      }
+
+      const deliveryId = globalThis.crypto.randomUUID()
       try {
-        if (typeof text !== "string" || text.trim().length === 0) {
-          throw channelError("Channel message text must be a non-empty string.")
-        }
-
-        if (!options || typeof options !== "object" || Array.isArray(options)) {
-          throw channelError(`Channel "${name}" send options must select a connector.`)
-        }
-
-        // SAFETY: The object check above establishes that options can carry a connector selector.
-        const requestedConnector = (options as { connector?: unknown }).connector
-        const selectedConnector = requestedConnector === undefined ? definition.defaultConnector : requestedConnector
-        if (typeof selectedConnector !== "string" || selectedConnector.length === 0) {
-          throw channelError(`Channel "${name}" requires a connector in send options.`)
-        }
-        connectorName = selectedConnector
-
-        const connector = Object.hasOwn(definition.connectors, connectorName)
-          ? definition.connectors[connectorName]
-          : undefined
-        if (!connector) {
-          throw channelError(`Channel "${name}" does not define connector "${connectorName}".`)
-        }
-
-        deliveryId = globalThis.crypto.randomUUID()
         logDelivery("outbound.started", deliveryId, name, connectorName)
         // SAFETY: ChannelSendOptions carries the selected connector's options; selector validation above resolves that connector.
         const result = await connector.send(text, options as never)
         if (!result || typeof result !== "object") {
-          throw channelError(`Channel connector "${connectorName}" returned an invalid result.`)
+          throw new Error(`Channel connector "${connectorName}" returned an invalid result.`)
         }
         const normalized = normalizeConnectorResult(result)
         logDelivery("outbound.completed", deliveryId, name, connectorName, () => ({ messageId: normalized.id }))
-        return [null, {
+        return [undefined, {
           ...normalized,
           channel: name,
           connector: connectorName,
           deliveryId,
         }]
       }
-      catch (cause) {
-        const error = toChannelSendError(cause)
-        if (deliveryId && connectorName) logDelivery("outbound.failed", deliveryId, name, connectorName, () => ({ error: channelSendErrorMessage(error) }))
-        return [error, null]
+      catch (thrown) {
+        const cause = toError(thrown)
+        logDelivery("outbound.failed", deliveryId, name, connectorName, () => ({ error: channelSendErrorMessage(cause) }))
+        return [channelErrors.CHANNEL_SEND_FAILED({ cause, channel: name, connector: connectorName }), undefined]
       }
     },
   }

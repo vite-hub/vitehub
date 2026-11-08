@@ -4,6 +4,8 @@ import { createConnectionsHandler } from "../src/http.ts"
 import { checkConnectionsAccess, connectionsRuntimeFor } from "../src/internal/http-access.ts"
 import { connectionsRoutes } from "../src/internal/http-routes.ts"
 
+import type { ViteHubContext } from "@vite-hub/runtime"
+
 import type { ConnectionsAccessPolicy } from "../src/http.ts"
 import type { ConnectionsAccess } from "../src/internal/http-access.ts"
 import type { ConnectionsRuntime } from "../src/runtime.ts"
@@ -21,7 +23,7 @@ describe("Connections route access types", () => {
     createConnectionsHandler({ actor: "production" })
     // @ts-expect-error A policy returns the actor id, not a boolean.
     createConnectionsHandler({ actor: () => true })
-    expectTypeOf<ConnectionsAccessPolicy>().toEqualTypeOf<"development" | ((request: Request, event?: unknown) => string | Response | undefined | Promise<string | Response | undefined>)>()
+    expectTypeOf<ConnectionsAccessPolicy>().toEqualTypeOf<"development" | ((request: Request, event?: ViteHubContext) => string | Response | undefined | Promise<string | Response | undefined>)>()
   })
 
   it("accepts only an access from the check in a route body", async () => {

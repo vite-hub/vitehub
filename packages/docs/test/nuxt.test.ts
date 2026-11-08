@@ -49,6 +49,12 @@ const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts"
 const moduleDependencies = (setup as unknown as { moduleDependencies: (nuxt: unknown) => Promise<Record<string, unknown>> }).moduleDependencies
 const roots: string[] = []
 
+/** The manifest that the generated `docs/manifest.mjs` exports. */
+function manifestTemplate(): unknown {
+  const source = templates.get("docs/manifest.mjs")?.() ?? ""
+  return JSON.parse(JSON.parse(source.replace(/^export default JSON\.parse\(/, "").replace(/\)\s*$/, "")))
+}
+
 afterEach(async () => {
   for (const hook of hooks.get("close") ?? []) await hook()
   vi.useRealTimers()
@@ -115,6 +121,13 @@ describe("docs Nuxt setup", () => {
     expect(readdirSync(stylesDir)).toEqual([file])
   })
 
+  it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
+    const options = await setupDocs({})
+    const [file] = readdirSync(join(options.buildDir, "docs/styles"))
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\n`)
+    expect(JSON.stringify(options.app.head)).not.toContain("/_docs/")
+  })
+
   it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
     const options = await setupDocs({ mcp: false })
     const publicDir = join(options.buildDir, "public")
@@ -124,6 +137,51 @@ describe("docs Nuxt setup", () => {
     const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
+  })
+
+  it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {
+    const options = await setupDocs({ linkChecker: { excludeLinks: [`${appBase}blog/**`, new RegExp(`^${appBase}media/`)] } }, appBase)
+    Object.assign(options, { linkChecker: { excludeLinks: [`${appBase}badge.svg`] } })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}blog/post">Post</a><img src="${appBase}media/icon.svg"><img src="${appBase}badge.svg">`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).not.toThrow()
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}missing">Missing</a>`)
+    expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
+  it.each(["/", "/portal/"])("accepts server-rendered and Console links using Nitro's prerender policy under %s", async (appBase) => {
+    const options = await setupDocs({}, appBase)
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    const paths = ["blog", "blog/post", "changelog", "media/illustrations/edit-this-site-dark.svg", "feed.xml", "api/time", "dynamic/page", "_vitehub", "_vitehub/sign-in", "_vitehub/content", "_vitehub/comments"]
+    writeFileSync(join(publicDir, "index.html"), paths.map(path => `<a href="${appBase}${path}#intro">${path}</a>`).join(""))
+    const compiled: Array<() => void> = []
+    const nitro = {
+      options: {
+        output: { publicDir },
+        routeRules: { "/blog/**": { prerender: false, swr: 60 }, "/blog/static": { prerender: true }, "/dynamic/:slug": { prerender: false } },
+        prerender: { ignore: ["/changelog", "/media/**", /^\/feed\./g, (path: string) => path === "/api/time", "/_vitehub", `${appBase}_vitehub`] },
+      },
+      hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) },
+    }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).not.toThrow()
+    for (const path of ["blog/static", "blogger", "missing"]) {
+      writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}${path}">Missing</a>`)
+      expect(() => compiled[0]!()).toThrow(`links to ${appBase}${path}, which has no page or file`)
+    }
+    // An output file still provides fragment evidence, even for an otherwise dynamic route.
+    writeFileSync(join(publicDir, "changelog.html"), '<h2 id="intro">Changes</h2>')
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}changelog#missing">Missing fragment</a>`)
+    expect(() => compiled[0]!()).toThrow('no element with id "missing"')
+    // Console paths must have a serving policy; disabling the Console must not mask a broken link.
+    nitro.options.prerender.ignore = []
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}_vitehub">Console</a>`)
+    expect(() => compiled[0]!()).toThrow(/_vitehub, which has no page or file/)
   })
 
   it("registers source assets, writes raw copies from the right directory and loads configured components", async () => {
@@ -166,7 +224,8 @@ describe("docs Nuxt setup", () => {
   it.each(["docs", "/docs/", "/docs"])("shares the normalized base %s with the manifest and discovery", async (base) => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
-    expect(templates.get("docs/manifest.mjs")?.()).toContain('"base":"/docs"')
+    expect(templates.get("docs/manifest.mjs")?.()).toMatch(/^export default JSON\.parse\(/)
+    expect(manifestTemplate()).toMatchObject({ base: "/docs" })
     expect(options.agentDiscovery.routes).toContain("/docs/**")
   })
 
@@ -369,6 +428,50 @@ describe("docs Nuxt setup", () => {
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual(["/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml", "/raw/**", "/raw/**"])
     expect(handlers.filter(handler => handler.route === "/raw/**").map(handler => handler.method)).toEqual(["get", "head"])
+  })
+})
+
+describe("docs search checks", () => {
+  /** Runs the prerender hooks that the docs module adds to Nitro over these routes. */
+  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/") {
+    hooks.clear()
+    await setupDocs(docs, appBase)
+    const nitroHooks = new Map<string, Hook[]>()
+    const nitro = { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    for (const { route, contents } of routes) {
+      const html = route.endsWith(".xml") ? {} : { fileName: `${route}.html`, contentType: "text/html;charset=utf-8" }
+      for (const hook of nitroHooks.get("prerender:generate") ?? []) await hook({ route, contents, ...html } as never)
+    }
+    for (const hook of nitroHooks.get("prerender:done") ?? []) await hook()
+    return nitroHooks
+  }
+  const routes = [
+    { route: "/sitemap.xml", contents: "<urlset><url><loc>http://docs.invalid/guides</loc></url></urlset>" },
+    { route: "/guides", contents: "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/learn\"></head><body></body></html>" },
+  ]
+
+  it("stops the build on a page that fails a check when seoAudit is on", async () => {
+    await expect(prerender({ seoAudit: true }, routes)).rejects.toMatchObject({
+      name: "DocsSeoError",
+      problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
+    })
+    expect([...(await prerender({}, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
+  })
+
+  it.each(["/", "/portal/"])("audits ordinary pages without site.url under %s", async (appBase) => {
+    const pages = ["guides", "learn"].map((name, index, names) => ({
+      route: `/${name}`,
+      contents: `<html><head><title>Docs ${name} overview</title>
+        <meta name="description" content="Read the ${name} overview for practical steps to build, configure, and publish your documentation site.">
+        <link rel="canonical" href="http://docs.invalid${appBase}${name}"></head>
+        <body><h1>${name}</h1><p>${"Useful documentation content. ".repeat(60)}</p>
+        <a href="${appBase}${names[1 - index]}">Related page</a></body></html>`,
+    }))
+    await expect(prerender({ seoAudit: true }, [
+      ...pages,
+      { route: "/sitemap.xml", contents: `<urlset>${pages.map(page => `<url><loc>http://docs.invalid${appBase}${page.route.slice(1)}</loc></url>`).join("")}</urlset>` },
+    ], appBase)).resolves.toBeInstanceOf(Map)
   })
 })
 

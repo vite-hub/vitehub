@@ -77,7 +77,7 @@ icon: i-lucide-library
 
 ## Defaults first
 
-The theme is black, white, and zinc, with square corners and hairline borders. Every option has a default, so a site name is enough to start. When a default does not fit, change one option in `nuxt.config.ts`, one field in the page frontmatter, or one component. See [Configure](/docs/docs-site/configure).
+The design follows the comark-ui site: Geist, neutral grays, small radii, hairline rings, and a faint grain. Every option has a default, so a site name is enough to start. When a default does not fit, change one option in `nuxt.config.ts`, one field in the page frontmatter, or one component. See [Configure](/docs/docs-site/configure).
 
 ## Reference and limits
 

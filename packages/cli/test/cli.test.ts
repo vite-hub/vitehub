@@ -400,6 +400,41 @@ export default ({ mode }) => ({
     expect(stderr.output()).toBe("")
   })
 
+  it("passes positional arguments to the default feature when they name no other feature", async () => {
+    const run = vi.fn(() => 0)
+    const other = vi.fn(() => 0)
+    const config = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "pull", features: [{ name: "pull", run }, { name: "other", run: other }], name: "pull" }] } } }],
+      root: "/repo",
+    })
+
+    expect(await runViteHubCli({ args: ["pull", "site", "--dir", "content"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+    expect(await runViteHubCli({ args: ["pull", "other"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenCalledWith(["site", "--dir", "content"], expect.objectContaining({ rootDir: "/repo" }))
+    expect(other).toHaveBeenCalledWith([], expect.anything())
+  })
+
+  it("sends --help to the command of a namespace that is one command", async () => {
+    const run = vi.fn(() => 0)
+    const config = async () => ({ plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "pull", features: [{ name: "pull", run }], name: "pull" }] } } }], root: "/repo" })
+
+    expect(await runViteHubCli({ args: ["pull", "--help"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenCalledWith(["--help"], expect.anything())
+  })
+
+  it("passes a Workspace named like the command to a namespace that is one command", async () => {
+    const run = vi.fn(() => 0)
+    const config = async () => ({ plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "push", features: [{ name: "push", run }], name: "push" }] } } }], root: "/repo" })
+
+    expect(await runViteHubCli({ args: ["push", "push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+    expect(await runViteHubCli({ args: ["push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenNthCalledWith(1, ["push"], expect.anything())
+    expect(run).toHaveBeenNthCalledWith(2, [], expect.anything())
+  })
+
   it("reserves the inspect namespace for built-in commands", async () => {
     const stdout = stream()
     const stderr = stream()
@@ -521,6 +556,44 @@ export default ({ mode }) => ({
     expect(stdout.output()).toContain("  blob         Blob commands.")
     expect(stdout.output()).toContain("  inspect")
     expect(stdout.output()).toContain("  provision")
+  })
+
+  it("lists a namespace once when a runtime namespace replaces a project one", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ description: "Project secrets.", features: [], name: "secret" }] } } }],
+      root: "/repo",
+    }))
+    const runtimeNamespaces = [{ description: "Runtime secrets.", features: [], name: "secret" }]
+
+    expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, runtimeNamespaces, stdout })).toBe(0)
+    expect(stdout.output().match(/^  secret /gm)).toHaveLength(1)
+    expect(stdout.output()).toContain("  secret       Runtime secrets.")
+  })
+
+  it("lists project commands in root help", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({ plugins: [], root: "/repo" }))
+
+    expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, stdout })).toBe(0)
+    const help = stdout.output()
+    expect(help).toContain("Project:\n  add          Turn on features")
+    expect(help).toContain("  catalog      List every ViteHub feature")
+    expect(help).toContain("  status       Show the host")
+    expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
+  })
+
+  it("dispatches setup commands before config loading", async () => {
+    const stdout = stream()
+    const run = vi.fn(async () => 3)
+    const loadConfig = vi.fn(async () => {
+      throw new Error("config must not load")
+    })
+    const commands = [{ description: "Show status.", name: "status", run, usage: "vitehub status" }]
+
+    expect(await runViteHubCli({ args: ["status", "--json"], commands, cwd: "/app", loadConfig, stdout })).toBe(3)
+    expect(run).toHaveBeenCalledWith(["--json"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
+    expect(loadConfig).not.toHaveBeenCalled()
   })
 
   it("prints namespace help", async () => {
@@ -1030,7 +1103,8 @@ export default function (_options, nuxt) {
       .resolves.toBe(0)
     expect(human.output()).toBe([
       "recorded cloudflare ids (.vitehub/provision.json):",
-      "d1\tdefault\tdatabase-id",
+      "d1\tdefault\tdatabase-id\tnot declared",
+      "fix: d1 \"default\": No Definition declares it. If no deployment uses database-id, delete resource database-id in the Cloudflare dashboard, then remove the entry from .vitehub/provision.json.",
       "create\ttest-resource\tdemo",
       "plan: 1 pending action. Run `vitehub provision run --provider cloudflare` to apply.",
       "",
@@ -1050,9 +1124,192 @@ export default function (_options, nuxt) {
       recorded: { d1: { default: "database-id" } },
       schemaVersion: 1,
       stateFile: ".vitehub/provision.json",
+      undeclared: [{ category: "d1", fix: expect.stringContaining("No Definition declares it."), id: "database-id", key: "default" }],
       warnings: [],
     })
     expect(apply).not.toHaveBeenCalled()
+  })
+
+  it("marks recorded ids that no Definition declares, also without credentials", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
+      cloudflare: {
+        d1: { main: "db-main", old: "db-old", primary: "db-main" },
+        kv: { cache: "ns-cache" },
+      },
+    }))
+    const plan = vi.fn(async () => [])
+    const loadConfig = async () => ({
+      plugins: [{
+        vitehub: {
+          cli: {
+            namespaces: [],
+            provision: [{
+              id: "test:cloudflare",
+              plan,
+              provider: "cloudflare",
+              recordedState: () => [{ category: "d1", declared: ["main"], declaredResourceIdentity: () => "db-main", deleteHint: ({ id }: { id: string }) => `run \`delete-db ${id}\`` }],
+            }],
+          },
+        },
+      }],
+      root: rootDir,
+    })
+
+    const human = stream()
+    const stderr = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare"], cwd: rootDir, env: {}, loadConfig, stderr, stdout: human }))
+      .resolves.toBe(0)
+    expect(human.output()).toBe([
+      "recorded cloudflare ids (.vitehub/provision.json):",
+      "d1\tmain\tdb-main",
+      "d1\told\tdb-old\tnot declared",
+      "d1\tprimary\tdb-main\tnot declared",
+      "kv\tcache\tns-cache\tnot declared",
+      "fix: d1 \"old\": No Definition declares it. If no deployment uses db-old, run `delete-db db-old`, then remove the entry from .vitehub/provision.json.",
+      "fix: d1 \"primary\": d1 \"main\" uses the same id, so keep the resource and only remove the entry from .vitehub/provision.json.",
+      "fix: kv \"cache\": No Definition declares it. If no deployment uses ns-cache, delete resource ns-cache in the Cloudflare dashboard, then remove the entry from .vitehub/provision.json.",
+      "plan: not checked",
+      "",
+    ].join("\n"))
+
+    const json = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr, stdout: json }))
+      .resolves.toBe(0)
+    expect(JSON.parse(json.output()).undeclared).toEqual([
+      { category: "d1", fix: expect.stringContaining("run `delete-db db-old`"), id: "db-old", key: "old" },
+      { category: "d1", fix: expect.stringContaining("d1 \"main\" uses the same id"), id: "db-main", key: "primary" },
+      { category: "kv", fix: expect.stringContaining("delete resource ns-cache in the Cloudflare dashboard"), id: "ns-cache", key: "cache" },
+    ])
+    expect(plan).not.toHaveBeenCalled()
+    expect(JSON.parse(await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8")).cloudflare.d1.old).toBe("db-old")
+  })
+
+  it.each([
+    ["d1", "d1"], ["kv", "kv"], ["d1Nuxt", "d1Nuxt"], ["d1", "d1Nuxt"], ["d1Nuxt", "d1"],
+  ])("defers %s deletion guidance for renamed %s Definitions, including stale target keys", async (category, declaredCategory) => {
+    const rootDir = await createTempDir()
+    const stateFile = join(rootDir, ".vitehub", "provision.json")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    const initialState = JSON.stringify({ cloudflare: { [category]: { old: "resource-id" } } })
+    await writeFile(stateFile, initialState)
+    const plan = vi.fn(async () => [])
+    const deleteHint = vi.fn(() => "run `delete-resource resource-id`")
+    const loadConfig = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [], provision: [{
+        id: "test:cloudflare",
+        plan,
+        provider: "cloudflare",
+        recordedState: () => category === declaredCategory
+          ? [{ category, declared: ["renamed"], deleteHint }]
+          : [{ category, declared: [], deleteHint }, { category: declaredCategory, declared: ["renamed"], deleteHint }],
+      }] } } }],
+      root: rootDir,
+    })
+    for (const json of [false, true]) {
+      const stdout = stream()
+      await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", ...(json ? ["--json"] : [])], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })).resolves.toBe(0)
+      expect(stdout.output()).toContain("Verify its resource id before deleting anything")
+      expect(stdout.output()).not.toContain("delete-resource")
+    }
+    expect(deleteHint).not.toHaveBeenCalled()
+    expect(plan).not.toHaveBeenCalled()
+    expect(await readFile(stateFile, "utf8")).toBe(initialState)
+
+    const recorded: Record<string, Record<string, string>> = { [category]: { old: "resource-id" } }
+    recorded[declaredCategory] = { ...recorded[declaredCategory], renamed: "resource-id" }
+    await writeFile(stateFile, JSON.stringify({ cloudflare: recorded }))
+    const stdout = stream()
+    await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })
+    expect(JSON.parse(stdout.output()).undeclared).toEqual([
+      { category, key: "old", id: "resource-id", fix: expect.stringContaining("keep the resource and only remove the entry") },
+    ])
+
+    recorded[declaredCategory] = { ...recorded[declaredCategory], renamed: "different-resource-id" }
+    await writeFile(stateFile, JSON.stringify({ cloudflare: recorded }))
+    const different = stream()
+    await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout: different })
+    expect(JSON.parse(different.output()).undeclared[0].fix).toContain("Verify its resource id before deleting anything")
+    expect(JSON.parse(different.output()).undeclared[0].fix).not.toContain("delete-resource")
+  })
+
+  it.each([
+    { currentId: "default/assets", staleId: "eu/assets", shared: false, deferred: false },
+    { currentId: "default/assets", staleId: "default/assets", shared: true, deferred: false },
+    { currentId: "default/assets", staleId: "assets", shared: false, deferred: true },
+    { currentId: "assets", staleId: "assets", shared: false, deferred: true },
+    { currentId: "default/other", staleId: "default/assets", shared: false, deferred: true },
+  ])("uses provider resource identity when matching R2 $currentId with $staleId", async ({ currentId, staleId, shared, deferred }) => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
+      cloudflare: { r2: { current: currentId, old: staleId } },
+    }))
+    const loadConfig = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [], provision: [{
+        id: "test:r2",
+        plan: async () => [],
+        provider: "cloudflare",
+        recordedState: () => [{
+          category: "r2",
+          declared: ["current"],
+          declaredResourceIdentity: () => "r2:default/assets",
+          resourceIdentity: ({ id }: { id: string }) => id.includes("/") ? `r2:${id}` : undefined,
+          deleteHint: () => "delete the bucket in its jurisdiction",
+        }],
+      }] } } }],
+      root: rootDir,
+    })
+    const stdout = stream()
+    await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })
+    const entry = JSON.parse(stdout.output()).undeclared.find((entry: { key: string }) => entry.key === "old")
+    expect(entry).toMatchObject({ category: "r2", key: "old", id: staleId })
+    expect(entry.fix.includes("keep the resource")).toBe(shared)
+    if (deferred) {
+      expect(entry.fix).toContain("Verify its resource id before deleting anything")
+      expect(entry.fix).not.toContain("delete the bucket")
+    }
+    else if (!shared) expect(entry.fix).toContain("delete the bucket in its jurisdiction")
+  })
+
+  it.each([
+    { category: "r2", recordedId: "default/assets", expectedId: "default/new-assets" },
+    { category: "r2", recordedId: "default/assets", expectedId: "eu/assets" },
+    { category: "queue", recordedId: "old-jobs", expectedId: "new-jobs" },
+  ])("reports $category resources when a declared key changes identity to $expectedId", async ({ category, recordedId, expectedId }) => {
+    const rootDir = await createTempDir()
+    const stateFile = join(rootDir, ".vitehub", "provision.json")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    const initialState = JSON.stringify({ cloudflare: { [category]: { current: recordedId, old: recordedId } } })
+    await writeFile(stateFile, initialState)
+    const plan = vi.fn(async () => [])
+    const deleteHint = vi.fn(() => "delete the resource")
+    const loadConfig = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [], provision: [{
+        id: "test:cloudflare",
+        plan,
+        provider: "cloudflare",
+        recordedState: () => [{ category, declared: ["current"], declaredResourceIdentity: () => expectedId, deleteHint }],
+      }] } } }],
+      root: rootDir,
+    })
+
+    const human = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout: human })).resolves.toBe(0)
+    expect(human.output()).toContain(`${category}\tcurrent\t${recordedId}\tnot declared`)
+
+    const stdout = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })).resolves.toBe(0)
+    expect(JSON.parse(stdout.output()).undeclared).toEqual(["current", "old"].map(key => ({
+      category,
+      key,
+      id: recordedId,
+      fix: expect.stringContaining("Verify its resource id before deleting anything"),
+    })))
+    expect(deleteHint).not.toHaveBeenCalled()
+    expect(plan).not.toHaveBeenCalled()
+    expect(await readFile(stateFile, "utf8")).toBe(initialState)
   })
 
   it("counts existing but incomplete actions as pending", async () => {

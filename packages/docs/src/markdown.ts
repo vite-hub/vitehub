@@ -1,4 +1,4 @@
-import { createMarkdownParser } from "comark/parse"
+import { createMarkdownParser, parseFrontmatter } from "comark/parse"
 import { textContent } from "comark/utils"
 import alert from "comark/plugins/alert"
 import attributes from "comark/plugins/attributes"
@@ -15,7 +15,7 @@ import mdc from "shiki/dist/langs/mdc.mjs"
 import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 
-import type { ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
+import type { ComarkPlugin, MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
 
 /** A page parsed on the server. The client renders `nodes` and never parses Markdown itself. */
@@ -26,7 +26,7 @@ export interface DocsDocument {
 
 export interface DocsParserOptions {
   /** More Comark plugins, after the built-in ones. A plugin with a built-in name replaces it. */
-  plugins?: ComarkPlugin[]
+  plugins?: ParserOptions["plugins"]
   /** The source of each Vue example that `::example{name}` shows, by name. The module fills it from `examples`. */
   examples?: Record<string, string>
 }
@@ -51,11 +51,14 @@ function docsBlocks() {
  */
 export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
   const extra = options.plugins ?? []
+  const examplePlugin = examples(markdown => docsParse(markdown), options.examples ?? {})
   // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
   // plugins replace both.
-  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks().plugins, shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), examples(markdown => docsParse(markdown), options.examples ?? {}), ...extra]
+  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks().plugins, shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), examplePlugin, ...extra]
   const byName = new Map(ordered.map(plugin => [plugin.name, plugin]))
-  const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin)
+  // Generate default previews after site plugins have had a chance to supply their own.
+  const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin && plugin !== examplePlugin)
+  if (byName.get(examplePlugin.name) === examplePlugin) plugins.push(examplePlugin)
   const parse = createMarkdownParser({ plugins })
   const docsParse = async (markdown: string): Promise<DocsDocument> => {
     const document = await parse(markdown)
@@ -64,7 +67,7 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   return docsParse
 }
 
-const markdownLanguages = new Set(["md", "markdown", "mdc"])
+const markdownLanguages = new Set(["md", "markdown", "mdc", "comark"])
 /** `::correct` and `::incorrect` are examples with a title. */
 const exampleTags = new Set(["example", "correct", "incorrect"])
 
@@ -93,12 +96,20 @@ function examples(parse: (markdown: string) => Promise<DocsDocument>, sources: R
         node.splice(2, node.length, ...code)
         continue
       }
+      if (children.some(child => typeof child !== "string" && child[0] === "example-preview")) continue
       const pre = children.find((child): child is Extract<ComarkNode, unknown[]> => typeof child !== "string" && child[0] === "pre")
       const language = pre && typeof pre[1].language === "string" ? pre[1].language : ""
       if (!pre || !markdownLanguages.has(language)) continue
-      // A lint rule's example can be broken on purpose, such as invalid frontmatter, so it shows its source alone.
-      const preview = await parse(typeof pre[1].code === "string" ? pre[1].code : textContent(pre)).catch(() => undefined)
-      if (preview) node.splice(2, 0, ["example-preview", {}, ...preview.nodes])
+      const markdown = typeof pre[1].code === "string" ? pre[1].code : textContent(pre)
+      // Invalid frontmatter can be deliberate. Check its syntax alone so missing examples and plugin errors still
+      // report their original diagnostics from the full preview parser.
+      try {
+        parseFrontmatter(markdown)
+      } catch {
+        continue
+      }
+      const preview = await parse(markdown)
+      node.splice(2, 0, ["example-preview", {}, ...preview.nodes])
     }
   }
   return { name: "docs-examples", post: state => visit(state.tree.nodes) }

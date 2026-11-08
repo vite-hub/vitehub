@@ -61,7 +61,7 @@ For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/refere
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
 
-Filesystem writes stage bytes under `<base>/.vitehub/blob-writes` and rename complete files into place. Each new payload inode has an immutable metadata sidecar prepared before the payload rename. Readers select that inode’s metadata and retry if the payload changes during the read, so replacements expose matching bytes, MIME types, size, and custom metadata. Legacy files and sidecars remain readable. Deletion removes metadata for the payload generation observed before deletion, preserving concurrent replacements that are still being prepared. Older generation sidecars and interrupted publications can leave small sidecars; deletion does not sweep these because a sweep could remove a concurrent writer’s metadata. These are internal metadata, not additional payload copies. Workspace history stores keep file MIME types in their immutable manifests.
+Filesystem writes stage bytes under `<base>/.vitehub/blob-writes` and rename complete files into place. Each new payload inode has an immutable metadata sidecar prepared before the payload rename. Readers select that inode’s metadata and retry if the payload changes during the read, so replacements expose matching bytes, MIME types, size, and custom metadata. Each sidecar also records the SHA-256 hash and size of its bytes. When you copy, restore, or move the data folder, the payloads get new inodes; a reader then accepts an older sidecar of the same pathname only if its recorded hash matches the current bytes, and saves it under the new inode. A sidecar that records a hash applies only while the bytes still match it, so a file you edit in place loses its metadata. Sidecars written before this hash was recorded do not survive a copy. Legacy files and sidecars remain readable. Deletion removes metadata for the payload generation observed before deletion, preserving concurrent replacements that are still being prepared. Older generation sidecars and interrupted publications can leave small sidecars; deletion does not sweep these because a sweep could remove a concurrent writer’s metadata. These are internal metadata, not additional payload copies. Workspace history stores keep file MIME types in their immutable manifests.
 
 A stopped process can leave staging files. After stopping every writer to the filesystem store, inspect this directory and remove it to reclaim unfinished writes. For the default base:
 
@@ -73,6 +73,24 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
 On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
+`vitehub inspect resources` reports other configured tokens with source `config`, without printing a token value or an environment store id.
+
+## Remote stores in development
+
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as Vercel Blob, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+
+```ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  blob: { remote: true },
+  plugins: [hubBlob(), nitro()],
+})
+```
+
+With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare-r2` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
@@ -80,7 +98,7 @@ Objects from the served store receive an absolute URL when `serve.publicBaseUrl`
 Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`: the browser keeps its copy and revalidates on each use, so the check still runs and an unchanged object answers `304` with no body. `no-store` downloads the full object on every visit.
 
-Application routes can call `blob.serve(event, pathname, { cacheControl, transform: { key, run } })` after their own authorization or database lookup. Both direct calls and generated serving routes accept Nuxt H3 v1 and Nitro H3 v2 events. `run` receives the original `Blob` and returns a response `Blob`. ViteHub stores the derived result in a reserved namespace in the same store, using the store's configured access, leaves the original unchanged, and invalidates the cache when the source or transform key changes. Source changes replace each cached variant on its next request; `blob.del(originalPath)` clears all its variants. Version the key when the transformation changes and include output variants such as size or format. The method handles conditional GET and HEAD requests and returns `null` for a `304` response. Without a `transform`, it also answers one `Range: bytes=` request with `206` and `Content-Range`, or `416` when the range starts past the end, so media can seek. See [the server API](https://vitehub.dev/docs/blob/server-api#serve-a-transformed-object) for cache lifetimes, an example, and failure behavior.
+Application routes can call `blob.serve(event, pathname, { cacheControl, transform: { key, run } })` after their own authorization or database lookup. Direct calls accept Nuxt 5 and Nitro 3 events with Standard Context, and the `Request` of a Fetchable route. `serve()` writes the status and headers to `["~standard"].res`, so a Fetchable route moves them to its `Response` and deletes them from `res.headers`, which Nitro would add a second time. The generated serving route is a Fetchable, `{ fetch(request) }`. When Nitro mounts it, it uses the raw catch-all pathname from the Request context, also behind a `baseURL`. Direct calls read the URL after `serve.route` at the URL root. `run` receives the original `Blob` and returns a response `Blob`. ViteHub stores the derived result in a reserved namespace in the same store, using the store's configured access, leaves the original unchanged, and invalidates the cache when the source or transform key changes. Source changes replace each cached variant on its next request; `blob.del(originalPath)` clears all its variants. Version the key when the transformation changes and include output variants such as size or format. The method handles conditional GET and HEAD requests and returns `null` for a `304` response. Without a `transform`, it also answers one `Range: bytes=` request with `206` and `Content-Range`, or `416` when the range starts past the end, so media can seek. See [the server API](https://vitehub.dev/docs/blob/server-api#serve-a-transformed-object) for cache lifetimes, an example, and failure behavior.
 The serve route is public by default. Set `serve.authorize: true` to require a signed-in `@vite-hub/auth` session through the Auth Vite plugin; the build fails without an Auth Definition. Export `authorize` (type `BlobServeAuthorize`) from `server/blob.ts` to decide each request with the Auth access signature. ViteHub runs the check before the store read and before conditional `304` handling. It returns `401` without a session, `403` for `false`, and a returned `Response` as-is. Authorized responses default to `Cache-Control: private, no-cache`.
 For files shared by public link, add `serve.anonymous: true`. Then signed-out requests also run the `authorize` export (type `BlobServeAnonymousAuthorize`), with `session` and `user` set to `null`, and `false` returns `401` for them. This needs an explicit option because a callback written for `authorize: true` can expect a user.
 
@@ -95,6 +113,9 @@ if (detected !== file.type) throw new Error("File content does not match its dec
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "fs",
@@ -125,6 +146,8 @@ Filesystem listings skip child directories removed or replaced by files during t
 `blob.store(name, { mode: "read" })` returns a `ReadonlyBlobStorage` handle with `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`. Another value throws `BLOB_R0038`, and a `PUT` sign request throws `BLOB_R0037`.
 
 ```ts
+import { blob } from "@vite-hub/blob"
+
 const reports = blob.store("reports", { mode: "read" })
 const [error, file] = await reports.get("2026/q1.pdf")
 ```
@@ -148,7 +171,7 @@ Browser clients:
 
 `image()` and `file()` return [Standard Schema](https://standardschema.dev) validators for a stored pointer to one object: `{ pathname, contentType?, size? }`. They accept a `BlobObject` from `put()` or `handleUpload()` and drop its other fields. They reject unsafe pathnames, such as absolute paths and `..` segments, and they check `accept` against `contentType` and `maxSize` against the recorded `size`. They don't read the store.
 
-```ts
+```ts fragment
 import { file, image } from "@vite-hub/blob"
 
 const cover = image({ store: "media", maxSize: "8MB" }) // accepts image/* by default
@@ -165,12 +188,14 @@ The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Z
 
 `blob.media` keeps a JSON record next to each object under `_vitehub/media/records/`: dimensions read from the file header, a SHA-256 hash, alt text, a caption, a focal point, a placeholder color, and named crops. Records work on every driver, including drivers without custom metadata.
 
-```ts
+This excerpt uses an uploaded `file` from your app.
+
+```ts fragment
 import { blob, responsiveImage } from "@vite-hub/blob"
 
 const [, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
-await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
-await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+const [updateError] = await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
+const [moveError] = await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
 
 const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
 // image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
@@ -206,7 +231,7 @@ await fetch(upload.url, {
 })
 ```
 
-Blob operations return `[error, value]`. Missing objects return `[null, null]` from `get()` and `head()`, including when a serving route is configured. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
+Blob operations return a `Result` from `@vite-hub/runtime`: `[error, undefined]` or `[undefined, value]`. Missing objects return `[undefined, null]` from `get()` and `head()`, including when a serving route is configured. Provider and storage failures return an error with a stable `BLOB_*` code, `why`, `fix`, `docs`, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 
@@ -228,6 +253,9 @@ pnpm add @aws-sdk/lib-storage
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "s3",
@@ -252,6 +280,9 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "minio",
@@ -273,7 +304,7 @@ The Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` env nam
 
 You can also keep the config self-contained:
 
-```ts
+```ts fragment
 blob: {
   driver: "minio",
   accessKeyId: process.env.MINIO_ROOT_USER,

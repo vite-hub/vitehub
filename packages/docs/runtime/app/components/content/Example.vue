@@ -196,7 +196,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 }
 
 /* The preview sits in a hairline frame. The source shows in its own code block. */
-.vh-example[data-view="preview"] > .vh-example-body > :deep(:not(.docs-example-preview)),
+.vh-example[data-view="preview"] > .vh-example-body:has(> .docs-example-preview) > :deep(:not(.docs-example-preview)),
 .vh-example[data-view="code"] > .vh-example-body > :deep(.docs-example-preview) {
   display: none;
 }
@@ -216,10 +216,10 @@ onBeforeUnmount(() => resizes?.disconnect())
   margin-bottom: 0;
 }
 
-/* A block that draws its own frame (code, a chart, a diff, an embed, a callout, tabs, a carousel, a quiz) needs no
+/* A block that draws its own frame (code, a chart, a table, a diff, an embed, a callout, tabs, a carousel, a quiz) needs no
    second one around it, so a preview that holds only such blocks drops its ring and padding and stacks them with a gap.
    A block that only has an HTML renderer arrives in a `.comark-html` named after it. */
-.vh-example-body > :deep(.docs-example-preview:not(:has(> :not(style, script, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes, figure, pre, table, .comark-html:is([data-block="screenshot"], [data-block="compare"], [data-block="diff"], [data-block="question"], [data-block="poll"], [data-block="recall"]))))),
+.vh-example-body > :deep(.docs-example-preview:not(:has(> :not(style, script, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes, .ctb, figure, pre, table, .comark-html:is([data-block="screenshot"], [data-block="compare"], [data-block="diff"], [data-block="question"], [data-block="poll"], [data-block="recall"]))))),
 .vh-example-body > :deep(.docs-example-preview:has(> p > :is(.cm-video, .cm-audio))) {
   display: flex;
   flex-direction: column;
@@ -228,7 +228,7 @@ onBeforeUnmount(() => resizes?.disconnect())
   padding: 0;
 }
 
-.vh-example-body > :deep(.docs-example-preview > :is(.ca, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes)),
+.vh-example-body > :deep(.docs-example-preview > :is(.ca, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes, .ctb)),
 .vh-example-body > :deep(.docs-example-preview > .comark-html > :is(.ca, .cd, .cqz)) {
   margin-block: 0;
 }

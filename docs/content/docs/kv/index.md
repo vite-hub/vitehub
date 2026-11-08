@@ -8,7 +8,7 @@ icon: i-lucide-database-zap
 ---
 
 ::product-hero{tagline="Save small values like settings and flags under a key, then read them back from any route." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree
+  :::code-tree{feature="kv"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -16,8 +16,11 @@ icon: i-lucide-database-zap
 
   export default defineConfig({
     plugins: [
-      // On Node, values are saved in .vitehub/data/kv
-      vitehub({ preset: 'node', kv: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, values are saved in .vitehub/data/kv
+        kv: true,
+      }),
       nitro(),
     ],
   })

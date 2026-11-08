@@ -8,7 +8,7 @@ icon: i-lucide-radio
 ---
 
 ::product-hero{tagline="Let several people edit one document at the same time, with live changes and automatic saves to a file." hosts="Cloudflare, Node, Docker"}
-  :::code-tree
+  :::code-tree{feature="realtime"}
   ```ts [server/realtime/docs.ts]
   import { defineRealtime } from 'vite-hub/realtime'
 
@@ -102,7 +102,7 @@ icon: i-lucide-radio
   })
   ```
 
-  ```ts [Checkpoint]
+  ```ts [Checkpoint] fragment
   const [error, checkpoint] = await realtime.history.checkpoint()
   if (error) throw error
 
