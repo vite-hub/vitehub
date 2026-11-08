@@ -35,13 +35,14 @@ type Feature = KeyFeature | ValueFeature
 /** Driver names accepted by the old Workspace Store options. */
 const workspaceStoreDrivers = new Set(["local", "memory", "github", "cloudflare-artifacts", "vercel-blob"])
 
-type Api = Feature | "browser" | "workspace" | "config"
+type Api = Feature | "agent" | "browser" | "workspace" | "config"
 
 /** Match both the exported name and the module that owns the API. */
 const apiCalls = new Map<string, { kind: Api, sources: readonly string[] }>([
   ["createBrowser", { kind: "browser", sources: ["@vite-hub/browser", "vite-hub/browser"] }],
   ["createEmail", { kind: "email", sources: ["@vite-hub/email", "vite-hub/email"] }],
   ["createQueueClient", { kind: "queue", sources: ["@vite-hub/queue", "vite-hub/queue"] }],
+  ["defineAgent", { kind: "agent", sources: ["@vite-hub/agent", "vite-hub/agent"] }],
   ["defineWorkspace", { kind: "workspace", sources: ["@vite-hub/workspace", "vite-hub/workspace"] }],
   ["hubWorkspace", { kind: "workspace", sources: ["@vite-hub/workspace/vite", "vite-hub/workspace/vite"] }],
   ["hubBlob", { kind: "blob", sources: ["@vite-hub/blob/vite", "vite-hub/blob/vite"] }],
@@ -224,6 +225,11 @@ function rewriteProgram(context: FileContext, program: File) {
     if (!api || options?.type !== "ObjectExpression") return
     if (api === "config") rewriteConfig(context, options)
     else if (api === "workspace") rewriteWorkspace(context, options)
+    else if (api === "agent") {
+      for (const property of objectProperties(options)) {
+        if (propertyName(property) === "workspace" && property.value.type === "ObjectExpression") rewriteWorkspace(context, property.value)
+      }
+    }
     else rewriteFeature(context, api, options)
   })
 }

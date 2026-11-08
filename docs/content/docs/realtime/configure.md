@@ -1,6 +1,6 @@
 ---
 title: Realtime configuration
-description: Choose the driver, control saves, and check what each host supports.
+description: Choose the Realtime driver, control saves, and check what each host supports.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal

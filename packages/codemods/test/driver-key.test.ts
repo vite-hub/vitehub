@@ -81,6 +81,35 @@ email.createEmail({ driver: "cloudflare-email" })
     expect(after).toContain('email.createEmail({ driver: "cloudflare" })')
   })
 
+  it.each(["@vite-hub/agent", "vite-hub/agent"])("migrates only Workspace stores in Agent Definitions from %s", async (source) => {
+    const result = await migrateSource("agent.ts", `
+import { defineAgent as agent } from "${source}"
+import * as agents from "${source}"
+agent({
+  workspace: { store: { provider: "memory" } },
+  providers: { sandbox: { provider: "vercel" } },
+  store: { provider: "memory" },
+})
+agents.defineAgent({ workspace: { store: { provider: "cloudflare-artifacts" } } })
+`)
+    const after = result.edits[0]?.after
+    expect(after).toContain('workspace: { store: { driver: "memory" } }')
+    expect(after).toContain('workspace: { store: { driver: "cloudflare" } }')
+    expect(after).toContain('providers: { sandbox: { provider: "vercel" } }')
+    expect(after).toContain('  store: { provider: "memory" }')
+    expect(result.followUps).toEqual([])
+  })
+
+  it("leaves unrelated and shadowed Agent Definitions unchanged", async () => {
+    const result = await migrateSource("agent.ts", `
+import { defineAgent } from "other-library"
+import { defineAgent as agent } from "@vite-hub/agent"
+defineAgent({ workspace: { store: { provider: "memory" } } })
+function make(agent) { return agent({ workspace: { store: { provider: "memory" } } }) }
+`)
+    expect(result.edits).toEqual([])
+  })
+
   it("leaves local functions and shadowed imports unchanged", async () => {
     const result = await migrateSource("utils.ts", `
 import { createBrowser as browser } from "vite-hub/browser"

@@ -78,7 +78,7 @@ corepack pnpm exec vp run codemods:e2e
 
 It rewrites the options object of `vitehub()`, framework config helpers (also under `vitehub`), the `hub*()` plugins, `createQueueClient()`, `createEmail()`, and `createBrowser()`. Calls must use an import from the owning package, including an alias or a namespace import. The default config in a `nuxt.config` or `nitro.config` file can use its framework's global helper. Plain default config objects are supported too. Names with another declaration in the file stay unchanged, so check shadowed imports by hand.
 
-Workspace `store` objects change only in Workspace config, `defineWorkspace()`, or `hubWorkspace()` options. Unrelated objects and member methods stay unchanged. Blob and KV `stores` entries change too. A driver value that is not a string literal stays, and the report names it. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
+Workspace `store` objects change only in Workspace config, `defineWorkspace()` or `hubWorkspace()` options, or the `workspace` option of `defineAgent()`. Unrelated objects and member methods stay unchanged. Blob and KV `stores` entries change too. A driver value that is not a string literal stays, and the report names it. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
 
 ## `t3-env`
 
