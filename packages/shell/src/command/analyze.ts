@@ -1,4 +1,6 @@
-import { splitShellCommandSegments } from "./parse.ts"
+import { BinCmdOperator, LangVariant, parse, walk, type File, type Stmt } from "sh-syntax"
+
+import { wordText } from "./parse.ts"
 
 import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
@@ -19,35 +21,59 @@ export async function analyzeShellCommand(
     }
   }
 
-  const segments = splitShellCommandSegments(command)
-  const commands = [...new Set(segments.map(segment => firstCommandWord(segment.command)).filter(name => name !== undefined))]
-
   try {
-    await withTimeout(parseWithShSyntax(command), options.timeoutMs ?? defaultTimeoutMs)
+    const file = await withTimeout(parseWithShSyntax(command), options.timeoutMs ?? defaultTimeoutMs)
+    const metadata = analyzeAst(file, command)
+    return {
+      ...metadata,
+      ok: true,
+      parser: "sh-syntax",
+    }
   }
   catch (error) {
     return {
-      commands,
       error: error instanceof Error ? error.message : String(error),
       ok: false,
       parser: "sh-syntax",
     }
   }
-
-  return {
-    commands,
-    hasCommandSubstitution: /(?:\$\(|`)/.test(command),
-    hasHeredocs: /<<-?/.test(command),
-    hasPipelines: segments.some(segment => segment.separatorAfter === "|" || segment.separatorAfter === "||"),
-    hasRedirects: /(?:^|[^<])(?:>>?|<)/.test(command),
-    ok: true,
-    parser: "sh-syntax",
-  }
 }
 
 async function parseWithShSyntax(command: string) {
-  const { parse, LangVariant } = await import("sh-syntax")
-  await parse(command, { variant: LangVariant.LangBash })
+  return parse(command, { keepComments: true, variant: LangVariant.LangBash })
+}
+
+function analyzeAst(file: File, command: string) {
+  const commands: string[] = []
+  collectTopLevelCommands(file.stmts, command, commands)
+  let hasCommandSubstitution = false
+  let hasHeredocs = false
+  let hasPipelines = false
+  let hasRedirects = false
+
+  walk(file, (node) => {
+    switch (node.type) {
+      case "CmdSubst":
+        hasCommandSubstitution = true
+        break
+      case "Redirect":
+        hasRedirects = true
+        if (node.hdoc) hasHeredocs = true
+        break
+      case "BinaryCmd":
+        if (node.op === BinCmdOperator.Pipe || node.op === BinCmdOperator.PipeAll || node.op === BinCmdOperator.OrStmt) hasPipelines = true
+        break
+    }
+    return true
+  })
+
+  return {
+    commands: [...new Set(commands.filter(Boolean))],
+    hasCommandSubstitution,
+    hasHeredocs,
+    hasPipelines,
+    hasRedirects,
+  }
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -66,12 +92,20 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-function firstCommandWord(segment: string): string | undefined {
-  const words = segment.trim().match(/[^\s]+/g) || []
-  for (const word of words) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue
-    if (/^\d*(?:>>?|<<?-?|<&|>&)/.test(word)) continue
-    return word.replace(/^command$/, "")
-      || undefined
+function collectTopLevelCommands(stmts: Stmt[], command: string, commands: string[]) {
+  for (const stmt of stmts) {
+    collectStatementCommand(stmt, command, commands)
+  }
+}
+
+function collectStatementCommand(stmt: Stmt | null, command: string, commands: string[]) {
+  if (!stmt?.cmd) return
+  if (stmt.cmd.type === "CallExpr") {
+    if (stmt.cmd.args.length) commands.push(wordText(stmt.cmd.args[0]!, command))
+    return
+  }
+  if (stmt.cmd.type === "BinaryCmd") {
+    collectStatementCommand(stmt.cmd.x, command, commands)
+    collectStatementCommand(stmt.cmd.y, command, commands)
   }
 }

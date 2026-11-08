@@ -23,6 +23,11 @@ describe("shell command parsing", () => {
       .toEqual(["cmd", "premiddleend"])
   })
 
+  it("uses the parsed shell AST for assignments and substitutions", () => {
+    expect(parseShellCommand("FOO=bar echo $(pwd) 'x'"))
+      .toEqual(["FOO=bar", "echo", "$(pwd)", "x"])
+  })
+
   it("removes escaped newlines outside single quotes", () => {
     expect(parseShellCommand("cmd \\\nword \"a\\\nb\" 'a\\\nb'"))
       .toEqual(["cmd", "word", "ab", "a\\\nb"])
