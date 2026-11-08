@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
@@ -8,7 +8,11 @@ import { getTableConfig } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+import { useWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+import { pullWorkspaces, pushWorkspaces } from "@vite-hub/workspace/checkout"
+import { workspaceOperations } from "@vite-hub/workspace/operations"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
@@ -55,13 +59,16 @@ async function setup(options: { table?: boolean, lease?: boolean } = {}) {
   const elapse = async (milliseconds: number, column: "expires_at" | "last_input_at" = "expires_at") => {
     await database.run(sql.raw(`update vitehub_content_sessions set ${column} = ${column} - ${milliseconds} where workspace = '${workspace}'`))
   }
-  return { content, database, elapse, posts: content.collection("posts") }
+  return { content, database, elapse, posts: content.collection("posts"), workspace }
 }
 
 const ana = { id: "ana", name: "Ana", image: "https://example.com/ana.png" }
 const ben = { id: "ben", name: "Ben" }
 const tabA = "tab-ana-0001"
 const tabB = "tab-ben-0001"
+
+const post = (title: string, body = "") => `---\ntitle: ${title}\n---\n${body}`
+const cli = { access: { mode: "local", sections: "all" }, surface: "cli", user: null } as const
 
 async function rejection(promise: Promise<unknown>) {
   try {
@@ -253,6 +260,105 @@ describe("Content sessions", { timeout: 30_000 }, () => {
     await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: ana, kind: "write" as never }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
     await expect(rejection(content.sessions.report("missing" as never, "hello", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
     await expect(rejection(content.sessions.report("posts", "../escape", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
+  })
+
+  it("refuses other Workspace writes to the draft of a leased document, and lets Content's own writes through", async () => {
+    const { content, elapse, posts, workspace } = await setup()
+    const { history } = useWorkspace(workspace as never, { mode: "write" })
+    // The draft does not exist yet: the holder's first save seeds it from published, which writes the leased document.
+    await history.commit({ ref: "published", ifHead: null, files: { "posts/hello.md": post("Published"), "posts/other.md": post("Other") } })
+    await content.sessions.acquire("posts", "hello", { session: tabA, user: ana })
+    const saved = await posts.save("hello", { data: { title: "By Ana" } }, { session: tabA })
+    const head = (await history.head({ ref: "draft" }))!
+
+    const error = await rejection(history.commit({ ref: "draft", ifHead: head.id, changes: { put: { "posts/hello.md": post("Raw"), "posts/new.md": post("New") } } }))
+
+    expect(error).toMatchObject({
+      code: "CONTENT_LEASE_HELD",
+      message: "[vitehub] Ana is editing Content document \"posts/hello\". Nothing was saved.",
+      status: 409,
+      fix: expect.stringContaining("vitehub push --override-lease"),
+      details: { collection: "posts", id: "hello", holder: { kind: "edit", user: { name: "Ana" } }, documents: [{ collection: "posts", id: "hello" }] },
+    })
+    await expect(rejection(history.commit({ ref: "draft", ifHead: head.id, changes: { delete: ["posts/hello.md"] } }))).resolves.toMatchObject({ code: "CONTENT_LEASE_HELD" })
+    expect((await history.head({ ref: "draft" }))!.id).toBe(head.id)
+    // A document without a lease, the published ref, and a collection with editing: { lease: false } take the write.
+    const other = await history.commit({ ref: "draft", ifHead: head.id, changes: { put: { "posts/other.md": post("Raw other"), "notes/today.md": post("Note") } } })
+    await content.sessions.acquire("notes", "today", { session: tabB, user: ben })
+    const note = await history.commit({ ref: "draft", ifHead: other.id, changes: { put: { "notes/today.md": post("Note 2") } } })
+
+    // Content's own writes: the holder saves, and a publish of the leased document lands.
+    const own = await posts.save("hello", { data: { title: "By Ana again" } }, { session: tabA, ifDigest: saved.digest })
+    await expect(content.publish({ expect: [{ collection: "posts", id: "hello", digest: own.digest }] })).resolves.toMatchObject({ documents: [{ id: "hello" }] })
+
+    // lease: "override" in the revision metadata writes anyway, and the revision records it.
+    const draft = (await history.head({ ref: "draft" }))!
+    expect(draft.id).not.toBe(note.id)
+    const overridden = await history.commit({ ref: "draft", ifHead: draft.id, changes: { put: { "posts/hello.md": post("Override") } }, metadata: { lease: "override" } })
+    expect(overridden.metadata).toEqual({ lease: "override" })
+    expect((await posts.get("hello", { ref: "draft" }))!.data).toEqual({ title: "Override" })
+
+    // An idle lease does not hold.
+    await elapse(contentSessionTimeouts.idle + 1_000, "last_input_at")
+    await expect(history.commit({ ref: "draft", ifHead: overridden.id, changes: { put: { "posts/hello.md": post("After idle") } } })).resolves.toMatchObject({ ref: "draft" })
+  })
+
+  it("names every leased document of one commit", async () => {
+    const { content, posts, workspace } = await setup()
+    await posts.save("a", { data: { title: "A" } })
+    await posts.save("b", { data: { title: "B" } })
+    await content.sessions.acquire("posts", "a", { session: tabA, user: ana })
+    await content.sessions.acquire("posts", "b", { session: tabB, user: ben })
+    await content.sessions.acquire("settings", { session: "tab-ana-0002", user: ana })
+    const { history } = useWorkspace(workspace as never, { mode: "write" })
+    const head = (await history.head({ ref: "draft" }))!
+
+    const error = await rejection(history.commit({ ref: "draft", ifHead: head.id, changes: { put: { "posts/a.md": post("A2"), "posts/b.md": post("B2"), "posts/c.md": post("C"), "settings.json": "{\"title\":\"Site\"}" } } }))
+
+    expect(error).toMatchObject({
+      code: "CONTENT_LEASE_HELD",
+      message: "[vitehub] Other sessions are editing 3 Content documents: \"posts/a\" (Ana), \"posts/b\" (Ben), \"settings/settings\" (Ana). Nothing was saved.",
+      details: { collection: "posts", id: "a", documents: [{ id: "a", holder: { user: { name: "Ana" } } }, { id: "b", holder: { user: { name: "Ben" } } }, { collection: "settings", id: "settings" }] },
+    })
+  })
+
+  it("fails vitehub push to a leased document, and pushes it with --override-lease", async () => {
+    const { content, posts, workspace } = await setup()
+    await posts.save("hello", { data: { title: "Hello" } })
+    await posts.save("other", { data: { title: "Other" } })
+    const registry = createOperationRegistry([{ operations: workspaceOperations }])
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-content-push-"))
+    cleanup.push(() => rm(rootDir, { recursive: true, force: true }))
+    const commits: unknown[] = []
+    const checkout = {
+      rootDir,
+      call: async (operation: string, input: unknown) => {
+        if (operation === "workspace.commit") commits.push(input)
+        return await runOperation(registry, operation, input, cli)
+      },
+    }
+    await pullWorkspaces(checkout, { workspace, dir: "content", ref: "draft" })
+    await content.sessions.acquire("posts", "hello", { session: tabA, user: ana })
+    await writeFile(join(rootDir, "content/posts/hello.md"), post("Local"))
+    await writeFile(join(rootDir, "content/posts/other.md"), post("Local other"))
+    const head = (await useWorkspace(workspace as never).history.head({ ref: "draft" }))!
+
+    const error = await rejection(pushWorkspaces(checkout, { workspace }))
+
+    expect(error).toMatchObject({ code: "CONTENT_LEASE_HELD", message: "[vitehub] Ana is editing Content document \"posts/hello\". Nothing was saved.", fix: expect.stringContaining("--override-lease") })
+    // A held lease is not a moved head: the push does not try again, and the draft keeps its head.
+    expect(commits).toHaveLength(1)
+    expect((await useWorkspace(workspace as never).history.head({ ref: "draft" }))!.id).toBe(head.id)
+    const agent = { ...cli, surface: "agent" as const }
+    await expect(runOperation(registry, "workspace.commit", { workspace, ref: "draft", ifHead: head.id, lease: "override", put: { "posts/hello.md": { content: post("Agent"), encoding: "utf8" } } }, agent))
+      .resolves.toMatchObject({ ok: false, code: "WORKSPACE_FORBIDDEN", status: 403 })
+
+    const [pushed] = await pushWorkspaces(checkout, { workspace, overrideLease: true })
+
+    expect(pushed).toMatchObject({ pushed: ["posts/hello.md", "posts/other.md"] })
+    const revision = (await useWorkspace(workspace as never).history.head({ ref: "draft" }))!
+    expect(revision).toMatchObject({ id: pushed!.revision, metadata: { lease: "override", source: "cli" } })
+    expect((await posts.get("hello", { ref: "draft" }))!.data).toEqual({ title: "Local" })
   })
 
   it("names the fix when the Database has no sessions table, and keeps saving", async () => {

@@ -136,7 +136,7 @@ function fitRecord(input: AgentInvocationStoreCreateInput, append = false) {
 }
 
 /** D1 journal with atomic batches and optimistic updates across Worker isolates. Creates its table on first use unless `migrate` is false. */
-export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOptions): Omit<Required<AgentInvocationStore>, "open"> {
+export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOptions): Required<Omit<AgentInvocationStore, "open">> {
   const table = tableName(options.tablePrefix)
   const schema = d1AgentInvocationSchema(options)
   const { maxAgeMs, maxRecords } = d1AgentInvocationRetention(options)

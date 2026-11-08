@@ -134,12 +134,10 @@ export function defaultAgentInvocationsDatabase(invocations: AgentInvocations): 
   return databases.get(invocations)
 }
 
-type DefaultAgentInvocationBackingStore = Omit<Required<AgentInvocationStore>, "open"> & Pick<AgentInvocationStore, "open">
-
 /** A store that opens its backing store on the first call. */
-function lazyAgentInvocationStore(open: () => Promise<DefaultAgentInvocationBackingStore>): Required<AgentInvocationStore> {
+function lazyAgentInvocationStore(open: () => Promise<Required<Omit<AgentInvocationStore, "open">> & Pick<AgentInvocationStore, "open">>): Required<AgentInvocationStore> {
   return {
-    open: async () => (await open()).open?.(),
+    open: async () => { await (await open()).open?.() },
     claim: async (...input) => (await open()).claim(...input),
     create: async input => (await open()).create(input),
     delete: async id => (await open()).delete(id),
@@ -197,7 +195,7 @@ function d1Journal(d1: DefaultAgentInvocationsD1, options: DefaultAgentInvocatio
     }
     return binding
   }
-  let store: DefaultAgentInvocationBackingStore | undefined
+  let store: ReturnType<typeof import("./d1.ts").createD1AgentInvocationStore> | undefined
   const invocations = journal(lazyAgentInvocationStore(async () => {
     const { createD1AgentInvocationStore } = await loadD1()
     return store ??= createD1AgentInvocationStore({ database: open, migrate: false, ...limits })

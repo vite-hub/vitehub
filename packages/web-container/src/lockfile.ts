@@ -11,12 +11,16 @@ export function withoutAliases(dependencies: Record<string, string> = {}): Recor
   return Object.fromEntries(Object.entries(dependencies).filter(([name]) => !name.startsWith(aliasPrefix)))
 }
 
-/** The aliases that the root of a lockfile depends on. */
+/** The aliases that the root of a lockfile depends on: optional dependencies, or regular ones in an older lockfile. */
 export function lockedAliases(lockfile: string): Record<string, string> {
   const lock: unknown = JSON.parse(lockfile)
-  const root = lock && typeof lock === "object" && "packages" in lock && lock.packages && typeof lock.packages === "object" && "" in lock.packages ? lock.packages[""] : undefined
-  const dependencies = root && typeof root === "object" && "dependencies" in root && root.dependencies && typeof root.dependencies === "object" ? root.dependencies : {}
-  return Object.fromEntries(Object.entries(dependencies).filter((entry): entry is [string, string] => entry[0].startsWith(aliasPrefix) && typeof entry[1] === "string"))
+  const root = isObject(lock) && isObject(lock.packages) && isObject(lock.packages[""]) ? lock.packages[""] : {}
+  const entries = [root.dependencies, root.optionalDependencies].flatMap(field => isObject(field) ? Object.entries(field) : [])
+  return Object.fromEntries(entries.filter((entry): entry is [string, string] => entry[0].startsWith(aliasPrefix) && typeof entry[1] === "string"))
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object"
 }
 
 export function sameRecord(a: Record<string, string>, b: Record<string, string>): boolean {
