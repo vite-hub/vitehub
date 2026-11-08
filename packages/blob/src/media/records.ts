@@ -1,4 +1,5 @@
 // Media records: per-object metadata stored as JSON sidecars in the same Blob Store, plus folders and image variants.
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
 import { ensureBlob } from "../ensure.ts"
@@ -13,6 +14,8 @@ import { isMediaCropName, isMediaFocalPoint, parseAspectRatio, resolveImageGeome
 import type { ResolvedBlobImages } from "./transformers.ts"
 import type { MediaCrop, MediaCropReplacement, MediaRecord, MediaUpdate, MediaVariantEntry } from "./types.ts"
 import type { BlobImageVariant, MediaFocalPoint } from "./variant.ts"
+import type { Result, ResultError } from "@vite-hub/runtime"
+
 import type {
   BlobDriverAdapter,
   BlobErrorCode,
@@ -21,7 +24,6 @@ import type {
   BlobMediaPutOptions,
   BlobObject,
   BlobPutBody,
-  BlobResult,
   BlobServeResponseOptions,
   BlobStorage,
 } from "../types.ts"
@@ -60,7 +62,7 @@ export interface InternalBlobMedia extends BlobMedia {
 }
 
 class MediaFailure extends Error {
-  constructor(readonly code: BlobErrorCode, message: string, readonly result?: BlobResult<unknown>[0]) {
+  constructor(readonly code: BlobErrorCode, message: string, readonly result?: ResultError<BlobErrorCode>) {
     super(message)
   }
 }
@@ -248,20 +250,20 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
   const recordPath = (pathname: string) => `${mediaRecordsPrefix}${canonical(pathname)}.json`
   const hashPath = (hash: string) => `${mediaHashesPrefix}${hash}.json`
 
-  async function run<TResult>(operation: () => Promise<TResult>): Promise<BlobResult<TResult>> {
+  async function run<TResult>(operation: () => Promise<TResult>): Promise<Result<TResult, BlobErrorCode>> {
     try {
-      return [null, await operation()]
+      return [undefined, await operation()]
     }
     catch (cause) {
       if (cause instanceof MediaFailure) {
-        return [cause.result ?? blobError(cause.code, "media", store, new Error(cause.message)), undefined]
+        return [cause.result ?? blobError(cause.code, "media", store, { detail: cause.message }), undefined]
       }
       if (cause instanceof Error && "code" in cause && /^BLOB_R00(?:33|35)$/.test(String(cause.code))) throw cause
-      return [blobError("BLOB_OPERATION_FAILED", "media", store, cause), undefined]
+      return [blobError("BLOB_OPERATION_FAILED", "media", store, { cause }), undefined]
     }
   }
 
-  function unwrap<TResult>(result: BlobResult<TResult>): TResult {
+  function unwrap<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
     const [error, value] = result
     if (error) throw new MediaFailure(error.code, error.message, error)
     return value
@@ -551,7 +553,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       const formKey = options.formKey ?? "files"
       let form: FormData
       try {
-        form = await event.req.formData()
+        form = await getStandardContext(event).req.formData()
       }
       catch {
         throw createError({ statusCode: 400, message: "Expected a multipart/form-data request body." })

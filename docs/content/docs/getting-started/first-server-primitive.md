@@ -26,6 +26,12 @@ option to the ViteHub module config. The route works in both frameworks.
 ::tutorial-step{title="Enable local KV"}
 ## Enable local KV
 
+Install the KV package:
+
+```bash [commands/install-kv]
+pnpm add @vite-hub/kv
+```
+
 Enable KV with the `fs-lite` driver. It stores values under
 `.vitehub/data/kv`. Keep other features you already use in your config.
 

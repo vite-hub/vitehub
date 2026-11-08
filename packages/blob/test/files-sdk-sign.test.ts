@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto"
 import { memory } from "files-sdk/memory"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createFilesSdkDriver } from "../src/drivers/files-sdk.ts"
 import { createDriver as createGcsDriver } from "../src/drivers/gcs.ts"
@@ -35,7 +35,7 @@ describe("signed requests on files-sdk drivers", () => {
   it("signs an S3 read with the requested lifetime", async () => {
     const [error, signed] = await s3Storage().sign("users/a/source.mp3", { expiresIn: 600, method: "GET" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(signed?.method).toBe("GET")
     expect(signed?.headers).toEqual({})
     const url = new URL(signed!.url)
@@ -47,14 +47,14 @@ describe("signed requests on files-sdk drivers", () => {
   it("signs an S3 read even when the store has a public base URL", async () => {
     const [error, signed] = await s3Storage("https://cdn.example").sign("a.txt", { expiresIn: 60, method: "GET" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(new URL(signed!.url).searchParams.get("X-Amz-Expires")).toBe("60")
   })
 
   it("signs an S3 upload that binds its content type", async () => {
     const [error, signed] = await s3Storage().sign("users/a/source.mp3", { contentType: "audio/mpeg", expiresIn: 900, method: "PUT" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(signed?.method).toBe("PUT")
     const url = new URL(signed!.url)
     expect(url.searchParams.get("X-Amz-Expires")).toBe("900")
@@ -70,16 +70,24 @@ describe("signed requests on files-sdk drivers", () => {
   })
 
   it("signs a GCS read and upload with a service account key", async () => {
-    const storage = gcsStorage()
+    // GCS derives expiry and start time separately, so crossing a second changes the signed lifetime.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"))
+    try {
+      const storage = gcsStorage()
 
-    const [readError, read] = await storage.sign("users/a/source.mp3", { expiresIn: 600, method: "GET" })
-    expect(readError).toBeNull()
-    expect(new URL(read!.url).searchParams.get("X-Goog-Expires")).toBe("600")
+      const [readError, read] = await storage.sign("users/a/source.mp3", { expiresIn: 600, method: "GET" })
+      expect(readError).toBeUndefined()
+      expect(new URL(read!.url).searchParams.get("X-Goog-Expires")).toBe("600")
 
-    const [uploadError, upload] = await storage.sign("users/a/source.mp3", { contentType: "audio/mpeg", expiresIn: 900, method: "PUT" })
-    expect(uploadError).toBeNull()
-    expect(upload?.method).toBe("PUT")
-    expect(new URL(upload!.url).searchParams.get("X-Goog-SignedHeaders")).toContain("content-type")
+      const [uploadError, upload] = await storage.sign("users/a/source.mp3", { contentType: "audio/mpeg", expiresIn: 900, method: "PUT" })
+      expect(uploadError).toBeUndefined()
+      expect(upload?.method).toBe("PUT")
+      expect(new URL(upload!.url).searchParams.get("X-Goog-SignedHeaders")).toContain("content-type")
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("rejects a files-sdk adapter without signed URLs", async () => {
