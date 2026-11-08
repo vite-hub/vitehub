@@ -24,8 +24,8 @@ function createChannel(error?: Error) {
   return {
     name: "teams",
     send: vi.fn(async (_text: string, _options: { recipient: string }) => error
-      ? [error, null] as [Error, null]
-      : [null, { deliveryId: "delivery-1" }] as [null, { deliveryId: string }]),
+      ? [error, undefined] as [Error, undefined]
+      : [undefined, { deliveryId: "delivery-1" }] as [undefined, { deliveryId: string }]),
   }
 }
 

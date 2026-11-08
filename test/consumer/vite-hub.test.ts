@@ -326,6 +326,8 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     // Use the workspace-tested pair: newer msgpackr-extract native tarballs returned 404.
     "msgpackr@^2": "2.1.0",
     "msgpackr-extract": "3.0.4",
+    // Match the exact Vue peer published by the workspace packages.
+    vue: "3.5.44",
     ...additionalOverrides,
   })
     .sort(([left], [right]) => left.localeCompare(right))
@@ -650,7 +652,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           'import { blob } from "vite-hub/blob"',
           'import { defineQueue } from "vite-hub/queue"',
           "export default defineQueue<{ name: string }>(async ({ payload }) => {",
-          "  await blob.put(`welcome/${payload.name}.txt`, payload.name)",
+          "  const [error] = await blob.put(`welcome/${payload.name}.txt`, payload.name)",
+          "  if (error) throw error",
           "})",
           "",
         ].join("\n"), "utf8"),

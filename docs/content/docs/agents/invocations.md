@@ -42,7 +42,7 @@ Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub 
 
 `runAgent(agent, input, options?)` runs the Agent in the calling process and waits for its output. It returns an `[error, result]` tuple and does not throw for a failed run:
 
-```ts
+```ts fragment
 import { runAgent } from 'vite-hub/agent'
 import support from './agents/support'
 
@@ -214,7 +214,7 @@ Set `defineAgent({ data })` when callers pass structured values. ViteHub validat
 
 Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
@@ -278,7 +278,7 @@ Export runs through `runtime.waitUntil()`, so delivery failures do not replace t
 
 ### Store invocation history
 
-Set `invocations: 'database'` to retain runs in the application's Database, or `'memory'` for process-local history. A journal is opt-in unless the Console supplies one. Set `invocations: false` to disable it for one Agent.
+Set `invocations: 'database'` to retain runs in the application's Database, or `'memory'` for process-local history. Without a setting, the Agent records into the [default journal](/docs/agents/invocation-storage#use-the-default-journal), with the Console on or off. Set `invocations: false` to disable it for one Agent.
 
 See [Invocation storage](/docs/agents/invocation-storage#store-invocation-history) for configuration and durability. A journal does not replace [Chat History](/docs/agents/chat-history-sessions).
 
@@ -324,7 +324,7 @@ Model and provider Drivers receive an abort signal. A custom `run` Driver must s
 
 Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
 
-The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
+The Console guide covers Vite and Nuxt setup, the journal that it reads, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 
 ## Control child work
 

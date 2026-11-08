@@ -52,7 +52,7 @@ import { installAgentRunners, type RunAgentInlineOptions } from "./internal/agen
 import { agentRunError, type AgentErrorCode } from "./run-errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, resolveAgentUsageRecordDuringStream, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -1182,7 +1182,7 @@ async function runAgentAsWorkflow<
   options: { fresh?: boolean, onInputHandoff?: () => void } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
-  const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
+  const cloudflareEnv = context.cloudflare?.env || getActiveCloudflareEnv()
   if (!canDispatchAgentWorkflow(binding, context)) return undefined
   // SAFETY: Replay sets this private boolean marker on its runtime; other runtimes may omit it.
   const exclusive = (context as AgentRuntimeContext & { [exclusiveAgentInvocation]?: boolean })[exclusiveAgentInvocation] === true
@@ -6956,7 +6956,7 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = options.holdOutput === true || shouldWrapInvocationOutput(context)
   try {
     result = normalizeUIMessageStreamResponse(result) ?? result
-    if (result instanceof Response) {
+    if (isResponse(result)) {
       const finalized = await options.finalizeResponse?.(result)
       if (finalized) {
         if (!finalized.deferFinish) {
@@ -7520,7 +7520,7 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   if (options.kind === "run") {
-    return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
+    const finalized = await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
       const driverUsageRecord = rawDriverUsageObserved ? rawDriverUsageRecord : (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
@@ -8079,6 +8079,8 @@ async function executeAgentInvocationWithCapacityLease<
           }
         : {}),
     })
+    if (!customRun && !invocation.output && isRuntimeRecord(finalized)) renderedAgentRunResults.add(finalized)
+    return finalized
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
@@ -8955,8 +8957,12 @@ function withScheduleInput<CALL_OPTIONS, TData>(
  * run result. Any other value is the Agent output, such as a `driver.output` schema value, and becomes `output`.
  */
 async function toPublicAgentRunResult<TOutput>(value: unknown): Promise<AgentRunResult<TOutput>> {
-  // SAFETY: drainAgentRunOutput returns the finished run result of a stream, or `{ raw, text }` for a Response.
-  if (isDrainableAgentOutput(value)) return await drainAgentRunOutput(value) as AgentRunResult<TOutput>
+  if (isDrainableAgentOutput(value)) {
+    // SAFETY: Draining collects the run result while preserving the Driver's output value.
+    const result = await drainAgentRunOutput(value) as AgentRunResult<TOutput>
+    if (isRuntimeRecord(value) && renderedAgentRunResults.has(value)) return result
+    return { ...result, output: value as TOutput }
+  }
   if (isRuntimeRecord(value) && renderedAgentRunResults.has(value)) return value
   // SAFETY: A rendered inline Invocation that is not a stream or a Response returns the Agent's TOutput value.
   return { ...toAgentRunResult(value), output: value as TOutput }
@@ -8968,7 +8974,7 @@ function toAgentEventStream(output: unknown): AsyncIterable<StreamEvent> {
 }
 
 function toUIMessageStreamResponse(output: unknown): Response {
-  if (output instanceof Response) return output
+  if (isResponse(output)) return output
   if (output instanceof ReadableStream) return createAgentUIMessageStreamResponse({ stream: output })
   if (isAsyncIterable(output)) return createAgentUIMessageStreamResponse({ stream: ReadableStream.from(output) })
   throw new TypeError("[vitehub] The Agent did not return a UI message stream.")
@@ -9032,7 +9038,7 @@ async function runAgentWithContext<
   return options.output === "drained" ? await drainAgentRunOutput(result) as TOutput : result
 }
 
-// Run results that a model Driver Invocation renders. `runAgent()` returns them as they are.
+// Model Driver outputs without a schema do not become typed Agent output.
 const renderedAgentRunResults = new WeakSet<AgentRunResult>()
 
 function renderedAgentRunResult(result: AgentRunResult): AgentRunResult {
@@ -9041,13 +9047,13 @@ function renderedAgentRunResult(result: AgentRunResult): AgentRunResult {
 }
 
 function isDrainableAgentOutput(result: unknown): boolean {
-  return result instanceof Response || isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+  return isResponse(result) || isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
 }
 
 async function drainAgentRunOutput(result: unknown): Promise<unknown> {
   // Draining gives callers the final result only after stream-driven lifecycle
   // work and capacity release complete.
-  if (result instanceof Response) {
+  if (isResponse(result)) {
     return { raw: result, text: await result.text() }
   }
   if (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)) {

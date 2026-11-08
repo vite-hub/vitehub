@@ -1,7 +1,9 @@
 import { createRuntimeContext } from "@vite-hub/runtime"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
-import { defineAgent, runAgent, startAgentInvocation, streamAgent, workflow } from "../src/index.ts"
+import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
+import { defineAgent, registerResponseConstructor, runAgent, startAgentInvocation, streamAgent, workflow } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
+import { adapterDefinition } from "./adapter-definition.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { StreamEvent } from "../src/index.ts"
@@ -63,6 +65,40 @@ describe("runAgent()", () => {
     expect(error).toBeUndefined()
     expect(result?.output).toEqual({ summary: "Decisions" })
     if (result) expectTypeOf(result.output).toEqualTypeOf<{ summary: string } | undefined>()
+  })
+
+  it("drains a registered foreign Response", async () => {
+    registerResponseConstructor(ForeignResponse)
+    const response = new ForeignResponse("foreign response")
+    const agent = defineAgent({ driver: { run: () => response }, runtime: false })
+    const [error, result] = await runAgent(agent, {})
+    expect(error).toBeUndefined()
+    expect(result?.text).toBe("foreign response")
+    expect(result?.raw).toMatchObject({ bodyUsed: true })
+  })
+
+  it("keeps custom stream output after collecting its text", async () => {
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+        yield { text: "streamed output", type: "text-delta" as const }
+      })() },
+      runtime: false,
+    })
+    const [error, result] = await runAgent(agent, {})
+    expect(error).toBeUndefined()
+    expect(result?.text).toBe("streamed output")
+    expect(result?.output).toBeDefined()
+    expect(result?.output?.[Symbol.asyncIterator]).toBeTypeOf("function")
+  })
+
+  it("leaves output unset for a model stream without a schema", async () => {
+    const agent = adapterDefinition({ generate: () => (async function* () {
+      yield { text: "model output", type: "text-delta" as const }
+    })() })
+    const [error, result] = await runAgent(agent, {})
+    expect(error).toBeUndefined()
+    expect(result?.text).toBe("model output")
+    expect(result?.output).toBeUndefined()
   })
 
   it("isolates memo values and run identity between invocations", async () => {

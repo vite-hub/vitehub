@@ -3,7 +3,8 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent } from "../src/index.ts"
+import { defineAgent, registerResponseConstructor, runAgent, streamAgent } from "../src/index.ts"
+import { adapterDefinition } from "./adapter-definition.ts"
 import { streamAgentInline } from "../src/internal/agent-run.ts"
 import { isUIMessageStreamResponse, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse } from "../src/stream-output.ts"
 
@@ -36,6 +37,28 @@ function foreignResponse(payload: string | ReadableStream<Uint8Array> = 'data: {
 }
 
 describe("Agent UI stream response boundaries", () => {
+  it.each(["run", "adapter"])("drains a registered foreign Response at the public run boundary: %s", async (driver) => {
+    const response = foreignResponse("foreign output")
+    response.headers.delete("x-vercel-ai-ui-message-stream")
+    registerResponseConstructor(response.constructor)
+    const agent = driver === "run"
+      ? defineAgent({ driver: { run: () => response }, runtime: false })
+      : adapterDefinition({ generate: () => response })
+    const [error, result] = await runAgent(agent, {})
+    expect(error).toBeUndefined()
+    expect(result?.text).toBe("foreign output")
+    expect(response.bodyUsed).toBe(true)
+  })
+
+  it("accepts a registered foreign UI Response at the public stream boundary", async () => {
+    const response = foreignResponse()
+    registerResponseConstructor(response.constructor)
+    const agent = defineAgent({ driver: { run: () => response }, runtime: false })
+    const [error, stream] = await streamAgent(agent, {}, { output: "ui-message-stream" })
+    expect(error).toBeUndefined()
+    expect(await stream?.text()).toContain('"text":"foreign"')
+  })
+
   it("preserves an unshadowed local UI Response identity", () => {
     const response = new Response("data: [DONE]\n\n", { headers: { "x-vercel-ai-ui-message-stream": "v1" } })
     expect(isUIMessageStreamResponse(response)).toBe(true)

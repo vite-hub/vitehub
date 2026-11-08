@@ -13,7 +13,7 @@ import { commentsRoute } from "../page.ts"
 import { requestOf } from "./request.ts"
 
 import type { H3Event } from "h3"
-import type { CommentsGitHubAccess, CommentsUser } from "../types.ts"
+import type { CommentsGitHubAccess, CommentsRequestEvent, CommentsUser } from "../types.ts"
 
 /** The Server Env names of the OAuth client that people sign in to Comments with: a GitHub App's, or an OAuth App's. */
 export const githubLoginEnv = { clientId: "VITEHUB_GITHUB_CLIENT_ID", clientSecret: "VITEHUB_GITHUB_CLIENT_SECRET" } as const
@@ -36,7 +36,7 @@ export interface CommentsGitHubLogin {
   /** Whether the server has the OAuth client, so the overlay offers **Sign in with GitHub**. */
   configured(): boolean
   /** The person signed in with GitHub, with what they may do in the repository. Null without a session. */
-  user(event: H3Event): Promise<CommentsUser | null>
+  user(event: CommentsRequestEvent): Promise<CommentsUser | null>
   /** The sign-in, callback, and sign-out routes under `/api/_vitehub/comments/auth/`. */
   handle(event: H3Event, path: string): Promise<Response>
 }
@@ -77,7 +77,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
   const instances = new Map<string, BetterAuth>()
   const access = new Map<string, CommentsGitHubAccess & { until: number }>()
 
-  function auth(event: H3Event, request: Request): BetterAuth {
+  function auth(event: CommentsRequestEvent, request: Request): BetterAuth {
     const clientId = serverEnv(githubLoginEnv.clientId)!
     const clientSecret = serverEnv(githubLoginEnv.clientSecret)!
     const secret = sessionSecret()

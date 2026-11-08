@@ -278,6 +278,8 @@ it('replaces owned Workspaces after route reloads without removing application W
   await writeFile(probe, `export { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition, useWorkspace } from '@vite-hub/workspace/runtime'`)
   const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
   try {
+    // This test regenerates routes itself. Stop discovery before it can race those writes.
+    await server.watcher.close()
     const runtime = await server.ssrLoadModule(probe)
     runtime.setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
     const route = join(root, '.vitehub/agent/chat-webhook-route.ts')

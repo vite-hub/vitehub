@@ -38,6 +38,8 @@ Continue with [Run an Agent](/docs/agents/invocations#run-an-agent) to call this
 Use the top-level `budget` option for per-invocation token and cost limits. ViteHub installs the same inspectable `budget` Capability used by reusable Capability lists:
 
 ```ts [server/agents/review.ts]
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
   budget: {

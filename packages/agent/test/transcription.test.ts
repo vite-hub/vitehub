@@ -630,7 +630,7 @@ describe("agent transcription", () => {
     })
 
     await runAgentWithContext(agent, runtime(), {
-      messages: [createMessage({
+      messages: [createMessage({ role: "user", text: "Old topic" }), createMessage({
         parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
         role: "user",
       })],
@@ -657,7 +657,7 @@ describe("agent transcription", () => {
     })
 
     await runAgentWithContext(agent, runtime(), {
-      messages: [createMessage({
+      messages: [createMessage({ role: "user", text: "Old topic" }), createMessage({
         parts: ["authored context", { data: "AAAA", mediaType: "audio/wav", type: "audio" }],
         role: "user",
       })],

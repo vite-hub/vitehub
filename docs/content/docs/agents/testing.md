@@ -68,7 +68,7 @@ and [Finish before the Driver](/docs/agents/agent-definitions#finish-before-the-
 Pass `runtimeContext` when the behavior depends on a host Runtime Context,
 request metadata, or a stream's background lifetime:
 
-```ts
+```ts fragment
 const [error, result] = await runAgent(agent, { prompt: 'Ada' }, { runtimeContext })
 ```
 
@@ -82,7 +82,7 @@ cleanup.
 An Eval runs a real Agent Definition inline. Keep credentials and the model in
 the Agent file, then describe the scenario and scorer in `*.eval.ts`:
 
-```ts [server/agents/support.eval.ts]
+```ts [server/agents/support.eval.ts] fragment
 import { callsTool, defineEval, textContains } from 'vite-hub/agent/eval'
 import support from './support'
 
