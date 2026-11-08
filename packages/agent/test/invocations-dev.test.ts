@@ -22,7 +22,8 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   }),
 }))
 
-import { agentInvocationId, defineAgent, runAgent } from "../src/index.ts"
+import { agentInvocationId, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { agentInvocationsDevHeader, agentInvocationsDevRuntimeRoute, agentInvocationsDevTokenServerHeader } from "../src/invocations-dev.ts"
 import { handleAgentInvocationsDevRequest } from "../src/runtime/invocations-dev.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -236,7 +237,7 @@ describe("Agent Invocations Nitro dev handler", () => {
     const agent = defineAgent({ driver: modelDriver, invocations, name: "digest" })
     registry.digest = async () => ({ default: agent })
     registry.broken = async () => { throw new Error("Definition failed to load.") }
-    const run = runAgent(agent, runtime("dev-cancel"), { prompt: "Summarize the release." })
+    const run = runAgentWithContext(agent, runtime("dev-cancel"), { prompt: "Summarize the release." })
     const id = await runningId(invocations, "dev-cancel")
 
     const response = await cancelRequest({ id, operation: "cancel" })
