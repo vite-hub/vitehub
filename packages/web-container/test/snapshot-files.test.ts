@@ -126,8 +126,10 @@ describe("snapshot lockfiles", () => {
     },
   })
 
-  it("reads the wasm aliases that a lockfile pins", () => {
+  it("reads the wasm aliases that a lockfile pins, as optional dependencies or, in an older lockfile, regular ones", () => {
     expect(lockedAliases(lockfile)).toEqual({ "vitehub-wasm-esbuild-wasm-0.28.2": "npm:esbuild-wasm@0.28.2" })
+    const optional = JSON.stringify({ packages: { "": { dependencies: { zod: "^4.6.5" }, optionalDependencies: { "vitehub-wasm-rolldown-binding-wasm32-wasi-1.3.0": "npm:@rolldown/binding-wasm32-wasi@1.3.0" } } } })
+    expect(lockedAliases(optional)).toEqual({ "vitehub-wasm-rolldown-binding-wasm32-wasi-1.3.0": "npm:@rolldown/binding-wasm32-wasi@1.3.0" })
   })
 
   it("drops the integrity of packed tarballs only, so a rebuilt tarball still installs with npm ci", () => {

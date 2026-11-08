@@ -42,6 +42,7 @@ console.log(error.toJSON())
 | `AUTH_C0056` | A plugin adds unsupported columns to an owned Auth table, or a model or field mapping changes its fixed names. Use another Better Auth adapter and a matching schema. |
 | `AUTH_C0057` | `VITEHUB_ADMIN_EMAILS` is set. It is removed: list the admin's social account in `VITEHUB_ADMINS`. |
 | `AUTH_C0058` | A `VITEHUB_ADMINS` entry is an email, has no provider or account id, or is a GitHub login instead of the numeric id. |
+| `AUTH_C0059` | `VITEHUB_ADMIN_CLAIM` is not `sha256:` and 64 hex characters. Set the value that `vitehub auth claim` prints, never the code. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables in its Database. Write the call inline in `defineAuth()`, enable the Database integration, and run `vitehub database generate`. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results. |
 
