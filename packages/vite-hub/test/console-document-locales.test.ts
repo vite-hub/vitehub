@@ -251,7 +251,7 @@ describe("Editing a translation", () => {
       // An autosave pauses for comparison; the status button opens it.
       await wrapper.get("header [role='status'] button").trigger("click")
       await flushPromises()
-      expect(wrapper.getComponent(ConsoleDocumentDiff).props("before")).toBeNull()
+      expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ before: null })
       expect(wrapper.text()).toContain("The saved version deleted this")
 
       await wrapper.get(`button[data-label='${choice}']`).trigger("click")
@@ -281,7 +281,7 @@ describe("Editing a translation", () => {
       client.get.mockResolvedValue({ ...source, fallback: true, state: "published" })
       await wrapper.get("header [role='status'] button").trigger("click")
       await flushPromises()
-      expect(wrapper.getComponent(ConsoleDocumentDiff).props("before")).toBeNull()
+      expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ before: null })
       expect(wrapper.text()).toContain("The site no longer has this")
       expect(wrapper.find("button[data-label='Use the site version']").exists()).toBe(false)
       await wrapper.get("button[data-label='Keep my draft']").trigger("click")
