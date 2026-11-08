@@ -387,16 +387,16 @@ describe("docs search checks", () => {
     { route: "/guides", contents: "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/learn\"></head><body></body></html>" },
   ]
 
-  it("stops the build on a page that fails a check when seoAudit is \"error\"", async () => {
-    await expect(prerender({ seoAudit: "error" }, routes)).rejects.toMatchObject({
+  it.each(["error", true] as const)("stops the build on a page that fails a check when seoAudit is %s", async (seoAudit) => {
+    await expect(prerender({ seoAudit }, routes)).rejects.toMatchObject({
       name: "DocsSeoError",
       problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
     })
   })
 
-  it("logs the problems by default and keeps building", async () => {
+  it.each([undefined, "warn"] as const)("logs the problems and keeps building when seoAudit is %s", async (seoAudit) => {
     logger.warn.mockClear()
-    await prerender({}, routes)
+    await prerender({ seoAudit }, routes)
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("/guides is in the sitemap, but it redirects."))
   })
 
