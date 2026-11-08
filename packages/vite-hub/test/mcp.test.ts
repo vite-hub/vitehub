@@ -46,6 +46,6 @@ describe("vitehub({ mcp })", () => {
   })
 
   it("fails when mcp.auth is on without Auth", () => {
-    expect(() => vitehub({ mcp: { auth: true }, preset: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0138" }))
+    expect(() => vitehub({ mcp: { auth: true }, preset: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0141" }))
   })
 })
