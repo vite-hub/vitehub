@@ -57,6 +57,38 @@ it("rejects disabled Queues and unknown Definitions", async () => {
   expect(mode.peek("queue")).toBeUndefined()
 })
 
+it.each<QueueProvider>(["local", "vercel"])("deduplicates %s sends and batches by Queue and idempotency key until reset", async (provider) => {
+  setQueueRuntimeConfig({ provider })
+  const queue = await dynamicQueue.get("welcome")
+  const [error, first] = await queue.send({ userId: 1 }, { id: "first", idempotencyKey: "signup" })
+  expect(error).toBeUndefined()
+  expect(await queue.send({ userId: 2 }, { id: "retry", idempotencyKey: "signup" })).toEqual([undefined, first])
+  const [batchError, batch] = await queue.sendBatch([
+    { body: { userId: 3 }, idempotencyKey: "signup" },
+    { body: { userId: 4 }, idempotencyKey: "digest" },
+    { body: { userId: 5 }, idempotencyKey: "digest" },
+  ])
+  expect(batchError).toBeUndefined()
+  expect(batch?.[0]).toEqual(first)
+  expect(batch?.[2]).toEqual(batch?.[1])
+
+  const otherQueue = await dynamicQueue.get("digest")
+  await otherQueue.send({ userId: 6 }, { idempotencyKey: "signup" })
+  await queue.send({ userId: 7 })
+  await queue.send({ userId: 7 })
+  expect(mode.peek("queue")).toMatchObject([
+    { id: "first", queue: "welcome", payload: { userId: 1 } },
+    { queue: "welcome", payload: { userId: 4 } },
+    { queue: "digest", payload: { userId: 6 } },
+    { queue: "welcome", payload: { userId: 7 } },
+    { queue: "welcome", payload: { userId: 7 } },
+  ])
+
+  await mode.reset()
+  expect(await queue.send({ userId: 8 }, { id: "after-reset", idempotencyKey: "signup" })).toEqual([undefined, { messageId: "after-reset", status: "queued" }])
+  expect(mode.peek("queue")).toMatchObject([{ id: "after-reset", payload: { userId: 8 } }])
+})
+
 it.each<[QueueProvider, QueueEnqueueOptions]>([
   ["cloudflare", { idempotencyKey: "key" }],
   ["cloudflare", { region: "iad1" }],

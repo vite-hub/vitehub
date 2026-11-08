@@ -20,7 +20,12 @@ export function queueTestMessages(test: ViteHubTestMode): QueueTestMessage[] {
 /** Records the job and does not run it, so a test asserts what the app sent. */
 export function recordQueueTestMessage(test: ViteHubTestMode, queue: string, payload: unknown, options?: QueueEnqueueOptions): { messageId: string, status: "queued" } {
   const input = normalizeQueueEnqueueInput(payload, options)
-  queueTestMessages(test).push({ id: input.id, options: input.options, payload: structuredClone(input.payload), queue })
+  const messages = queueTestMessages(test)
+  const duplicate = input.options.idempotencyKey === undefined
+    ? undefined
+    : messages.find(message => message.queue === queue && message.options.idempotencyKey === input.options.idempotencyKey)
+  if (duplicate) return { messageId: duplicate.id, status: "queued" }
+  messages.push({ id: input.id, options: input.options, payload: structuredClone(input.payload), queue })
   return { messageId: input.id, status: "queued" }
 }
 

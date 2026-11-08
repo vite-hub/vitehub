@@ -1,8 +1,6 @@
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
-import type { DeliverChannelOptions, deliverChannel as deliverAgentChannel } from "@vite-hub/agent/test"
-import type { EmailMessage } from "@vite-hub/email"
-import type { ScheduleDefinition, ScheduleRunRecord } from "@vite-hub/schedule"
+import type { DeliverChannelOptions, TestEmailMessage, TestScheduleDefinition, TestScheduleRunRecord } from "./internal/test-types.ts"
 
 export type { DeliverChannelOptions }
 
@@ -37,7 +35,7 @@ export interface RunScheduleTestOptions {
 
 export interface ViteHubTest {
   /** Messages that `email.send()` accepted during the current test. No provider runs. */
-  readonly emails: readonly EmailMessage[]
+  readonly emails: readonly TestEmailMessage[]
   /** Jobs that `runQueue()`, `deferQueue()`, and Queue clients sent during the current test. No handler runs. */
   readonly jobs: readonly ViteHubTestJob[]
   /** Runs that `runWorkflow()`, `deferWorkflow()`, and Workflow handles started during the current test. No handler runs. */
@@ -46,12 +44,12 @@ export interface ViteHubTest {
    * Sends one webhook delivery to a Channel of an Agent, as the provider would, and waits for the work that it starts.
    * Pass the header that the Channel checks, such as `x-telegram-bot-api-secret-token`, in `options.headers`.
    */
-  deliverChannel: (...input: Parameters<typeof deliverAgentChannel>) => Promise<Response>
+  deliverChannel: (agent: { resolve: (...args: never[]) => unknown }, channel: string, body: unknown, options?: DeliverChannelOptions) => Promise<Response>
   /**
    * Runs a Schedule Definition once, as its cron would, and waits for the work that it starts with `waitUntil()`.
    * Returns the run record. A handler error rejects the promise.
    */
-  runSchedule: (definition: ScheduleDefinition, options?: RunScheduleTestOptions) => Promise<ScheduleRunRecord>
+  runSchedule: (definition: TestScheduleDefinition, options?: RunScheduleTestOptions) => Promise<TestScheduleRunRecord>
   /** Empties every in-memory backend and clears the `setEnv()` values. Call it in `beforeEach`. */
   reset: () => Promise<void>
   /** Sets Server Env values until the next reset. `undefined` removes a value. They win over `process.env`. */
@@ -67,13 +65,14 @@ export function setupViteHubTest(options: ViteHubTestOptions = {}): ViteHubTest 
   let scheduleRuns = 0
   return {
     // Email and Queue store their test state under these keys in test mode.
-    get emails() { return mode.peek<{ messages: EmailMessage[] }>("email")?.messages ?? [] },
+    get emails() { return mode.peek<{ messages: TestEmailMessage[] }>("email")?.messages ?? [] },
     get jobs() { return mode.peek<ViteHubTestJob[]>("queue") ?? [] },
     get workflows() { return mode.peek<ViteHubTestWorkflowRun[]>("workflow") ?? [] },
-    async deliverChannel(...input) {
+    async deliverChannel(agent, channel, body, options) {
       // Only a test that drives an Agent loads the Agent package.
       const { deliverChannel } = await import("@vite-hub/agent/test")
-      return await deliverChannel(...input)
+      // SAFETY: Accept the Agent's structural entry without importing its optional declarations into the facade.
+      return await deliverChannel(agent as Parameters<typeof deliverChannel>[0], channel, body, options)
     },
     async runSchedule(definition, options = {}) {
       // Only a test that runs a Schedule loads the Schedule package.
