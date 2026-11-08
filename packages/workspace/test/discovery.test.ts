@@ -3,6 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { createSource } from "@vite-hub/source"
+import { file } from "@vite-hub/source/file"
+import { glob } from "@vite-hub/source/glob"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createWorkspaceRegistryContents, createWorkspaceVirtualRegistryContents, discoverServerWorkspaceDefinitions, discoverViteWorkspaceDefinitions } from "../src/build/discovery.ts"
@@ -91,14 +94,17 @@ describe("discoverServerWorkspaceDefinitions", () => {
     await expect(registry["__proto__"]!()).resolves.toMatchObject({ default: { label: "prototype workspace" } })
   })
 
-  it("preserves explicit sourceRootDir values in workspace modules", async () => {
+  it.each(["docs.mjs", "docs/config.mjs"])("preserves explicit sourceRootDir values in %s", async (modulePath) => {
     const root = await createRoot()
-    const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
-    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default { sourceRootDir: '/custom/docs' }\n", "utf8")
+    const registryFile = join(root, "registry.mjs")
+    await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", modulePath), "export default { sourceRootDir: '/custom/docs' }\n", "utf8")
 
     const contents = createWorkspaceRegistryContents(registryFile, discoverServerWorkspaceDefinitions(root))
+    await writeFile(registryFile, contents)
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { sourceRootDir: string } }>> } = await import(pathToFileURL(registryFile).href)
 
-    expect(contents).toContain("sourceRootDir: mod.default.sourceRootDir ??")
+    await expect(registry["docs"]!()).resolves.toMatchObject({ default: { sourceRootDir: "/custom/docs" } })
   })
 
   it("applies resolved store overrides to Workspace Agent options", async () => {
@@ -129,6 +135,59 @@ describe("discoverServerWorkspaceDefinitions", () => {
         sourceRootDir: directory,
       }),
     ])
+  })
+
+  it("sets the Source root of flat Workspace files to the project root", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
+
+    const [definition] = discoverServerWorkspaceDefinitions(root)
+
+    expect(definition).toMatchObject({ name: "docs", source: "server-workspaces" })
+    expect(definition).toHaveProperty("sourceRootDir", root)
+  })
+
+  it.each(["file", "virtual"] as const)("reads flat Workspace Sources from the project root through the %s registry", async (kind) => {
+    const root = await createRoot()
+    const viteRoot = join(root, "app")
+    await mkdir(viteRoot)
+    await mkdir(join(root, "docs"))
+    await writeFile(join(root, "docs", "intro.md"), "Project docs\n")
+    await writeFile(join(root, "server", "workspaces", "docs.mjs"), "export default {}\n")
+    const definitions = discoverViteWorkspaceDefinitions(viteRoot, { serverRootDir: root })
+    const registryFile = join(root, "registry.mjs")
+    await writeFile(registryFile, kind === "file"
+      ? createWorkspaceRegistryContents(registryFile, definitions)
+      : createWorkspaceVirtualRegistryContents(definitions))
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { sourceRootDir?: string } }>> } = await import(pathToFileURL(registryFile).href)
+    const { default: workspace } = await registry["docs"]!()
+
+    await expect(createSource(file({ path: "docs/intro.md" }), workspace).read("docs/intro.md")).resolves.toBe("Project docs\n")
+    await expect(createSource(glob({ cwd: "docs", include: "**/*.md" }), workspace).read("intro.md")).resolves.toBe("Project docs\n")
+  })
+
+  it.each([false, true])("preserves colocated Source roots for flat Nuxt layer Workspaces (workspace folder: %s)", async (workspaceFolder) => {
+    const root = await createRoot()
+    const layerRoot = await createRoot()
+    const serverDir = join(root, "backend")
+    const layerWorkspacesDir = join(layerRoot, "server", "workspaces")
+    const sourceRootDir = workspaceFolder ? join(layerWorkspacesDir, "workspace") : layerWorkspacesDir
+    await mkdir(join(serverDir, "workspaces"), { recursive: true })
+    await mkdir(sourceRootDir, { recursive: true })
+    await writeFile(join(serverDir, "workspaces", "app.mjs"), "export default {}\n")
+    await writeFile(join(layerWorkspacesDir, "docs.mjs"), "export default {}\n")
+    await writeFile(join(root, "README.md"), "Application docs\n")
+    await writeFile(join(sourceRootDir, "README.md"), "Layer docs\n")
+
+    const definitions = discoverViteWorkspaceDefinitions(root, { serverDirs: [serverDir, join(layerRoot, "server")] })
+    const registryFile = join(root, "registry.mjs")
+    await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions))
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { sourceRootDir?: string } }>> } = await import(pathToFileURL(registryFile).href)
+    const { default: workspace } = await registry["docs"]!()
+
+    expect(workspace.sourceRootDir).toBe(sourceRootDir)
+    await expect(createSource(file({ path: "README.md" }), workspace).read("README.md")).resolves.toBe("Layer docs\n")
+    expect(definitions.find(definition => definition.name === "app")).toHaveProperty("sourceRootDir", root)
   })
 
   it("discovers workspace definitions colocated with directory agents", async () => {

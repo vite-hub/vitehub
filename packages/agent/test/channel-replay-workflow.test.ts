@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import * as v from "valibot"
+import { installAgentRegistry } from "#vitehub/agent/registry"
 
 import { defineCollection } from "../../source/src/index.ts"
 import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
@@ -11,10 +12,50 @@ import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
 
 afterEach(() => {
   vi.useRealTimers()
+  installAgentRegistry({ default: {}, metadata: {} })
   setAgentWorkflowRuntimeLoaders({
     state: () => import("@vite-hub/workflow/runtime/state"),
     workflow: () => import("@vite-hub/workflow"),
   })
+})
+
+it.each(["openworkflow", "vercel"] as const)("loads the cold host before reconciling a pending %s replay", async provider => {
+  const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+  const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
+  const name = "cold-replay"
+  const channel = defineChannel("mailbox", {
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
+  })
+  const run = vi.fn(() => "unused")
+  const agent = defineAgent({ channels: { mailbox: channel }, driver: { run }, invocations, name, runtime: workflow(name) })
+  const runId = channelMessageRunId("mailbox", "m1")
+  const providerId = provider === "vercel" ? "wrun_existing" : runId
+  const reservation = await bindAgentInvocations(invocations, { ...runtime, run: { runId, annotations: pendingAgentInvocationAnnotations({}) } }, { agentName: name })
+  expect(await reservation?.prepareWorkflowDispatch({ id: providerId, name, provider })).toBe(true)
+  await reservation?.releaseClaim()
+
+  const getRun = vi.fn(async (id: string) => ({ id, provider, status: "queued" }))
+  const workflowLoader = async () => ({
+    ...await import("@vite-hub/workflow"),
+    // SAFETY: Reconciliation only reads an existing provider run.
+    createWorkflow: () => ({ getRun }) as never,
+  })
+  const staleState = vi.fn(async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => false as const }))
+  setAgentWorkflowRuntimeLoaders({ state: staleState, workflow: workflowLoader })
+  const loadAgentHost = vi.fn(async () => {
+    setAgentWorkflowRuntimeLoaders({
+      state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ driver: provider }) }),
+      workflow: workflowLoader,
+    })
+  })
+  installAgentRegistry({ default: {}, metadata: {}, loadAgentHost })
+
+  expect(await replayChannel(agent, "mailbox", { runtime })).toMatchObject({ failed: 0, processed: 0, skipped: 1 })
+  expect(loadAgentHost).toHaveBeenCalledOnce()
+  expect(staleState).not.toHaveBeenCalled()
+  expect(getRun).toHaveBeenCalledWith(providerId)
+  expect(run).not.toHaveBeenCalled()
 })
 
 it("reserves concurrent Workflow replays before activity and hands the journal to the worker", async () => {

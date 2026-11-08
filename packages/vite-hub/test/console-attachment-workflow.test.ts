@@ -55,7 +55,7 @@ it.each(["import", "connect", "registration", "dispatch"] as const)("rolls back 
   ))).rejects.toThrow()
   expect(dispatch).toHaveBeenCalledTimes(stage === "dispatch" ? 1 : 0)
   const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
-  expect(listError).toBeNull()
+  expect(listError).toBeUndefined()
   expect(result?.blobs).toHaveLength(stage === "dispatch" ? 2 : 1)
   expect(result?.blobs.map(item => item.pathname)).toContain(`_vitehub/console/attachments/${retained.id}`)
 })

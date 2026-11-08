@@ -39,7 +39,7 @@ function mountPage(sectionsBase: string) {
 }
 
 it("recovers the setup and section list when the rail retries a failed navigation request", async () => {
-  const base = "/recover/api/_vitehub/console/sections"
+  const base = "/recover/_vitehub/api/sections"
   vi.mocked(requestConsole).mockRejectedValueOnce(new ConsoleNetworkError(new TypeError("connection dropped")))
   const { app, root } = mountPage(base)
   try {
@@ -64,7 +64,7 @@ it("recovers the setup and section list when the rail retries a failed navigatio
 })
 
 it.each([true, false])("recovers from a signed-out session with a sign-in page: %s", async (hasSignInPage) => {
-  const base = `/signed-out-${hasSignInPage}/api/_vitehub/console/sections`
+  const base = `/signed-out-${hasSignInPage}/_vitehub/api/sections`
   vi.mocked(requestConsole).mockRejectedValue(new ConsoleRequestError(401))
   const { app, document, root } = mountPage(base)
   if (hasSignInPage) {
@@ -105,7 +105,7 @@ it.each([true, false])("recovers from a signed-out session with a sign-in page: 
 })
 
 it("explains production access without promising loopback protection when sign-in is disabled", async () => {
-  const base = "/open/api/_vitehub/console/sections"
+  const base = "/open/_vitehub/api/sections"
   vi.mocked(requestConsole).mockResolvedValue({ auth: false, sections: [] })
   const { app, root } = mountPage(base)
   try {

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -58,7 +58,7 @@ describe("Workflow preparation for Schedule", () => {
         expect(runtime).toBeDefined()
         const name = index === 0 ? "first" : "second"
         const other = index === 0 ? "second" : "first"
-        const registry = await readFile(runtime!.registryFile, "utf8")
+        const registry = await readFile(join(dirname(runtime!.registryFile), "registry-runtime.mjs"), "utf8")
         expect(registry).toContain(`${name}.ts`)
         expect(registry).not.toContain(`${other}.ts`)
         expect(await readFile(runtime!.bundleAlias["build-alias"]!, "utf8")).toContain(JSON.stringify(name))
@@ -132,7 +132,7 @@ describe("Workflow preparation for Schedule", () => {
       }
       for (const [index, root] of roots.entries()) {
         const name = index === 0 ? "first" : "second"
-        const registry = await readFile(join(root, ".vitehub/workflow/registry.mjs"), "utf8")
+        const registry = await readFile(join(root, ".vitehub/workflow/registry-runtime.mjs"), "utf8")
         expect(registry).toContain(`${name}.ts`)
         expect(registry).not.toContain(index === 0 ? "second.ts" : "first.ts")
       }

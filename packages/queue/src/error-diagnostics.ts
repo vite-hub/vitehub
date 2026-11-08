@@ -6,7 +6,7 @@ export type QueueProviderOperation = "create-client" | "send" | "send-batch"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/queue/limits-and-errors",
+  docs: "https://vitehub.dev/docs/queue/diagnostics",
   codes: {
     // Runtime errors. `send()`, `sendBatch()`, and `runQueue()` return them as `[error, undefined]`.
     QUEUE_PROVIDER_FAILED: {

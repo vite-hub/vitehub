@@ -262,5 +262,7 @@ export const driverKey: Codemod = {
   name: "driver-key",
   description: "Rename provider and authority options to driver, and name host drivers cloudflare and vercel",
   usage: "[dir]",
+  // This upgrade runs by name; it does not migrate a third-party module.
+  detect: async () => undefined,
   run: migrate,
 }

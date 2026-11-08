@@ -28,6 +28,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { allowed } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const definitionsHandler = allowed(definitionsHandlerRoute)
 
@@ -166,7 +167,7 @@ describe("Console Schedule runs", () => {
     expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
     expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
 
-    const timeZone = (): Promise<string[]> => definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })
+    const timeZone = (): Promise<string[]> => definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))
       .then(content => content.kind === "record-table" ? content.records.map(record => `${record.cells.timing} / ${record.fields.find(field => field.label === "Time zone")?.value}`) : [])
     installConsoleDefinitions(root, catalog.content, [], { schedules: readScheduleConsoleRecords })
     expect(await timeZone()).toEqual(["0 14 * * 1 (Not a static string) / Not a static string"])
@@ -187,7 +188,7 @@ describe("Console Schedule runs", () => {
   it("marks runnable Schedule Definitions in the catalog", async () => {
     installSchedules()
 
-    expect(await definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })).toEqual({
+    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
       definitions: [{ ...scheduleSummary("sync"), runnable: true }, scheduleSummary("nightly")],
       kind: "definition-catalog",
       section: "schedules",
@@ -204,7 +205,7 @@ describe("Console Schedule runs", () => {
     }))
     installConsoleDefinitions("/schedule-run", { schedules: { kind: "record-table", records } })
 
-    expect(await definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })).toEqual({
+    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
       kind: "record-table",
       records: [{ ...records[0], runnable: true }, records[1], records[2]],
       section: "schedules",
@@ -321,6 +322,7 @@ describe("Console Schedule runs", () => {
     installSchedules()
     const response = await scheduleRunRoute(Object.assign(Object.create(null), {
       req: runRequest({ name: "sync" }, { "x-vitehub-dispatch-signature": "v1=forged" }),
+      res: { headers: new Headers() },
     }))
 
     expect(response.status).toBe(401)
@@ -329,7 +331,7 @@ describe("Console Schedule runs", () => {
 
   it("takes only signed dispatches on the route, and sends everyone else to the operation", async () => {
     installSchedules()
-    const response = await scheduleRunRoute(Object.assign(Object.create(null), { req: runRequest({ name: "sync" }) }))
+    const response = await scheduleRunRoute(Object.assign(Object.create(null), { req: runRequest({ name: "sync" }), res: { headers: new Headers() } }))
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ message: expect.stringContaining("vitehub schedule run") })

@@ -170,6 +170,25 @@ describe("KV Cloudflare provision step", () => {
     await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 400 })
   })
 
+  it("describes the KV Store ids it records without network access", () => {
+    const step = createKVCloudflareProvisionStep(() => ({
+      stores: {
+        cache: namedStore("shared"),
+        default: { driver: "fs-lite" },
+        pinned: namedStore("pinned", { namespaceId: "configured-id" }),
+        sessions: namedStore("shared"),
+      },
+    }))
+
+    const [category] = step.recordedState?.({ env: {} }) ?? []
+    expect(category).toMatchObject({ category: "kv", declared: ["cache", "pinned", "sessions"] })
+    expect(category?.deleteHint({ id: "ns-old", key: "old" })).toBe("run `wrangler kv namespace delete --namespace-id ns-old`")
+    expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the KV namespace in the Cloudflare dashboard")
+
+    const [envCategory] = step.recordedState?.({ env: { KV_NAMESPACE_ID: "env-id" } }) ?? []
+    expect(envCategory?.declared).toEqual(["cache", "pinned", "sessions"])
+  })
+
   it("skips without credentials, marks the plan unchecked, and never calls the API", async () => {
     const handler = vi.fn(() => jsonResponse({ success: true, result: [] }))
     const markPlanUnchecked = vi.fn()

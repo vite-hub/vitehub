@@ -18,7 +18,7 @@ export type EmailOutboxProblem = keyof typeof outboxProblems
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/email/limits-and-errors",
+  docs: "https://vitehub.dev/docs/email/diagnostics",
   codes: {
     // Runtime errors. `send()` returns them as `[error, undefined]`.
     EMAIL_AUTHENTICATION: {

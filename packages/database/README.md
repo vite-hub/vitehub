@@ -59,7 +59,7 @@ Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(va
 
 The table shorthand covers inserts binding at most one parameter per column. The helper does not inspect row contents or SQL defaults. For SQL expressions with more bindings, supply a numeric `per` covering the maximum bindings of a whole row, including defaults: a one-column row containing `` sql`${first} || ${second}` `` needs `{ per: 2 }`.
 
-```ts
+```ts fragment
 for (const chunk of chunkParameters(ids, { reserved: 1 })) {
   await db.delete(schema.files).where(and(eq(schema.files.ownerId, ownerId), inArray(schema.files.id, chunk)))
 }
@@ -159,7 +159,7 @@ The CMS preset, Comments, Connections, and Auth's `authDatabase()` use this rule
 
 `vite dev` uses local SQLite by default. Set `remote: true` on a Database Definition to query its real D1 database during development. Writes then change real data.
 
-```ts
+```ts fragment
 export default defineDatabase({
   cloudflare: {
     databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
@@ -233,22 +233,27 @@ With the evlog Nitro module registered, each request's wide event gets `database
 
 ## Nuxt D1 host wiring
 
-Nuxt apps can declare one D1 database resource and let the Database Nuxt bridge wire framework consumers and Cloudflare output.
+Nuxt apps can declare one D1 database resource in `vite-hub/nuxt` and let it wire framework consumers and Cloudflare output.
 
 ```ts
 // nuxt.config.ts
 export default defineNuxtConfig({
-  modules: ["@vite-hub/database/nuxt", "@nuxt/content"],
-  database: {
-    driver: "cloudflare",
-    databaseName: "app-content",
+  modules: ["vite-hub/nuxt", "@nuxt/content"],
+  vitehub: {
+    preset: "cloudflare",
+    database: {
+      driver: "cloudflare",
+      databaseName: "app-content",
+    },
   },
 })
 ```
 
-Run `vitehub provision run --provider cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. The bridge reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Set `databaseId` explicitly when the build cannot access provision state; a complete matching binding already present in Nitro Wrangler config is also preserved.
+Run `vitehub provision run --provider cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. `vite-hub/nuxt` reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Set `databaseId` explicitly when the build cannot access provision state; a complete matching binding already present in Nitro Wrangler config is also preserved.
 
-A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
+A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `vitehub.database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
+
+`@vite-hub/database/nuxt` is internal. `vite-hub/nuxt` loads it, and it can change in any release. Do not add it to Nuxt `modules`.
 
 Built on [Drizzle ORM](https://orm.drizzle.team/), [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview), [libSQL](https://www.npmjs.com/package/%40libsql/client), [postgres.js](https://github.com/porsager/postgres), and Cloudflare [D1](https://developers.cloudflare.com/d1/) and [Hyperdrive](https://developers.cloudflare.com/hyperdrive/) bindings when deployed to Cloudflare.
 

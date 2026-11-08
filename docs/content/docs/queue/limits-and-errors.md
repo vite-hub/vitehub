@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle Queue errors
 
-`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page. `error.cause` keeps the provider error.
+`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the page of the code in [Queue diagnostics](/docs/queue/diagnostics). `error.cause` keeps the provider error.
 
 ```ts [server/api/signup.post.ts]
 import { runQueue } from '@vite-hub/queue'
@@ -44,7 +44,7 @@ A handler can throw. Queue Delivery logs the error and lets the provider retry i
 
 Throw `ViteHubError` from `@vite-hub/runtime` when the handler needs a stable application code. Its code does not change the retry policy.
 
-```ts
+```ts fragment
 new ViteHubError('WELCOME_EMAIL_REJECTED', 'Welcome email was rejected.', {
   cause,
   details: { campaign: 'welcome' },
