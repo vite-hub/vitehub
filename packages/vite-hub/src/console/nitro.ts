@@ -9,7 +9,8 @@ export function mountPath(base: string | undefined, path: string): string {
 }
 
 type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route?: string }
-const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
+// Nitro 3 resolves handler paths against rootDir unless they start with `#`, so a `virtual:` id would become a missing file.
+const configuredMcpDiscovery = "#vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
 type NitroPrerenderConfig = { baseURL?: string, prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> } }
 

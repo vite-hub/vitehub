@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 import { cancelConsoleWorkflow, isConsoleWorkflowRunActive, parseConsoleWorkflowPayload, readConsoleWorkflow, resumeConsoleWorkflow, startConsoleWorkflow } from "../src/console/runtime/client/workflow.ts"
 
-const base = "/app/api/_vitehub/console/workflow"
+const base = "/app/_vitehub/api/workflow"
 const calls: Array<{ input: unknown, operation: string }> = []
 let answer: unknown
 

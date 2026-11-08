@@ -57,7 +57,7 @@ export class CollectionAccessError extends Diagnostic {
     super({
       cause: options?.cause,
       code: "SOURCE_R0026",
-      docs: "https://vitehub.dev/docs/reference/diagnostics",
+      docs: "https://vitehub.dev/docs/source/diagnostics/source_r0026",
       why: status === 401
         ? "[vitehub] Collection requires a signed-in session."
         : "[vitehub] Collection access is forbidden.",

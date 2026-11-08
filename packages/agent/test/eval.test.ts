@@ -16,7 +16,7 @@ vi.mock("evalite", () => {
   return { evalite }
 })
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const readFile = vi.fn()
 const list = vi.fn()
