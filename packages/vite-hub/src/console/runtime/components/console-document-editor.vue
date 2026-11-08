@@ -655,6 +655,12 @@ function showSavedIssues(document: ConsoleDocument): void {
   errorBody = document.body;
 }
 
+/** A locale fallback is source content, not a stored translation to compare or overwrite. */
+async function readStoredDocument(documentId: string, ref?: "draft" | "published"): Promise<ConsoleDocument | null> {
+  const document = await props.client.get(props.collection.name, documentId, ref);
+  return document?.fallback ? null : document;
+}
+
 async function load(): Promise<void> {
   if (creating.value) return;
   loading.value = true;
@@ -732,7 +738,7 @@ function takeState(document: ConsoleDocument): void {
 async function refreshShared(): Promise<void> {
   if (creating.value || props.documentId === undefined) return;
   try {
-    const document = await props.client.get(props.collection.name, props.documentId);
+    const document = await readStoredDocument(props.documentId);
     if (!local.value) return;
     if (document) takeState(document);
     else base.value = null;
@@ -746,7 +752,7 @@ async function refreshShared(): Promise<void> {
 async function refreshState(): Promise<void> {
   if (creating.value) return;
   try {
-    const document = await props.client.get(props.collection.name, props.documentId!);
+    const document = await readStoredDocument(props.documentId!);
     if (document) takeState(document);
   }
   catch {
@@ -882,7 +888,7 @@ async function save(options: { auto?: boolean, ifDigest?: string | null, sourceD
       if (!options.auto) await focusFirstInvalid();
     }
     else if (isConsoleConflict(error)) {
-      const theirs = await props.client.get(props.collection.name, id.value).catch(() => null);
+      const theirs = await readStoredDocument(id.value).catch(() => null);
       conflict.value = { mine: sent, theirs };
       const compare = () => {
         conflictOpen.value = true;
@@ -960,7 +966,7 @@ async function reloadAndEdit(): Promise<void> {
 
 /** Compares the version the other tab saved with the one on screen. */
 async function compareWithHolder(): Promise<void> {
-  const theirs = await props.client.get(props.collection.name, id.value).catch(() => null);
+  const theirs = await readStoredDocument(id.value).catch(() => null);
   leaseCompare.value = { mine: { body: draft.value.body, data: compact(draft.value.data) }, theirs };
   leaseCompareOpen.value = true;
 }
@@ -1272,7 +1278,7 @@ async function readLocalConflict(): Promise<void> {
   if (props.documentId === undefined) return;
   readingConflict.value = true;
   try {
-    const theirs = await props.client.get(props.collection.name, props.documentId);
+    const theirs = await readStoredDocument(props.documentId);
     if (local.value) localConflict.value = { theirs };
   }
   catch (error) {
@@ -1305,8 +1311,8 @@ async function openSharedPublish(): Promise<void> {
   sharedPublishLoading.value = true;
   try {
     const [draftDocument, site] = await Promise.all([
-      props.client.get(props.collection.name, props.documentId),
-      props.client.get(props.collection.name, props.documentId, "published"),
+      readStoredDocument(props.documentId),
+      readStoredDocument(props.documentId, "published"),
     ]);
     sharedPublish.value = { draft: draftDocument, site };
     if (draftDocument) takeState(draftDocument);
@@ -1658,7 +1664,7 @@ async function openSiteConflict(shared?: ConsoleDocument): Promise<void> {
   siteConflictError.value = undefined;
   siteConflictLoading.value = true;
   try {
-    const site = await props.client.get(props.collection.name, id.value, "published");
+    const site = await readStoredDocument(id.value, "published");
     // Only a successful read confirms the version (or its absence) that the person can acknowledge.
     siteConflict.value = { site, published: site?.digest ?? null, ...(shared ? { shared } : {}) };
   }

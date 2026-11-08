@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleTranslationsToDo, createConsoleDocumentsClient } from "../src/console/runtime/client/documents"
 import { setConsoleProject } from "../src/console/runtime/client/project"
+import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import { parseConsoleDocumentCollections } from "../src/console/runtime/definitions"
 import ConsoleDocumentEditor from "../src/console/runtime/components/console-document-editor.vue"
+import ConsoleDocumentDiff from "../src/console/runtime/components/console-document-diff.vue"
 
 import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/runtime/client/documents"
 
@@ -233,6 +235,62 @@ describe("Editing a translation", () => {
     await flushPromises()
     expect(wrapper.text()).toContain("Out of date · The English version changed after this translation was made.")
     wrapper.unmount()
+  })
+
+  it.each(["Load theirs", "Overwrite with mine"])("compares a deleted translation as missing before %s", async (choice) => {
+    vi.useFakeTimers()
+    const translated = { ...source, data: { title: "Guía" }, digest: "es-digest", locale: "es", path: "docs/es/guide.json" }
+    const { client, wrapper } = mountEditor(translated, "es")
+    try {
+      await flushPromises()
+      client.get.mockResolvedValue({ ...source, fallback: true, source: { digest: "sha256-a", path: source.path }, state: undefined })
+      client.save.mockRejectedValueOnce(new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT" }))
+      await wrapper.get("textarea").setValue("Mi guía")
+      await vi.advanceTimersByTimeAsync(1_500)
+      await flushPromises()
+      // An autosave pauses for comparison; the status button opens it.
+      await wrapper.get("header [role='status'] button").trigger("click")
+      await flushPromises()
+      expect(wrapper.getComponent(ConsoleDocumentDiff).props("before")).toBeNull()
+      expect(wrapper.text()).toContain("The saved version deleted this")
+
+      await wrapper.get(`button[data-label='${choice}']`).trigger("click")
+      await flushPromises()
+      if (choice === "Overwrite with mine") {
+        expect(client.save).toHaveBeenLastCalledWith("docs", "guide", expect.objectContaining({ data: { title: "Mi guía" }, ifDigest: null }))
+      }
+      else {
+        expect(wrapper.text()).toContain("Not translated yet")
+        await wrapper.get("textarea").setValue("Nueva guía")
+        await vi.advanceTimersByTimeAsync(1_500)
+        await flushPromises()
+        expect(client.save).toHaveBeenLastCalledWith("docs", "guide", expect.objectContaining({ ifDigest: null, sourceDigest: "sha256-a" }))
+      }
+    }
+    finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it("compares a deleted published translation as missing and keeps the translated draft", async () => {
+    const translated = { ...source, conflict: { published: "es-published" }, data: { title: "Guía" }, digest: "es-digest", locale: "es", path: "docs/es/guide.json" }
+    const { client, wrapper } = mountEditor(translated, "es")
+    try {
+      await flushPromises()
+      client.get.mockResolvedValue({ ...source, fallback: true, state: "published" })
+      await wrapper.get("header [role='status'] button").trigger("click")
+      await flushPromises()
+      expect(wrapper.getComponent(ConsoleDocumentDiff).props("before")).toBeNull()
+      expect(wrapper.text()).toContain("The site no longer has this")
+      expect(wrapper.find("button[data-label='Use the site version']").exists()).toBe(false)
+      await wrapper.get("button[data-label='Keep my draft']").trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenCalledWith("docs", "guide", expect.objectContaining({ data: { title: "Guía" }, ifDigest: "es-digest", ifPublishedDigest: null }))
+    }
+    finally {
+      wrapper.unmount()
+    }
   })
 
   it("keeps a stale translation stale on edits, and marks it up to date after showing the current source", async () => {
