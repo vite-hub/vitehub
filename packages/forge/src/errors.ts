@@ -6,10 +6,12 @@ export const forgeErrors = /*#__PURE__*/ defineErrors({
   codes: {
     // Runtime errors. `useForge()` operations return them as `[error, undefined]`.
     FORGE_APP_NOT_INSTALLED: {
+      docs: "https://vitehub.dev/docs/guides/forge#forge_app_not_installed",
       why: ({ repository }: { repository: string }) => `The GitHub App is not installed on ${repository}.`,
       fix: "Install the GitHub App on the repository, or set VITEHUB_GITHUB_INSTALLATION_ID to an installation that can reach it.",
     },
     FORGE_REQUEST_FAILED: {
+      docs: "https://vitehub.dev/docs/guides/forge#forge_request_failed",
       why: ({ operation, status }: { operation: string, status?: number }) => status === undefined
         ? `${operation} failed.`
         : `${operation} failed with HTTP ${status}.`,
@@ -18,18 +20,22 @@ export const forgeErrors = /*#__PURE__*/ defineErrors({
 
     // Config errors. `useForge()` throws them because the code or the deployment must change.
     FORGE_MISSING_ENV: {
+      docs: "https://vitehub.dev/docs/guides/forge#forge_missing_env",
       why: ({ forge, names }: { forge: string, names: string }) => `The ${forge} Forge has no credentials. It reads ${names}.`,
       fix: "Set the variables in the host environment, or pass `env` to `useForge()`.",
     },
     FORGE_INVALID_ENV: {
+      docs: "https://vitehub.dev/docs/guides/forge#forge_invalid_env",
       why: ({ name, problem }: { name: string, problem: string }) => `${name} ${problem}.`,
       fix: "Correct the variable in the host environment.",
     },
     FORGE_MISSING_INSTALLATION: {
+      docs: "https://vitehub.dev/docs/guides/forge#forge_missing_installation",
       why: "The GitHub App needs an installation. The call has no `repository`, and VITEHUB_GITHUB_INSTALLATION_ID is not set.",
       fix: "Pass `{ repository: 'owner/name' }`, or set VITEHUB_GITHUB_INSTALLATION_ID.",
     },
     FORGE_NOT_APP: {
+      docs: "https://vitehub.dev/docs/guides/forge#forge_not_app",
       why: "`forge.app()` needs a GitHub App, and this Forge uses a token.",
       fix: "Set VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH, or check `forge.auth` before you call `app()`.",
     },

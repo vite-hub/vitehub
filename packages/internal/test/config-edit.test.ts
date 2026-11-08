@@ -3,7 +3,7 @@ import { join, relative } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { editViteHubConfig, locateViteHubConfig } from "../src/config-edit.ts"
+import { editViteHubConfig, insertViteHubConfig, locateViteHubConfig } from "../src/config-edit.ts"
 
 import type { ConfigEdit } from "../src/config-edit.ts"
 
@@ -334,5 +334,71 @@ describe("editViteHubConfig", () => {
     expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: true })
     expect(edit("vite.config.ts", code, [{ op: "set", key: "blob", value: true }])).toContain("blob: true")
     expect(sentinel.__evaluated).toBeUndefined()
+  })
+})
+
+describe("insertViteHubConfig", () => {
+  it.each(["hub.default", 'hub["default"]'])("preserves Nuxt namespace registrations through %s", (member) => {
+    for (const entry of [member, `[${member}, { preset: "node" }]`]) {
+      const code = `import * as hub from "vite-hub/nuxt"\nexport default { modules: [${entry}] }\n`
+      expect(insertViteHubConfig("nuxt.config.ts", code, { preset: "deno" })).toEqual({ ok: true, code })
+      const edited = edit("nuxt.config.ts", code, [{ op: "set", key: "preset", value: "deno" }])
+      expect(edited).toContain(`modules: [[${member}, { preset: "deno" }]]`)
+      expect(locateViteHubConfig("nuxt.config.ts", edited)).toMatchObject({ ok: true, site: { keys: { preset: { value: "deno" } } } })
+    }
+  })
+
+  it.each(["hub.vitehub", 'hub["vitehub"]'])("preserves an existing namespace registration through %s", (callee) => {
+    const code = `import * as hub from "vite-hub"\nexport default { plugins: [${callee}({ preset: "node" })] }\n`
+    expect(insertViteHubConfig("vite.config.ts", code, { preset: "deno" })).toEqual({ ok: true, code })
+    expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: true, site: { keys: { preset: { value: "node" } } } })
+    expect(edit("vite.config.ts", code, [{ op: "set", key: "preset", value: "deno" }])).toBe(code.replace('preset: "node"', 'preset: "deno"'))
+    const factored = `import * as hub from "vite-hub"\nconst plugins = [${callee}({ preset: "node" })]\nexport default { plugins }\n`
+    expect(insertViteHubConfig("vite.config.ts", factored, { preset: "deno" })).toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
+  it("adds vitehub() and its import to the Vite plugins", () => {
+    const code = "import vue from '@vitejs/plugin-vue'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n  ],\n})\n"
+    expect(insertViteHubConfig("vite.config.ts", code, { preset: "cloudflare" })).toEqual({
+      code: "import vue from '@vitejs/plugin-vue'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({ preset: 'cloudflare' }),\n  ],\n})\n",
+      ok: true,
+    })
+  })
+
+  it("adds a plugins key when the config has none", () => {
+    const code = "import { defineConfig } from \"vite\"\n\nexport default defineConfig({\n  server: { port: 3000 },\n})\n"
+    const result = insertViteHubConfig("vite.config.ts", code, { preset: "node" })
+    expect(result).toMatchObject({ ok: true })
+    expect(result.ok && result.code).toBe("import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  server: { port: 3000 },\n  plugins: [vitehub({ preset: \"node\" })],\n})\n")
+  })
+
+  it("adds the module tuple to the Nuxt modules", () => {
+    const code = "// https://nuxt.com/docs/api/configuration/nuxt-config\nexport default defineNuxtConfig({\n  compatibilityDate: '2025-07-15',\n  devtools: { enabled: true },\n  modules: [],\n})\n"
+    const result = insertViteHubConfig("nuxt.config.ts", code, { preset: "vercel" })
+    expect(result.ok && result.code).toBe("import viteHubNuxt from 'vite-hub/nuxt'\n\n// https://nuxt.com/docs/api/configuration/nuxt-config\nexport default defineNuxtConfig({\n  compatibilityDate: '2025-07-15',\n  devtools: { enabled: true },\n  modules: [[viteHubNuxt, { preset: 'vercel' }]],\n})\n")
+    expect(result.ok && locateViteHubConfig("nuxt.config.ts", result.code)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { preset: { kind: "literal", value: "vercel" } } } })
+  })
+
+  it.each([
+    ["vite.config.ts", "plugins"],
+    ["nuxt.config.ts", "modules"],
+  ])("refuses a %s registration that a later member can override", (file, key) => {
+    for (const member of ["...shared", `${key}() { return [] }`, `get ${key}() { return [] }`, "[key]: []"]) {
+      const code = `export default { ${key}: [], ${member} }\n`
+      expect(insertViteHubConfig(file, code, { preset: "node" })).toMatchObject({ ok: false })
+    }
+  })
+
+  it("keeps a Vite plugins array that overrides an earlier spread", () => {
+    const code = "export default { ...shared, plugins: [] }\n"
+    const result = insertViteHubConfig("vite.config.ts", code, { preset: "node" })
+    expect(result.ok && result.code).toContain('...shared, plugins: [vitehub({ preset: "node" })]')
+  })
+
+  it("keeps a config that registers ViteHub, and leaves a function config manual", () => {
+    const registered = "import { vitehub } from \"vite-hub\"\nexport default { plugins: [vitehub({ preset: \"node\" })] }\n"
+    expect(insertViteHubConfig("vite.config.ts", registered, { preset: "deno" })).toEqual({ code: registered, ok: true })
+    expect(insertViteHubConfig("vite.config.ts", "export default defineConfig(() => ({ plugins: [] }))\n", { preset: "node" })).toMatchObject({ ok: false, reason: "dynamic-options" })
+    expect(insertViteHubConfig("vite.config.ts", "export default { plugins: shared }\n", { preset: "node" })).toMatchObject({ ok: false, reason: "dynamic-options" })
   })
 })

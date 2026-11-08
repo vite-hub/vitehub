@@ -212,6 +212,13 @@ describe("useForge() with a GitHub App", () => {
 })
 
 describe("useForge() with a token", () => {
+  it.each(["token", "provider"] as const)("%s rejects with the abort reason", async (method) => {
+    const forge = useForge({ env: { VITEHUB_GITHUB_TOKEN: "ghp_token" } })
+    const reason = new Error("stop")
+
+    await expect(forge[method]({ signal: AbortSignal.abort(reason) })).rejects.toBe(reason)
+  })
+
   it("returns VITEHUB_GITHUB_TOKEN and throws FORGE_NOT_APP for app()", async () => {
     const forge = useForge({ env: { VITEHUB_GITHUB_TOKEN: " ghp_token " } })
 

@@ -206,6 +206,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     auth: "app" in credential ? "app" : "token",
     baseUrl,
     async token(call = {}) {
+      if (call.signal?.aborted) throw abortError(call.signal)
       if ("app" in credential) return await installationToken(credential.app, call)
       return [undefined, { token: credential.token, expiresAt: undefined }]
     },
