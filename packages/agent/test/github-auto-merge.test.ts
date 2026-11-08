@@ -4,6 +4,7 @@ import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOpti
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
 const head = "a".repeat(40)
+const reviewComment = { databaseId: 501, body: "P2: config spread", author: { login: "pullfrog", __typename: "Bot" }, createdAt: "2026-11-07T00:00:00Z", url: "https://github.com/acme/app/pull/12#discussion_r501" }
 const page = () => ({ hasNextPage: false, endCursor: null as string | null })
 async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}) {
   const pullRequest = {
@@ -30,11 +31,13 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     children: 0,
     thread: { id: "THREAD_1", isResolved: false },
     threadComments: [] as { databaseId: number, body: string, author: { login: string, __typename: string }, createdAt: string, url: string }[],
+    threadCommentPages: [] as (typeof reviewComment)[][],
     reviewPage: { nodes: [] as typeof pullRequest.latestOpinionatedReviews.nodes, pageInfo: page() },
     labelPage: { nodes: [] as { name: string }[], pageInfo: page() },
     run: { id: 123, head_sha: head, repository: { full_name: "acme/app" }, pull_requests: [] as { number: number, head: { sha: string } }[] },
     logs: "CI failure",
     mutationError: false,
+    threadFailure: undefined as "reply-result-lost" | "resolve-failed" | "resolve-result-lost" | undefined,
     merged: false,
     beforeRead: () => {},
   }
@@ -45,7 +48,15 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
         return { enablePullRequestAutoMerge: { pullRequest: { id: pullRequest.id, state: state.merged ? "MERGED" : "OPEN", headRefOid: pullRequest.headRefOid, autoMergeRequest: state.merged ? null : { enabledAt: "2026-09-13T00:00:00Z" } } } }
       case "PullRequestOperationChildren": return { repository: { pullRequests: { totalCount: state.children } } }
       case "ReviewThreadPage": return { repository: { pullRequest: { reviewThreads: { nodes: [{ ...state.thread, comments: { nodes: state.threadComments } }], pageInfo: page() } } } }
-      case "ResolveReviewThread": return { resolveReviewThread: { thread: { isResolved: true } } }
+      case "ReviewThreadOutcomeComments": {
+        const index = Number(request.variables?.after ?? 0)
+        const pages = [state.threadComments, ...state.threadCommentPages]
+        return { viewer: { login: "worker[bot]" }, node: { comments: { nodes: pages[index], pageInfo: { hasNextPage: index < pages.length - 1, endCursor: index < pages.length - 1 ? String(index + 1) : null } } } }
+      }
+      case "ResolveReviewThread":
+        if (state.threadFailure !== "resolve-failed") state.thread.isResolved = true
+        if (state.threadFailure?.startsWith("resolve-")) return Response.json({ errors: [{ message: "Resolution failed" }] })
+        return { resolveReviewThread: { thread: { isResolved: true } } }
       case "PullRequestOperationLabels": return { node: { labels: state.labelPage } }
       case "PullRequestOperationReviews": return { node: { latestOpinionatedReviews: state.reviewPage } }
       case "PullRequestOperationSnapshot": state.beforeRead(); return { repository }
@@ -68,7 +79,12 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     if (path === "/repos/acme/app/actions/runs/123/jobs") return { total_count: 2, jobs: [{ id: 7, name: "test", status: "completed", conclusion: "failure" }, { id: 8, name: "lint", status: "completed", conclusion: "success" }] }
     if (path === "/repos/acme/app/actions/jobs/7/logs") return state.logs
     if (request.method === "POST" && path === "/repos/acme/app/issues/12/comments") return { id: 1, body: (request.body as { body: string }).body }
-    if (request.method === "POST" && path === "/repos/acme/app/pulls/12/comments/501/replies") return { id: 502, body: (request.body as { body: string }).body, user: { login: "worker[bot]", type: "Bot" }, created_at: "2026-11-07T00:00:00Z", html_url: "https://github.com/acme/app/pull/12#discussion_r502", in_reply_to_id: 501 }
+    if (request.method === "POST" && path === "/repos/acme/app/pulls/12/comments/501/replies") {
+      const body = (request.body as { body: string }).body
+      state.threadComments.push({ ...reviewComment, databaseId: 502, body, author: { login: "worker[bot]", __typename: "Bot" } })
+      if (state.threadFailure === "reply-result-lost") throw new Error("Reply result lost")
+      return { id: 502, body, user: { login: "worker[bot]", type: "Bot" }, created_at: "2026-11-07T00:00:00Z", html_url: "https://github.com/acme/app/pull/12#discussion_r502", in_reply_to_id: 501 }
+    }
     if (request.method === "PATCH" && path === "/repos/acme/app/pulls/12") return { number: 12, title: "Fix bug", state: "open", head: { sha: head } }
     return undefined
   }
@@ -109,6 +125,7 @@ describe("native auto-merge", () => {
     await expect(f.operations.comment("Please ask @other-user to confirm.")).rejects.toThrow(/guarded mention capability/)
     await expect(f.operations.comment("Please ask @stefina and @other-user to confirm.")).rejects.toThrow(/guarded mention capability/)
     await expect(f.operations.comment("Please ask @acme/ops to confirm.")).rejects.toThrow(/guarded mention capability/)
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "fixed", reason: "Please ask @other-user to confirm." })).rejects.toThrow(/guarded mention capability/)
   })
 
   it.each([
@@ -218,6 +235,7 @@ describe("native auto-merge", () => {
   ])("rejects wrapped mention %s before making GitHub calls", async (body) => {
     const f = await fixture({ restrictCommentMentions: true })
     await expect(f.operations.comment(body)).rejects.toThrow(/guarded mention capability/)
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: body })).rejects.toThrow(/guarded mention capability/)
     expect(f.forge).not.toHaveBeenCalled()
     const explicit = await fixture({ mentionAllowlist: ["stefina"] })
     await expect(explicit.operations.mention("stefina", body)).rejects.toThrow(/another mention/)
@@ -509,10 +527,59 @@ describe("host-owned repair operations", () => {
 
   it("requires a reason for every outcome except fixed", async () => {
     const f = await fixture()
+    f.state.threadComments = [reviewComment]
     await expect(f.operations.resolveThread("THREAD_1", { outcome: "disproved", reason: " " })).rejects.toThrow(/needs a one-sentence reason/)
     expect(f.mutations()).toHaveLength(0)
     await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
     expect(f.mutations()).toHaveLength(1)
+  })
+
+  it.each(["reply-result-lost", "resolve-failed", "resolve-result-lost"] as const)("retries an outcome after %s with one reply", async failure => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    f.state.threadFailure = failure
+    const answer = { outcome: "declined", reason: "P2: outside this PR's scope." } as const
+    await expect(f.operations.resolveThread("THREAD_1", answer)).rejects.toThrow()
+    f.state.threadFailure = undefined
+    const retry = createGitHubPullRequestOperations({ forge: f.forge }, { repository: "acme/app", number: 12, expectedHeadOid: head })
+    await retry.resolveThread("THREAD_1", answer)
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.state.thread.isResolved).toBe(true)
+  })
+
+  it("answers an already resolved thread and ignores outcome markers from other authors", async () => {
+    const f = await fixture()
+    const body = "<!-- vitehub-babysitter-outcome:fixed -->\n**Fixed.**"
+    f.state.thread.isResolved = true
+    f.state.threadComments = [reviewComment, { ...reviewComment, databaseId: 503, body }]
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.mutations()).toHaveLength(0)
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+  })
+
+  it("refuses to record an outcome when the thread has no comment to reply to", async () => {
+    const f = await fixture()
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "fixed" })).rejects.toThrow(/comment/)
+    expect(f.mutations()).toHaveLength(0)
+  })
+
+  it("finds an authenticated outcome on later comment pages", async () => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    f.state.threadCommentPages = [[{ ...reviewComment, databaseId: 502, body: "<!-- vitehub-babysitter-outcome:fixed -->\n**Fixed.**", author: { login: "worker[bot]", __typename: "Bot" } }]]
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
+    expect(f.calls.filter(call => call.operationName === "ReviewThreadOutcomeComments").map(call => call.variables?.after)).toEqual([null, "1"])
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(0)
+    expect(f.state.thread.isResolved).toBe(true)
+  })
+
+  it.each(["Use `@someone` as text.", "Contact ops@example.com.", "See https://example.com/@someone."])("allows non-mention outcome reasons: %s", async reason => {
+    const f = await fixture({ restrictCommentMentions: true })
+    f.state.threadComments = [reviewComment]
+    await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
   })
 
   it.each(["closed", "head", "filter"])("rejects %s work before allowing a host push", async condition => {

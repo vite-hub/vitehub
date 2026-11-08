@@ -275,7 +275,7 @@ export function createGitHubPullRequestOperations(
     return { provider, repo, pullRequest }
   }
 
-  async function graphQL(query: string, variables: Record<string, string | number> = {}): Promise<unknown> {
+  async function graphQL(query: string, variables: Record<string, string | number | null> = {}): Promise<unknown> {
     const { provider } = await forge()
     const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1]
     const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data
@@ -284,6 +284,28 @@ export function createGitHubPullRequestOperations(
       throw new Error(messages || "GitHub could not complete the pull request operation.")
     }
     return isRecord(response) && "data" in response ? response.data : response
+  }
+
+  async function hasThreadAnswer(id: string, body: string): Promise<boolean> {
+    // forges only reads the first 100 comments in a thread. Read every page so
+    // a retry after either remote write can find an answer from this credential.
+    let after: string | null = null
+    const cursors = new Set<string>()
+    do {
+      const data = v.parse(v.object({
+        viewer: v.object({ login: v.string() }),
+        node: v.object({ comments: v.object({
+          nodes: v.array(v.object({ body: v.string(), author: v.nullable(v.object({ login: v.string() })) })),
+          pageInfo: pageSchema,
+        }) }),
+      }), await graphQL(`query ReviewThreadOutcomeComments($id:ID!,$after:String){viewer{login} node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{body author{login}} pageInfo{hasNextPage endCursor}}}}}`, { id, after }))
+      if (data.node.comments.nodes.some(comment => comment.author?.login === data.viewer.login && comment.body === body)) return true
+      if (!data.node.comments.pageInfo.hasNextPage) return false
+      after = data.node.comments.pageInfo.endCursor
+      if (!after || cursors.has(after)) throw new Error("GitHub returned an invalid review comment cursor.")
+      cursors.add(after)
+    } while (after)
+    return false
   }
 
   async function snapshot() {
@@ -469,6 +491,8 @@ export function createGitHubPullRequestOperations(
       // A finding closed without a code change needs its reason on the thread: it is the record the
       // author and the reviewer read, and the outcome marker is what review metrics count.
       if (outcome !== undefined && outcome !== "fixed" && !reason) throw new Error(`A ${outcome} review thread needs a one-sentence reason.`)
+      const body = outcome === undefined ? undefined : `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
+      if (body !== undefined && options.restrictCommentMentions && await hasGitHubMention(body)) throw new Error("Comments cannot contain GitHub mentions; use the guarded mention capability.")
       await snapshot()
       const reader = await forge()
       let found: ReviewThread | undefined
@@ -476,17 +500,19 @@ export function createGitHubPullRequestOperations(
         if (thread.id === id) { found = thread; break }
       }
       if (!found) throw new Error("Review thread does not belong to this pull request.")
-      if (found.resolved) return
+      if (found.resolved && body === undefined) return
+      const answered = body === undefined || await hasThreadAnswer(id, body)
+      const first = found.comments[0]
+      if (!answered && !first) throw new Error("Review thread has no comment to answer.")
+      if (found.resolved && answered) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()
       const { provider: writer, pullRequest } = await forge()
-      const first = found.comments[0]
-      if (outcome !== undefined && first) {
-        const body = `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
+      if (!answered && first && body !== undefined) {
         await writer.threads.replyToReviewComment(pullRequest, first, body, { signal })
       }
-      await writer.threads.resolveReviewThread(pullRequest, id, { signal })
+      if (!found.resolved) await writer.threads.resolveReviewThread(pullRequest, id, { signal })
     },
     async updateMetadata(input) {
       if (input.title === undefined && input.body === undefined) throw new Error("Provide a pull request title or body.")
