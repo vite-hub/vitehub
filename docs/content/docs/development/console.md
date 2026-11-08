@@ -346,10 +346,12 @@ The Console then opens the project and shows only the sections that the project 
 
 A project with `console: { auth: "app" }` signs the Console in with its own Auth, so you do not copy a token. Each person signs in with their own account, and [`authorize`](#limit-a-user-to-some-sections) decides their sections. The project needs:
 
-- [`consoleMcpOAuth()`](#sign-a-console-in-with-oauth) in the app Auth, with `@better-auth/cimd` installed.
+- `consoleMcpOAuth()` in the app Auth, with `@better-auth/cimd` installed.
 - The Console origin in `console.origins`. The default, `["https://console.vitehub.dev"]`, allows the hosted Console. The app accepts the OAuth client of a Console only on an `https://` origin in this list.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   auth: true,
   console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.vitehub.dev'] },
