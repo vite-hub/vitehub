@@ -10,7 +10,7 @@ it("documents each KV error code with a why, a fix, and a docs heading", async (
     expect(page, code).toContain(`\n### ${code}\n`)
   }
   const error = kvErrorDiagnostics.KV_INVALID_LIMIT()
-  expect(error.docs).toBe("https://vitehub.dev/docs/kv/limits-and-errors#kv_invalid_limit")
+  expect(error.docs).toBe("https://vitehub.dev/docs/kv/diagnostics/kv_invalid_limit")
   expect(error.why).not.toBe("")
   expect(error.fix).not.toBe("")
 })

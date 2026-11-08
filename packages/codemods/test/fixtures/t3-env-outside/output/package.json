@@ -1,0 +1,11 @@
+{
+  "name": "t3-env-outside-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@t3-oss/env-nuxt": "^0.13.11",
+    "nuxt": "^4.4.8",
+    "vite-hub": "^0.1.0",
+    "zod": "^4.4.3"
+  }
+}

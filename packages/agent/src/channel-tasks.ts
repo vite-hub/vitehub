@@ -7,7 +7,7 @@ import type { AgentRunInput, AgentRunMetadata } from "./types.ts"
 
 // Errors that `enqueueChannelTask()` and `cancelChannelTask()` return as `[error, undefined]`. Each code has a heading on the docs page.
 const channelTaskErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/agents/triggers",
+  docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
     CHANNEL_TASK_FAILED: {
       why: ({ channel, task }: { channel: string, task: string }) => `The task "${task}" of Channel "${channel}" could not be queued or cancelled.`,
