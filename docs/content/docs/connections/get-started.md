@@ -18,10 +18,11 @@ In this tutorial, you connect a Google account and list its Gmail labels from an
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Connections stores its data with Database, so add `@vite-hub/database` and `drizzle-orm` to your app:
+Add Connections and the Database packages that store its data:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/database drizzle-orm
+pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
+pnpm add -D drizzle-kit
 ```
 
 Then update `vite.config.ts`. Keep the other options of your app:

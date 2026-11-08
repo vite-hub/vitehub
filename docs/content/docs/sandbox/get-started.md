@@ -19,10 +19,10 @@ A Sandbox is a separate package project, not another server route. It has its ow
 ::tutorial-step{title="Install and choose a provider"}
 ## Install and choose a provider
 
-`vite-hub` already includes Sandbox Tasks. Add the Vercel Sandbox SDK. Sandbox also uses the TypeScript from Installation to read your package at build time.
+Add the Sandbox package and the Vercel Sandbox SDK. Sandbox also uses the TypeScript from Installation to read your package at build time.
 
 ```bash pm [commands/install]
-pnpm add @vercel/sandbox
+pnpm add @vite-hub/sandbox @vercel/sandbox
 ```
 
 In `vite.config.ts`, set `preset: 'vercel'` and add `sandboxTask: true`. Keep the other options of your app.

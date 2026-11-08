@@ -4,7 +4,7 @@ import { delimiter, join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { cwd?: string, environment?: Record<string, string> }) => providerRuntime()))
 const inspectProvider = vi.hoisted(() => vi.fn())

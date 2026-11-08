@@ -86,7 +86,7 @@ describe("blob operations", () => {
     }
     finally { head.mockRestore() }
     const [error, file] = await blob.get("recent.txt")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await file?.text()).toBe("replacement")
   })
 
@@ -100,7 +100,7 @@ describe("blob operations", () => {
       expect(del).toHaveBeenCalledWith("recent.txt")
     }
     finally { head.mockRestore(); del.mockRestore() }
-    expect(await blob.head("recent.txt")).toEqual([null, null])
+    expect(await blob.head("recent.txt")).toEqual([undefined, null])
   })
 
   it.each(["", "   "])("rejects store %j without changing the default store", async (store) => {
@@ -135,7 +135,7 @@ describe("blob operations", () => {
 
   it("shows media records and cached variants", async () => {
     const png = await sharp({ create: { background: "#336699", channels: 3, height: 300, width: 600 } }).png().toBuffer()
-    expect(await blob.media.put("images/hero.png", png, { alt: "Hero" })).toMatchObject([null, { width: 600 }])
+    expect(await blob.media.put("images/hero.png", png, { alt: "Hero" })).toMatchObject([undefined, { width: 600 }])
     const media = await run({ operation: "media", pathname: "images/hero.png" })
     expect(media).toMatchObject({ body: { record: { alt: "Hero", contentType: "image/png", height: 300, pathname: "images/hero.png", width: 600 }, store: "default" }, status: 200 })
     expect(await run({ operation: "variants", pathname: "images/hero.png" })).toEqual({ body: { pathname: "images/hero.png", store: "default", variants: [] }, status: 200 })
@@ -202,7 +202,7 @@ describe("blob operations", () => {
 
   it("refuses to return a blob over the limit", async () => {
     await run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname: "big.bin" })
-    const head = vi.spyOn(blob, "head").mockResolvedValue([null, { contentType: "application/octet-stream", customMetadata: {}, httpEtag: "\"etag\"", httpMetadata: {}, pathname: "big.bin", size: blobDevMaximumUploadBytes + 1, uploadedAt: new Date() }])
+    const head = vi.spyOn(blob, "head").mockResolvedValue([undefined, { contentType: "application/octet-stream", customMetadata: {}, httpEtag: "\"etag\"", httpMetadata: {}, pathname: "big.bin", size: blobDevMaximumUploadBytes + 1, uploadedAt: new Date() }])
     try {
       await expect(run({ operation: "get", pathname: "big.bin" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DOWNLOAD_TOO_LARGE" } }, status: 413 })
     }
@@ -220,11 +220,11 @@ describe("blob operations", () => {
   it.each([undefined, 1])("rejects an oversized Blob before buffering when head size is %s", async size => {
     await run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname: "grown.bin" })
     const [error, object] = await blob.head("grown.bin")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const file = new File([new Uint8Array(blobDevMaximumUploadBytes + 1)], "grown.bin")
     const arrayBuffer = vi.spyOn(file, "arrayBuffer")
-    const head = vi.spyOn(blob, "head").mockResolvedValue([null, { ...object!, size }])
-    const get = vi.spyOn(blob, "get").mockResolvedValue([null, file])
+    const head = vi.spyOn(blob, "head").mockResolvedValue([undefined, { ...object!, size }])
+    const get = vi.spyOn(blob, "get").mockResolvedValue([undefined, file])
     try {
       await expect(run({ operation: "get", pathname: "grown.bin" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DOWNLOAD_TOO_LARGE" } }, status: 413 })
       expect(arrayBuffer).not.toHaveBeenCalled()
@@ -237,14 +237,14 @@ describe("blob operations", () => {
 
   it("refuses to write or delete the paths that ViteHub owns, and still reads them", async () => {
     const [putError] = await blob.put("_vitehub/internal.json", "{}")
-    expect(putError).toBeNull()
+    expect(putError).toBeUndefined()
     for (const pathname of ["_vitehub/internal.json", "./_vitehub/x.json", "docs/../_vitehub/x.json", "_VITEHUB/x.json", "%5Fvitehub/internal.json", "%2F_vitehub%2Finternal.json", "docs%2F..%2F_vitehub/internal.json"]) {
       await expect(run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
       await expect(run({ operation: "del", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
     }
     await expect(run({ operation: "head", pathname: "_vitehub/internal.json" })).resolves.toMatchObject({ status: 200 })
     await expect(run({ operation: "get", pathname: "_vitehub/internal.json" })).resolves.toMatchObject({ status: 200 })
-    expect((await blob.head("_vitehub/internal.json"))[0]).toBeNull()
+    expect((await blob.head("_vitehub/internal.json"))[0]).toBeUndefined()
   })
 
   it("hides the objects of ViteHub unless asked, and folds a listing into folders", async () => {
@@ -258,9 +258,9 @@ describe("blob operations", () => {
 
   it.each([false, true])("counts folders toward a full provider page (with file: %s)", async withFile => {
     const [error, object] = await blob.put("a.txt", "a")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const folders = withFile ? ["docs/"] : ["docs/", "images/"]
-    const list = vi.spyOn(blob, "list").mockResolvedValue([null, {
+    const list = vi.spyOn(blob, "list").mockResolvedValue([undefined, {
       blobs: withFile ? [object!] : [], cursor: "next-page", folders, hasMore: true,
     }])
     try {
@@ -274,8 +274,8 @@ describe("blob operations", () => {
 
   it("refills only the remaining entries after hiding a provider folder", async () => {
     const list = vi.spyOn(blob, "list")
-      .mockResolvedValueOnce([null, { blobs: [], cursor: "page-2", folders: ["_vitehub/", "docs/"], hasMore: true }])
-      .mockResolvedValue([null, { blobs: [], cursor: "page-3", folders: ["images/"], hasMore: true }])
+      .mockResolvedValueOnce([undefined, { blobs: [], cursor: "page-2", folders: ["_vitehub/", "docs/"], hasMore: true }])
+      .mockResolvedValue([undefined, { blobs: [], cursor: "page-3", folders: ["images/"], hasMore: true }])
     try {
       await expect(run({ folded: true, limit: 2, operation: "list" })).resolves.toMatchObject({
         status: 200, body: { blobs: [], cursor: "page-3", folders: ["docs", "images"], hasMore: true, limit: 2 },
@@ -289,7 +289,7 @@ describe("blob operations", () => {
   it("answers only to a call whose access includes the blob section", async () => {
     const call = (sections: "all" | readonly string[]) => runOperation(registry, "blob.put", { data: Buffer.from("x").toString("base64"), pathname: "guarded.txt" }, { access: { mode: "app", sections }, surface: "console", user: null })
     expect(await call(["kv"])).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
-    expect(await blob.head("guarded.txt")).toEqual([null, null])
+    expect(await blob.head("guarded.txt")).toEqual([undefined, null])
     expect(await call(["blob"])).toMatchObject({ ok: true, value: { created: true } })
   })
 

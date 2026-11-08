@@ -18,7 +18,13 @@ In this tutorial, you make one API route that uploads `hello.txt` and one that r
 ::tutorial-step{title="Enable Blob"}
 ## Enable Blob
 
-Add `blob: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Install the Blob package in the app:
+
+```bash pm [commands/install-blob]
+pnpm add @vite-hub/blob
+```
+
+Add `blob: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -62,7 +68,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 - `blob.put()` saves the file. If `hello.txt` exists, the new upload replaces it.
-- `blob.put()` does not throw. It returns `[error, object]`. Check `error` first.
+- `blob.put()` returns `[error, object]`. Check `error` for storage failures. Invalid arguments and configuration errors can throw.
 - `object` describes the saved file. The route returns its name, type, and size.
 
 ::

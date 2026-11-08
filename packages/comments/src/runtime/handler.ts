@@ -1,5 +1,6 @@
-import { getCloudflareEnv, resolveWaitUntil, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { defineEventHandler } from "h3"
 import * as v from "valibot"
@@ -256,7 +257,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     if (!runtime) return { denied: failure(commentsErrors.COMMENTS_NOT_INSTALLED()) }
     const identity = await identityOf(event, action)
     if (identity === false) return { denied: failure(commentsErrors.COMMENTS_FORBIDDEN({ action })) }
-    const waitUntil = resolveWaitUntil(event, { preferHost: true })
+    const waitUntil = getStandardContext(event).waitUntil
     return { who: { gate: { ...identity.gate, development: runtime.development === true }, request: requestOf(event), runtime, user: identity.user, ...(waitUntil ? { waitUntil } : {}) } }
   }
 
@@ -474,13 +475,13 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const request = requestOf(event)
     const response = await route(event, request).catch(diagnosticResponse)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
-    if (request.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())
+    if (request.method !== "GET" && comments.options.forge) getStandardContext(event).waitUntil?.(comments.flush())
     return response
   }
 
   return defineEventHandler((event) => {
     // Nitro's workerd dev server gives the Cloudflare bindings only with the request, so the database finds D1 there.
-    const env = getCloudflareEnv(event, { fallback: false })
+    const env = getStandardContext(event).runtime?.cloudflare?.env
     return env ? runWithActiveCloudflareEnv(env, () => handle(event)) : handle(event)
   })
 

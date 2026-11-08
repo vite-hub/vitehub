@@ -18,9 +18,10 @@ In this tutorial, you write a browser task that gets the HTML of `https://exampl
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-`vite-hub` already includes Browser. Add Wrangler, the Cloudflare development tool, to your app:
+Add the Browser package and Wrangler, the Cloudflare development tool, to your app:
 
 ```bash pm [commands/install]
+pnpm add @vite-hub/browser
 pnpm add -D wrangler
 ```
 

@@ -1,8 +1,8 @@
 ---
-title: Get started
+title: Capture your first log event
 navigation.title: Get started
 navigation.order: 2
-description: Log one request with Evlog and read it in the ViteHub Console.
+description: "Install Evlog, turn on local capture in vitehub(), add fields to one request event, and inspect the event in the Console."
 layout: tutorial
 icon: i-lucide-logs
 ---
@@ -83,7 +83,7 @@ pnpm dev
 
 Local capture works only in development. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
-Local capture works only with Nitro 3. [Hosts](/docs/logs/hosts) shows the setup for Nuxt with Nitro 2.
+Local capture requires Nitro 3.
 
 For a larger example, run `playground/logs` in the ViteHub repository. It shows a checkout request, redacted fields, and a diagnostic. Its README tells you how to start it.
 

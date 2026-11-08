@@ -15,10 +15,21 @@ In this tutorial, you send a real welcome email through Resend from an API route
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation) and a POSIX shell such as bash or zsh. You also need a Resend account with an API key, a sender address that Resend verified, and an inbox that you can check. Run the commands from the root of the app. The last step sends a real email.
 
+::tutorial-step{title="Install the email dependencies"}
+## Install the email dependencies
+
+Add the Email package. It includes the Resend driver.
+
+```bash pm [commands/install]
+pnpm add @vite-hub/email
+```
+
+::
+
 ::tutorial-step{title="Configure Resend"}
 ## Configure Resend
 
-Add `email` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. `vite-hub` already includes the Email package and the Resend driver, so you install nothing.
+Add `email` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -84,7 +95,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-`email.send()` does not throw. It returns `[error, sent]`. Check `error` first. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also keeps a copy of each email.
+`email.send()` returns `[error, sent]`. Check `error` for delivery failures. Configuration errors, such as a missing provider, can throw. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also keeps a copy of each email.
 
 ::
 

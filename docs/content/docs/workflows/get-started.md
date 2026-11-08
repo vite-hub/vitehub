@@ -15,10 +15,16 @@ In this tutorial, you build a Workflow with two steps that signs up a new user. 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account: on your computer, the Workflow runs inside your server. A run started this way does not survive a server restart. Pick a [durable provider](/docs/workflows/hosts) before you rely on that.
 
-::tutorial-step{title="Enable Workflows"}
-## Enable Workflows
+::tutorial-step{title="Install and enable Workflows"}
+## Install and enable Workflows
 
-Add `workflow: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. `vite-hub` already includes the Workflow package, so you install nothing.
+Add the Workflow package:
+
+```bash pm [commands/install]
+pnpm add @vite-hub/workflow
+```
+
+Add `workflow: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -70,6 +76,8 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 
 A step can run more than once, so make it safe to repeat. For example, create or update the user by email. Do not add a new user on each try.
 
+The local inline provider used here runs each step once. It does not replay failed steps. Use a durable provider when you need that behavior.
+
 [Durable execution](/docs/guides/durable-execution) shows a job that fails at step 2, and what each provider does then.
 
 ::
@@ -116,7 +124,7 @@ The response has a run id and a status. Your run id is different:
 
 `"mode":"inline"` means that the run executes inside your dev server. The run id identifies this run. To see the status, result, or error of the run later, pass the run id to [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run). Do not start a new run to check it.
 
-On your computer, ViteHub keeps the final result of the run, but not the result of each step.
+Local inline execution keeps the final result of the run. The run returned by `getWorkflowRun()` does not include step history.
 
 ## Start a run from the CLI or the Console
 
@@ -149,6 +157,8 @@ pnpm vitehub workflow get <run-id>
 ```
 
 For a run that you started from the route, add `--workflow onboard-user` to `get`. Or open the Workflows page of the [Console](/docs/development/console) and click **Start**.
+
+With `vitehub()`, `pnpm vitehub workflow runs list` lists the runs that the dev server recorded. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of one run. `pnpm vitehub workflow runs clear --yes` clears that history.
 
 :::details{summary="When the Start button and the commands are available"}
 The commands call the Console RPC of the running app. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).

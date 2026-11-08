@@ -18,7 +18,13 @@ In this tutorial, you save a theme setting under the key `settings` with one API
 ::tutorial-step{title="Enable KV"}
 ## Enable KV
 
-Add `kv: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. The port is the same as in Installation.
+Install the KV package in the app:
+
+```bash pm [commands/install-kv]
+pnpm add @vite-hub/kv
+```
+
+Add `kv: true` to the existing `vitehub()` options in `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -58,7 +64,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 - `kv.set('settings', settings)` saves the object under the key `settings`. A new write replaces the old value.
-- `kv.set()` does not throw. It returns `[error, value]`. Check `error` first.
+- `kv.set()` returns `[error, value]`. Check `error` for operation failures. Configuration errors can throw.
 
 ::
 

@@ -21,7 +21,7 @@ In this tutorial, you let a route accept two requests per minute. The third requ
 Install ViteHub. Nitro is the server that runs your API routes.
 
 ```bash pm [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/rate-limit nitro h3
 pnpm add -D vite
 ```
 

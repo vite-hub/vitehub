@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // `:::example`: rendered Markdown with its source a switch away, and an optional link that opens it in a playground.
-// A site's parser puts the rendered copy in an `example-preview` node before the source, and writes `play`.
+// The parser puts the rendered copy of a Markdown fence in an `example-preview` node before the source.
 defineProps<{
   label?: string
   /** A playground URL that opens this example. */
@@ -152,7 +152,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 }
 
 /* The preview sits in a hairline frame. The source shows in its own code block. */
-.vh-example[data-view="preview"] > .vh-example-body > :deep(:not(.docs-example-preview)),
+.vh-example[data-view="preview"] > .vh-example-body:has(> .docs-example-preview) > :deep(:not(.docs-example-preview)),
 .vh-example[data-view="code"] > .vh-example-body > :deep(.docs-example-preview) {
   display: none;
 }
