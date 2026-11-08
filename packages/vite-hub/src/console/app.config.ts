@@ -147,14 +147,45 @@ export const consoleAppConfig = {
       actions: "mt-1",
     },
   },
+  // A focused field shows one 2px ring in its own color, red with an error. Nuxt UI also draws a soft 3px outline around
+  // the ring, which reads as a second ring. iOS zooms the page into a field whose text is smaller than 16px, so fields
+  // use 16px on touch screens.
   input: {
     defaultVariants: {
       size: "sm",
     },
     slots: {
+      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
     },
+  },
+  textarea: {
+    slots: {
+      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
+    },
+  },
+  inputNumber: {
+    slots: {
+      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
+    },
+  },
+  inputTags: {
+    slots: {
+      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
+    },
+  },
+  inputMenu: {
+    slots: {
+      base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
+    },
+  },
+  // A focused card shows one 2px ring too: a 1px inset ring inside its border, instead of Nuxt UI's soft outline.
+  checkbox: {
+    compoundVariants: [{ variant: "card", class: { root: "has-focus-visible:outline-none has-focus-visible:ring-1 has-focus-visible:ring-inset has-focus-visible:ring-inverted" } }],
+  },
+  radioGroup: {
+    compoundVariants: [{ variant: "card", class: { item: "has-focus-visible:outline-none has-focus-visible:ring-1 has-focus-visible:ring-inset has-focus-visible:ring-inverted" } }],
   },
   pageCard: {
     slots: {
@@ -185,6 +216,7 @@ export const consoleAppConfig = {
       size: "sm",
     },
     slots: {
+      base: "focus-visible:outline-none focus-visible:ring-2",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
       itemLeadingIcon: "size-4 opacity-80",
@@ -194,6 +226,7 @@ export const consoleAppConfig = {
   },
   selectMenu: {
     slots: {
+      base: "focus-visible:outline-none focus-visible:ring-2",
       content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md",
     },
   },
