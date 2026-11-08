@@ -22,7 +22,7 @@ export type {
 } from "./plugins.ts"
 
 /** The ViteHub Vite plugins and Nitro, the server of the app. Nitro steps aside when the app adds `nitro()` itself. */
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
   return [...viteHubPlugins(options), includedNitro()]
 }
 
