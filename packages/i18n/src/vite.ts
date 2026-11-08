@@ -13,7 +13,7 @@ import { createLinguiConfig, recordsRoot } from "./lingui.ts"
 import { i18nErrorDiagnostics } from "./errors.ts"
 import { resolveI18nLocaleConfig } from "./locales.ts"
 import { transformMacros } from "./macros.ts"
-import { addMessage, extractFileMessages, manifestFile } from "./manifest.ts"
+import { addMessage, extractFileMessages, manifestFile, mergeMessages } from "./manifest.ts"
 import { readRecords } from "./records.ts"
 
 import type { LinguiConfigNormalized } from "@lingui/conf"
@@ -267,18 +267,15 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       // that are still in the current graph, and replace each changed module's previous contribution.
       const modules = moduleMessages.get(this.environment.name)
       const active = new Set(this.getModuleIds())
-      const sources: SourceMessages = {}
+      const sources: SourceMessages[] = []
       for (const [id, messages] of modules ?? []) {
         if (!active.has(id)) {
           modules!.delete(id)
           continue
         }
-        for (const [id, message] of Object.entries(messages)) {
-          const entry = sources[id] ??= { ...message, origins: [] }
-          for (const origin of message.origins) if (!entry.origins.includes(origin)) entry.origins.push(origin)
-        }
+        sources.push(messages)
       }
-      manifest.environments[this.environment.name] = sources
+      manifest.environments[this.environment.name] = mergeMessages(sources)
     },
     async renderChunk(code) {
       if (!code.includes("__VITEHUB_I18N_CATALOG_")) return

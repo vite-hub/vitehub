@@ -60,6 +60,19 @@ function deferred() {
   return { promise, resolve }
 }
 
+it("exports every translator note collected for a message", async () => {
+  await writeFile(join(root, "label.ts"), 'import { t } from "@vite-hub/i18n"; export const label = t({ message: "Save", comment: "Saves the current file" })')
+  await writeFile(join(root, "toolbar.ts"), 'import { t } from "@vite-hub/i18n"; export const label = t({ message: "Save", comment: "Action in the toolbar" })')
+  const exported = await cli("export", "es")
+  expect(exported.code).toBe(0)
+  const catalog = await poFormatter().parse(exported.stdout, { locale: "es", sourceLocale: "en", filename: "es.po" })
+  expect(catalog[messageId("Save")]!.comments).toEqual(expect.arrayContaining([
+    "Saves the current file",
+    "Action in the toolbar",
+    "vitehub-i18n-expected: null",
+  ]))
+})
+
 it.each([null, "Guardar"])("refuses a stale PO edit exported with %j", async (baseline) => {
   const records = join(root, "locales")
   if (baseline !== null) await saveTranslation(records, "es", { message: "Save" }, baseline, { by: "ana", expected: null })

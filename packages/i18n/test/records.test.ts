@@ -136,7 +136,17 @@ describe("translation records", () => {
     ["{role, select, admin {Admin {name}} other {User {name}}}", "{role, select, admin {Admin} other {Usuario}}", "{role, select, admin {Admin {name}} other {Usuario {name}}}"],
     ["Total: {amount, number}", "Total", "Total: {amount, number}"],
     ["{count, selectordinal, one {#st} other {#th}}", "Primero", "{count, selectordinal, one {#} other {#}}"],
-  ])("keeps every ICU argument in %s", async (message, invalid, valid) => {
+    ["Hello <0>{0}</0>, read the <1>docs</1>.", "Hola <0>{0}</0>, lee la documentación.", "Lee la <1>documentación</1>, <0>{0}</0>."],
+    ["Hello <0>{name}</0>", "Hola {name}", "<0>Hola {name}</0>"],
+    ["Hello <0>{name}</0>", "Hola <1>{name}</1>", "<0>Hola {name}</0>"],
+    ["Hello <0>{name}</0>", "Hola <0>{name}", "<0>Hola {name}</0>"],
+    ["Hello <0>{name}</0>", "Hola <0/>{name}", "<0>Hola {name}</0>"],
+    ["<0>Hello <1>{name}</1></0>", "<0>Hola <1>{name}</0></1>", "<1><0>Hola {name}</0></1>"],
+    ["Hello <0/>{name}", "Hola {name}", "Hola {name}<0/>"],
+    ["{count, plural, one {<0>one agent</0>} other {<0># agents</0>}}", "{count, plural, one {un agente} other {# agentes}}", "{count, plural, one {<0>un agente</0>} other {<0># agentes</0>}}"],
+    ["{count, plural, one {<0>one agent</0>} other {<0># agents</0>}}", "{count, plural, one {<0>un agente</0>} other {# agentes}}", "{count, plural, one {<0>un agente</0>} other {<0># agentes</0>}}"],
+    ["<0>{count, plural, one {one agent} other {# agents}}</0>", "<0>{count, plural, one {un agente</0>} other {# agentes}}", "<0>{count, plural, one {un agente} other {# agentes}}</0>"],
+  ])("keeps every runtime placeholder in %s", async (message, invalid, valid) => {
     const root = await folder()
     const ref = { message }
     expect(await saveTranslation(root, "es", ref, invalid, { by: "ana", expected: null })).toMatchObject({ ok: false, code: "invalid" })

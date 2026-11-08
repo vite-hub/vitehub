@@ -15,6 +15,8 @@ export interface SourceMessage {
   hash: string
   /** `file:line`, relative to the project root. */
   origins: string[]
+  /** Notes for translators, collected from every use of the message. */
+  comments?: string[]
 }
 
 /** Source messages by message ID, the key that the runtime looks up. */
@@ -36,14 +38,18 @@ export function withExtractors(config: LinguiConfigNormalized): LinguiConfigNorm
   return { ...config, extractors: [babelExtractor, vueExtractor] }
 }
 
-function sourceMessage(message: string, context: string | undefined): SourceMessage {
-  return { message, ...(context ? { context } : {}), hash: messageSegment(message, context).hash, origins: [] }
+function sourceMessage(message: string, context: string | undefined, comments?: string[]): SourceMessage {
+  return { message, ...(context ? { context } : {}), hash: messageSegment(message, context).hash, origins: [], ...(comments?.length ? { comments: [...new Set(comments)] } : {}) }
 }
 
 /** Add one extracted message. Messages with the same ID merge their origins. */
 export function addMessage(messages: SourceMessages, message: ExtractedMessage, rootDir: string): void {
   if (message.message === undefined) return
   const entry = messages[message.id] ??= sourceMessage(message.message, message.context)
+  if (message.comment) {
+    const comments = entry.comments ??= []
+    if (!comments.includes(message.comment)) comments.push(message.comment)
+  }
   if (!message.origin) return
   const [file, line] = message.origin
   const origin = `${relative(rootDir, file) || file}:${line}`
@@ -67,21 +73,30 @@ export async function scanMessages(config: LinguiConfigNormalized): Promise<Sour
   for (const [id, entry] of Object.entries(collected ?? {})) {
     if (entry.message === undefined) continue
     messages[id] = {
-      ...sourceMessage(entry.message, entry.context),
+      ...sourceMessage(entry.message, entry.context, entry.comments),
       origins: entry.origin.map(([file, line]) => `${file}${line === undefined ? "" : `:${line}`}`),
     }
   }
   return messages
 }
 
-/** The messages of every environment in one map. */
-export function allMessages(manifest: I18nManifest): SourceMessages {
+/** Merge message uses without losing their origins or translator notes. */
+export function mergeMessages(groups: Iterable<SourceMessages>): SourceMessages {
   const result: SourceMessages = {}
-  for (const messages of Object.values(manifest.environments)) {
+  for (const messages of groups) {
     for (const [id, message] of Object.entries(messages)) {
-      const entry = result[id] ??= { ...message, origins: [] }
+      const entry = result[id] ??= { ...message, origins: [], ...(message.comments ? { comments: [] } : {}) }
       for (const origin of message.origins) if (!entry.origins.includes(origin)) entry.origins.push(origin)
+      for (const comment of message.comments ?? []) {
+        const comments = entry.comments ??= []
+        if (!comments.includes(comment)) comments.push(comment)
+      }
     }
   }
   return result
+}
+
+/** The messages of every environment in one map. */
+export function allMessages(manifest: I18nManifest): SourceMessages {
+  return mergeMessages(Object.values(manifest.environments))
 }

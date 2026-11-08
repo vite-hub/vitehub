@@ -6,7 +6,7 @@ import { editRecord, parseRecord, verifyRecord } from "@diglot/core"
 import { readRecord, serialiseRecord } from "@diglot/store"
 import { lock } from "proper-lockfile"
 
-import { diglotSegment, isVisible, messageSegment, recordPath, recordSegment, validateMessageArguments } from "./record-format.ts"
+import { diglotSegment, isVisible, messageSegment, recordPath, recordSegment, validateMessagePlaceholders } from "./record-format.ts"
 
 import type { ReviewTransition } from "@diglot/core"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
@@ -111,7 +111,7 @@ async function review(root: string, locale: string, message: MessageRef, next: (
   try {
     const transition = next(await readRecord(root, locale, segment.hash), segment)
     if (transition.ok) {
-      const errors = validateMessageArguments(message.message, transition.record.text)
+      const errors = validateMessagePlaceholders(message.message, transition.record.text)
       if (errors.length) return { ok: false, code: "invalid", message: "The translation does not preserve the message's ICU arguments.", errors }
       await publishRecord(file, transition.record)
     }
