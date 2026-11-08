@@ -127,8 +127,33 @@ describe("vitehub hooks", () => {
     expect(await readFile(join(top, ".git/hooks/pre-commit"), "utf8")).toBe("#!/bin/sh\nnpm test\n")
 
     await mkdir(join(top, ".husky"))
+    await exec("git", ["config", "core.hooksPath", ".husky/_"], { cwd: top })
     const husky = await run("install", rootDir)
     expect(husky).toMatchObject({ code: 0, stdout: expect.stringContaining("Husky runs the Git hooks of this repository") })
+  })
+
+  it("installs hooks when a leftover Husky folder is not configured", async () => {
+    const { rootDir, top } = await repository()
+    await mkdir(join(top, ".husky"))
+
+    expect(await run("install", rootDir)).toMatchObject({ code: 0, stdout: "Wrote .git/hooks/pre-commit\nWrote .git/hooks/pre-push\n" })
+    for (const hook of ["pre-commit", "pre-push"]) {
+      expect(await readFile(join(top, ".git/hooks", hook), "utf8")).toContain(`vitehub hooks ${hook}`)
+    }
+  })
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0).each(["pre-commit", "pre-push"])("preserves an unreadable %s on install and uninstall", async (hook) => {
+    const { rootDir, top } = await repository()
+    const path = join(top, ".git/hooks", hook)
+    const content = "#!/bin/sh\nnpm test\n"
+    await writeFile(path, content)
+
+    for (const command of ["install", "uninstall"]) {
+      await chmod(path, 0o200)
+      const result = await run(command, rootDir).finally(async () => await chmod(path, 0o600))
+      expect(result).toMatchObject({ code: 1, stderr: expect.stringContaining("EACCES") })
+      expect(await readFile(path, "utf8")).toBe(content)
+    }
   })
 
   it("keeps a hook to which you added commands, on install and on uninstall", async () => {
@@ -165,6 +190,7 @@ describe("vitehub hooks", () => {
     await rm(join(top, ".git/hooks/pre-commit"))
     await rm(join(top, ".git/hooks/pre-push"))
     await mkdir(join(top, ".husky"))
+    await exec("git", ["config", "core.hooksPath", ".husky/_"], { cwd: top })
     const printed = (await run("install", rootDir)).stdout
     const command = printed.match(/pre-commit: (.+)\n/)![1]!
     expect(command).toBe(`cd 'docs site/it'\\''s' && vitehub hooks pre-commit`)

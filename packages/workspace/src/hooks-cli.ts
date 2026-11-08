@@ -36,15 +36,26 @@ async function exists(path: string): Promise<boolean> {
 
 /** The hook manager that owns the hooks of the repository, such as Husky, or undefined when Git runs `.git/hooks`. */
 async function hookManager(top: string, rootDir: string): Promise<string | undefined> {
-  if (await exists(join(top, ".husky"))) return "Husky"
+  const hooksPath = await git(top, "config", "--get", "core.hooksPath")
+  if (hooksPath && [".husky", ".husky/_"].some(path => resolve(top, hooksPath) === resolve(top, path))) return "Husky"
   for (const file of ["lefthook.yml", "lefthook.yaml", ".lefthook.yml", ".lefthook.yaml"]) if (await exists(join(top, file))) return "lefthook"
   if (await exists(join(top, ".pre-commit-config.yaml"))) return "pre-commit"
   for (const dir of new Set([top, rootDir])) {
     const manifest = await readFile(join(dir, "package.json"), "utf8").catch(() => undefined)
     if (manifest?.includes("\"simple-git-hooks\"")) return "simple-git-hooks"
   }
-  const hooksPath = await git(top, "config", "--get", "core.hooksPath")
   return hooksPath ? `core.hooksPath (${hooksPath})` : undefined
+}
+
+/** Only a missing hook is safe to create. Other read errors must stop install and uninstall. */
+async function readHook(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8")
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw error
+  }
 }
 
 /** A shell word for a value, such as a project path with spaces or quotes. */
@@ -93,7 +104,7 @@ async function install(context: WorkspaceCheckoutCliContext): Promise<number> {
   const foreign: string[] = []
   for (const hook of hookNames) {
     const path = join(hooks, hook)
-    const current = await readFile(path, "utf8").catch(() => undefined)
+    const current = await readHook(path)
     if (current !== undefined && current !== script(hook, project)) {
       foreign.push(hook)
       continue
@@ -113,7 +124,7 @@ async function uninstall(context: WorkspaceCheckoutCliContext): Promise<number> 
   if (!repo || !hooks) return 0
   for (const hook of hookNames) {
     const path = resolve(context.rootDir, hooks, hook)
-    const current = await readFile(path, "utf8").catch(() => undefined)
+    const current = await readHook(path)
     if (current === undefined) continue
     if (current !== script(hook, repo.project)) {
       context.stdout.write(`Left ${hook}: it is not the hook that \`vitehub hooks install\` writes, so it can contain your commands.\n`)
@@ -300,7 +311,12 @@ export function workspaceHooksNamespace(options: WorkspaceHooksOptions = {}): { 
         context.stdout.write(help)
         return 0
       }
-      return await run(context)
+      try {
+        return await run(context)
+      }
+      catch (error) {
+        return fail(context, error)
+      }
     },
     usage: usage[name],
   })

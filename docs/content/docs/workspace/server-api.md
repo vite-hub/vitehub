@@ -32,6 +32,8 @@ Workspace definition, Source Binding, rule, hook, store, sync, facade, and sessi
 For read-only inspection of an existing Workspace, pass `refresh: false`:
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('docs', { refresh: false })
 ```
 
@@ -88,6 +90,8 @@ Each materialized Source reports its provider, cache disposition, revision, dura
 Use retained history to publish a complete folder and read earlier versions. It is available when the Store implements `history`, including the [Blob + Database Store](/docs/workspace/configure#blob-database-store).
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('drop', { mode: 'write' })
 const base = await workspace.history.head()
 const revision = await workspace.history.commit({
@@ -120,7 +124,7 @@ A Workspace history has named refs. Each ref has its own head and timeline. Revi
 
 Drafts are the usual reason to add a ref. Save each edit to `draft`, then commit the chosen files to `published`:
 
-```ts
+```ts fragment
 const draft = await workspace.history.head({ ref: 'draft' })
 const saved = await workspace.history.commit({
   ref: 'draft',
@@ -196,23 +200,68 @@ The commands call two operations of the app, which the Console section `workspac
 | Operation | Kind | Result |
 | --- | --- | --- |
 | `workspace.changes` `{ workspace, ref?, since?, content? }` | read | `{ head, files }`: each file that differs between revision `since` and the head of `ref`, with its content at the head and at `since`. Without `since`, every file of the head. `content: false` leaves the content out. |
-| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | Request body up to 4 MiB. `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. A file that exists at `ifHead` keeps its media type and metadata. The revision metadata records `source` (the surface, such as `cli`) and `author` (`{ id, name, email }` of the signed-in user, as Content records it). Without a signed-in user, such as a local dev server, the revision has no author. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
+| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | Request body up to 4 MiB. `{ revision, normalized? }`. `normalized` maps submitted paths to their committed `{ content, encoding }` when validators or hooks changed the bytes. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. A replaced file keeps its media type and metadata from `ifHead`, or from the seed revision when the Store starts a missing ref from another ref. The revision metadata records `source` (the surface, such as `cli`) and `author` (`{ id, name, email }` of the signed-in user, as Content records it). Without a signed-in user, such as a local dev server, the revision has no author. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
 
 The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. On Windows and macOS, folder names that differ only in case are one folder. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter case and with any trailing dots or spaces (Windows opens `node_modules.` as `node_modules`), are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
 
-A pull writes each file to a new file in the same folder, then renames it over the old one. A hard link to the old file keeps its content, and a failed write leaves the old file. A command that stops before the rename leaves a file that ends in `.vitehub-tmp`; checkouts exclude these files, so delete them. `vitehub.lock` is written the same way, and a command fails with `WORKSPACE_CHECKOUT_SYMLINK` when it is a symbolic link. Commands can run at the same time in one project: before each write of the lock file, a command creates `vitehub.lock.lock`, reads the lock file again, and replaces only the entries of the Workspaces that it pulled or pushed. A command waits up to 10 seconds for `vitehub.lock.lock`, then fails with `WORKSPACE_LOCK_BUSY`. A `vitehub.lock.lock` older than 30 seconds is left by a command that stopped, and the next command removes it. Two commands on the same Workspace at the same time each write its entry, and the last one wins, so run one at a time per Workspace.
+Checkout paths must use portable names on every platform. Before writing remote changes, the checkout checks the incoming paths, tracked paths, and local files and directories together. Two spellings of the same file or directory that differ only in case or Unicode normalization fail with `WORKSPACE_CHECKOUT_PATH`. Names with trailing dots or spaces, Windows device names, and Windows-invalid characters also fail. A pull does not replace a file with a directory or a directory with a file. To apply those transitions, keep local edits elsewhere, remove the lock entry, and pull into a new empty folder.
 
-Each command fails on a flag that it does not know, before it calls the app. `vitehub push --dry-run` fails and commits nothing: use `vitehub pull --dry-run` or `vitehub status` to see the changes first.
+Top-level files named `__proto__`, `constructor`, or `prototype` fail with the same error because the operation input map cannot carry these keys. Workspace names have no such restriction.
+
+A pull writes each file to a new file in the same folder, then renames it over the old one. A hard link to the old file keeps its content, and a failed write leaves the old file. A command that stops before the rename leaves a file that ends in `.vitehub-tmp`; checkouts exclude these files, so delete them. `vitehub.lock` is written the same way, and a command fails with `WORKSPACE_CHECKOUT_SYMLINK` when it is a symbolic link. Commands can run at the same time in one project: before each write of the lock file, a command creates `vitehub.lock.lock`, reads the lock file again, and replaces only the entries of the Workspaces that it pulled or pushed. A command waits up to 10 seconds for `vitehub.lock.lock`, then fails with `WORKSPACE_LOCK_BUSY`. Lock age does not allow takeover. If a command stopped, check that no command is running before you delete `vitehub.lock.lock`. Each command removes only its own lock acquisition. Two commands on the same Workspace at the same time each write its entry, and the last one wins, so run one at a time per Workspace.
+
+An existing checkout rejects a different `--url` before calling the app. Remove its lock entry and pull into a new folder to change the remote. Push records the committed bytes after validators and hooks run. It updates the local file only if it still contains the submitted bytes; edits made during the call stay as local changes.
+
+Each command fails on a flag that it does not know, before it calls the app. Pull and push accept at most one positional argument, the Workspace name; extra arguments fail before a call. `vitehub push --dry-run` fails and commits nothing: use `vitehub pull --dry-run` or `vitehub status` to see the changes first.
 
 Commands reject existing symbolic links in the checkout folder and its ancestors inside the project. These checks do not isolate files from another process that can replace paths during an operation. Use an OS or container boundary for that isolation.
 
 A push sends whole files, is limited to 4 MiB, and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
 
+### Derived files
+
+A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown (`.md`, `.markdown`, `.mdx`), at the top of a YAML file (`.yaml`, `.yml`), or as a top-level key of a JSON file (`.json`). Other files have no lineage:
+
+```md [docs/es/guide.md]
+---
+title: Guía
+derivedFrom:
+  path: docs/en/guide.md
+  digest: sha256-1a9e…
+---
+```
+
+When the source changes, the derived file is stale. `vitehub status` lists the stale files of each checkout folder, and the `workspace.stale` operation lists them on a ref:
+
+```bash [Terminal]
+pnpm vitehub workspace stale site --ref draft
+```
+
+Each changed entry has `sourceDigest`, the digest of the source now. The command prints it in the `SOURCE DIGEST` column. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
+
+To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`. This excerpt uses the app's `translate` Queue Definition:
+
+```ts [server/plugins/translate.ts] fragment
+import { registerWorkspacePlugin } from 'vite-hub/workspace'
+import { runQueue } from 'vite-hub/queue'
+
+registerWorkspacePlugin('site', {
+  id: 'translate',
+  hooks: {
+    'write:after': async ({ path, ref }) => {
+      if (ref === 'draft' && path.startsWith('docs/en/')) await runQueue('translate', { path })
+    },
+  },
+})
+```
+
+The `translate` Queue job reads `workspace.stale`, translates each stale file with your Agent, and saves it to `draft` with the new `derivedFrom.digest`. ViteHub keeps the record and the check. The translation is your Agent's work.
+
 ## Add plugins to a Workspace
 
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
 
-```ts
+```ts fragment
 import { registerWorkspacePlugin } from '@vite-hub/workspace'
 
 registerWorkspacePlugin('content', {

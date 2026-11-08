@@ -131,7 +131,7 @@ describe("CLI documentation contract", () => {
     }
 
     const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
-    expect(projectCommands).toEqual(["catalog", "status"]);
+    expect(projectCommands).toEqual(["init", "add", "catalog", "status", "link", "unlink"]);
     expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());

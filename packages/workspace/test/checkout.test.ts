@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
@@ -16,9 +16,12 @@ import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "../src
 import { formatWorkspaceStatus, localCheckoutStatus, mergeText } from "../src/checkout.ts"
 import { workspaceCheckoutFeatures } from "../src/checkout-cli.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
-import { useWorkspace } from "../src/index.ts"
+import { registerWorkspacePlugin, useWorkspace } from "../src/index.ts"
+import { lineageDigest } from "../src/lineage.ts"
 import { workspaceOperations } from "../src/operations.ts"
 import { workspaceCommitRequestBytes } from "../src/results.ts"
+import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
+import { createFakeGitHub } from "./fake-github.ts"
 
 import type { OperationUser } from "@vite-hub/internal/operations"
 import type { WorkspaceDefinition } from "../src/core/types.ts"
@@ -27,9 +30,27 @@ const cleanup: Array<() => Promise<void> | void> = []
 const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
 const registry = createOperationRegistry([{ operations: workspaceOperations }])
 const remote = "https://docs.example.test"
+const pausedLockWrites = new Map<string, { entered: () => void, resume: Promise<void> }>()
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    rename: async (...args: Parameters<typeof actual.rename>) => {
+      const paused = pausedLockWrites.get(String(args[1]))
+      if (paused) {
+        pausedLockWrites.delete(String(args[1]))
+        paused.entered()
+        await paused.resume
+      }
+      return await actual.rename(...args)
+    },
+  }
+})
 
 afterEach(async () => {
   resetWorkspaceRegistry()
+  vi.unstubAllGlobals()
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
@@ -40,16 +61,16 @@ async function tempDir(name: string) {
 }
 
 /** A deployed app with one Blob + Database Workspace, reached through the operation RPC as `user`. */
-async function app(user: OperationUser | null = null) {
+async function app(user: OperationUser | null = null, rules?: WorkspaceDefinition["rules"], workspace = "content") {
   const root = await tempDir("app")
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
   const database = drizzle(client, { schema: workspaceHistorySchema })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
-  const definition: WorkspaceDefinition = { name: "content", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "content" }) }
-  registerWorkspace("content", { store: definition.store })
-  const { history } = useWorkspace("content", { definition, mode: "write" })
+  const definition: WorkspaceDefinition = { name: workspace, store: createBlobDatabaseWorkspaceStore({ blob, database, workspace }), rules }
+  registerWorkspace(workspace, { store: definition.store, rules })
+  const { history } = useWorkspace(workspace, { definition, mode: "write" })
   // A second Workspace of the same app.
   const notesDefinition: WorkspaceDefinition = { name: "notes", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "notes" }) }
   registerWorkspace("notes", { store: notesDefinition.store })
@@ -157,6 +178,110 @@ describe("mergeText", () => {
 })
 
 describe("workspace checkout", { timeout: 60_000 }, () => {
+  it.each([
+    ["README", "readme"],
+    ["Docs/a.md", "docs/b.md"],
+    ["foo", "foo."],
+    ["folder/a.md", "folder /b.md"],
+    ["caf\u00e9/a.md", "cafe\u0301/b.md"],
+    ["\u03a3/a.md", "\u03c2/b.md"],
+  ])("rejects remote aliases %s and %s before writing any file", async (first, second) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "0-safe.md": "safe\n", [first]: "first\n", [second]: "second\n" } })
+    const local = await project(remoteApp.fetch, "aliases")
+
+    const result = await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.exists("0-safe.md")).toBe(false)
+    expect(await readFile(join(local.rootDir, "vitehub.lock")).then(() => true, () => false)).toBe(false)
+  })
+
+  it("rejects incoming aliases of unchanged remote paths and local directories without advancing the lock", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "Docs/a.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "incremental-alias")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const before = await local.lock()
+    await remoteApp.edit({ put: { "0-safe.md": "new\n", "docs/b.md": "remote\n" } })
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.lock()).toEqual(before)
+    expect(await local.read("Docs/a.md")).toBe("base\n")
+    expect(await local.exists("0-safe.md")).toBe(false)
+
+    await remoteApp.edit({ delete: ["docs/b.md"], put: { "drafts/remote.md": "remote\n" } })
+    await local.write("Drafts/local.md", "local\n")
+    expect((await local.run("push")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.lock()).toEqual(before)
+    expect(await local.read("Drafts/local.md")).toBe("local\n")
+    expect(remoteApp.calls).not.toContain("workspace.commit")
+  })
+
+  it("checks empty local directories and --theirs paths for aliases", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "docs/a.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "empty-directory-alias")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const before = await local.lock()
+    const calls = remoteApp.calls.length
+    expect((await local.run("pull", "--theirs", "Docs/a.md")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(remoteApp.calls.slice(calls)).toEqual(["workspace.changes"])
+    await mkdir(join(local.rootDir, "content", "Drafts"))
+    await remoteApp.edit({ put: { "drafts/new.md": "remote\n" } })
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.exists("drafts/new.md")).toBe(false)
+    expect(await local.lock()).toEqual(before)
+  })
+
+  it.each(["aux.txt", "file:stream", "file?", "trailing ", "__proto__", "constructor", "prototype"])("rejects unsupported remote path %s before writing", async (path) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "0-safe.md": "safe\n", [path]: "remote\n" } })
+    const local = await project(remoteApp.fetch, "nonportable")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.exists("0-safe.md")).toBe(false)
+  })
+
+  it("refuses a directory-to-file replacement before deleting files or advancing the lock", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "docs/a.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "directory-replacement")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const before = await local.lock()
+    await remoteApp.edit({ delete: ["docs/a.md"], put: { docs: "new file\n" } })
+
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.read("docs/a.md")).toBe("base\n")
+    expect(await local.lock()).toEqual(before)
+  })
+
+  it.each(["__proto__", "constructor", "toString"])("pulls, pushes, and reloads a Workspace named %s", async (name) => {
+    const remoteApp = await app(null, undefined, name)
+    await remoteApp.edit({ put: { "hello.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "own-workspace-name")
+    expect((await local.run("pull", name, "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    expect(Object.keys((await local.lock()).workspaces)).toEqual([name])
+    await local.write("hello.md", "local\n")
+    expect((await local.run("push", name)).code).toBe(0)
+    expect(await remoteApp.read("hello.md")).toBe("local\n")
+    expect((await local.status())[0]).toMatchObject({ workspace: name, local: { added: [], modified: [], deleted: [] } })
+    expect((await local.run("resolve", name)).code).toBe(0)
+  })
+
+  it("tracks file names that match Object properties when another file is normalized", async () => {
+    const remoteApp = await app(null, { "note.txt": { write: true, validate: input => ({ ...input, content: String(input.content).toUpperCase() }) } })
+    const paths = ["toString", "note.txt"]
+    await remoteApp.edit({ put: Object.fromEntries(paths.map(path => [path, "BASE\n"])) })
+    const local = await project(remoteApp.fetch, "own-file-name")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    for (const path of paths) await local.write(path, "local\n")
+    expect((await local.run("push")).code).toBe(0)
+    expect(Object.keys((await local.lock()).workspaces.content.files).sort()).toEqual(paths.toSorted())
+    expect(await remoteApp.read("toString")).toBe("local\n")
+    expect(await local.read("note.txt")).toBe("LOCAL\n")
+    expect((await local.status())[0]!.local).toEqual({ added: [], modified: [], deleted: [], conflicted: [] })
+  })
+
   it("clones a ref into a folder and records the remote revision in vitehub.lock", async () => {
     const remoteApp = await app()
     const first = await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "First post."), "media/logo.bin": new Uint8Array([0, 255, 1]) } })
@@ -396,6 +521,34 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     await expect(readFile(join(outside, "posts/hello.md"))).rejects.toThrow()
   })
 
+  it("lists stale translations in status and in workspace.stale after the English source changes", async () => {
+    const remoteApp = await app()
+    const english = post("Guide", "Install it.")
+    const spanish = (digest: string) => `---\ntitle: Guía\nderivedFrom:\n  path: docs/en/guide.md\n  digest: ${digest}\n---\n\nInstálalo.\n`
+    const translated = lineageDigest(new TextEncoder().encode(english))
+    await remoteApp.edit({ put: { "docs/en/guide.md": english, "docs/es/guide.md": spanish(translated) } })
+    const local = await project(remoteApp.fetch, "lineage")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    expect((await local.status())[0]!.stale).toEqual([])
+
+    const written: string[] = []
+    cleanup.push(registerWorkspacePlugin("content", { hooks: { "write:after": ({ path, ref }) => { written.push(`${ref} ${path}`) } }, id: "translate" }))
+    const edited = post("Guide", "Install it with pnpm.")
+    await local.write("docs/en/guide.md", edited)
+    expect(formatWorkspaceStatus((await local.status())[0]!)).toContain("Stale derived files (their source changed):\n  changed   docs/es/guide.md <- docs/en/guide.md")
+    expect((await local.run("push")).code).toBe(0)
+    // A translator starts from this hook.
+    expect(written).toEqual(["draft docs/en/guide.md"])
+
+    const listed = await runOperation(registry, "workspace.stale", { ref: "draft", workspace: "content" }, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    const sourceDigest = lineageDigest(new TextEncoder().encode(edited))
+    expect(listed).toMatchObject({ ok: true, value: { ref: "draft", stale: [{ derivedFrom: { digest: translated, path: "docs/en/guide.md" }, path: "docs/es/guide.md", reason: "changed", sourceDigest }] } })
+
+    // The translator updates the file and records the digest that workspace.stale reported.
+    await local.write("docs/es/guide.md", spanish(sourceDigest))
+    expect((await local.status())[0]!.stale).toEqual([])
+  })
+
   it.each([
     { dir: "content", linked: "content", target: "" },
     { dir: "parent/content", linked: "parent", target: "content" },
@@ -483,6 +636,84 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(remoteApp.calls).toHaveLength(calls)
   })
 
+  it("keeps inherited file attributes on the first push to a fork", async () => {
+    const github = createFakeGitHub()
+    vi.stubGlobal("fetch", github.fetch)
+    github.commit("main", { "run.sh": { content: "echo published\n", mode: "100755" } })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "vitehub/content" } }, "content")
+    const attributes: unknown[] = []
+    registerWorkspace("content", { store, rules: { "**": { write: true, validate: (input) => {
+      attributes.push(input.metadata)
+      return input
+    } } } })
+    const local = await project(async (_url, init) => {
+      const { operation, input } = JSON.parse(String(init!.body)) as { operation: string, input: unknown }
+      const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+      return Response.json(result)
+    }, "fork-attributes")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    await local.write("run.sh", "echo local\n")
+
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect(attributes).toEqual([{ gitMode: "100755" }])
+    expect(github.tree("vitehub/content").find(file => file.path === "run.sh")).toMatchObject({ mode: "100755" })
+    expect(await local.read("run.sh")).toBe("echo local\n")
+  })
+
+  it.each([false, true])("reconciles validator output with the checkout baseline (restore base: %s)", async (restoreBase) => {
+    const remoteApp = await app(null, { "**": { write: true, validate: input => ({ ...input, content: restoreBase ? "BASE\n" : String(input.content).toUpperCase() }) } })
+    await remoteApp.edit({ put: { "note.txt": "BASE\n" } })
+    const local = await project(remoteApp.fetch, "normalized")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("note.txt", "edited\n")
+
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect(await local.read("note.txt")).toBe(await remoteApp.read("note.txt"))
+    expect((await local.status())[0]!.local).toEqual({ added: [], modified: [], deleted: [], conflicted: [] })
+    expect((await local.run("pull")).code).toBe(0)
+    expect(await local.read("note.txt")).toBe(restoreBase ? "BASE\n" : "EDITED\n")
+    expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
+  })
+
+  it("keeps edits made during a push as local changes against the validator output", async () => {
+    const remoteApp = await app(null, { "**": { write: true, validate: input => ({ ...input, content: String(input.content).toUpperCase() }) } })
+    await remoteApp.edit({ put: { "note.txt": "BASE\n" } })
+    const local = await project(async (url, init) => {
+      const response = await remoteApp.fetch(url, init)
+      if ((JSON.parse(String(init!.body)) as { operation: string }).operation === "workspace.commit") await local.write("note.txt", "edited again\n")
+      return response
+    }, "edit-during-push")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("note.txt", "edited\n")
+
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect(await remoteApp.read("note.txt")).toBe("EDITED\n")
+    expect(await local.read("note.txt")).toBe("edited again\n")
+    expect((await local.status())[0]!.local.modified).toEqual(["note.txt"])
+    expect((await local.run("pull")).code).toBe(0)
+    expect(await local.read("note.txt")).toBe("edited again\n")
+  })
+
+  it.each([
+    { command: "pull", args: ["content"] },
+    { command: "push", args: ["content"] },
+    { command: "pull", args: ["--dry-run"] },
+    { command: "push", args: [] },
+  ])("rejects a changed --url on $command $args before calling another remote", async ({ command, args }) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "note.txt": "base\n" } })
+    const local = await project(remoteApp.fetch, "remote-mismatch")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("note.txt", "local\n")
+    const before = await local.lock()
+    const calls = remoteApp.calls.length
+
+    expect(await local.run(command, ...args, "--url", "https://other.example.test")).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_OPTIONS") })
+    expect(remoteApp.calls).toHaveLength(calls)
+    expect(await local.lock()).toEqual(before)
+    expect(await local.read("note.txt")).toBe("local\n")
+  })
+
   it("keeps the media type and metadata of a file that a push replaces", async () => {
     const remoteApp = await app()
     const head = await remoteApp.history.head({ ref: "draft" })
@@ -530,6 +761,9 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
   })
 
   it.each([
+    { command: "push", error: "push accepts at most one Workspace name.", args: ["content", "accidental-extra"] },
+    { command: "pull", error: "pull accepts at most one Workspace name.", args: ["content", "accidental-extra"] },
+    { command: "pull", error: "pull accepts at most one Workspace name.", args: ["content", "accidental-extra", "--dry-run"] },
     { command: "push", error: "Unknown flag --dry-run.", args: ["--dry-run"] },
     { command: "push", error: "Unknown flag --mesage.", args: ["--mesage", "Typo"] },
     { command: "pull", error: "Unknown flag --theirs-all.", args: ["--theirs-all"] },
@@ -725,11 +959,60 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(results.map(result => result.code)).toEqual([0, 0])
     expect(Object.keys((await local.lock()).workspaces)).toEqual(["content", "notes"])
     expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
+  })
 
-    // A command that stopped while it wrote the lock left vitehub.lock.lock. After 30 seconds, the next command removes it.
-    await writeFile(join(local.rootDir, "vitehub.lock.lock"), "1\n")
-    await utimes(join(local.rootDir, "vitehub.lock.lock"), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
-    expect((await local.run("pull")).code).toBe(0)
-    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
+  it("keeps a live lock when it ages, so waiting commands preserve every Workspace entry", async () => {
+    const remoteApp = await app()
+    const local = await project(remoteApp.fetch, "aged-lock")
+    let entered!: () => void, resume!: () => void
+    const reached = new Promise<void>((resolve) => { entered = resolve })
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    pausedLockWrites.set(join(local.rootDir, "vitehub.lock"), { entered, resume: resumed })
+    const first = local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await reached
+    const mutex = join(local.rootDir, "vitehub.lock.lock")
+    await utimes(mutex, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+    const owner = await readFile(mutex, "utf8")
+    let completed = 0
+    const waiting = [1, 2].map(async () => {
+      const result = await local.run("pull", "notes", "--dir", "notes", "--ref", "draft", "--url", remote)
+      completed++
+      return result
+    })
+    try {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      expect(completed).toBe(0)
+      expect(await readFile(mutex, "utf8")).toBe(owner)
+    }
+    finally {
+      resume()
+      await Promise.all([first, ...waiting])
+    }
+    expect((await first).code).toBe(0)
+    expect((await Promise.all(waiting)).map(result => result.code)).toEqual([0, 0])
+    expect(Object.keys((await local.lock()).workspaces)).toEqual(["content", "notes"])
+    expect((await readdir(local.rootDir)).sort()).toEqual(["vitehub.lock"])
+  })
+
+  it("does not remove a replacement lock when the original acquisition finishes", async () => {
+    const remoteApp = await app()
+    const local = await project(remoteApp.fetch, "replaced-lock")
+    let entered!: () => void, resume!: () => void
+    const reached = new Promise<void>((resolve) => { entered = resolve })
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    pausedLockWrites.set(join(local.rootDir, "vitehub.lock"), { entered, resume: resumed })
+    const first = local.run("pull", "content", "--dir", "content", "--url", remote)
+    await reached
+    const mutex = join(local.rootDir, "vitehub.lock.lock")
+    try {
+      await rm(mutex)
+      await writeFile(mutex, "replacement-owner\n", { flag: "wx" })
+    }
+    finally {
+      resume()
+      await first
+    }
+    expect((await first).code).toBe(0)
+    expect(await readFile(mutex, "utf8")).toBe("replacement-owner\n")
   })
 })
