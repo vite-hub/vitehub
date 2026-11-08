@@ -246,4 +246,4 @@ export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Om
 export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
   ? AuthFor<TDefinition>
   : ViteHubAuth
-export type AuthModuleOptions = false | Record<string, never>
+export type AuthOptions = false | Record<string, never>

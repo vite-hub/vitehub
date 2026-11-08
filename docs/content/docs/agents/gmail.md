@@ -185,20 +185,21 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub()],
-  env: {
-    server: {
-      gmail: {
-        clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
-        refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
-        pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
-        pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
-        pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
-        pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+  plugins: [vitehub({
+    env: {
+      server: {
+        gmail: {
+          clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
+          refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
+          pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
+          pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
+          pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
+          pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 

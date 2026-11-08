@@ -54,8 +54,7 @@ import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv(), hubAuth()],
-  env: {
+  plugins: [hubEnv({
     server: {
       auth: {
         github: {
@@ -65,7 +64,7 @@ export default defineConfig({
         secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
       },
     },
-  },
+  }), hubAuth()],
 })
 ```
 
@@ -372,14 +371,13 @@ To persist Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-datab
 
 ## Vite Integration options
 
-`hubAuth()` accepts `false` to disable Auth integration. The Vite config key `auth` overrides the plugin argument.
+`hubAuth()` accepts `false` to disable Auth integration. Vite does not read a top-level `auth` key.
 
 ```ts [vite.config.ts]
 import { hubAuth } from '@vite-hub/auth/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubAuth()],
-  auth: false,
+  plugins: [hubAuth(false)],
 })
 ```

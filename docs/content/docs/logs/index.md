@@ -16,7 +16,7 @@ icon: i-lucide-logs
 
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'node', logs: true }),
+      vitehub({ preset: 'node', observability: { logs: true } }),
       nitro(),
     ],
   })

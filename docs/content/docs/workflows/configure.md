@@ -17,11 +17,11 @@ export default defineConfig({
 })
 ```
 
-The Vite config key is `workflow`.
+The `vitehub()` key is `workflow`. `hubWorkflow(options)` takes the same options.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowModuleOptions` | disabled, or enabled when `agent` is enabled | Enables Workflow discovery and provider output through `vitehub()` with `true` or an options object; `false` disables it. |
+| `workflow` | `boolean` or `WorkflowOptions` | disabled, or enabled when `agent` is enabled | Enables Workflow discovery and provider output through `vitehub()` with `true` or an options object; `false` disables it. |
 | `provider` | `WorkflowProvider` | inferred | Selects `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Provider binding name for generated output. |
 | `name` | `string` | discovered workflow name | Provider resource name override. |

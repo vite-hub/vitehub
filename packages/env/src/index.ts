@@ -7,10 +7,10 @@ export { describeServerEnv, inspectServerEnv, isBlockingServerEnvEntry, loadServ
 export type { StandardSchemaV1 } from "./schema.ts"
 export type { EnvErrorCode, EnvErrorDetails, EnvSourceIdentifier } from "./core/errors.ts"
 export type {
-  EnvConfigOptions,
+  EnvDeclarations,
   EnvDiagnosticEntry,
   EnvDiagnostics,
-  EnvIntegrationOptions,
+  EnvOptions,
   EnvProvider,
   EnvProviderContext,
   EnvProviders,
@@ -25,8 +25,6 @@ export type {
   EnvValueSchema,
   EnvVariableDeclaration,
   EnvVariableOptions,
-  EnvViteConfigOptions,
-  EnvViteUserConfig,
   LoadServerEnvOptions,
   DeepReadonly,
   PublicEnv,

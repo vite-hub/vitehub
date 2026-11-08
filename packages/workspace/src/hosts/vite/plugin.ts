@@ -32,7 +32,7 @@ import type { CollectedWorkspaceContribution } from "../../build/contributions.t
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -1177,7 +1177,7 @@ export interface WorkspaceNitroConfigOptions {
   plugins?: readonly unknown[]
   serverDirs?: string[]
   viteRoot?: string
-  workspace?: false | WorkspaceModuleOptions
+  workspace?: false | WorkspaceOptions
 }
 
 export type NitroConfig = {
@@ -1210,7 +1210,7 @@ function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
 }
 
-function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceModuleOptions | undefined): WorkspacePluginRoots {
+function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceOptions | undefined): WorkspacePluginRoots {
   const resolvedViteRoot = resolve(root)
   const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
     projectRoot: workspaceOptions ? workspaceOptions.projectRoot : undefined,
@@ -1387,13 +1387,13 @@ function hasNitroConfig(config: UserConfig): boolean {
   return "nitro" in config || hasNitroPlugin(config.plugins)
 }
 
-function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceModuleOptions | undefined): boolean {
+function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceOptions | undefined): boolean {
   return Boolean(options && (options.root || options.store))
 }
 
 function shouldInstallNitroWorkspacePlugin(
   config: UserConfig,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   normalized: ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
 ): boolean {
@@ -1441,7 +1441,7 @@ function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   return specifier.startsWith(".") ? specifier : `./${specifier}`
 }
 
-function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
+function shouldConfigureRuntime(options: false | WorkspaceOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
   return isHostedWorkspaceStore(normalized.store) || hasExplicitWorkspaceRuntimeOptions(options)
 }
 
@@ -1465,7 +1465,7 @@ function renderRuntimeValue(value: unknown, depth = 0): string {
 
 function runtimeWorkspaceConfig(
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   cloudflareRuntime: boolean,
 ): false | ResolvedWorkspaceModuleOptions {
   if (!cloudflareRuntime || !config || config.store.provider !== "github" || !options) return config
@@ -1556,7 +1556,7 @@ function renderNitroWorkspacePlugin(
 async function writeNitroWorkspacePlugin(
   root: string,
   config: false | ResolvedWorkspaceModuleOptions,
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   definitions: DiscoveredWorkspaceDefinition[],
   cloudflareRuntime = false,
   importBase = WORKSPACE_PACKAGE_NAME,
@@ -1638,12 +1638,12 @@ export function setWorkspaceVitePluginHosting(plugin: unknown, hosting: Workspac
   return true
 }
 
-interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
+interface InternalWorkspaceModuleOptions extends WorkspaceOptions {
   hosting?: WorkspacePluginHosting
   importBase?: string
 }
 
-function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions | undefined): false | WorkspaceModuleOptions | undefined {
+function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undefined): false | WorkspaceOptions | undefined {
   if (!options || (!Object.hasOwn(options, "hosting") && !Object.hasOwn(options, "importBase"))) return options
   const publicOptions = { ...options } as InternalWorkspaceModuleOptions
   delete publicOptions.hosting
@@ -1651,9 +1651,9 @@ function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions |
   return publicOptions
 }
 
-export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
-  let hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
-  const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
+export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
+  let hosting = (options ? options as InternalWorkspaceModuleOptions : undefined)?.hosting
+  const importBase = (options ? options as InternalWorkspaceModuleOptions : undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
@@ -1702,9 +1702,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     async config(config, env) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
       const resolvedHosting = resolveHostPreset({
         hosting: typeof hosting === "function" ? hosting() : hosting,
@@ -1752,9 +1750,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
-      const workspaceOptions = stripWorkspaceInternalOptions(
-        (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
-      )
+      const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
@@ -1937,8 +1933,3 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   }
 }
 
-declare module "vite" {
-  interface UserConfig {
-    workspace?: false | WorkspaceModuleOptions
-  }
-}

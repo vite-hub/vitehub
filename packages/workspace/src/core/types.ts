@@ -898,7 +898,7 @@ export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {
   name?: never
 }
 
-export interface WorkspaceModuleOptions {
+export interface WorkspaceOptions {
   root?: string
   projectRoot?: string
   assets?: boolean | string[]

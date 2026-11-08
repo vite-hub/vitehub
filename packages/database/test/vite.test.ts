@@ -12,7 +12,7 @@ import { drizzle } from "drizzle-orm/libsql"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer as createViteServer, type ViteDevServer } from "vite"
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_FEATURES, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { supportsHostedDatabaseRuntime } from "../src/internal/vite-build.ts"
@@ -110,8 +110,9 @@ describe("hubDb", () => {
     expect(plugin.vitehub?.inspect?.()).not.toHaveProperty("providerOutput")
 
     await writeDefinition(rootDir, "server/databases/config.ts")
-    await resolveConfigResolved(plugin)({ database: false, root: rootDir })
-    expect(plugin.vitehub?.inspect?.()).toBeUndefined()
+    const disabled = hubDb(false)
+    await resolveConfigResolved(disabled)({ root: rootDir })
+    expect(disabled.vitehub?.inspect?.()).toBeUndefined()
   })
 
   it.each([
@@ -808,7 +809,7 @@ describe("hubDb", () => {
       },
     })
     const configResolved = resolveConfigResolved(plugin)
-    await configResolved({ database: undefined, root: await createTempProject() })
+    await configResolved({ [VITEHUB_FEATURES]: { database: undefined }, root: await createTempProject() })
 
     // SAFETY: These are Vite hook handlers returned by hubDb.
     const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
@@ -868,8 +869,8 @@ describe("hubDb", () => {
   it("emits prototype-named databases as own virtual registry entries", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "src/__proto__.database.ts")
-    const plugin = hubDb()
-    await resolveConfigResolved(plugin)({ database: undefined, root: rootDir })
+    const plugin = hubDb(undefined)
+    await resolveConfigResolved(plugin)({ root: rootDir })
 
     // SAFETY: These are Vite hook handlers returned by hubDb.
     const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
@@ -893,7 +894,7 @@ describe("hubDb", () => {
     const configure = plugin.config as (config: unknown, env: unknown) => void
     configure({ [VITEHUB_SERVER_DIRS]: [join(rootDir, "server")] }, { command: "serve", mode: "test" })
     const configResolved = resolveConfigResolved(plugin)
-    await configResolved({ database: undefined, root: rootDir })
+    await configResolved({ [VITEHUB_FEATURES]: { database: undefined }, root: rootDir })
 
     expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
     await expect(readFile(join(projectRoot, ".vitehub/database/schema/default.ts"), "utf8"))
@@ -911,7 +912,7 @@ describe("hubDb", () => {
 
     const plugin = hubDb({ projectRoot: "packages/db" })
     const configResolved = resolveConfigResolved(plugin)
-    await configResolved({ database: undefined, root: rootDir })
+    await configResolved({ [VITEHUB_FEATURES]: { database: undefined }, root: rootDir })
 
     expect(plugin.api.getConfig()?.databases.default?.cloudflare?.databaseId).toBe("provisioned-database-id")
     expect(plugin.api.getConfig()?.definitionDefaults.cloudflareProjections.default).toEqual({
@@ -1149,9 +1150,9 @@ describe("hubDb", () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
 
-    const plugin = hubDb()
+    const plugin = hubDb(false)
     const configResolved = resolveConfigResolved(plugin)
-    await configResolved({ database: false, root: rootDir })
+    await configResolved({ root: rootDir })
 
     expect(plugin.api.getConfig()).toBeUndefined()
   })
@@ -1160,9 +1161,9 @@ describe("hubDb", () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
 
-    const plugin = hubDb()
+    const plugin = hubDb(false)
     const configResolved = resolveConfigResolved(plugin)
-    await configResolved({ database: false, root: rootDir })
+    await configResolved({ root: rootDir })
 
     await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
   })
@@ -1171,9 +1172,9 @@ describe("hubDb", () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
 
-    const plugin = hubDb()
+    const plugin = hubDb({ cli: false })
     const configResolved = resolveConfigResolved(plugin)
-    await configResolved({ database: { cli: false }, root: rootDir })
+    await configResolved({ root: rootDir })
 
     const contributor = await resolveCliContributor(plugin)
     expect(contributor?.namespaces).toEqual([])
@@ -1210,7 +1211,7 @@ describe("hubDb", () => {
     expect(generatedTypes).toContain("type DefaultDatabaseSchema = typeof database_0.schema")
     expect(generatedTypes).toContain('declare module "#vitehub/database/schema" {\n  interface DatabaseSchema extends DefaultDatabaseSchema {}')
 
-    await configResolved({ database: false, root: rootDir })
+    await resolveConfigResolved(hubDb(false))({ root: rootDir })
     await expect(readFile(generatedTypesFile, "utf8")).resolves.toBe("export {}\n")
   })
 

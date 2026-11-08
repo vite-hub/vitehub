@@ -6,7 +6,7 @@ navigation.order: 50
 navigation.kind: Guides
 ---
 
-Configure observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
+Configure observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog. `service` turns on the Agent telemetry on this page and installs `useObservability()`; without it, `observability` registers only Evlog and the [Logs](/docs/logs) source in `observability.logs`.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -56,7 +56,7 @@ observability.exception(error, { operation: 'import' })
 observability.status() // { configured, accepted, failed, dropped, pending, closed, papercuts? }
 ```
 
-`useObservability()` throws when `vitehub({ observability })` is not set. The Capability emits one terminal `$ai_trace` event per invocation through the Agent telemetry lifecycle, including failed preparation. Terminal events include duration, invocation identity, available usage and cost, and completion status. Streaming usage updates do not emit extra terminal events. Internal Agent events bypass the global drain when an exporter is set, to avoid duplicate exports.
+`useObservability()` throws when `vitehub({ observability })` has no `service`. The Capability emits one terminal `$ai_trace` event per invocation through the Agent telemetry lifecycle, including failed preparation. Terminal events include duration, invocation identity, available usage and cost, and completion status. Streaming usage updates do not emit extra terminal events. Internal Agent events bypass the global drain when an exporter is set, to avoid duplicate exports.
 
 Hosts without `vitehub()` call `installObservability(options)` from `@vite-hub/agent/observability/host` and pass the returned plugin the Nitro app. `posthog(options)` from `@vite-hub/agent/observability/posthog` creates the exporter.
 

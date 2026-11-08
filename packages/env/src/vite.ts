@@ -9,6 +9,7 @@ import {
   createViteHubEnvImportAliases,
   resolveViteHubProjectRoot,
   VITEHUB_ENV_PUBLIC_ID,
+  VITEHUB_ENV_SERVER,
   VITEHUB_ENV_SERVER_ID,
   viteHubEnvAmbientTypesPath,
   viteHubEnvDescriptionModulePath,
@@ -37,13 +38,12 @@ export { envSchema } from "./env-schema/index.ts"
 export type { EnvSchemaOptions } from "./env-schema/index.ts"
 
 import type {
-  EnvIntegrationOptions,
+  EnvDeclarations,
+  EnvOptions,
   EnvRuntimeConfigOptions,
   EnvRuntimeImportSpecifiers,
   EnvRuntimeRegistry,
   EnvRuntimeRegistryValue,
-  EnvViteConfigOptions,
-  EnvViteUserConfig,
 } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin, UserConfig } from "vite"
@@ -71,8 +71,34 @@ export interface EnvVitePluginAPI {
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
   onServerEnvRegistry: (handler: (registry: EnvRuntimeRegistry, config: UserConfig) => void) => void
-  prepareTypes: (config: EnvViteConfigOptions | undefined, viteRoot: string) => Promise<void>
+  prepareTypes: (declarations: EnvDeclarations | undefined, viteRoot: string) => Promise<void>
+  /** The declarations of this plugin's options, with the Server Env that ViteHub features add to this Vite config. */
+  resolveDeclarations: (config: object) => EnvDeclarations | undefined
   resolveProjectRoot: (viteRoot: string) => string
+}
+
+// A nested group is a plain object that is not an env() declaration.
+function isDeclarationGroup(value: unknown): value is EnvRuntimeConfigOptions {
+  return Object.prototype.toString.call(value) === "[object Object]"
+    && Reflect.get(Object(value), "kind") !== "env-variable"
+}
+
+function resolveDeclarations(options: EnvDeclarations, config: object): EnvDeclarations | undefined {
+  const contributed: unknown = Reflect.get(config, VITEHUB_ENV_SERVER)
+  let server = options.server
+  if (isDeclarationGroup(contributed)) {
+    server = { ...contributed }
+    for (const [key, value] of Object.entries(options.server ?? {})) {
+      const base = server[key]
+      server[key] = isDeclarationGroup(base) && isDeclarationGroup(value) ? { ...base, ...value } : value
+    }
+  }
+  if (!options.define && !options.public && !server) return undefined
+  return {
+    ...(options.define ? { define: options.define } : {}),
+    ...(options.public ? { public: options.public } : {}),
+    ...(server ? { server } : {}),
+  }
 }
 
 export type EnvVitePlugin = Plugin & {
@@ -111,7 +137,8 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
   }
 }
 
-export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
+export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
+  validateEnvConfigShape(options, "vite")
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   const resolvedStates = new Map<string, ResolvedEnvState>()
@@ -127,16 +154,15 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   const createServerEnvRegistry = (declarations: EnvRuntimeConfigOptions | undefined) => createRuntimeRegistry(declarations, { prefix: options.prefix })
   const resolveProjectRoot = (viteRoot: string) => resolveViteHubProjectRoot(resolve(viteRoot), { projectRoot: options.projectRoot })
   const runtimeImports = resolveRuntimeImports(options.runtimeImports)
-  const prepareTypes = async (config: EnvViteConfigOptions | undefined, viteRoot: string) => {
+  const prepareTypes = async (declarations: EnvDeclarations | undefined, viteRoot: string) => {
     const root = resolveProjectRoot(viteRoot)
     const packageRoot = await resolvePackageRoot(viteRoot, root)
-    const registry = createRuntimeRegistry(config?.server, { prefix: options.prefix })
+    const registry = createRuntimeRegistry(declarations?.server, { prefix: options.prefix })
     assertConfiguredProviders(registry, resolveProviderModules(options.providers, root))
-    await prepareEnvGeneratedTypes(root, packageRoot, config?.public, registry, runtimeImports)
+    await prepareEnvGeneratedTypes(root, packageRoot, declarations?.public, registry, runtimeImports)
   }
-  const resolveState = async (config: UserConfig & EnvViteUserConfig, mode: string, developmentSecret?: string, developmentSecretGenerated?: boolean, developmentSecretEnvKey?: string) => {
-    const envConfig = config.env
-    validateEnvConfigShape(envConfig, "vite")
+  const resolveState = async (config: UserConfig, mode: string, developmentSecret?: string, developmentSecretGenerated?: boolean, developmentSecretEnvKey?: string) => {
+    const envConfig = resolveDeclarations(options, config)
     const projectRoot = resolveProjectRoot(config.root || process.cwd())
     const providerModules = resolveProviderModules(options.providers, projectRoot)
     if (!envConfig) {
@@ -205,6 +231,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       getServerEnvRegistry,
       onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),
       prepareTypes,
+      resolveDeclarations: config => resolveDeclarations(options, config),
       resolveProjectRoot,
     },
     vitehub: {
@@ -222,9 +249,8 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         developmentSecretEnvKey = resolvedSecret.envKey
         if (developmentSecretEnvKey) process.env[developmentSecretEnvKey] = developmentSecret
       }
-      const envConfig = (config as UserConfig & EnvViteUserConfig).env
-      // SAFETY: Env extends UserConfig with the optional env field validated by resolveState.
-      const { defineValues, state } = await resolveState(config as UserConfig & EnvViteUserConfig, env.mode, developmentSecret, developmentSecretGenerated, developmentSecretEnvKey)
+      const envConfig = resolveDeclarations(options, config)
+      const { defineValues, state } = await resolveState(config, env.mode, developmentSecret, developmentSecretGenerated, developmentSecretEnvKey)
       buildPublicConfig = state.publicConfig
       serverRegistry = state.serverRegistry
       const configStateId = String(++configStateSequence)
@@ -337,7 +363,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 async function prepareEnvGeneratedTypes(
   root: string,
   packageRoot: string | undefined,
-  publicConfig: EnvViteConfigOptions["public"],
+  publicConfig: EnvDeclarations["public"],
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
 ): Promise<void> {
@@ -740,7 +766,7 @@ function createReadonlyServerEnvTypes(indent: number, secretType: string): strin
   ]
 }
 
-function createPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"], resolvedValues?: Record<string, unknown>): Record<string, string> {
+function createPublicTypeEntries(publicConfig: EnvDeclarations["public"], resolvedValues?: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => {
     const valueSchema = runtimeValueSchema(declaration)
     const fallbackValue = resolvedValues
@@ -804,8 +830,3 @@ function literalType(value: unknown): string {
   }
 }
 
-declare module "vite" {
-  interface UserConfig {
-    env?: EnvViteConfigOptions
-  }
-}

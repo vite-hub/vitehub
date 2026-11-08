@@ -15,7 +15,7 @@ afterEach(async () => {
 })
 
 async function wranglerFor(
-  publicUrl: Parameters<typeof vitehub>[0]["publicUrl"],
+  publicUrl: NonNullable<Parameters<typeof vitehub>[0]>["publicUrl"],
   wrangler: Record<string, unknown> = {},
   { command = "build", preset = "cloudflare", appRoot = root }: { appRoot?: string, command?: "build" | "serve", preset?: "cloudflare" | "node" } = {},
 ) {

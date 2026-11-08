@@ -148,17 +148,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', auth: true })],
-  env: {
-    server: {
-      auth: {
-        github: {
-          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
-          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
         },
       },
     },
-  },
+  })],
 })
 ```
 

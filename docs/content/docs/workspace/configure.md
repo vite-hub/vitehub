@@ -19,14 +19,14 @@ export default defineConfig({
 })
 ```
 
-The Vite config key is `workspace`.
+The `vitehub()` key is `workspace`. `hubWorkspace(options)` takes the same options.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workspace` | `boolean` or `WorkspaceModuleOptions` | disabled | Enables Workspace discovery and runtime wiring through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
+| `workspace` | `boolean` or `WorkspaceOptions` | disabled | Enables Workspace discovery and runtime wiring through `vitehub()` with `true` or an options object; `false` leaves it disabled. |
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
 | `projectRoot` | `string` | ViteHub project root | Resolves server-side discovery from a custom project root. |
-| `assets` | `WorkspaceModuleOptions['assets']` | package default | Controls build-time Workspace asset materialization. Accepts `false`, `true`, or explicit asset paths. |
+| `assets` | `WorkspaceOptions['assets']` | package default | Controls build-time Workspace asset materialization. Accepts `false`, `true`, or explicit asset paths. |
 | `store` | `WorkspaceStoreOptions` | inferred from development mode, hosting, and environment | Default Workspace Store used by definitions that do not choose one. |
 
 ## Store providers

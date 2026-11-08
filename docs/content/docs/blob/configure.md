@@ -15,13 +15,12 @@ import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
+  plugins: [hubBlob({
     stores: {
       default: { driver: 'fs' },
       reports: { driver: 'vercel-blob', access: 'private' },
     },
-  },
+  })],
 })
 ```
 
@@ -45,8 +44,7 @@ import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubBlob()],
-  blob: { remote: true },
+  plugins: [hubBlob({ remote: true })],
 })
 ```
 
@@ -120,11 +118,10 @@ import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
+  plugins: [hubBlob({
     driver: 'fs',
     serve: true,
-  },
+  })],
 })
 ```
 
@@ -137,8 +134,7 @@ import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
+  plugins: [hubBlob({
     driver: 's3',
     bucket: 'app-assets',
     serve: {
@@ -148,7 +144,7 @@ export default defineConfig({
         'X-Content-Type-Options': 'nosniff',
       },
     },
-  },
+  })],
 })
 ```
 
@@ -171,12 +167,11 @@ import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
+  plugins: [hubBlob({
     driver: 'fs',
     serve: true,
     images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
-  },
+  })],
 })
 ```
 

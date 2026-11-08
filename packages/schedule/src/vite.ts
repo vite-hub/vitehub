@@ -75,7 +75,7 @@ export interface ScheduleProcessRuntimeOptions {
   prefix?: string
 }
 
-export interface ScheduleVitePluginOptions {
+export interface ScheduleOptions {
   /**
    * Cron per Schedule name for this build's host, in place of the cron that the Schedule declares. Set it in the
    * host's build config, such as `{ cleanup: "0 0 * * *" }` for Vercel Hobby, which runs cron jobs at most once a day.
@@ -86,7 +86,7 @@ export interface ScheduleVitePluginOptions {
   runtime?: ScheduleProcessRuntimeOptions
 }
 
-export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
+export interface ScheduleNitroConfigOptions extends ScheduleOptions {
   command?: "build" | "serve"
   /** @internal Resolve generated Nitro registrations from the ViteHub project root. */
   nitroOwnsPaths?: boolean
@@ -105,7 +105,7 @@ interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions 
   preliminary?: boolean
 }
 
-interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
+interface InternalScheduleVitePluginOptions extends ScheduleOptions {
   importBase?: string
   providerImportAliases?: Record<string, string>
   runtimeImport?: string
@@ -146,7 +146,7 @@ type ViteConfigWithNitro = Omit<UserConfig, "nitro"> & {
   nitro?: NitroConfig
 }
 
-function resolveSchedulePluginRoots(root: string, options: Pick<ScheduleVitePluginOptions, "projectRoot"> = {}) {
+function resolveSchedulePluginRoots(root: string, options: Pick<ScheduleOptions, "projectRoot"> = {}) {
   const resolvedViteRoot = resolve(root)
   const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
     projectRoot: options.projectRoot,
@@ -191,7 +191,7 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
 function resolveCronOverrides(
   value: unknown,
   definitions: DiscoveredScheduleDefinition[] | undefined,
-  options: Pick<ScheduleVitePluginOptions, "providerOutput" | "runtime">,
+  options: Pick<ScheduleOptions, "providerOutput" | "runtime">,
 ): ScheduleCronOverrides | undefined {
   if (value === undefined) return
   if (!isRecord(value) || Array.isArray(value)) {
@@ -590,23 +590,23 @@ function hasViteSuffixScheduleDefinitions(definitions: DiscoveredScheduleDefinit
   return definitions.some(definition => definition.source === "vite-suffix")
 }
 
-function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition[] {
+function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition[] {
   if (options.providerOutput === false || options.providerOutput === "standalone") return []
   if (options.providerOutput === "nitro") return definitions
   return definitions.filter(isServerScheduleDefinition)
 }
 
-function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition["source"] | undefined {
+function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition["source"] | undefined {
   if (options.providerOutput === "auto" || options.providerOutput === undefined) {
     return hasServerScheduleDefinitions(definitions) ? "vite-suffix" : undefined
   }
 }
 
-function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
+function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): boolean {
   return selectNitroScheduleDefinitions(definitions, options).length > 0 || options.runtime !== undefined
 }
 
-function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
+function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): boolean {
   if (options.providerOutput === false || options.providerOutput === "nitro") return false
   if (options.providerOutput === "standalone") return definitions.length > 0
   if (hasServerScheduleDefinitions(definitions)) return hasViteSuffixScheduleDefinitions(definitions)
@@ -675,7 +675,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   })
 }
 
-export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
+export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   const internalOptions = options as InternalScheduleVitePluginOptions
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true

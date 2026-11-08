@@ -1,5 +1,5 @@
 import { ensureGeneratedDir } from '@vite-hub/internal/build/paths'
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
+import { createNoExternalAddition, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
@@ -26,7 +26,7 @@ export { discoverSandboxTaskDefinitions } from './discovery'
 export type { DiscoveredSandboxTaskDefinition } from './discovery'
 export { inspectSandboxTaskDefinitions, type SandboxTaskInspectionOptions, sandboxTaskConsoleSection } from './inspect'
 
-export type SandboxTaskPublicOptions = AgentSandboxTaskConfig | false
+export type SandboxTaskOptions = AgentSandboxTaskConfig | false
 export type SandboxTaskVitePlugin = Plugin & {
   vitehub: ViteHubInspectionPluginMetadata
   nitro: {
@@ -217,9 +217,9 @@ async function resolveGeneratedSandboxTaskModuleIds(files: string[]) {
   return Promise.all(files.map(async file => normalize(await realpath(file).catch(() => file))))
 }
 
-function publicSandboxTaskOptions(options: AgentSandboxTaskConfig & SandboxTaskViteInternalOptions): SandboxTaskPublicOptions {
+function publicSandboxTaskOptions(options: AgentSandboxTaskConfig & SandboxTaskViteInternalOptions): SandboxTaskOptions {
   // SAFETY: Removing the two package-private integration fields leaves the declared public Sandbox options.
-  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxTaskPublicOptions
+  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxTaskOptions
 }
 
 function mutableSandboxTaskNitroTarget(value: unknown): Parameters<typeof configureCloudflareSandboxNitro>[0] {
@@ -227,9 +227,9 @@ function mutableSandboxTaskNitroTarget(value: unknown): Parameters<typeof config
   return value as Parameters<typeof configureCloudflareSandboxNitro>[0]
 }
 
-export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskVitePlugin {
+export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlugin {
   // SAFETY: ViteHub adds these package-private integration fields before composing the Sandbox plugin.
-  const internalOptions = options as SandboxTaskPublicOptions & SandboxTaskViteInternalOptions | undefined
+  const internalOptions = options as SandboxTaskOptions & SandboxTaskViteInternalOptions | undefined
   const integrationOptions = internalOptions
     ? publicSandboxTaskOptions(internalOptions)
     : internalOptions
@@ -367,7 +367,7 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
       rawConfig = config as Record<string, unknown>
       rawEnv = env
       const prepared = await prepareCurrentSandboxTaskRuntime(false)
-      sandboxTaskEnabled = rawConfig.sandboxTask !== false && integrationOptions !== false
+      sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       watchFiles = prepared.watchFiles
@@ -405,7 +405,7 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
     async configResolved(config) {
       resolvedConfig = config
       const prepared = await refreshSandboxTaskRuntime()
-      sandboxTaskEnabled = rawConfig.sandboxTask !== false && integrationOptions !== false
+      sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       selectedProvider = prepared.provider
       const composed = await composeCloudflareSandbox(config, prepared, true)
       if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
@@ -462,8 +462,3 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
   }
 }
 
-declare module 'vite' {
-  interface UserConfig {
-    sandboxTask?: SandboxTaskPublicOptions
-  }
-}

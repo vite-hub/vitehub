@@ -72,8 +72,6 @@ export default defineConfig({
     providers: {
       credentials: './server/env/credentials.ts',
     },
-  })],
-  env: {
     server: {
       credentialsGatewayKey: env({ secret: true }),
       codexAuthJson: env({
@@ -85,7 +83,7 @@ export default defineConfig({
         source: env.provider('credentials', 'github/token'),
       }),
     },
-  },
+  })],
 })
 ```
 

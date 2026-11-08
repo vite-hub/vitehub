@@ -15,10 +15,9 @@ import { hubQueue } from '@vite-hub/queue/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubQueue()],
-  queue: {
+  plugins: [hubQueue({
     provider: 'cloudflare',
-  },
+  })],
 })
 ```
 

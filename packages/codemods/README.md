@@ -36,6 +36,27 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+
+## `vitehub-options`
+
+`vitehub()` is the only config place, and `logs` is part of `observability`. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
+
+| Old | New |
+| --- | --- |
+| `vitehub({ logs: true })` | `vitehub({ observability: { logs: true } })` |
+| `logs: { evlog, source }` | `observability: { evlog, logs: { source } }` |
+| `defineConfig({ env: { server }, plugins: [vitehub()] })` | `vitehub({ env: { server } })` |
+| `defineConfig({ env, plugins: [hubEnv()] })` | `hubEnv({ ...declarations })` |
+| `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
+| A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKv()` |
+| `contentImportBase` | removed |
+
+The report lists what the codemod cannot move: a `logs` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+
+```sh
+npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
+```
 
 ## `nuxt-safe-runtime-config`
 

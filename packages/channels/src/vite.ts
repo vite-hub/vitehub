@@ -20,7 +20,7 @@ export const CHANNELS_VITE_PLUGIN_NAME = "@vite-hub/channels/vite"
 const resolvedChannelsRegistryId = `\0${CHANNELS_REGISTRY_ID}`
 const noExternalAddition = createNoExternalAddition("@vite-hub/channels")
 
-export interface ChannelsVitePluginOptions {
+export interface ChannelsOptions {
   projectRoot?: string
 }
 
@@ -104,7 +104,7 @@ function isChannelDefinitionFile(file: string, projectRoot: string, serverDirs: 
   })
 }
 
-export function hubChannels(options: ChannelsVitePluginOptions = {}): ChannelsVitePlugin {
+export function hubChannels(options: ChannelsOptions = {}): ChannelsVitePlugin {
   let resolved: ResolvedConfig | undefined
   let definitions: DiscoveredChannelDefinition[] = []
   let serverDirs: string[] | undefined

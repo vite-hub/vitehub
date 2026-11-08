@@ -8,15 +8,14 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure Env
 
-Add `hubEnv()` and declare values in the Vite config. `env.public` becomes browser-safe Public Env, `env.define` becomes Vite replacements, and `env.server` becomes Server Env for server runtime code.
+Declare values in `vitehub({ env })`, or in `hubEnv(options)` without `vite-hub`. `env.public` becomes browser-safe Public Env, `env.define` becomes Vite replacements, and `env.server` becomes Server Env for server runtime code.
 
 ```ts [vite.config.ts]
 import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     public: {
       appName: env({ default: 'Acme', mode: 'build' }),
     },
@@ -28,13 +27,13 @@ export default defineConfig({
         token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
       },
     },
-  },
+  })],
 })
 ```
 
 ## Integration options
 
-Pass Integration Options to `hubEnv()`.
+Pass these options next to the declarations, in `vitehub({ env })` or `hubEnv()`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -77,8 +76,7 @@ import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     server: {
       labeller: {
         dryRun: env.boolean({ default: true }),
@@ -87,7 +85,7 @@ export default defineConfig({
         apiKey: env({ secret: true }),
       },
     },
-  },
+  })],
 })
 ```
 
@@ -122,8 +120,7 @@ import { envSchema, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: envSchema(new URL('./.env.example', import.meta.url)),
+  plugins: [hubEnv(envSchema(new URL('./.env.example', import.meta.url)))],
 })
 ```
 

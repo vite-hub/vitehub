@@ -68,7 +68,7 @@ export interface SourceGenerationOptions {
 
 export interface SourceVitePluginOptions {
   /** Pass Auth's `withAuthorization` to generated Collection routes when the Auth Vite plugin has a Definition. */
-  auth?: boolean | ((input: { configuredAuth?: boolean, projectRoot: string, serverDirs?: string[] }) => boolean)
+  auth?: boolean | ((input: { projectRoot: string, serverDirs?: string[] }) => boolean)
   contentImportBase?: string
   importBase?: string
 }
@@ -109,7 +109,6 @@ interface NitroRouteGuard {
 }
 
 interface SourcePluginConfig {
-  auth?: false | Record<string, never>
   base?: string
   define?: Record<string, string>
   nitro?: unknown
@@ -1289,7 +1288,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   const nitroHandlers: GeneratedSourceHandler[] = []
   let latestProjectRoot: string | undefined
   const configuredStateByRoot = new Map<string, {
-    configuredAuth?: boolean
     handlerKey: string
     nitroContribution?: NitroGeneratedConfig
     serverDirs?: string[]
@@ -1315,18 +1313,13 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }>()
   const prepareSources = (
     input: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">,
-    configuredAuth?: boolean,
   ) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
     const runPreparation = () => {
-      const configuredState = configuredStateByRoot.get(root)
-      const resolvedConfiguredAuth = configuredAuth === undefined
-        ? configuredState?.configuredAuth
-        : configuredAuth
       const auth = typeof options.auth === "function"
-        ? options.auth({ configuredAuth: resolvedConfiguredAuth, projectRoot: root, serverDirs: input.serverDirs })
-        : options.auth && resolvedConfiguredAuth !== false && Boolean(refreshAuthByRoot.get(root)?.())
+        ? options.auth({ projectRoot: root, serverDirs: input.serverDirs })
+        : options.auth && Boolean(refreshAuthByRoot.get(root)?.())
       return prepareSourceArtifacts({
         ...input,
         auth,
@@ -1475,11 +1468,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         const previousConfiguredState = configuredStateByRoot.get(projectRoot)
         previousLifecycle?.pause()
         try {
-          const handlers = await prepareSources({ projectRoot, serverDirs }, viteConfig.auth === false ? false : viteConfig.auth ? true : undefined)
+          const handlers = await prepareSources({ projectRoot, serverDirs })
           const handlerKey = await generatedHandlerKey(handlers)
           const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
           configuredStateByRoot.set(projectRoot, {
-            configuredAuth: viteConfig.auth === false ? false : viteConfig.auth ? true : undefined,
             handlerKey,
             nitroContribution: nitro,
             serverDirs: serverDirs?.slice(),
@@ -1536,7 +1528,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const runTransition = async () => {
         const configuredState = configuredStateByRoot.get(projectRoot)
         const serverDirs = viteConfig[VITEHUB_SERVER_DIRS] ?? configuredState?.serverDirs
-        const handlers = await prepareSources({ projectRoot, serverDirs }, viteConfig.auth === false ? false : viteConfig.auth ? true : undefined)
+        const handlers = await prepareSources({ projectRoot, serverDirs })
         const handlerKey = await generatedHandlerKey(handlers)
         if (nitroHost && !viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
           // Nitro initializes before post-enforced config hooks. Reconcile its routes once
@@ -1554,7 +1546,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           nitroHost.routing.sync()
         }
         configuredStateByRoot.set(projectRoot, {
-          configuredAuth: viteConfig.auth === false ? false : viteConfig.auth ? true : undefined,
           handlerKey,
           nitroContribution: configuredState?.nitroContribution,
           serverDirs: serverDirs?.slice(),

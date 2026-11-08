@@ -58,7 +58,6 @@ const developerInputs: Record<string, readonly string[]> = {
   "blob.driver": ["--option", "blob.driver=s3", "--option", "blob.bucket=app-assets"],
   "console.auth": ["--option", "console.auth=false"],
   "database.connection": ["--option", "database.connection.url=libsql://example.com"],
-  "logs.source": ["--option", "logs.source=./server/logs.ts"],
   "workspace.store": ["--option", "workspace.store.provider=github", "--option", "workspace.store.repository=owner/repo"],
 }
 

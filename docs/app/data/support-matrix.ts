@@ -256,12 +256,7 @@ const applicationFeatures: SupportMatrixGroup = {
       "Variables are validated at build and in the Nitro output of the selected preset.",
       "Nitro runtime",
     )),
-    featureRow("logs", "Log sources and the development buffer", cell(
-      "package",
-      "Logs read the log source that the app configures for the deployment host.",
-      "Host source",
-    )),
-    featureRow("observability", "Agent telemetry and request logs", cell(
+    featureRow("observability", "Request logs, log sources, and Agent telemetry", cell(
       "package",
       "Evlog runs in the Nitro output of the selected preset.",
       "Evlog",

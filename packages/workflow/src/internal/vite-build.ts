@@ -24,7 +24,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
-import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Plugin as VitePlugin } from "vite"
@@ -593,7 +593,7 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "runtime/vercel-vite", factory: "createWorkflowVercelServer", hosting: "vercel" },
 ]
 
-function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
+function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
   return normalizeWorkflowOptions(workflow, { hosting }) ?? false
 }
 
@@ -601,7 +601,7 @@ function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, host
  * The Provider Output that a build writes. Without a host, both outputs are written.
  * Only Vercel deploys the Vercel output, so other hosts skip it.
  */
-export function resolveWorkflowProviderOutputs(workflow: WorkflowModuleOptions | undefined, hosting?: string): {
+export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string): {
   cloudflare: false | ResolvedWorkflowOptions
   vercel: false | ResolvedWorkflowOptions
 } {
@@ -642,7 +642,7 @@ interface GenerateProviderOutputsOptions {
   serverFunctionName?: string
   sourceRootDir?: string
   includeUserAppEntry?: boolean
-  workflow: WorkflowModuleOptions | undefined
+  workflow: WorkflowOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
   transformRegistry?: (code: string, id: string) => string | Promise<string>
@@ -679,7 +679,7 @@ interface CloudflareWorkflowNitroOptions {
   rootDir: string
   serverDirs?: string[]
   includeUserAppEntry?: boolean
-  workflow: WorkflowModuleOptions | undefined
+  workflow: WorkflowOptions | undefined
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -1112,7 +1112,7 @@ function renderProviderEntry(
 
 export async function writeProviderEntries(
   rootDir: string,
-  workflow: WorkflowModuleOptions | undefined,
+  workflow: WorkflowOptions | undefined,
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
   includeUserAppEntry = true,

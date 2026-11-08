@@ -2398,7 +2398,7 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
-export interface AgentModuleOptions {
+export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions

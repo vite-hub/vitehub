@@ -169,12 +169,11 @@ import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
+  plugins: [hubBlob({
     driver: 'cloudflare-r2',
     serve: true,
     images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
-  },
+  })],
 })
 ```
 
@@ -195,12 +194,11 @@ import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
+  plugins: [hubBlob({
     driver: 'cloudflare-r2',
     serve: true,
     images: { transformer: 'photon' },
-  },
+  })],
 })
 ```
 

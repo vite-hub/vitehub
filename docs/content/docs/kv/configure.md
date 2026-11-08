@@ -15,13 +15,12 @@ import { hubKv } from '@vite-hub/kv/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubKv()],
-  kv: {
+  plugins: [hubKv({
     stores: {
       default: { driver: 'fs-lite' },
       rateLimit: { driver: 'upstash' },
     },
-  },
+  })],
 })
 ```
 

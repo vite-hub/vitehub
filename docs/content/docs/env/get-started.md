@@ -29,12 +29,11 @@ import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     public: {
       appName: env({ default: 'Acme', mode: 'build' }),
     },
-  },
+  })],
 })
 ```
 

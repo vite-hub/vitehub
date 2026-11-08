@@ -23,7 +23,7 @@ import type {
   DatabaseConfigValue,
   DatabaseConnectionConfig,
   DatabaseDialect,
-  DBModulePublicOptions,
+  DatabaseOptions,
   DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
   ResolvedCloudflareHyperdriveConfig,
@@ -882,7 +882,7 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
 }
 
 export function resolveDBViteConfig(
-  options?: DBModulePublicOptions,
+  options?: DatabaseOptions,
   rootDir = process.cwd(),
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */

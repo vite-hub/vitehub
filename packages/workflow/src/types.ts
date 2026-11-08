@@ -75,7 +75,7 @@ export type WorkflowModuleProviderOptions =
   | InferredWorkflowProviderOptions
   | WorkflowProviderOptions
 
-export type WorkflowModuleOptions =
+export type WorkflowOptions =
   | false
   | WorkflowModuleProviderOptions
 

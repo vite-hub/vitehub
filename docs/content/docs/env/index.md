@@ -14,8 +14,7 @@ icon: i-lucide-key-round
   import { defineConfig } from 'vite'
 
   export default defineConfig({
-    plugins: [hubEnv()],
-    env: {
+    plugins: [hubEnv({
       // Safe to show in the browser
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -30,7 +29,7 @@ icon: i-lucide-key-round
         },
         dryRun: env.boolean({ default: true }),
       },
-    },
+    })],
   })
   ```
 

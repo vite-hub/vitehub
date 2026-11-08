@@ -6,12 +6,12 @@ import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOpt
 
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
 
-import type { AuthModuleOptions } from "./types.ts"
+import type { AuthOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface AuthNuxtModuleOptions {
-  auth?: AuthModuleOptions
+  auth?: AuthOptions
   env?: false | { projectRoot?: string }
   importsFrom?: string
   nitro?: boolean
@@ -36,7 +36,6 @@ type NuxtLike = {
     rootDir?: string
     serverDir?: string
     vite?: {
-      auth?: AuthModuleOptions
       define?: Record<string, unknown>
       plugins?: unknown[]
       root?: string
@@ -91,7 +90,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       // available during Nitro setup.
       const configRoot = resolve(viteRoot)
       const serverDirs = resolveNuxtServerDirs(nuxt.options)
-      const authOptions = nuxt.options.vite?.auth ?? options.auth
+      const authOptions = options.auth
       const definitionHandler = (
         resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
         ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
@@ -106,7 +105,6 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
         nitro: nitroConfig,
         projectRoot: viteRoot,
         serverDirs: resolveNuxtServerDirs(nuxt.options),
-        viteAuth: nuxt.options.vite?.auth,
       }))
     })
   }

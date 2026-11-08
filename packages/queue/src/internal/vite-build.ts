@@ -12,7 +12,7 @@ import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
-import type { DiscoveredQueueDefinition, QueueModuleOptions } from "../types.ts"
+import type { DiscoveredQueueDefinition, QueueOptions } from "../types.ts"
 import type { QueueRuntimeOptions } from "./runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -47,7 +47,7 @@ export interface VercelQueueConsumerRoute {
   topic: string
 }
 
-function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting: string): NormalizedQueueOptions {
+function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: string): NormalizedQueueOptions {
   if (typeof queue === "undefined") return false
   return normalizeQueueOptions(queue, { hosting }) || false
 }
@@ -158,7 +158,7 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
   ].join("\n")
 }
 
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
   await writeQueueTypes(rootDir, definitions, importBase)
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)

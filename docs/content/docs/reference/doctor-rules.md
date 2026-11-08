@@ -260,7 +260,7 @@ The rule accepts a `SecretEnv` passed to a function, because the function can ca
 
 A credential is written in source code, or a config file reads it when Vite loads the config. ViteHub writes the `env.server` registry and Email options into the generated server module, so these values are in the build output.
 
-In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server`, including `vitehub.env.server` in Nuxt:
+In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.server` of `vitehub()` and of the `vitehub` key in Nuxt, and in the `server` option of `hubEnv()`:
 
 - a value or a `default` that reads `process.env` or `import.meta.env`
 - a `default` on a declaration with `secret: true`
@@ -270,31 +270,37 @@ It also reports credential options of `hubEmail()` and of the `email` option tha
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Invalid: the token is in the build output.
-      githubToken: env({ secret: true, default: 'ghp_123' }),
-      airtableToken: process.env.AIRTABLE_TOKEN,
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Invalid: the token is in the build output.
+        githubToken: env({ secret: true, default: 'ghp_123' }),
+        airtableToken: process.env.AIRTABLE_TOKEN,
+      },
     },
-  },
+  })],
 })
 ```
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { env } from '@vite-hub/env/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  env: {
-    server: {
-      // Valid
-      githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
-      airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+  plugins: [vitehub({
+    env: {
+      server: {
+        // Valid
+        githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
+      },
     },
-  },
+  })],
 })
 ```
 
@@ -903,19 +909,22 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
-- `queue: { ... }` ignores its fields. The preset selects the Queue provider.
-- In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
+- `logs` moved into `observability`, as `observability: { logs }`.
+- `contentImportBase` was removed.
+- In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
 ```ts [vite.config.ts]
 // Invalid
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
-})
-
-// Valid
-export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
   plugins: [vitehub({ preset: 'vercel' })],
+})
+```
+
+```ts [vite.config.ts]
+// Valid
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
 })
 ```
 

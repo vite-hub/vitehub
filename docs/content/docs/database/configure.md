@@ -15,16 +15,15 @@ import { hubDb } from '@vite-hub/database/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubDb()],
-  database: {
+  plugins: [hubDb({
     cli: { generate: false },
-  },
+  })],
 })
 ```
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `database` | `boolean` or `DBModulePublicOptions` | disabled | Enables database discovery and generated runtime imports through `vitehub()` with `true` or an options object. `false` leaves it disabled. |
+| `database` | `boolean` or `DatabaseOptions` | disabled | Enables database discovery and generated runtime imports through `vitehub()` with `true` or an options object. `false` leaves it disabled. |
 | `database.projectRoot` | `string` | effective application root | Sets the root used for Database Definition discovery, generated artifacts, and provisioning. Relative paths resolve from the Vite root in a Vite app and from the Nuxt `rootDir` in a Nuxt app. |
 | `database.cli.export` | `false` | enabled | Disables the package-owned `db export` command. |
 | `database.cli.generate` | `false` | enabled | Disables the package-owned `db generate` command. |
