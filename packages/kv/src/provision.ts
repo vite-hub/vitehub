@@ -1,5 +1,6 @@
 import {
   createCloudflareProvisionClient,
+  isShellSafeProvisionValue,
   listCloudflarePages,
   ProvisionRequestError,
   resolveCloudflareProvisionConfig,
@@ -84,10 +85,26 @@ function planStoresByNamespace(options: KVModuleOptions | undefined, env: Record
   return storesByNamespace
 }
 
+function cloudflareStoreNames(options: KVModuleOptions | undefined, env: Record<string, string | undefined>): string[] {
+  const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
+  if (!kv) return []
+  return Object.entries(kv.stores || { default: kv.store }).filter(([, store]) => store.driver === "cloudflare-kv-binding").map(([name]) => name)
+}
+
 export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOptions | undefined): ProvisionStep {
   return {
     id: "kv:cloudflare-kv",
     provider: "cloudflare",
+    recordedState(context) {
+      return [{
+        category: KV_CLOUDFLARE_PROVISION_CATEGORY,
+        // A store with a configured namespace id still declares its key, so its recorded id is never offered for deletion.
+        declared: cloudflareStoreNames(resolveOptions(), context.env),
+        deleteHint: ({ id }) => isShellSafeProvisionValue(id)
+          ? `run \`wrangler kv namespace delete --namespace-id ${id}\``
+          : "delete the KV namespace in the Cloudflare dashboard",
+      }]
+    },
     async plan(context) {
       const storesByNamespace = planStoresByNamespace(resolveOptions(), context.env)
       if (!storesByNamespace.size) return []

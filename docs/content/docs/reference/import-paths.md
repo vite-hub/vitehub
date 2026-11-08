@@ -60,9 +60,10 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/definitions` | Read-only Definition inspection registration for framework server integrations. |
 | `vite-hub/console/env` | Server Env declaration inventory registration for framework server integrations. |
 | `vite-hub/console/mcp-client` | MCP client operations of the Console. The generated Console plugin installs them when `console.mcpClient` is on. |
+| `vite-hub/console/operations` | Console operation registration. The generated Console plugin loads it on the first Console request or Agent operation tool, not when the server starts. |
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
-| `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. |
+| `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition, editable document collections and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and the policies from those roles: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`. |
@@ -92,7 +93,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the bundle report of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
-| `vite-hub/channels` and `vite-hub/channels/server` | Outbound Channel Definitions with `defineOutboundChannel()` and discovered named delivery. |
+| `vite-hub/channels` and `vite-hub/channels/server` | Channels with `defineChannel()`, the `webhook()` and `stripe()` adapters, and `useChannel()` for named sends. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, the Comments API, presence, MCP, and the [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, `vite-hub/comments/realtime`, `vite-hub/comments/runtime`, and `vite-hub/comments/runtime/auth` | Pin anchors for the browser, the Comments tables, and the presence room, API handler, Nitro plugin, and Auth session reader that generated output imports. |
 | `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
@@ -120,7 +121,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
-| `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
+| `vite-hub/runtime` | Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
@@ -148,12 +149,13 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui/code-view`, `vite-hub/ui/file-view`, `vite-hub/ui/file-diff`, `vite-hub/ui/multi-file-diff`, `vite-hub/ui/patch-diff`, `vite-hub/ui/unresolved-file` | Focused imports for code and diff components. |
 | `vite-hub/ui/file-tree` | Focused import for the file tree component. |
 | `vite-hub/ui/avatar-stack`, `vite-hub/ui/comments`, `vite-hub/ui/connection-status`, `vite-hub/ui/sync-status` | Focused imports for collaboration components. |
-| `vite-hub/ui/nuxt` and `vite-hub/ui/vite` | Register the canonical UI package for Nuxt or Vue with Vite. |
+| `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, registry APIs, and the `workspaceFile()` Collection source. |
 | `vite-hub/workspace/files` | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `vite-hub/workspace/checkout` | `vitehub pull` and `vitehub push` as functions, and `localCheckoutStatus()`, which `vitehub status` shows. Node only. |
+| `vite-hub/workspace/lineage` | `derivedFrom` helpers: `lineageDigest()`, `readDerivedFrom()`, and `staleDerivedFiles()`. |
 | `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |
 | `vite-hub/workspace/blob-database` | Content-addressed Workspace history Store and Database schema. Requires `drizzle-orm`. |
 | `vite-hub/workspace/loader` and `vite-hub/workspace/server` | Workspace loader and manual server extension APIs. |
@@ -201,7 +203,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definitions, sessions, and built-in runtime selection. |
 | `@vite-hub/sandbox/ssh` | Sandbox Package | `sshLaunch` and `serveSsh` for a trusted SSH command transport. |
-| `@vite-hub/channels` | Channels Package | Outbound Channel Definitions with `defineOutboundChannel()`, explicit clients, portable types, and normalized delivery results. |
+| `@vite-hub/channels` | Channels Package | Channels with `defineChannel()`, HTTP sender adapters, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
 | `@vite-hub/comments` | Comments Package | `defineComments()`, `installComments()`, the runtime methods, and portable types. |
 | `@vite-hub/comments/anchor` | Comments Package | Browser helpers that create and place [anchors](/docs/comments/server-api#anchors) of pins. |
@@ -262,6 +264,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, history contracts, Workspace facade access, and authoring types. |
 | `@vite-hub/workspace/files` | Workspace Package | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `@vite-hub/workspace/checkout` | Workspace Package | `vitehub pull` and `vitehub push` as functions, and `localCheckoutStatus()`, which `vitehub status` shows. Node only. |
+| `@vite-hub/workspace/lineage` | Workspace Package | `derivedFrom` helpers: `lineageDigest()`, `readDerivedFrom()`, and `staleDerivedFiles()`. |
 | `@vite-hub/workspace/runtime` | Workspace Package | Workspace runtime registry, `useWorkspace()`, and source resolution/request helpers for integrations. |
 
 ## Integration imports
@@ -282,7 +285,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Configure one built-in Email provider and generate its runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
-| `@vite-hub/ui/nuxt` and `@vite-hub/ui/vite` | Register the UI package for Nuxt or Vue with Vite. |
+| `@vite-hub/ui/vite` | Register the UI package for Vue with Vite. |
 | `@vite-hub/kv/vite` | Register the KV Vite Integration. |
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
 | `@vite-hub/rate-limit/vite` | Register Rate Limit source collection and provider output. |

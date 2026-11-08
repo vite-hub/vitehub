@@ -55,7 +55,7 @@ Omit `id` for a singleton. `user` is `{ id, name?, image? }`: the signed-in user
 
 `report()` and `acquire()` return the document's sessions after the call:
 
-```ts
+```ts fragment
 {
   collection: 'posts',
   id: 'hello',
@@ -129,7 +129,7 @@ An Agent or an MCP client may override only when you allow it with `operations({
 
 Some collections are edited by many people at once, such as a shared notes list, or only by code. Turn the lease off:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 notes: documents({ path: 'notes/*.md', fields, editing: { lease: false } }),
 settings: singleton({ path: 'settings.json', fields, editing: { lease: false } }),
 ```
@@ -141,6 +141,8 @@ Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` 
 Where Realtime runs, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'node',
   console: { auth: 'app' },

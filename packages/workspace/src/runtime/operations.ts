@@ -2,7 +2,9 @@ import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { normalizeHistoryPath } from "../core/history.ts"
+import { contentToBytes } from "../core/path.ts"
 import { useWorkspaceFiles } from "../core/use.ts"
+import { readDerivedFrom, staleDerivedFiles } from "../lineage.ts"
 import { workspaceHistoryDefaultLimit } from "../results.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
@@ -17,6 +19,7 @@ import type {
   WorkspaceHistoryList,
   WorkspaceHistoryRefs,
   WorkspaceHistoryRevision,
+  WorkspaceStaleList,
 } from "../results.ts"
 
 // Invalid paths, refs, cursors, and limits.
@@ -270,22 +273,63 @@ async function commitChanges(workspace: string, request: WorkspaceCommitInput, c
     })
   }
   const { history } = useWorkspaceFiles(workspace, { mode: "write" })
-  // The head check of the commit fails when the ref moved, so the files of `ifHead` are the files that the commit replaces.
-  const base = request.ifHead === null ? new Map<string, WorkspaceEntry>() : await filesOf(await openOrMissing(history, request.ifHead))
+  const ref = request.ref ?? "main"
+  const forkRef = request.ifHead === null ? await history.forksFrom?.(ref) : undefined
+  const startFrom = forkRef ? (await history.head({ ref: forkRef }))?.id : undefined
+  // Pin a first fork to the seed whose attributes we read, just as ifHead pins an existing ref.
+  const baseId = request.ifHead ?? startFrom
+  const base = baseId ? await filesOf(await openOrMissing(history, baseId)) : new Map<string, WorkspaceEntry>()
   const put = Object.fromEntries(Object.entries(request.put ?? {}).map(([path, file]) => [path, replacement(decodeContent(file), base.get(normalizeHistoryPath(path)))]))
   try {
     const revision = await history.commit({
-      ref: request.ref ?? "main",
+      ref,
       ifHead: request.ifHead,
+      ...(startFrom ? { startFrom } : {}),
+      ...(forkRef ? { ifHeads: { [forkRef]: startFrom ?? null } } : {}),
       changes: { put, delete: remove },
       message: request.message ?? `Push ${Object.keys(put).length + remove.length} files`,
       metadata: { ...callerMetadata(context), ...(request.lease === "override" ? { lease: "override" } : {}) },
     })
-    return { workspace, revision: describeRevision(revision) }
+    const view = await history.open(revision.id)
+    const normalized: NonNullable<WorkspaceCommitResult["normalized"]> = {}
+    for (const [path, file] of Object.entries(put)) {
+      const submitted = encodeContent(contentToBytes(file.content))
+      const committed = await readContent(view, normalizeHistoryPath(path))
+      if (committed.content !== submitted.content || committed.encoding !== submitted.encoding) normalized[path] = committed
+    }
+    return { workspace, revision: describeRevision(revision), ...(Object.keys(normalized).length ? { normalized } : {}) }
   }
   catch (error) {
     if (errorCode(error) !== "WORKSPACE_CONFLICT") throw error
     throw new WorkspaceOperationError("WORKSPACE_CONFLICT", 409, `Ref "${request.ref ?? "main"}" of Workspace "${workspace}" moved after revision ${request.ifHead ?? "(none)"}. Pull, then push again.`)
+  }
+}
+
+// Files that can carry `derivedFrom`. Other files are read only when a derived file names them as its source.
+const derivedExtensions = /\.(?:json|markdown|md|mdx|ya?ml)$/i
+
+async function listStale(workspace: string, history: WorkspaceHistoryReader, ref: string): Promise<WorkspaceStaleList> {
+  const head = await history.head({ ref })
+  if (!head) return { workspace, ref, head: null, stale: [] }
+  const view = await history.open(head.id)
+  const paths = new Set((await view.list("", { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path))
+  const files = new Map<string, Uint8Array>()
+  for (const path of paths) if (derivedExtensions.test(path)) files.set(path, await view.readFile(path, { encoding: "binary" }))
+  // Sources added here are visited too, so a file derived from a derived file also finds its source.
+  for (const [path, bytes] of files) {
+    const source = readDerivedFrom(path, bytes)?.path
+    if (source && !files.has(source) && paths.has(source)) files.set(source, await view.readFile(source, { encoding: "binary" }))
+  }
+  return { workspace, ref, head: head.id, stale: staleDerivedFiles(files) }
+}
+
+/** The derived files on a ref whose source changed or is gone since they were made. */
+export async function runWorkspaceStale(input: { ref?: string, workspace: string }): Promise<WorkspaceStaleList> {
+  try {
+    return await listStale(input.workspace, useWorkspaceFiles(input.workspace).history, input.ref ?? "main")
+  }
+  catch (error) {
+    throw describeFailure(input.workspace, error)
   }
 }
 

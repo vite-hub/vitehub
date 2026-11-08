@@ -1,4 +1,4 @@
-import type { CommentUser } from "@vite-hub/comments/client";
+import type { CommentActor, CommentUser } from "@vite-hub/comments/client";
 import type { AvatarStackPerson } from "../components/avatar-stack.ts";
 
 // A user may have no name, as in an Operation user. The id stands in for it.
@@ -6,6 +6,26 @@ export const displayName = (user: CommentUser): string => user.name ?? user.id;
 
 export function toPerson(user: CommentUser): AvatarStackPerson {
   return { id: user.id, image: user.image, name: displayName(user) };
+}
+
+/** Who wrote a message or a thread. */
+export interface Written {
+  author: CommentUser;
+  actor?: CommentActor;
+}
+
+/**
+ * The name to show for who wrote it. An agent's message is the agent's, so it shows as the agent with the person it
+ * acts for beside it: `Claude (Ana Ruiz)`.
+ */
+export const writerName = ({ author, actor }: Written): string =>
+  actor ? `${actor.name ?? actor.id} (${displayName(author)})` : displayName(author);
+
+/** The avatar of who wrote it: an agent's logo, never the picture of the person it acts for. */
+export function writerPerson(written: Written): AvatarStackPerson {
+  const { author, actor } = written;
+  if (!actor) return toPerson(author);
+  return { id: `${author.id}:${actor.id}`, image: actor.image, name: actor.name ?? actor.id };
 }
 
 /**
