@@ -15,6 +15,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 import type { H3Event } from "h3"
+import { requestEvent } from "./console-event.ts"
 import type { NitroEventHandler } from "nitro/types"
 
 const policyKey = Symbol.for("vitehub.console.access")
@@ -41,7 +42,7 @@ async function rpc(message: unknown, init: { headers?: Record<string, string>, m
     ...(init.method === "GET" ? {} : { body: JSON.stringify(message) }),
   })
   // SAFETY: the route reads the request and the method of the H3 event.
-  const response = await handler({ method: request.method, req: request } as H3Event)
+  const response = await handler(requestEvent(request) as unknown as H3Event)
   const body: Record<string, any> = response.status === 202 ? {} : Object(await response.json())
   return { status: response.status, body }
 }
@@ -117,7 +118,7 @@ describe("MCP owner contributions", () => {
       const entry = new URL("../src/console/runtime/server/mcp-discovery.ts", import.meta.url).href
       const module = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
       const request = new Request(`http://app.test${route}`)
-      await expect(module.default({ req: request })).resolves.toBeUndefined()
+      await expect(module.default(requestEvent(request))).resolves.toBeUndefined()
       expect(config.handlers).toContainEqual(expect.objectContaining({ route: `${route}/**`, handler: expect.stringMatching(/mcp-(metadata|authorization-server)\.js$/) }))
     }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], false)

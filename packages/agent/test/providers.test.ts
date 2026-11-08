@@ -2008,7 +2008,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
-      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
+      expect(gatewayRoute).toContain('import { getStandardContext, isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
       expect(gatewayRoute).not.toMatch(/from\s*["']h3["']/)
       expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
@@ -2016,13 +2016,13 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("webhookUrl")
       expect(gatewayRoute).not.toContain("@vite-hub/schedule/runtime")
 
-      // Run the generated handler with the real request helpers and an H3 event.
+      // Run the generated handler with the real request helpers and an H3 2 event.
       const handlerSource = gatewayRoute.slice(gatewayRoute.indexOf("export default defineEventHandler(")).replace("export default ", "return ")
       const { code } = await transform(handlerSource, { loader: "ts" })
-      const { isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
+      const { getStandardContext, isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
       const h3 = await import("h3")
       const gatewayHandler = new Function(
-        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "isViteHubBearerSecretEqual",
+        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "getStandardContext", "isViteHubBearerSecretEqual",
         "cloudflareFromEvent", "runtimeEnvValue", "agentNames", "handlers", "agentIdentities", "defaultDurationMs", "webhookRoute",
         "routePath", "waitUntilFromEvent", code,
       )(
@@ -2030,6 +2030,7 @@ describe("agent Vite plugin", () => {
         (input: { statusCode: number }) => Object.assign(new Error("H3 error"), input),
         h3.getRequestHeader,
         () => "support",
+        getStandardContext,
         isViteHubBearerSecretEqual,
         () => undefined,
         (_cloudflare: unknown, key: string) => key === "VITEHUB_DISCORD_GATEWAY_SECRET" ? "gateway-secret" : undefined,
@@ -2041,12 +2042,12 @@ describe("agent Vite plugin", () => {
         () => "/api/_vitehub/agents/support/webhooks/discord",
         () => undefined,
       ) as (event: unknown) => Promise<Response>
-      const gatewayEvent = (authorization: string) => new h3.H3Event(new Request("https://app.example/api/_vitehub/agents/support/discord/gateway", {
+      const event = (authorization: string) => new h3.H3Event(new Request("https://app.example/api/_vitehub/agents/support/discord/gateway", {
         headers: { authorization },
         method: "POST",
       }))
-      await expect(gatewayHandler(gatewayEvent("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
-      const accepted = await gatewayHandler(gatewayEvent("Bearer gateway-secret"))
+      await expect(gatewayHandler(event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
+      const accepted = await gatewayHandler(event("Bearer gateway-secret"))
       await expect(accepted.text()).resolves.toBe("POST https://app.example/api/_vitehub/agents/support/discord/gateway Bearer gateway-secret")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -2648,7 +2649,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
-      expect(webhookRoute).toContain("const request = event.req")
+      expect(webhookRoute).toContain("const request = getStandardContext(event).req")
       expect(webhookRoute).toContain("body: request.body ?? undefined")
       expect(webhookRoute).not.toContain("readRawBody(event)")
       expect(webhookRoute).toContain("createAgentWebhookRequest({")
@@ -2675,12 +2676,25 @@ describe("agent Vite plugin", () => {
 
       const requestHelpers = webhookRoute.slice(webhookRoute.indexOf("async function toRequest"), webhookRoute.indexOf("type ViteHubGeneratedCloudflare"))
       const { code } = await transform(requestHelpers, { loader: "ts", format: "esm" })
-      const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
-      const toRequest = new Function("createAgentWebhookRequest", `${code}\nreturn toRequest`)(
+      const { createAgentWebhookRequest, getStandardContext } = await import("../src/server/internal.ts")
+      const toRequest = new Function("getStandardContext", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
+        getStandardContext,
         createAgentWebhookRequest,
       ) as (event: unknown) => Promise<Request>
-      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }) })
+      const { H3Event } = await import("h3")
+      const request = await toRequest(new H3Event(new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } })))
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
+      const postRequest = new Request("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1", {
+        body: '{"messages":[]}',
+        headers: [["set-cookie", "a=1"], ["set-cookie", "b=2"]],
+        method: "POST",
+      })
+      const post = await toRequest(new H3Event(postRequest))
+      expect(post.method).toBe("POST")
+      expect(post.url).toBe(postRequest.url)
+      expect(post.headers.get("set-cookie")).toBe("a=1, b=2")
+      expect(post.headers.has("x-absent")).toBe(false)
+      await expect(post.text()).resolves.toBe('{"messages":[]}')
       expect(webhookRoute).not.toContain("getRequestHeaders(event)")
     } finally {
       await rm(root, { force: true, recursive: true })

@@ -795,7 +795,7 @@ defineExpose({
 }
 
 .vitehub-media-crumb:focus-visible {
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--vitehub-console-focus);
   outline-offset: -2px;
 }
 
@@ -861,7 +861,7 @@ defineExpose({
 }
 
 .vitehub-media-tile__button:focus-visible .vitehub-media-tile__thumb {
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--vitehub-console-focus);
   outline-offset: 2px;
 }
 

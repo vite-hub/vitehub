@@ -185,6 +185,8 @@ describe("createCommentsGitHubLogin", () => {
     // The OAuth state is in a cookie, because there is no database to keep it.
     expect(response.headers.getSetCookie().join("\n")).toContain("vitehub_comments")
     await expect(loginForBase.user(event(`${base}/api/_vitehub/comments/session`))).resolves.toBeNull()
+    const standard = event(`${base}/api/_vitehub/comments/session`)["~standard"]
+    await expect(loginForBase.user({ "~standard": standard })).resolves.toBeNull()
   })
 
   it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("rejects a short %s before starting GitHub sign-in", async (name) => {

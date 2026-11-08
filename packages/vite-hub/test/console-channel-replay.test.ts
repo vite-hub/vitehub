@@ -15,6 +15,7 @@ import channelReplayHandler from "../src/console/runtime/server/channel-replay.t
 
 import type { AgentRunContext } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+import { consoleEvent } from "./console-event.ts"
 import "./support/console-access.ts"
 
 const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receipt" }]
@@ -57,30 +58,11 @@ function labeller() {
 }
 
 function replayEvent(body: unknown, headers: Record<string, string> = { "content-type": "application/json" }): ConsoleRequestEvent {
-  return {
-    method: "POST",
-    req: {
-      headers: new Headers(headers),
-      json: async () => body,
-      method: "POST",
-      url: new URL("https://app.test/_vitehub/channels/replay"),
-    },
-  }
+  return consoleEvent({ body: body === undefined ? "" : body, headers, method: "POST", url: "https://app.test/_vitehub/channels/replay" })
 }
 
 function fetchReplayPayloadEvent(payload: string): ConsoleRequestEvent {
-  return {
-    req: new Request("https://app.test/_vitehub/channels/replay", {
-      body: payload,
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    }),
-  }
-}
-
-function jsonReplayPayloadEvent(payload: string): ConsoleRequestEvent {
-  const event = replayEvent(undefined)
-  return { ...event, req: { ...event.req, json: async () => JSON.parse(payload) } }
+  return consoleEvent({ body: payload, headers: { "content-type": "application/json" }, method: "POST", url: "https://app.test/_vitehub/channels/replay" })
 }
 
 describe("Console Channel replay route", () => {
@@ -94,7 +76,6 @@ describe("Console Channel replay route", () => {
 
   describe.each([
     ["Fetch", fetchReplayPayloadEvent],
-    ["JSON-only", jsonReplayPayloadEvent],
   ])("%s request bodies", (_host, event) => {
     it("returns 413 for oversized replay requests before invoking the Agent", async () => {
       const { agent, label } = labeller()
@@ -165,7 +146,7 @@ describe("Console Channel replay route", () => {
     expect((await channelReplayHandler(replayEvent(body, { "content-type": "text/plain" }))).status).toBe(415)
     expect((await channelReplayHandler(replayEvent({ channel: "mailbox" }))).status).toBe(400)
     expect((await channelReplayHandler(replayEvent({ ...body, query: { folder: 1 } }))).status).toBe(400)
-    expect((await channelReplayHandler({ ...replayEvent(body), method: "GET" })).status).toBe(405)
+    expect((await channelReplayHandler(consoleEvent({ method: "GET", url: "https://app.test/_vitehub/channels/replay" }))).status).toBe(405)
     expect(label).not.toHaveBeenCalled()
   })
 })

@@ -19,8 +19,7 @@ function commentsUser(user: Record<string, unknown> | null): CommentsUser | null
 }
 
 function guestFor(context: ViteHubMcpToolContext) {
-  const request: unknown = context.event instanceof Object ? Reflect.get(context.event, "req") : undefined
-  return request instanceof Request ? guestFromHeaders(request.headers) : undefined
+  return context.event ? guestFromHeaders(context.event["~standard"].req.headers) : undefined
 }
 
 function failure(why: string): ViteHubMcpToolResult {

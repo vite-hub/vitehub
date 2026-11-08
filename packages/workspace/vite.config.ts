@@ -31,6 +31,7 @@ export default defineConfig({
       "src/hosted.ts",
       "src/hosted-vercel-blob.ts",
       "src/index.ts",
+      "src/lineage.ts",
       "src/loader.ts",
       "src/mountx.ts",
       "src/nitro.ts",
