@@ -475,7 +475,7 @@ function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
   const normalizedId = id.replaceAll("\\", "/")
-  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry.mjs")
+  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry-runtime.mjs")
 }
 
 function getCloudflareStateImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {

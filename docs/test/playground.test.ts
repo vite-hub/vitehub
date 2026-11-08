@@ -25,7 +25,7 @@ async function templates() {
 describe("playground", () => {
   it("reads each template from its fixture, so the code has one source", async () => {
     const built = await templates();
-    expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent"]);
+    expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent", "channels"]);
     // The editor and the preview open a file and a route of the template.
     for (const template of built) expect(template.files[template.open], template.id).toBeDefined();
     for (const template of built) expect(template.preview, template.id).toMatch(/^\/api\//);
@@ -35,6 +35,11 @@ describe("playground", () => {
     // The browser runs npm, so pnpm specifiers become versions.
     expect(kv.files["package.json"]).not.toMatch(/catalog:|workspace:/);
     expect(built.find(template => template.id === "agent")!.files["server/agents/greeting.ts"]).toContain("defineAgent");
+    // The Channels template opens the simulated Slack page of its Agent, so the preview needs no bot or token.
+    const channels = built.find(template => template.id === "channels")!;
+    expect(channels.files["vite.config.ts"]).toContain("channels: { simulate: true }");
+    expect(channels.preview).toBe("/api/_vitehub/agents/support/webhooks/slack");
+    for (const channel of ["slack()", "discord()", "teams()", "telegram()"]) expect(channels.files["server/agents/support.ts"]).toContain(channel);
   });
 
   it("reuses tutorial snapshots only for matching dependencies", async () => {
@@ -47,6 +52,7 @@ describe("playground", () => {
       "cache": "playground-cache",
       "rate-limit": "playground-rate-limit",
       "agent": "first-agent",
+      "channels": "first-agent",
     });
     // Each distinct feature install needs its own snapshot.
     expect(snapshotSources(runnableTutorials, built)).toEqual([
