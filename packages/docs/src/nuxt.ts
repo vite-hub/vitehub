@@ -24,7 +24,7 @@ import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-n
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
@@ -587,7 +587,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           if (!nitro.options.output) return
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
-          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase), excludeLinks: [
+          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
             ...moduleOptions.linkChecker?.excludeLinks ?? [],
             ...settings.excludeLinks ?? [],
             ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
@@ -658,7 +658,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 })
 
 /** Match Nitro's prerender policy, including the Console exclusions installed by vite-hub/nuxt. */
-function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: string) => boolean {
+function docsRuntimePath(nitro: NitroOptions, appBase: string, mount: string): (pathname: string) => boolean {
   const routes = createRouter<{ prerender?: boolean }>()
   for (const [path, rule] of Object.entries(nitro.routeRules ?? {})) addRoute(routes, undefined, path, rule)
   const ignored = (nitro.prerender?.ignore ?? []).map(pattern => typeof pattern === "string"
@@ -674,6 +674,9 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: strin
       return pattern.test(path)
     }))) return true
     if (appPath === undefined) return false
+    // Docs below a prefix share the site with the app. The app renders its own pages, such as `/`, on request, and the
+    // build crawls none of them. The Markdown copies below `/raw` are files, so links to them are still checked.
+    if (mount !== "/" && !isDocsPath(appPath, mount) && !appPath.startsWith("/raw/")) return true
     // Match Nitro's precedence: a more specific explicit true overrides a broader false.
     return findAllRoutes(routes, undefined, appPath).reverse().find(route => route.data.prerender !== undefined)?.data.prerender === false
   }
