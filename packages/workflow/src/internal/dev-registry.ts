@@ -23,7 +23,7 @@ function isWorkflowDevDefinition(definition: DiscoveredWorkflowDefinition): bool
 }
 
 export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: string[]): DiscoveredWorkflowDefinition[] {
-  return discoverWorkflowDefinitions({ rootDir, serverDirs }).filter(isWorkflowDevDefinition)
+  return discoverWorkflowDefinitions({ mode: "standalone", rootDir, serverDirs })
 }
 
 function createWorkflowDevRegistryModule(registryFile: string, definitions: DiscoveredWorkflowDefinition[], importBase = workflowPackageName): string {

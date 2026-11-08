@@ -709,21 +709,24 @@ Set `activity.publicUrl` to the Console's public origin, so runs from GitHub PR 
 ```ts fragment
 import { runAgent } from 'vite-hub/agent'
 
-await runAgent(agent, {
-  runtime: 'vite',
-  waitUntil: schedule.waitUntil ?? (() => {}),
-  run: {
-    activity: {
-      links: [
-        { label: 'Session', url: sessionUrl },
-        { label: 'Memory', url: memoryUrl },
-      ],
-      target: { repository: 'acme/storefront', issue: 42 },
+const [error] = await runAgent(agent, { prompt: 'Converge this pull request.' }, {
+  runtimeContext: {
+    runtime: 'vite',
+    run: {
+      activity: {
+        links: [
+          { label: 'Session', url: sessionUrl },
+          { label: 'Memory', url: memoryUrl },
+        ],
+        target: { repository: 'acme/storefront', issue: 42 },
+      },
+      channelId: 'github',
+      runId: schedule.runId,
     },
-    channelId: 'github',
-    runId: schedule.runId,
   },
-}, { prompt: 'Converge this pull request.' }, { schedule, output: 'drained' })
+  schedule,
+})
+if (error) throw error
 ```
 
 The runtime publishes `queued` before capacity admission, `running` after it, `waiting` for approvals, and a terminal state on every exit. `data-agent-plan` events update the task list, so harnesses with normalized plans, such as Codex, need no GitHub code. Delivery failures are reported but never replace the Agent result.

@@ -1,7 +1,7 @@
 ---
 
 title: Read your first Content document
-description: Turn a Markdown file into a document and read it from an API route.
+description: Turn a local Markdown file into a Content document and read it from an API route.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

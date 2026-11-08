@@ -52,7 +52,7 @@ Configuration errors throw instead, such as an unknown store name or a missing U
 
 ## Limits
 
-The `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The check also runs in `vite dev` with the Cloudflare preset, so you see the same error in development.
+A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare preset checks the same limits.
 
 | Limit | Cloudflare KV | Code |
 | --- | --- | --- |
@@ -126,6 +126,10 @@ The runtime has no KV config. Add `hubKv()` to the Vite config and do not set `k
 
 `kv.driver` is not `cloudflare-kv-binding`, `deno-kv`, `upstash`, or `fs-lite`.
 
+### KV_INVALID_REMOTE
+
+`remote` of a store is not `true` or `false`. Set `remote: true` to use the real store in `vite dev`, or remove it to keep the store local.
+
 ### KV_INVALID_STORE_MODE
 
 `kv.store(name, { mode })` got a mode other than `'read'` or `'write'`, so KV throws instead of returning a writable handle. Pass `{ mode: 'read' }` for a [read-only handle](/docs/kv/server-api#read-only-handles), or omit `mode`.
@@ -137,6 +141,10 @@ A config with `kv.stores` must have a `default` store.
 ### KV_MISSING_ENV
 
 The `upstash` driver needs `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, at runtime.
+
+### KV_REMOTE_CONFLICT
+
+In `vite dev`, `remote` conflicts with the driver of the store. `remote: true` cannot apply to `fs-lite` or `deno-kv`, which are local, or to an inferred store that has no hosted store to use. `remote: false` cannot apply to `upstash`, which is always remote. Remove `remote`, or select another driver. Builds ignore boolean `remote` flags. See [Development stays local](/docs/kv/configure#development-stays-local).
 
 ### KV_STORE_NOT_FOUND
 

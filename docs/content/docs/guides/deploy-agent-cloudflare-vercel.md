@@ -31,7 +31,7 @@ export default defineAgent({
 })
 ```
 
-Create the route. With two arguments, `runAgent()` returns an `[error, result]` tuple.
+Create the route. `runAgent()` returns an `[error, result]` tuple.
 
 ```ts [server/api/greet.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -43,7 +43,7 @@ export default defineEventHandler(async (event) => {
 	const name = typeof body?.name === 'string' ? body.name : 'friend'
 	const [error, result] = await runAgent(greeting, { prompt: name })
 	if (error) throw error
-	return result
+	return { text: result.text }
 })
 ```
 

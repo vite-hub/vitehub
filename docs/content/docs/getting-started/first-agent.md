@@ -132,18 +132,18 @@ export default defineEventHandler(async (event) => {
   })
 
   if (error) throw error
-  return result
+  return { text: result.text }
 })
 ```
 
-The `runAgent(agent, input)` form creates a memo cache and waits for its
-background work. It returns `[null, result]` on success or `[Error, null]` on
-failure. Check the error first.
+`runAgent()` creates a memo cache and waits for the background work of the
+run. It returns `[undefined, result]` on success or `[error, undefined]` on
+failure. Check the error before you read `result.text`.
 
-For request metadata or host bindings, pass the
-[`getRuntimeContext(event)` adapter](/docs/reference/runtime-context) to
-`runAgent(agent, runtime, input)`. That form returns the result and throws on
-failure. The greeting needs only its prompt.
+For request metadata or host bindings, pass the public
+[`getRuntimeContext(event)` adapter](/docs/reference/runtime-context) as
+`runAgent(agent, input, { runtimeContext: getRuntimeContext(event) })`. The
+greeting needs only its prompt.
 
 ::
 

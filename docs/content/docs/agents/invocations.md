@@ -32,7 +32,7 @@ A Channel can start many Invocations, and a Workflow Run can carry one, but each
 
 ## Run an Agent
 
-For an Agent with `runtime: false`, the shortest call returns an `[error, result]` tuple:
+`runAgent(agent, input, options?)` runs the Agent in the calling process and waits for its output. It returns an `[error, result]` tuple and does not throw for a failed run:
 
 ```ts fragment
 import { runAgent } from 'vite-hub/agent'
@@ -42,14 +42,26 @@ const [error, result] = await runAgent(support, {
   prompt: 'Summarize the support policy.',
 })
 if (error) throw error
+result.text // the final text
 ```
 
-Pass `{ output: 'drained' }` as the third argument to read the whole stream and get `[error, text]`. Leave it out when a custom Driver returns an object that you must keep unchanged.
+The success value is an `AgentRunResult`:
 
-In a server route, pass a [Runtime Context](/docs/reference/runtime-context) second, for request metadata and host Workflow lookup. This form returns the result directly and throws on failure. Inline runs can return a native `Response`, Workflow runs return a Workflow Run to control later, and structured outputs stay typed. Streaming has its own contract ([Stream an Agent](#stream-an-agent)).
+| Field | Value |
+| --- | --- |
+| `text` | The final text. `runAgent()` consumes a streamed output or a `Response` body before it returns. |
+| `output` | The typed Agent output: the `driver.output` schema value, the `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns. A model Driver without a schema sets no `output`. |
+| `usage`, `usageRecord`, `finishReason`, `warnings` | Facts that the Driver reports. |
+| `raw` | The Driver result, or the `Response` that the Agent returned. |
 
-```ts [server/api/support.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+`error.code` is `AGENT_RUN_FAILED` or `AGENT_RUN_CANCELLED`, and `error.cause` has the original failure, for example a `CHANNEL_DELIVERY_REQUIRED` error or an invalid `data` error. See [Errors](#errors).
+
+### Pass the host Runtime Context
+
+In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
+
+```ts [server/api/support.post.ts] fragment
+import { createError, defineEventHandler, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
@@ -59,85 +71,65 @@ export default defineEventHandler(async (event) => {
   const { prompt } = await readBody<{ prompt: string }>(event)
   const user = await requireAuthenticatedUser(event)
 
-  const runtime = getRuntimeContext(event)
-  try {
-    return await runAgent(support, runtime, {
-      prompt,
-      context: {
-        invoker: {
-          id: user.id,
-          kind: 'customer',
-          label: user.email,
-        },
+  const [error, result] = await runAgent(support, {
+    prompt,
+    context: {
+      invoker: {
+        id: user.id,
+        kind: 'customer',
+        label: user.email,
       },
-    })
-  }
-  finally {
-    await runtime.flushWaitUntil().catch(console.error)
-  }
+    },
+  }, { runtimeContext: getRuntimeContext(event) })
+  if (error) throw createError({ statusCode: 500, statusMessage: error.why })
+  return { text: result.text }
 })
 ```
 
 `requireAuthenticatedUser` is your own helper in `server/utils/auth.ts`, not a ViteHub export. It must reject requests without a signed-in user and return the trusted `id` and `email`. Always authenticate before you pass identity or access facts to the Agent. `context.invoker` sets the [Agent Actor](/docs/agents/actors), the caller's trusted identity.
 
-The H3 `getRuntimeContext()` adapter gives `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example waits for background work before it returns and logs its failures separately.
+The option is `runtimeContext`, not `context`, because `input.context` already holds the Invocation context values that instructions and hooks read, such as `context.customInstructions`.
 
-### Run without a host context
+Without `runtimeContext`, `runAgent()` creates a fresh memo cache and run ID, uses the `unknown` runtime, and waits for background work that the run registers with `waitUntil()` before it returns. A background failure returns `AGENT_RUN_FAILED`; an invocation failure takes precedence if both fail. When `runtimeContext.waitUntil` is set, the host keeps background work alive and `runAgent()` does not wait for it.
 
-In a script, or without a server request, pass the input as the second argument:
-
-```ts fragment
-const [error, result] = await runAgent(support, { prompt: 'Summarize the support policy.' })
-if (error) throw error
-```
-
-This form:
-
-- creates a fresh memo cache and run ID and uses the `unknown` runtime
-- returns `[null, result]` or `[Error, null]`
-- waits for background work started before the call settles, and returns an error tuple when it fails (the run error wins when both fail)
-- wraps a thrown non-`Error` value in an `Error` with the original as its `cause`
-
-Inline output stays unchanged, and an explicit Workflow binding returns its Workflow Run. An Agent that relies on the host to find its Workflow returns an error tuple: set `runtime: false`, configure an explicit `workflow("name")` binding, or use the three-argument form.
-
-This form has no request metadata, runtime configuration, or host lifetime for background work, including streams that start work while the caller reads them. Use the three-argument form for those. The tuple covers only the call: errors while you read a returned stream or `Response` body appear during that read.
+`runAgent()` runs the Agent inline, whatever its `runtime` setting. The generated Agent routes and Channels start Workflow runs for Agents that have one. To start a durable run that you inspect or cancel later, use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations).
 
 ## Stream an Agent
 
-`streamAgent()` sends the output piece by piece, for example to a chat UI.
+Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer needs incremental output. It returns `[error, stream]`.
 
 ```ts [server/api/support-stream.post.ts]
-import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
 import { createError, defineEventHandler, readBody } from 'h3'
 import { streamAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const body = await readBody<{ prompt: string }>(event)
+  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
 
-  const output = await streamAgent(
-    support,
-    getRuntimeContext(event),
-    { prompt },
-    { output: 'ui-message-stream' },
-  )
-  if (output instanceof Response) return output
-  if (!(output instanceof ReadableStream)) {
-    throw createError({ statusCode: 500, statusMessage: 'Expected an Agent UI message stream.' })
-  }
-  return createUIMessageStreamResponse({
-    // The selected output mode emits AI SDK UI message chunks.
-    stream: output as ReadableStream<UIMessageChunk>,
+  const [error, response] = await streamAgent(support, { prompt: body.prompt }, {
+    output: 'ui-message-stream',
+    runtimeContext: getRuntimeContext(event),
   })
+  if (error) throw createError({ statusCode: 500, statusMessage: error.why })
+  return response
 })
 ```
 
-`output: 'ui-message-stream'` returns a `ReadableStream` of AI SDK UI message chunks, which `createUIMessageStreamResponse()` encodes as SSE with chat-client headers. Return an Agent `Response` unchanged. The return type includes `unknown`, so the example checks it and narrows the chunk type. `output: 'events'` gives ViteHub stream events for server code.
+`output: 'ui-message-stream'` returns a `Response` with an AI SDK UI message stream that a chat client reads. Without `output`, `streamAgent()` returns an `AsyncIterable<StreamEvent>` of typed ViteHub stream events:
 
-::warning
-A streaming route must give a real host `waitUntil` lifetime, through the event or the adapter options. Waiting for background work before you return does not cover work that starts while the caller reads or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
-::
+```ts fragment
+const [error, events] = await streamAgent(support, { prompt })
+if (error) throw error
+for await (const event of events) {
+  if (event.type === 'text-delta') process.stdout.write(event.text)
+}
+```
+
+The tuple covers the start of the Invocation. An error during stream consumption reaches the reader of the stream.
+
+Streaming routes must provide a real host `waitUntil` lifetime in `runtimeContext`. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
 
 The stream ends when the caller reads all of it, cancels it, or gets an error. A caller that stops reading also stops observing completion.
 
@@ -186,7 +178,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The Agent must attach the [Chat Capability](/docs/agents/capabilities/chat), which registers `chat.message`. The Capability prepares input and policy before the Driver starts. Return a handled Trigger's `Response` unchanged; otherwise the stream matches `streamAgent()`. [Triggers](/docs/agents/triggers) explains when to prefer a Trigger.
+The Agent must attach the [Chat Capability](/docs/agents/capabilities/chat) to register `chat.message`. The consumer supplies the product event. The Capability prepares the Agent input and policy before the Driver starts. A handled Trigger can return a `Response`; the route preserves it. Otherwise, `streamAgentTrigger()` returns the UI message chunk stream, which the route wraps with `createUIMessageStreamResponse()`. Read [Triggers](/docs/agents/triggers) for when to use this path instead of direct invocation.
 
 ## Validate input
 
@@ -209,7 +201,7 @@ export default defineAgent({
 
 Validate untrusted request data in the route. The hook protects the Agent when several trusted callers run the same Definition.
 
-For structured values, set `defineAgent({ data })`. ViteHub validates `input.data` before hooks and the Driver run, and `runAgent()` returns an error tuple for invalid data. See [Accept structured data](/docs/agents/agent-definitions#accept-structured-data).
+Set `defineAgent({ data })` when callers pass structured values. ViteHub validates `input.data` with the schema before hooks and the Driver run, and `runAgent()` returns `AGENT_RUN_FAILED` with the validation error as `error.cause` for invalid data. See [Accept structured data](/docs/agents/agent-definitions#accept-structured-data).
 
 ## Observe the outcome
 
@@ -338,41 +330,33 @@ The Console guide covers Vite and Nuxt setup, the journal that it reads, product
 
 ## Control child work
 
-Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after it starts. A model-facing tool in your own Capability can use that controller for child control, or `runAgent()` when it handles the configured runtime's return value.
+Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after it starts. A model-facing Capability tool can use that controller for child control, or `runAgent()` for the result.
 
 ## Scheduled results and process recovery
 
 ### Get a final result for a Schedule
 
-`runAgent(agent, runtimeContext, input, { schedule, output: 'drained' })` adds schedule metadata and reads all Driver output before it returns, so the final response, completion hooks, and capacity release finish together. `driver.output.schema` gives the scheduler a validated result, with no rebuilding from telemetry. A thrown stream or schema error still fails the Invocation.
-
-A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module on its first request, not at startup. A run that starts before any request, such as a Schedule on a new Worker, loads the module before it runs. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
+Pass the schedule context as `runAgent(agent, input, { schedule })`. This adds metadata to `context.schedule` and reads all Driver output before it returns. The final response, completion hooks, and capacity release finish together. Set `driver.output.schema` for a validated result. Stream and schema errors fail the Invocation.
 
 ### Add tools for one run
 
-Trusted code can add tools to one inline Invocation: `runAgent(agent, runtimeContext, input, { tools: { send_message: toolDefinition } })`. A standalone scheduled call, `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition }, output: 'drained' })`, returns `[error, text]` after the stream finishes.
-
-- The tools join the tool set for that Invocation only and are never serialized into `input`.
-- A name that matches an existing tool fails setup.
-- They make a run inline when the Agent has only a host-found Workflow default. An explicit `workflow(...)` binding rejects them before the run starts.
-- A call with a Runtime Context still returns a Workflow Run for Workflow runs, so `output: 'drained'` drains only inline output.
+Trusted code can add tools with `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition } })`. These tools join the Agent's tools for that Invocation and are never serialized into `input`. A name collision fails setup. Read the completed text from `result.text`.
 
 Tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot converts to JSON Schema so the model can discover the tool, and its Standard Schema validator still checks input before `execute`. Unsupported Valibot actions may be omitted from the model-facing schema; validation remains authoritative. Zod uses its Standard JSON Schema converter. For Provider Agent tools, other Standard Schema implementations must provide `~standard.jsonSchema.input`.
 
 ### Use host values in a standalone call
 
-A standalone call inside a running host gets the runtime values that generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. So a Schedule handler in `server/schedules/` need not import the Connections registry. To replace one value for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Other host values stay.
+A standalone call inside a running host gets the runtime values that generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` need not import the Connections registry. To replace one value for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Other host values stay.
 
-The values are ready before a Schedule runs: the generated Agent route module registers them when it loads, a Nitro server imports it at startup on Node, Cloudflare, and Vercel, and the generated Deno server and Netlify function are that module. Code without the host server, such as a unit test or plain Node script, gets only what it passes.
+The generated Agent route module registers these values when it loads. Nitro loads it on the first request. A Schedule that runs before any request loads it first. The generated Deno server and Netlify function are that module. In each case, the values are ready before a Schedule runs. Code without the host server, such as a unit test or plain Node script, gets only what it passes.
 
 ### Add Capabilities for one run
 
-Pass extra Agent Capabilities for one Invocation in `capabilities`: `runAgent(agent, { prompt }, { schedule, output: 'drained', capabilities: [delivery] })`. A background job can then run one registered Agent with job tools, such as delivery, instead of one Agent per job.
+Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { schedule, capabilities: [delivery] })`. A background job can then run one registered Agent with job tools, such as delivery, instead of one Agent per job.
 
 - They join after the Agent's own Capabilities and do not change the Definition or later runs.
 - A Capability id that the Agent already uses fails setup.
 - They cannot add Triggers, Workspace Sources, or chat access, which are fixed at definition.
-- Like Invocation tools, they make the run inline, and an explicit `workflow(...)` binding rejects them.
 
 ::note
 `capabilities` adds Agent Capabilities (tools and behavior). `runtimeContext.capabilities` replaces host runtime values, such as Connections or KV, that Capabilities read.
@@ -394,6 +378,18 @@ Pass extra Agent Capabilities for one Invocation in `capabilities`: `runAgent(ag
 ### Inspect a GitHub checkout
 
 For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` gives `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and keeps no disposable checkouts.
+
+## Errors
+
+`runAgent()` and `streamAgent()` return these codes as `[error, undefined]`. `error.cause` keeps the original failure. `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`, because a cause can contain private data. Log `cause` only on the server.
+
+### AGENT_RUN_FAILED
+
+The Invocation failed. The cause is the error from the Driver, a hook, a Capability, `data` validation, or background work. Read `error.cause` and its `code`, such as `CHANNEL_DELIVERY_REQUIRED` or `LLM_GATE_REJECTED`.
+
+### AGENT_RUN_CANCELLED
+
+The Invocation stopped because the `abortSignal` of its input aborted. `error.cause` has the abort reason. Start a new Invocation if the work is still needed.
 
 ## Next steps
 
