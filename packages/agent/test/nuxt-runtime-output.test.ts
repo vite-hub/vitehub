@@ -97,7 +97,7 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n\nblockExoticSubdeps: false\n", "utf8")
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
-import { codexDriver, defineAgent, runAgentInline } from "@vite-hub/agent"
+import { codexDriver, defineAgent, runAgent } from "@vite-hub/agent"
 import { gmail, mcp } from "@vite-hub/agent/capabilities"
 
 const agent = defineAgent({ driver: codexDriver({ env: { PATH: "" } }), runtime: false })
@@ -121,12 +121,10 @@ export default defineEventHandler(async () => {
     if (message.includes("Cannot find") && message.includes("@ai-sdk/mcp")) throw error
     mcp = "loaded-before-transport-error"
   }
-  try {
-    await runAgentInline(agent, { memo: (_key, create) => create(), runtime: "vite", waitUntil() {} }, { prompt: "runtime proof" })
-  }
-  catch (error) {
-    const message = String(error)
-    if (message.includes("Cannot find") && message.includes("@t3tools/provider-runtime")) throw error
+  const [error] = await runAgent(agent, { prompt: "runtime proof" })
+  if (error) {
+    const message = String(error.cause)
+    if (message.includes("Cannot find") && message.includes("@t3tools/provider-runtime")) throw error.cause
     provider = "loaded-before-cli-error"
   }
   return { gmail: gmailCapability.id, mcp, provider }

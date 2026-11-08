@@ -127,8 +127,8 @@ it("shares private authority across packed Agent, Connections, and Env", { timeo
           return await (await runtime.client("service", { access }).fetch("https://service.example/data")).text();
         } } });
         const [error, result] = await runAgent(agent, {});
-        if (name === "owner") { assert.equal(error, null); assert.equal(result, "ok"); }
-        else assert.equal(error.code, "CONNECTIONS_DENIED");
+        if (name === "owner") { assert.equal(error, undefined); assert.equal(result.text, "ok"); }
+        else assert.equal(error.cause.code, "CONNECTIONS_DENIED");
       }
     } finally { db.close(); }
   `], { cwd: consumerRoot!, timeout: childProcessTimeout, killSignal: "SIGKILL" });

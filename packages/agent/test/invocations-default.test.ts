@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsDatabase, resolveDefaultAgentInvocationsLocation } from "../src/invocations/default.ts"
 
 afterEach(() => {
@@ -81,7 +82,7 @@ describe("default Agent Invocation journal", () => {
       const file = join(projectRoot, ".vitehub/data/agent-invocations.sqlite")
       expect(existsSync(file)).toBe(false)
       const agent = defineAgent({ driver: { run: () => "done" }, invocations, name: "support" })
-      await runAgent(agent, { memo: vi.fn(), run: { runId: "default-journal" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Keep this prompt" })
+      await runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "default-journal" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Keep this prompt" })
       await vi.waitFor(async () => {
         await expect(invocations.getByRunId("default-journal", "support")).resolves.toMatchObject({ status: "completed" })
       })

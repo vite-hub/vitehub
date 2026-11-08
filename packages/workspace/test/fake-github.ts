@@ -323,8 +323,9 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     }
     if (rest.startsWith("/compare/") && method === "GET") {
       const [left, right] = rest.slice("/compare/".length).split("...")
-      const base = left && right ? mergeBase(left, right) : undefined
-      return base ? json({ merge_base_commit: { sha: base } }) : failure(404, "Not Found")
+      if (!left || !right || !commits.has(left) || !commits.has(right)) return failure(404, "Not Found")
+      const base = mergeBase(left, right)
+      return base ? json({ merge_base_commit: { sha: base } }) : failure(404, `No common ancestor between ${left} and ${right}.`)
     }
     if (rest.startsWith("/git/matching-refs/heads/") && method === "GET") {
       const prefix = rest.slice("/git/matching-refs/heads/".length)

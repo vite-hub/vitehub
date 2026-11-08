@@ -5,5 +5,6 @@ export { aiGatewayEnvNames } from "./env.ts"
 export type { AiGatewayEnvFieldName, AiGatewayEnvPreset } from "./env.ts"
 export type { AiGatewayTraceEvent } from "./jev.ts"
 export { askAiGateway } from "./presets.ts"
+export { getPublicAiGatewayDiagnostic } from "./public-diagnostics.ts"
 
 export { isChatGPTGateway } from "./chatgpt.ts"
