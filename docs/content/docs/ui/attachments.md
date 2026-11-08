@@ -13,7 +13,7 @@ icon: i-ph-files-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the composable. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import it from `@vite-hub/ui`:
 
 ```ts
 import { useAgentAttachments } from "@vite-hub/ui";
