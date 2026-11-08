@@ -1,6 +1,7 @@
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { isH3V1Event } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { createError } from "h3"
 
 import { cloudflareRateLimitDriver } from "./drivers/cloudflare.ts"
@@ -117,7 +118,8 @@ async function consumeRateLimit(
   const policy = declaredRateLimitPolicy(normalizeRateLimitPolicy(options))
   const { driver } = getRateLimitRuntimeConfig()
   const scope = getRequestScope(event)
-  const key = options.key ?? getRequestKey(scope, driver)
+  // A test request has no client address, so in app tests all requests without a key count as one client.
+  const key = options.key ?? getRequestKey(scope, driver) ?? (getViteHubTestMode() ? "test-client" : undefined)
   if (!key) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message: `[vitehub] \`${guard}()\` could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address.` })
   }

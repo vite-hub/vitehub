@@ -1,5 +1,5 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { cloudflareUnsupportedEnqueueOptions, formatQueueOptionNames, queueProviderResult } from "../errors.ts"
+import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
@@ -59,11 +59,8 @@ function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueB
 }
 
 function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSendOptions, "QUEUE_UNSUPPORTED_OPTION"> {
-  const unsupported = cloudflareUnsupportedEnqueueOptions.filter(option => options[option] !== undefined)
-
-  if (unsupported.length) {
-    return [queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider: "cloudflare" }), undefined]
-  }
+  const error = queueUnsupportedOptionsError(options, "cloudflare")
+  if (error) return [error, undefined]
 
   return [undefined, {
     contentType: options.contentType,
