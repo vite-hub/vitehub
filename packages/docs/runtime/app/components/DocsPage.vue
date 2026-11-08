@@ -43,6 +43,7 @@ useDocsSeo({
   <!-- The layout's UMain is the page's only main landmark. -->
   <div v-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
     <UPageHeader
+      :headline="page.eyebrow ?? undefined"
       :title="page.sourceTitle"
       :description="page.tagline ?? undefined"
       :ui="{

@@ -148,38 +148,37 @@ describe("UI documentation", () => {
     expect(layout).toContain("lg:!flex lg:!flex-row");
   });
 
-  it("keeps only search in the panel head, without a product context link or disclosure control", () => {
+  it("titles the panel with its group or section, without a product context link or disclosure control", () => {
     const sidebarTop = readFileSync(resolve(packageApp, "components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("<UContentSearchButton");
+    expect(sidebarTop).toContain("docsSidebarGroup(manifest, section.value, groups)?.title ?? section.value.title");
+    expect(sidebarTop).not.toContain("<UContentSearchButton");
     expect(sidebarTop).not.toContain("vh-docs-context");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-  it("moves the brand, the site areas, and the controls from the header into the sidebar", () => {
+  it("keeps the brand, search, and the controls in the header, and the rail and pages in the sidebar", () => {
     const rail = readFileSync(resolve(packageApp, "components/DocsRail.vue"), "utf8");
     const body = readFileSync(resolve(packageApp, "components/DocsAsideLeftBody.vue"), "utf8");
     const sidebars = readFileSync(resolve(packageApp, "components/DocsSidebars.vue"), "utf8");
-    const footer = readFileSync(resolve(packageApp, "components/DocsAsideFooter.vue"), "utf8");
     const header = readFileSync(resolve(packageApp, "components/AppHeader.vue"), "utf8");
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
 
-    // The rail names the site and its badge from the `docs.site` options: "ViteHub navigation" and "ViteHub alpha".
+    // The rail names the site from the `docs.site` options: "ViteHub navigation". The header carries the brand.
     expect(rail).toContain('<PrimitiveRail ref="rail" :label="`${site.name} navigation`"');
-    expect(rail).toContain("const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name");
-    expect(rail).toContain('<PrimitiveRailItem :as="NuxtLink" to="/" :label="brand" class="vh-docs-rail-brand">');
-    expect(rail).toContain("<template #label>");
+    expect(rail).not.toContain("vh-docs-rail-brand");
     expect(body).toContain('v-for="link in startLinks"');
     expect(config).toContain('{ label: "Learn", to: "/learn"');
     expect(config).toContain('{ label: "Projects", to: "/projects"');
     expect(config).toContain('{ label: "Templates", to: "/templates"');
-    expect(sidebars).toContain("<DocsAsideFooter />");
-    expect(footer).toContain("<UColorModeButton");
-    expect(footer).toContain('v-for="link in socials"');
+    expect(sidebars).toContain("<DocsAsideLeftBody />");
+    expect(header).toContain("<UColorModeButton");
+    expect(header).toContain('v-for="link in socials"');
+    expect(header).toContain('label="Search docs"');
     expect(config).toContain('socials: [{ label: "ViteHub on Discord"');
-    // The header stays for the menu on narrow screens and hides where the sidebar shows.
-    expect(header).toContain(":class=\"{ 'lg:hidden': isDocsRoute }\"");
+    // The header shows on every page, also next to the docs sidebar.
+    expect(header).not.toContain("'lg:hidden': isDocsRoute");
   });
 
   it("keeps the docs sidebar panel visible and scrollable", () => {
@@ -190,7 +189,7 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
-    expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
+    expect(layout).toContain('<LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel />');
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     // The aside container is a flex column. The sidebars must grow into it, or the panel collapses to its header.
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));

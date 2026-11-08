@@ -9,6 +9,7 @@ import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDia
 import { consoleMcpReadScope, consoleMcpWriteScope, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
 import { checkConsoleToken } from "./console-token.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
+import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
@@ -223,6 +224,10 @@ export async function resolveConsoleAppAuthIdentity(request: Request, event: obj
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
   const policy = installedConsoleAccessPolicy()
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
+  // Every Console route, page, Realtime room, and page tool reads its access here, so none can skip this rule.
+  if (!await isConsoleLoopbackRequest(consoleRequest(event), { access: policy.mode, remoteAddress: getStandardContext(event).runtime?.clientAddress })) {
+    return rejection(403, "CONSOLE_LOOPBACK_ONLY")
+  }
   let user: ConsoleUser | undefined
   let scopes: readonly string[] | undefined
   if (policy.mode === "local") {
