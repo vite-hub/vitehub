@@ -12,7 +12,7 @@ the same `vite-hub/*` imports as a Vite app.
 
 ## Install the module
 
-Use Nuxt 5, which runs Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Nuxt has its own Nitro, so install only `vite-hub`.
+Use Nuxt 5, which runs Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Nuxt has its own Nitro, so install only `vite-hub`.
 
 ```bash [Terminal]
 pnpm add vite-hub

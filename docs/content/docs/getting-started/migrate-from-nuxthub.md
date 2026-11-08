@@ -35,7 +35,7 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Remove `@nuxthub/core` and install ViteHub.
+Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub.
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
