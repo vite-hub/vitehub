@@ -8,6 +8,7 @@ import * as v from "valibot";
 import {
   createNoExternalAddition,
   hasNitroConfigContext,
+  isProductionBuild,
   isServerEnvironment,
   loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
@@ -526,7 +527,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       if (environment.command === "serve" || options.management) {
         const actorModule =
           (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
-        if (environment.command !== "serve" && !actorModule?.trim()) {
+        if (isProductionBuild(config, environment) && !actorModule?.trim()) {
           throw new Error(
             "Connections management in production requires management: { actor: <authentication module> }.",
           );

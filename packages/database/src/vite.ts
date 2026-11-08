@@ -20,7 +20,7 @@ import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
-import { assertDefinitionD1Resources, dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
@@ -565,6 +565,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         ])
         return
       }
+      assertHostedDatabaseRuntimeResources(runtimeConfig, [provider])
       const definitionDefaults = await writeHostedDatabaseRuntimeModules(runtimeDir, runtimeConfig, [provider])
       const runtimeModule = resolve(runtimeDir, `${provider}-runtime.mjs`)
       contributeProviderRuntime(providerOutput, {

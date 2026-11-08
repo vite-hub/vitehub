@@ -126,6 +126,7 @@ import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
+import { logsVitePlugin } from "../src/logs-vite.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 import { unavailableServicesPlugin } from "../src/unavailable-services.ts"
 import { optionalOwnerImportsPlugin } from "../src/internal/owner-modules.ts"
@@ -527,6 +528,17 @@ describe("ViteHub Nuxt integration", () => {
 
     await runNitroConfigHook(nitroOptions(nuxt))
     expect(serverDirsHook).toHaveBeenCalledWith(expect.objectContaining({ [VITEHUB_SERVER_DIRS]: serverDirs }), expect.anything())
+  })
+
+  it.each([false, true])("runs the production build checks of replayed Vite plugins only in a build (prepare: %s)", async (prepare) => {
+    mocks.vitehub.mockReturnValue([logsVitePlugin(true)])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { _prepare: prepare })
+    await viteHubNuxtModule({ console: false, env: false, logs: true, preset: "cloudflare" }, nuxt)
+
+    const result = runNitroConfigHook({})
+    if (prepare) await expect(result).resolves.toBeUndefined()
+    else await expect(result).rejects.toThrow("Production Logs needs an existing source")
   })
 
   it.each([false, true])("reports missing facade owners through Nuxt Nitro resolution (dev: %s)", async (dev) => {
