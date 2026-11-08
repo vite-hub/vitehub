@@ -83,7 +83,7 @@ describe("Connections route guard contract", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_FORBIDDEN",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_forbidden",
+        docs: "https://vitehub.dev/docs/connections/diagnostics/connections_forbidden",
         fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
         message: "The management route found no signed-in manager for this request.",
       },

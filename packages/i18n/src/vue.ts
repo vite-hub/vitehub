@@ -2,9 +2,9 @@
 /// <reference path="./virtual.d.ts" preserve="true" />
 import "virtual:vite-hub/i18n/client"
 import { createLingui, Trans } from "@lingui/vue"
-import { inject, readonly, shallowRef } from "vue"
+import { hasInjectionContext, inject, readonly, shallowRef } from "vue"
 
-import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocale, setI18nTracker, setLocale } from "./runtime.ts"
+import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocale, setI18nAppScope, setI18nTracker, setLocale, setLocaleFor } from "./runtime.ts"
 
 import type { I18n, MessageDescriptor } from "@lingui/core"
 import type { App, ComponentCustomProperties, InjectionKey, Plugin, Ref } from "vue"
@@ -19,8 +19,9 @@ export interface LocaleState {
 }
 
 const localeKey: InjectionKey<LocaleState> = Symbol("vite-hub.i18n.locale")
+const instanceKey: InjectionKey<{ i18n: I18n, locale: Ref<string> }> = Symbol.for("vite-hub.i18n.instance")
 
-// The locale of the last app change. Templates that read it re-render after `setLocale()`.
+// Track default-runtime messages that run outside a Vue injection context.
 const activeLocale = shallowRef<string>()
 
 /**
@@ -28,8 +29,27 @@ const activeLocale = shallowRef<string>()
  * also imports `t`. Do not call it yourself.
  */
 export function translateInTemplate(descriptor: MessageDescriptor): string {
-  void activeLocale.value
   return getI18n()._(descriptor)
+}
+
+setI18nAppScope(() => {
+  const context = hasInjectionContext() ? inject(instanceKey, undefined) : undefined
+  if (!context) return undefined
+  void context.locale.value
+  return context.i18n
+})
+
+/** The build captures the component's instance during setup for messages in computed values and callbacks. */
+export function useI18n(): I18n {
+  const context = inject(instanceKey, undefined)
+  const target = context?.i18n ?? getI18n()
+  return new Proxy(target, {
+    get(target, key) {
+      void (context?.locale ?? activeLocale).value
+      const value: unknown = Reflect.get(target, key, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
 }
 
 setI18nTracker(() => {
@@ -45,6 +65,7 @@ export function i18nPlugin(options: { i18n?: I18n } = {}): Plugin {
     install(app: App) {
       const i18n = options.i18n ?? getI18n()
       const locale = shallowRef(i18n.locale)
+      app.provide(instanceKey, { i18n, locale })
       i18n.on("change", () => {
         locale.value = i18n.locale
         activeLocale.value = i18n.locale
@@ -57,7 +78,11 @@ export function i18nPlugin(options: { i18n?: I18n } = {}): Plugin {
         void locale.value
         return i18n._(descriptor)
       }) as unknown as ComponentCustomProperties["t"]
-      app.provide(localeKey, { locale: readonly(locale), locales: getLocales(), setLocale })
+      app.provide(localeKey, {
+        locale: readonly(locale),
+        locales: getLocales(),
+        setLocale: locale => setLocaleFor(i18n, locale),
+      })
     },
   }
 }

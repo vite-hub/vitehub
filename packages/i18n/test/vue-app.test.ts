@@ -120,6 +120,7 @@ describe("a Vue app with messages in templates and scripts", () => {
   })
 
   it("refuses an imported translation that loses a placeholder", async () => {
+    await cli("export", "es", "--output", "es.po")
     const po = (await readFile(join(root, "es.po"), "utf8")).replace(`msgstr "Hola <0>{0}</0>, lee la <1>documentación</1>."`, `msgstr "Hola, lee la <1>documentación</1>."`)
     await writeFile(join(root, "lost.po"), po)
     const imported = await cli("import", "es", "lost.po", "--by", "ana", "--json")

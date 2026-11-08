@@ -23,6 +23,7 @@ interface I18nState {
   config?: I18nRuntimeConfig
   app?: I18n
   scope?: () => I18n | undefined
+  appScope?: () => I18n | undefined
   /** Keep overlapping selections ordered per page or server request, including across linked package copies. */
   selections?: WeakMap<I18n, symbol>
   /** Set by the Vue plugin. A message read inside `computed` or a render then re-runs after a locale change. */
@@ -56,10 +57,15 @@ export function setI18nScope(scope: (() => I18n | undefined) | undefined): void 
   state().scope = scope
 }
 
-/** The i18n instance of the current request on the server, or of the page in the browser. */
+/** The Vue integration supplies the instance of the current app without replacing the server request scope. */
+export function setI18nAppScope(scope: () => I18n | undefined): void {
+  state().appScope = scope
+}
+
+/** The i18n instance of the current Vue app, server request, or browser page. */
 export function getI18n(): I18n {
   const current = state()
-  const scoped = current.scope?.()
+  const scoped = current.appScope?.() ?? current.scope?.()
   if (scoped) return scoped
   if (!current.app) {
     const locale = current.config?.sourceLocale ?? "en"
@@ -158,12 +164,16 @@ export function resolveRequestLocale(headers: { get(name: string): string | null
  * cookie, so the next server render uses it too. A superseded selection returns `I18N_LOCALE_SUPERSEDED`.
  */
 export async function setLocale(locale: string): Promise<Result<string, "I18N_UNKNOWN_LOCALE" | "I18N_LOCALE_SUPERSEDED">> {
+  return setLocaleFor(getI18n(), locale)
+}
+
+/** Select a locale on the instance owned by a Vue app or server request. */
+export async function setLocaleFor(target: I18n, locale: string): Promise<Result<string, "I18N_UNKNOWN_LOCALE" | "I18N_LOCALE_SUPERSEDED">> {
   const current = state()
   const config = current.config
   const locales = config?.locales ?? []
   const match = locales.find(entry => entry.toLowerCase() === locale.toLowerCase())
   if (!config || !match) return [i18nErrorDiagnostics.I18N_UNKNOWN_LOCALE({ locale, locales }), undefined]
-  const target = getI18n()
   const selections = current.selections ||= new WeakMap<I18n, symbol>()
   const selection = Symbol()
   selections.set(target, selection)

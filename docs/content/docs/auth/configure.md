@@ -159,7 +159,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 
 Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from '@vite-hub/auth'
 
 export default defineAuth({
@@ -241,17 +241,40 @@ For a manual host that adapts requests to plain Web `Request` objects, call the 
 
 ## Give the first admin role
 
-Set `VITEHUB_ADMIN_EMAILS` to a comma-separated list of emails. A new account with one of them gets the admin role of Better Auth's `admin()` plugin: an email and password sign-up, or the first sign-in with a social provider. Existing accounts keep their role. The Auth Console shows the rule in its access notes.
+Set `VITEHUB_ADMINS` to the social accounts that get the admin role, separated by commas. Each entry is `<provider>:<account id>`, the pair that Better Auth stores in the `account` table:
 
 ```bash [Terminal]
-VITEHUB_ADMIN_EMAILS=you@example.com pnpm dev
+VITEHUB_ADMINS=github:22072217 pnpm dev
 ```
 
-On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS`. The role is the first entry of `admin({ adminRoles })`, `admin` by default. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+A GitHub entry uses the numeric account id, because someone can rename a login and someone else can take the old one. Find it with `gh api users/<login> --jq .id`.
 
-The assignment runs after an application's `databaseHooks.user.create.before` hook, preserving its other fields and any cancellation. A hook's returned role cannot demote a new account with a listed email.
+When a listed account signs in, or is linked to a user, the user gets the first role of `admin({ adminRoles })`, `admin` by default. The role replaces the default role of `admin()` and joins the user's other roles. An entry added later works on the account's next sign-in. Removing an entry does not remove the role: an admin changes it in the Auth Console, which shows the rule in its access notes.
 
-The first account that signs up with a listed email gets the role. This is a bootstrap rule and does not prove email ownership. For email and password sign-up, restrict access to the deployment until you have created the admin account, then unset `VITEHUB_ADMIN_EMAILS` before opening public sign-up. Email verification alone does not protect this bootstrap: someone else can register the address with their own password, and keep that password if the mailbox owner follows the verification link. If the address has already been registered by someone else, remove that account through your trusted administration process before bootstrapping.
+On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMINS`. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+
+`VITEHUB_ADMINS` takes no emails. An email and password sign-up does not prove that the person owns the email, so the first person to sign up with the admin's email would get the role. An email entry fails with `AUTH_C0058`, and the removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
+
+### Claim the admin role with a code
+
+An app with only email and password sign-in has no social account to list. Create a one-time claim code instead:
+
+```bash [Terminal]
+$ vitehub auth claim
+Claim code: 7KQF-2M9D-XW4P-R8TB
+This is the only time the code is shown. Keep it private.
+
+Set this variable on the host, for example as a Worker secret:
+VITEHUB_ADMIN_CLAIM=sha256:3f9a...
+```
+
+Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in, open `/_vitehub`, and enter the code under **Claim code** on the Access denied page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
+
+The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
+
+The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+
+With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
 ## Sign MCP clients in
 
@@ -312,16 +335,21 @@ export default defineHandler(event => serveMcpOAuthDiscovery(event.req, {
 ```ts [server/routes/mcp.ts]
 import { verifyMcpRequest } from 'vite-hub/auth/mcp'
 
-const [error, caller] = await verifyMcpRequest(event.req)
-if (error) {
-  return new Response(null, {
-    status: 401,
-    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', event.req.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
-  })
+export default {
+  async fetch(request: Request) {
+    const [error, caller] = await verifyMcpRequest(request)
+    if (error) {
+      return new Response(null, {
+        status: 401,
+        headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', request.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
+      })
+    }
+    return Response.json({ client: caller.clientName })
+  },
 }
 ```
 
-It reads only the URL and the headers of the request, so H3's `event.req` or any value with `url` and `headers` works, and the body stays for the MCP handler. It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token whose scope has `offline_access` skips this check: the person granted access for while they are signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+It reads only the URL and the headers of the request, so the Request of a Fetchable route, H3's `event.req`, or any value with `url` and `headers` works, and the body stays for the MCP handler. It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token whose scope has `offline_access` skips this check: the person granted access for while they are signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 
 ### Delete abandoned registrations
 
@@ -373,6 +401,9 @@ To persist Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-datab
 `hubAuth()` accepts `false` to disable Auth integration. The Vite config key `auth` overrides the plugin argument.
 
 ```ts [vite.config.ts]
+import { hubAuth } from '@vite-hub/auth/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubAuth()],
   auth: false,

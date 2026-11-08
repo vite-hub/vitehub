@@ -30,23 +30,24 @@ describe("@vite-hub/auth package contract", () => {
     ])
   })
 
-  it("loads documented exports from built package targets", async () => {
-    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/auth", [
-      ".",
-      "./agent",
-      "./cli",
-      "./console",
-      "./console-runtime",
-      "./database",
-      "./mcp",
-      "./nuxt",
-      "./presets",
-      "./runtime/console",
-      "./runtime/server",
-      "./schema",
-      "./server",
-      "./vue",
-      "./vite",
-    ])
+  // Give each fresh Node process its own timeout and report the failing entrypoint.
+  it.each([
+    ".",
+    "./agent",
+    "./cli",
+    "./console",
+    "./console-runtime",
+    "./database",
+    "./mcp",
+    "./nuxt",
+    "./presets",
+    "./runtime/console",
+    "./runtime/server",
+    "./schema",
+    "./server",
+    "./vue",
+    "./vite",
+  ])("loads documented export %s from the built package", async (entry) => {
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/auth", [entry])
   })
 })

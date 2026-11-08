@@ -8,9 +8,9 @@ icon: i-lucide-circle-alert
 
 ## Handle errors
 
-The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page.
+The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the page of the code in [Comments diagnostics](/docs/comments/diagnostics).
 
-```ts [server/api/threads/[id].get.ts]
+```ts [server/api/threads/[id].get.ts] fragment
 import { createError, defineEventHandler, getRouterParam } from 'h3'
 import { comments } from '../../comments'
 

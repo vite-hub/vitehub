@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 const modelGenerate = vi.hoisted(() => vi.fn())
 const registry = vi.hoisted((): Record<string, () => Promise<unknown>> => ({}))
 
-vi.mock("#vitehub/agent/registry", () => ({ default: registry }))
+vi.mock("#vitehub/agent/registry", () => ({ default: registry, loadAgentHost: async () => {} }))
 vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk: async () => ({
     // This SDK double executes fixture responses without invoking a language model.
@@ -24,7 +24,8 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   }),
 }))
 
-import { agentInvocationId, defineAgent, runAgent } from "../src/index.ts"
+import { agentInvocationId, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { agentInvocationsDevHeader, agentInvocationsDevRuntimeRoute, agentInvocationsDevTokenServerHeader } from "../src/invocations-dev.ts"
 import { handleAgentInvocationsDevRequest } from "../src/runtime/invocations-dev.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -116,10 +117,10 @@ describe("Agent Invocations Nitro dev handler", () => {
       // Execute the generated callback with its real owner handler to verify the authorization boundary.
       const callback: (event: object) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
       const body = { id: "ainv_missing", operation: "cancel" }
-      expect((await callback({ req: devRequest(body) })).status).toBe(403)
+      expect((await callback({ res: { headers: new Headers() }, req: devRequest(body) })).status).toBe(403)
       const serverId = workspaceDevTokenServerId(5173)
       const token = await ensureWorkspaceDevToken(root, { serverId })
-      const response = await callback({ req: devRequest(body, {
+      const response = await callback({ res: { headers: new Headers() }, req: devRequest(body, {
         [agentInvocationsDevHeader]: "1",
         [agentInvocationsDevTokenServerHeader]: serverId,
         [workspaceDevTokenHeader]: token,
@@ -317,7 +318,7 @@ describe("Agent Invocations Nitro dev handler", () => {
     const agent = defineAgent({ driver: modelDriver, invocations, name: "digest" })
     registry.digest = async () => ({ default: agent })
     registry.broken = async () => { throw new Error("Definition failed to load.") }
-    const run = runAgent(agent, runtime("dev-cancel"), { prompt: "Summarize the release." })
+    const run = runAgentWithContext(agent, runtime("dev-cancel"), { prompt: "Summarize the release." })
     const id = await runningId(invocations, "dev-cancel")
 
     const response = await cancelRequest({ id, operation: "cancel" })

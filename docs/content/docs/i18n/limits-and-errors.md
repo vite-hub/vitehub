@@ -46,6 +46,8 @@ Server code called `useTranslations()`, and `i18n.workspace` is not set. Define 
 `setLocale()` got a locale that is not in `i18n.locales`, or `useTranslations()` got the source locale or a locale that is not in `i18n.locales`. Pass one of the configured locales, or add the locale to `i18n.locales`.
 
 ```ts
+import { setLocale } from "vite-hub/i18n"
+
 const [error] = await setLocale("fr")
 if (error?.code === "I18N_UNKNOWN_LOCALE") console.warn(error.fix)
 ```
