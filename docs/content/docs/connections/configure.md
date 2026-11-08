@@ -25,6 +25,8 @@ ViteHub has no generic OAuth 2 provider function yet. For another service, decla
 A provider object declares the endpoints of an OAuth 2.0 authorization code flow with PKCE:
 
 ```ts [server/connections/crm.ts]
+import { defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: {
     id: 'crm',
@@ -60,6 +62,8 @@ export default defineConnection({
 `verify` checks a new key before ViteHub stores it. Return `false` to reject the key, or `{ account }` to label the Connection:
 
 ```ts [server/connections/crm.ts]
+import { apiKey, defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: apiKey({
     id: 'crm',
@@ -158,6 +162,8 @@ This file defines `portal:acme` and `portal:globex`. Use the full name everywher
 A provider can declare its MCP endpoint with `mcp`. `apiKey({ mcp })` and OAuth providers accept it. The endpoint origin also receives the credential, and `inspect()` reports it. The URL must use `https`, or `http` for a loopback host, and must not have credentials, a query, or a fragment.
 
 ```ts [server/connections/crm.ts]
+import { apiKey, defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: apiKey({ id: 'crm', origins: ['https://api.crm.example.com'], mcp: 'https://mcp.crm.example.com/mcp' }),
 })
@@ -170,6 +176,8 @@ An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, witho
 `requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` sets how ViteHub sends provider requests. It applies to `fetch` and to API method calls, but not to the provider's [MCP endpoint](#mcp-endpoint), whose sessions are long-lived streams. Without it, ViteHub sends each request once, with no pacing and no timeout.
 
 ```ts [server/connections/airtable.ts]
+import { apiKey, defineConnection } from 'vite-hub/connections'
+
 export default defineConnection({
   provider: apiKey({
     id: 'airtable',
@@ -225,7 +233,7 @@ ViteHub checks the actor rule before the operation. A write list can contain exa
 
 An actor that only uses the provider's [MCP endpoint](#mcp-endpoint) can have the `'mcp'` preset instead of a rule:
 
-```ts [server/connections/docs.ts]
+```ts [server/connections/docs.ts] fragment
 access: {
   'agent:support': 'mcp',
 },
@@ -255,6 +263,8 @@ The preset allows every method on the provider's `mcp` endpoint without approval
 Connections write one activity event per provider request. By default the database keeps 14 days and at most 10,000 events. Change the limits, or set `false` to keep all activity:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   database: true,
   connections: { activityRetention: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 50_000 } },

@@ -16,7 +16,7 @@ The Chat Capability turns message-shaped input into Agent Invocations and expose
 
 Attach `chat()` to call the Agent from a chat interface through the Agent Trigger API.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { chat } from 'vite-hub/agent/capabilities'
 

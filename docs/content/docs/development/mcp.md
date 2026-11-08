@@ -158,6 +158,8 @@ A server never takes the issuer or the resource from the `Host` header of a requ
 In `vite dev` the request origin is used, because the port changes. Without any of these in production, OAuth is off: the metadata endpoints answer `503` with `CONSOLE_MCP_ORIGIN_REQUIRED`, and a bearer token is not accepted. The issuer is the `jwt.issuer` or the `baseURL` of the Auth. Set `console.mcp.issuer` when tokens carry another one. Configured issuer URLs are normalized with their final slash removed. Set `jwt.issuer` to that canonical URL without a trailing slash: Better Auth 1.7.7 normalizes discovery but preserves the option in access-token claims, so the Console rejects a noncanonical Auth issuer with `CONSOLE_MCP_OAUTH_INCOMPLETE`. Resource identifiers remain exact, including any trailing slash.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({ console: { auth: 'app', mcp: { resource: 'https://app.example.com/_vitehub/mcp' } } })
 ```
 
