@@ -15,7 +15,7 @@ A separate generator writes it: an independent Agent Driver (a second Driver), a
 
 Give it the independent Driver that writes the sentences:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { progressSummary } from 'vite-hub/agent/capabilities'
 
@@ -52,7 +52,7 @@ A failed generation does not stop the primary stream. ViteHub sends a safe warni
 
 Listen for `data-progress-summary` parts and replace the sentence when `revision` increases:
 
-```ts
+```ts fragment
 {
   type: 'data-progress-summary',
   data: {

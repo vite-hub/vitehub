@@ -15,7 +15,7 @@ A Skill owned by one Agent does not need this Capability. Make the Agent a folde
 
 The default path is `skills/SKILL.md`. Pass `path` for another location.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { skills } from 'vite-hub/agent/capabilities'
 
@@ -30,7 +30,7 @@ export default defineAgent({
 
 Mount a remote Source when the Skill is outside the project:
 
-```ts [server/agents/review/browser.ts]
+```ts [server/agents/review/browser.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { skills } from 'vite-hub/agent/capabilities'
 import { github } from 'vite-hub/workspace'

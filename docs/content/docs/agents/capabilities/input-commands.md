@@ -17,7 +17,7 @@ Use it for commands that change the prompt, not for host UI state or shell comma
 
 Give each command a lowercase name and an optional description for CLI and inspection. The default trigger character is `/`.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { inputCommands } from 'vite-hub/agent/capabilities'
 
@@ -73,28 +73,24 @@ The handler's `context` has:
 
 ### Console helpers
 
-Console helpers let a command read past runs and link to them. Import `inputCommands()` from `vite-hub/agent/capabilities` and enable `vitehub({ console })` to get:
-
-- `context.console.invocations`
-- `context.console.invocationsDatabase()`, which opens the journal database for Drizzle on first use, or `undefined` on a Worker with an in-memory journal.
-- `context.console.invocationUrl()`, which links a run with `agentName` and `id`. It needs `vitehub({ publicUrl })` or a request context.
+When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work.
+`invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
+Read the journal itself with `getAgentInvocations()` and `getAgentInvocationsDatabase()` from `vite-hub/agent`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
 
 ```ts [server/agents/support.ts]
 import { desc } from 'drizzle-orm'
 import { inputCommands } from 'vite-hub/agent/capabilities'
+import { getAgentInvocationsDatabase } from 'vite-hub/agent'
 
 const history = inputCommands({
   commands: {
     history: {
       async call({ context }) {
-        const database = await context.console.invocationsDatabase()
+        const database = await getAgentInvocationsDatabase()
         if (!database) return await context.reply('Invocation history is not available on this Worker journal.')
         const { db, schema } = database
         const [latest] = await db
-          .select({
-            agentName: schema.invocations.agentName,
-            id: schema.invocations.id,
-          })
+          .select()
           .from(schema.invocations)
           .orderBy(desc(schema.invocations.sequence))
           .limit(1)
@@ -144,7 +140,7 @@ The model cannot call commands. There is no `policy` option.
 Anyone who can send input can run every command. `channels` limits a command to selected Channels. Elsewhere, it does not run and its text stays.
 
 > [!WARNING]
-> Handlers are server code with Runtime Capabilities such as `db` and `context.console.invocations`, and skip Capability approval. Check `context.actor` or `context.invoker` before reading private data or changing state.
+> Handlers are server code with Runtime Capabilities such as `db` and `context.console`, and skip Capability approval. Check `context.actor` or `context.invoker` before reading private data or changing state.
 
 Returned text becomes model input. Treat `args` as untrusted.
 

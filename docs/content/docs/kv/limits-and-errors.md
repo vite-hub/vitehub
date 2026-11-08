@@ -13,10 +13,11 @@ Each KV operation returns `[error, value]`. An error has these fields:
 - `code`: the failure name.
 - `why`: what went wrong.
 - `fix`: what to do.
-- `docs`: a link to the code on this page.
+- `docs`: a link to the code in [KV diagnostics](/docs/kv/diagnostics).
 - `cause`: the provider error.
 
 ```ts [server/api/settings.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {

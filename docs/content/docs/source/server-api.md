@@ -39,7 +39,7 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 | `source.exists(key)` | Whether a key exists. |
 | `source.list(prefix?)` | File readers only. Direct child files and folders below a prefix. |
 
-```ts [server/api/docs.get.ts]
+```ts [server/api/docs.get.ts] fragment
 import { createSource } from 'vite-hub/source'
 import { docs } from '../sources/docs'
 
@@ -85,6 +85,7 @@ declare global {
 Import the module that registers Sources before you call `useSource()`:
 
 ```ts [server/api/readme.get.ts]
+import { defineEventHandler } from 'h3'
 import '../sources'
 import { useSource } from 'vite-hub/source'
 
@@ -156,7 +157,7 @@ Plain objects or functions work as readers. Use `defineSource()` when a loader n
 
 ### Cache a reader
 
-```ts
+```ts fragment
 import { cachedSource } from 'vite-hub/source/server'
 
 const cachedRecaps = cachedSource(githubRecaps(process.cwd()), {
@@ -236,7 +237,7 @@ The Collection asks the loader for one extra row, enforces the limits, and turns
 
 When all the data fits in memory, use `array()`. It filters, searches, sorts, and pages the array. Each page has `total` and `facets`:
 
-```ts [server/collections/articles.ts]
+```ts [server/collections/articles.ts] fragment
 import { array, defineCollection } from 'vite-hub/source'
 
 export const articles = defineCollection({

@@ -13,7 +13,7 @@ icon: i-lucide-audio-lines
 
 Give a model or an `execute()` function. This example keeps artifacts off, so it needs no writable Workspace.
 
-```ts [server/agents/voice.ts]
+```ts [server/agents/voice.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { transcribe } from 'vite-hub/agent/capabilities'
 
@@ -72,7 +72,7 @@ With `artifacts`, it writes the transcript and audio to the writable Workspace:
 - `artifacts.directory` keeps them together.
 - Generated paths share a cleaned timestamp and message stem.
 
-```ts
+```ts fragment
 transcribe({
   model: transcriptionModel,
   artifacts: {
@@ -121,7 +121,7 @@ Provider `transcript-delta` events become chunks. Providers that send only parti
 - `submit()` returns the provider operation ID, to acknowledge the callback and avoid duplicate work. It never downloads the file into your app.
 - `receive()` turns an authenticated completion payload into a transcript or failure, with the same shape for every provider.
 
-```ts
+```ts fragment
 import {
   createTranscription,
   elevenLabsScribe,

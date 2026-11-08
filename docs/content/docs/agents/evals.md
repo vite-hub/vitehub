@@ -25,7 +25,7 @@ pnpm add -D evalite vitest
 
 Create the Eval next to its Agent:
 
-```ts [server/agents/support.eval.ts]
+```ts [server/agents/support.eval.ts] fragment
 import { defineEval } from 'vite-hub/agent/eval'
 import support from './support'
 
@@ -57,7 +57,7 @@ link clearer.
 
 Use `scenarios` when separate inputs share scorers:
 
-```ts [server/agents/support.eval.ts]
+```ts [server/agents/support.eval.ts] fragment
 import {
   callsTool,
   defineEval,
@@ -117,7 +117,7 @@ History. The helpers check the latest observation:
 
 Variants run the same cases with another model or other instructions:
 
-```ts [server/agents/support.eval.ts]
+```ts [server/agents/support.eval.ts] fragment
 export default defineEval({
   agent: support,
   scenarios,

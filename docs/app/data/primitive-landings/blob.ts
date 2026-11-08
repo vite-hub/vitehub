@@ -34,7 +34,7 @@ export const BlobLanding = {
         {
           path: "nitro.config.ts",
           language: "typescript",
-          content: 'import { hubBlob } from "@vite-hub/blob/vite"\nimport { defineNitroConfig } from "nitropack/config"\n\nexport default defineNitroConfig({\n  vite: { plugins: [hubBlob({ driver: "fs" })] },\n})',
+          content: 'import { hubBlob } from "@vite-hub/blob/vite"\nimport { defineNitroConfig } from "nitro/config"\n\nexport default defineNitroConfig({\n  vite: { plugins: [hubBlob({ driver: "fs" })] },\n})',
         },
         {
           path: "server/api/blob.ts",

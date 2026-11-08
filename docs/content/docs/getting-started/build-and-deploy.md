@@ -30,7 +30,8 @@ resources.
 
 The [development tools](/docs/development) show the Definitions ViteHub finds
 and the output it generates. Use the [CLI](/docs/development/cli) or the local
-[Console](/docs/development/console). Read
+[Console](/docs/development/console). To inspect deployed apps from one place, use the [hosted Console](/docs/development/console#hosted-console) at [console.vitehub.dev](https://console.vitehub.dev).
+Read
 [Troubleshooting](/docs/development/troubleshooting) when an integration or
 provider fails.
 

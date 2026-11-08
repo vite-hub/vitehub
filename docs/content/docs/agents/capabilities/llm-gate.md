@@ -13,7 +13,7 @@ icon: i-lucide-shield-alert
 
 Give each category a stable key and a short description.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { llmGate } from 'vite-hub/agent/capabilities'
 
@@ -35,6 +35,8 @@ export default defineAgent({
 `message` sets the error message server code gets on a reject:
 
 ```ts
+import { llmGate } from 'vite-hub/agent/capabilities'
+
 llmGate({
   allow: { support: 'Support request the Agent can answer.' },
   reject: { unrelated: 'Request unrelated to support.' },

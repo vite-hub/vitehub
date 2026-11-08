@@ -69,7 +69,7 @@ Use three arguments when the behavior depends on a host `RuntimeContext`,
 request metadata, or a stream's background lifetime. This form throws on
 failure and returns the result directly:
 
-```ts
+```ts fragment
 const result = await runAgent(agent, runtimeContext, { prompt: 'Ada' })
 ```
 
@@ -82,7 +82,7 @@ test Capability setup or cleanup.
 An Eval runs a real Agent Definition inline. Keep credentials and the model in
 the Agent file, and put the scenario and scorer in `*.eval.ts`:
 
-```ts [server/agents/support.eval.ts]
+```ts [server/agents/support.eval.ts] fragment
 import { callsTool, defineEval, textContains } from 'vite-hub/agent/eval'
 import support from './support'
 
@@ -166,7 +166,7 @@ Console status endpoint for the Agent:
 
 ```bash
 curl -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
-  'http://localhost:5173/api/_vitehub/console/status?agent=support'
+  'http://localhost:5173/_vitehub/api/status?agent=support'
 ```
 
 `VITEHUB_CONSOLE_COOKIE` is the cookie from a signed-in Console session

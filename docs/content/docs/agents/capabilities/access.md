@@ -13,7 +13,7 @@ When an Invocation (one Agent run) starts, `access()` accepts or rejects Channel
 
 Put `access()` before Workspace and storage Capabilities, so the Workspace is already limited when `workspaceShell()` adds its tools.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 
@@ -36,7 +36,7 @@ export default defineAgent({
 
 To choose the scope for each run, read trusted data about the caller:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 

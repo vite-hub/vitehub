@@ -79,7 +79,7 @@ Some rules read the whole project:
 | [`VHUB0020`](#vhub0020) | `vitehub/workflow-step-names` | Error |
 | [`VHUB0021`](#vhub0021) | `vitehub/valid-schedule-cron` | Error |
 | [`VHUB0022`](#vhub0022) | `vitehub/manual-schedule-run` | Error |
-| [`VHUB0023`](#vhub0023) | `vitehub/valid-outbound-channel` | Error |
+| [`VHUB0023`](#vhub0023) | `vitehub/valid-channel` | Error |
 | [`VHUB0024`](#vhub0024) | `vitehub/realtime-carets` | Warning |
 | [`VHUB0025`](#vhub0025) | `vitehub/realtime-persistence` | Error |
 | [`VHUB0026`](#vhub0026) | `vitehub/forge-error-imports` | Warning |
@@ -104,7 +104,7 @@ Code imports an internal ViteHub path or a generated file. These change without 
 - `.vitehub/**` and `.nuxt/vitehub/**` are build output, rewritten on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/env/server`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub's own runtime, such as `#vitehub/agent/registry`.
 
-```ts [server/api/settings.get.ts]
+```ts [server/api/settings.get.ts] fragment
 // Invalid
 import { kv } from 'vite-hub/_internal/kv'
 import { useServerEnv } from '../../.vitehub/env/server'
@@ -152,9 +152,9 @@ const { appName } = usePublicEnv()
 
 ## VHUB0003
 
-**Destructure `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
+**Read `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
 
-Some Runtime Helpers return an `[error, value]` tuple instead of throwing. If code uses the tuple as the value, the error is lost. And a tuple is always truthy, so `if (await kv.has(key))` always passes.
+Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that drops the tuple, or uses it as the value, loses the error. A statement such as `await runQueue('sync', input)` turns a failed send into silence. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass.
 
 The rule checks these calls:
 
@@ -163,16 +163,19 @@ The rule checks these calls:
 - `runQueue()`, `dynamicQueue.run()`, and `send()` and `sendBatch()` of a client from `getQueue()`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
+- `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
 - `runAgent(agent, input)` from `vite-hub/agent`, and `runAgent(agent, input, { output: 'drained' })`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and Nuxt auto-imports in `server/`. It reports a result that code:
 
+- drops, as in a statement such as `await kv.set(key, value)` or `email.send(message)`
 - assigns to a name
 - tests in a condition, negates, or compares
 - reads a property from, iterates with `for...of`, spreads, or puts in a template literal or object property
 - returns from a route handler, so the client gets the tuple with status 200. A route handler is a function passed to `defineEventHandler()`, or the default export of a file under `api/`, `routes/`, or `middleware/` in `server/` or the Nuxt `serverDir` of the app and its layers
 
 ```ts [server/api/settings.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
@@ -183,6 +186,7 @@ export default defineEventHandler(async () => {
 ```
 
 ```ts [server/api/settings.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
@@ -193,7 +197,28 @@ export default defineEventHandler(async () => {
 })
 ```
 
-The rule accepts an ignored result (`await kv.set(key, value)`), a pattern (`const [error] = await kv.del(key)`), a name that code later indexes or destructures, an index (`(await blob.head(path))[0]`), and a tuple that a helper returns to its caller. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule skips it. See [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api).
+These excerpts use the app's `sync` Queue Definition.
+
+```ts [server/utils/dispatch.ts] fragment
+import { runQueue } from 'vite-hub/queue'
+
+export async function dispatchSync(connectionId: string) {
+  // Invalid: a failed send is silent.
+  await runQueue('sync', { connectionId })
+}
+```
+
+```ts [server/utils/dispatch.ts] fragment
+import { runQueue } from 'vite-hub/queue'
+
+export async function dispatchSync(connectionId: string) {
+  // Valid
+  const [error] = await runQueue('sync', { connectionId })
+  if (error) throw error
+}
+```
+
+To ignore a failure on purpose, such as a best-effort cache write, write `void await kv.set(key, value)`. The rule accepts `void`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. It does not check tuples inside `Promise.all()`. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
 
 ## VHUB0004
 
@@ -291,6 +316,7 @@ It accepts literals for other keys, such as `logLevel: 'info'`, and runtime read
 The rule reports a guard used as a statement or condition without `await`. It reports `deriveSecret()` and `loadServerEnv()` in a string, a comparison, an object value, a destructuring pattern, or a property read, also through a variable that holds the promise. Returning the promise or passing it to `Promise.all()` or `.then()` is fine.
 
 ```ts [server/api/upload.post.ts]
+import { defineEventHandler } from 'h3'
 import { requireRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
@@ -300,6 +326,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/upload.post.ts]
+import { defineEventHandler } from 'h3'
 import { requireRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
@@ -347,6 +374,7 @@ export default defineEventHandler(async (event) => {
 `checkRateLimit()` and `consume()` of a `createRateLimiter()` limiter use a token and return a decision object. They do not stop the request. The object is always truthy, so `if (await checkRateLimit(...))` never sees the limit. An ignored decision lets the operation run.
 
 ```ts [server/api/og.get.ts]
+import { defineEventHandler } from 'h3'
 import { checkRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
@@ -356,6 +384,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/og.get.ts]
+import { defineEventHandler } from 'h3'
 import { checkRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
@@ -376,6 +405,7 @@ Use `requireRateLimit()` when the request must fail with status 429. Read [Rate 
 The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler (see [VHUB0003](#vhub0003)). It skips a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and test files.
 
 ```ts [server/api/search.get.ts]
+import { defineEventHandler } from 'h3'
 import { createRateLimiter } from 'vite-hub/rate-limit'
 import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
 
@@ -387,6 +417,7 @@ export default defineEventHandler(async () => {
 ```
 
 ```ts [server/api/search.get.ts]
+import { defineEventHandler } from 'h3'
 import { createRateLimiter } from 'vite-hub/rate-limit'
 import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
 
@@ -478,14 +509,16 @@ A Runtime Helper gets a literal name that matches no discovered Definition. The 
 
 The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` always passes. The rule skips `runSchedule(name, { registry })`, which reads its own registry, and cannot see Workflows that another file registers with `createWorkflow()`.
 
-```ts [server/api/signup.post.ts]
+This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
+
+```ts [server/api/signup.post.ts] fragment
 import { runQueue } from 'vite-hub/queue'
 
 // Invalid: the file is server/queues/welcome-email.ts
-await runQueue('welcom-email', { email })
+const [typoError] = await runQueue('welcom-email', { email })
 
 // Valid
-await runQueue('welcome-email', { email })
+const [error] = await runQueue('welcome-email', { email })
 ```
 
 Doctor runs each package's discovery. It skips a kind with no Definition files, because plugins can add Definitions that Doctor cannot see. It skips names that are not string literals.
@@ -516,18 +549,18 @@ export default defineQueue(async ({ payload }) => {})
 
 **Put each Definition where ViteHub discovers it.** Rule `vitehub/definition-location`.
 
-A file default-exports `defineQueue()`, `defineWorkflow()`, `defineSchedule()`, `defineBrowser()`, `defineRealtime()`, `defineOutboundChannel()`, `defineAgent()`, `defineConnection()`, or `defineSandboxTask()`, but ViteHub does not discover the file. The Definition is never registered: a Schedule never runs, and calls by name fail.
+A file default-exports `defineQueue()`, `defineWorkflow()`, `defineSchedule()`, `defineBrowser()`, `defineRealtime()`, `defineChannel()`, `defineAgent()`, `defineConnection()`, or `defineSandboxTask()`, but ViteHub does not discover the file. The Definition is never registered: a Schedule never runs, and calls by name fail.
 
 The rule does not report a module that a discovered file re-exports, as in `export { default } from '../utils/email-queue'`.
 
-```ts [server/utils/report.ts]
+```ts [server/utils/report.ts] fragment
 // Invalid: ViteHub does not scan server/utils/.
 import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({ cron: '0 8 * * *', handler })
 ```
 
-```ts [server/schedules/report.ts]
+```ts [server/schedules/report.ts] fragment
 // Valid
 import { defineSchedule } from 'vite-hub/schedule'
 
@@ -542,14 +575,16 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 `runQueue()`, `deferQueue()`, `dynamicQueue.run()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType`, the whole object is sent as the payload and the options do nothing.
 
-```ts [server/api/signup.post.ts]
+This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
+
+```ts [server/api/signup.post.ts] fragment
 import { runQueue } from 'vite-hub/queue'
 
 // Invalid
-await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+const [wrappedError] = await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
 
 // Valid
-await runQueue('welcome-email', { email }, { delaySeconds: 60 })
+const [error] = await runQueue('welcome-email', { email }, { delaySeconds: 60 })
 ```
 
 The rule accepts a `payload` field with no option keys, because that is app data.
@@ -589,7 +624,7 @@ Code destructures `[error, value]` from an API that returns no tuple:
 - `runSchedule()` returns a Schedule Run record. A failed handler resolves with `status: "failed"`.
 - `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
-```ts [server/api/onboard.post.ts]
+```ts [server/api/onboard.post.ts] fragment
 import { runWorkflow } from 'vite-hub/workflow'
 
 // Invalid
@@ -607,14 +642,14 @@ The rule skips `runAgent()`: its tuple forms are tuples, and `runAgent(agent, co
 
 `runSandboxTask()` and `runBrowser()` return a Web `Response`. A failed run returns one with an error status, not your data. Reading a data field from it gives `undefined`.
 
-```ts [server/api/resize.post.ts]
+```ts [server/api/resize.post.ts] fragment
 import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 // Invalid
 const { width } = await runSandboxTask('resize', payload)
 ```
 
-```ts [server/api/resize.post.ts]
+```ts [server/api/resize.post.ts] fragment
 import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 // Valid
@@ -655,7 +690,7 @@ export default defineWorkflow(async ({ payload, steps }) => {
 
 It does not report names such as `MON`, or a cron that sets both day fields. The process runtime accepts them. The Cloudflare, Vercel, and Netlify builds reject them with `SCHEDULE_R0003`.
 
-```ts [server/schedules/digest.ts]
+```ts [server/schedules/digest.ts] fragment
 import { defineSchedule } from 'vite-hub/schedule'
 
 // Invalid: the hour 24 is outside 0-23.
@@ -672,13 +707,14 @@ export default defineSchedule({ cron: '0 8 * * 1', handler })
 `runSchedule(name)` from `vite-hub/schedule/runtime` runs only a Schedule with `manual: true`. Others throw `SCHEDULE_MANUAL_RUN_DISABLED`.
 
 ```ts [server/api/report.post.ts]
+import { defineEventHandler } from 'h3'
 import { runSchedule } from 'vite-hub/schedule/runtime'
 
 // Invalid: server/schedules/report.ts does not set manual: true.
 export default defineEventHandler(() => runSchedule('report'))
 ```
 
-```ts [server/schedules/report.ts]
+```ts [server/schedules/report.ts] fragment
 // Valid
 import { defineSchedule } from 'vite-hub/schedule'
 
@@ -687,31 +723,30 @@ export default defineSchedule({ cron: '0 8 * * *', manual: true, handler })
 
 ## VHUB0023
 
-**Configure each outbound Channel connector.** Rule `vitehub/valid-outbound-channel`.
+**Give each Channel an adapter that fits its targets.** Rule `vitehub/valid-channel`.
 
-`defineOutboundChannel()` throws when its module loads if `connectors` is empty (`CHANNELS_C0003`), a connector has no `send` function (`CHANNELS_C0004`), or `defaultConnector` is not a connector name (`CHANNELS_C0005`). The registry loads the module on the first `send()`, so the error comes back from that call. The rule reports these mistakes in object literals.
+`defineChannel()` throws when its module loads if it has no `adapter` or the adapter has no `kind` (`CHANNELS_C0007`), or if an `on` handler sits on an adapter that does not receive webhooks (`CHANNELS_C0010`). Handlers need `webhook()` or `stripe()`. A chat adapter such as `slack()` sends its messages to the Agent that lists the Channel. The registry loads the module on the first `send()`, so the error appears as a returned error at that moment. The rule reports these mistakes in object literals.
 
-```ts [server/channels/alerts.ts]
-import { defineOutboundChannel } from 'vite-hub/channels'
+```ts [server/channels/alerts.ts] fragment
+import { defineChannel } from 'vite-hub/channels'
 
 // Invalid
-export default defineOutboundChannel({
-  connectors: { slack: { url: 'https://hooks.slack.com/...' } },
-  defaultConnector: 'email',
+export default defineChannel({
+  adapter: { send: async text => sendToSlack(text) },
+  on: { webhook: event => console.log(event) },
 })
 ```
 
-```ts [server/channels/alerts.ts]
-import { defineOutboundChannel } from 'vite-hub/channels'
+```ts [server/channels/alerts.ts] fragment
+import { defineChannel } from 'vite-hub/channels'
 
 // Valid
-export default defineOutboundChannel({
-  connectors: { slack: { send: async text => sendToSlack(text) } },
-  defaultConnector: 'slack',
+export default defineChannel({
+  adapter: { kind: 'slack', send: async text => sendToSlack(text) },
 })
 ```
 
-It skips connectors that a call or a spread creates.
+The rule does not check adapters that a variable or a spread creates.
 
 ## VHUB0024
 
@@ -747,6 +782,8 @@ The rule checks only files that import a `vite-hub/realtime` path at runtime, no
 `defineRealtime({ persistence })` has a `maxWait` less than `debounce`, or a timing that is not 0 or more milliseconds. Realtime throws `REALTIME_INVALID_PERSISTENCE` when the first room opens. Unset values use the defaults, `debounce` 2000 ms and `maxWait` 10000 ms, so `debounce: 20000` alone is also invalid.
 
 ```ts [server/realtime/notes.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
 // Invalid
 export default defineRealtime({
   document: { workspace: 'docs' },
@@ -755,6 +792,8 @@ export default defineRealtime({
 ```
 
 ```ts [server/realtime/notes.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
 // Valid
 export default defineRealtime({
   document: { workspace: 'docs' },
@@ -770,7 +809,7 @@ The rule reads only number literals, not variables or spreads.
 
 An app that depends on `@vite-hub/forge` imports `NotFoundError`, `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `RateLimitedError`, or `BranchMovedError` from `forges`. `forgeProvider()` throws the copy that `@vite-hub/forge` bundles, so `instanceof` against the `forges` class is always false.
 
-```ts [server/utils/pull-request.ts]
+```ts [server/utils/pull-request.ts] fragment
 // Invalid
 import { NotFoundError } from 'forges'
 
@@ -791,7 +830,7 @@ A literal Sandbox definition in `resolveSandbox()` or in the `sandbox` option of
 - Both `cwd` and `checkout` (`SANDBOX_R0035`).
 - The `crabbox` runtime without `cwd` or `checkout` (`SANDBOX_R0091`).
 
-```ts [server/utils/sandbox.ts]
+```ts [server/utils/sandbox.ts] fragment
 // Invalid
 const sandbox = await resolveSandbox({ runtime: 'cloudflare' }, {})
 
@@ -807,9 +846,9 @@ It skips definitions with a spread, and runtimes from variables. Read [Sandbox](
 
 **Import `defineAgent` from `vite-hub/agent`.** Rule `vitehub/define-agent-from-vite-hub`.
 
-An app that depends on `vite-hub` imports `defineAgent` from `@vite-hub/agent`. That version ignores the app-wide `agent.invocations` journal and the Console journal, so the Agent's Invocations are not recorded. A string `invocations` setting, such as `'database'`, also fails when the module loads.
+An app that depends on `vite-hub` imports `defineAgent` from `@vite-hub/agent`. That version ignores the app-wide `agent.invocations` journal and the default journal, so the Agent's Invocations are not recorded. A string `invocations` setting, such as `'database'`, also fails when the module loads.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 // Invalid
 import { defineAgent } from '@vite-hub/agent'
 
@@ -825,12 +864,14 @@ The rule reads dependencies from the project `package.json`. It skips `import ty
 
 `rateLimit()` from `vite-hub/agent/capabilities` has no `limiter`. The inline `limit`, `window`, and `store` options are gone. The Capability throws `AGENT_R0162` on the first Invocation.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 // Invalid
 capabilities: [rateLimit({ limit: 20, window: '1m' })]
 ```
 
 ```ts [server/agents/support.ts]
+import { rateLimit } from 'vite-hub/agent/capabilities'
+
 // Valid
 import { createRateLimiter } from '@vite-hub/rate-limit'
 import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
@@ -848,7 +889,7 @@ It skips options from a variable or a spread.
 
 `nuxt.config.ts` lists `vite-hub/nuxt` in `modules` and also calls `vitehub()` in `vite.plugins`. The module installs the `vitehub()` plugins itself, but keeps a same-named plugin from `vite.plugins` instead of its own. That call's options then silently replace the module options.
 
-```ts [nuxt.config.ts]
+```ts [nuxt.config.ts] fragment
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
@@ -899,7 +940,9 @@ An app that uses ViteHub still has NuxtHub parts:
 
 - `@nuxthub/core` in `modules` of `nuxt.config.ts`. Both register `kv`, `blob`, and database helpers.
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
-- `hub:db`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
+- `blob.delete()`. ViteHub Blob names this method `blob.del()`.
 
 ```ts [nuxt.config.ts]
 // Invalid
@@ -938,7 +981,7 @@ Code uses a ViteHub API that a release removed or renamed:
 
 A removed import fails the build. The `mode` and `route` options fail silently: `gmail()` keeps only the `search` and `read` tools, and document URLs fall back to the document id.
 
-```ts [server/agents/inbox.ts]
+```ts [server/agents/inbox.ts] fragment
 // Invalid
 capabilities: [gmail({ mode: 'draft' })]
 
@@ -954,7 +997,7 @@ The rule checks script imports, not component tags in templates.
 
 `renderMarkdownFile()` gets a relative string path such as `'./reply.md'`. Node resolves it from the process working directory, not from the calling file. If the server starts in another directory, the call reads another file or none. Deployed bundles do not include the Markdown file.
 
-```ts [server/agents/review/agent.ts]
+```ts [server/agents/review/agent.ts] fragment
 // Invalid
 const prompt = await renderMarkdownFile('./reply.md')
 
@@ -976,7 +1019,7 @@ ViteHub reads `server/comments.ts` without running it. A default export selects 
 - `defineComments()` exported under another name, with no default export. The entry selects Comment operations.
 - In the live-site form, a `database` option that is not a string literal. ViteHub then uses the default Database.
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 // Invalid
 export const threads = defineComments({ database: DATABASE_NAME })
 

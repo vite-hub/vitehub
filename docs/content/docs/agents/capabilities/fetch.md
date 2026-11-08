@@ -13,7 +13,7 @@ icon: i-lucide-send
 
 Define at least one named tool. Write the endpoint and method in full so you can see what the Agent reaches. The `tools` key is the tool name the Agent sees.
 
-```ts [server/agents/status.ts]
+```ts [server/agents/status.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { fetch } from 'vite-hub/agent/capabilities'
 

@@ -13,9 +13,9 @@ The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error,
 - `code`: the failure.
 - `why`: what went wrong.
 - `fix`: what to do.
-- `docs`: a link to the code on this page.
+- `docs`: a link to the code in [Comments diagnostics](/docs/comments/diagnostics).
 
-```ts [server/api/threads/[id].get.ts]
+```ts [server/api/threads/[id].get.ts] fragment
 import { createError, defineEventHandler, getRouterParam } from 'h3'
 import { comments } from '../../comments'
 

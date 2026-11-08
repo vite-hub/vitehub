@@ -30,7 +30,7 @@ With `preset: 'node'`, the built server also uses the local provider, in Docker 
 For Cloudflare or Vercel, build to check the Nitro output. A plain Node process, such as a `tsx` script, skips Vite discovery and the generated registry, so `runQueue()` finds no queue files there.
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub @vite-hub/queue
 pnpm vite build
 pnpm vitehub inspect definitions --kind queue
 ```

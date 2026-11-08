@@ -18,7 +18,7 @@ Start with a short `recipients` allowlist, `policy: 'require-approval'`, a provi
 
 Set `from` to a sender that your provider allows.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { email } from 'vite-hub/agent/capabilities'
 
@@ -188,7 +188,7 @@ The Agent can send plain-text email from the `from` address. It cannot change th
 `recipients` is the allowlist of exact addresses the Agent can write to.
 Every address in `email_send.to` must be on it. One address outside the list denies the whole call before the Email primitive runs, so ViteHub never sends a message to only some recipients.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 email({
   from: 'support@example.com',
   recipients: [

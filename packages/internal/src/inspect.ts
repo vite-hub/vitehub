@@ -29,9 +29,37 @@ export interface ViteHubProviderOutputEntry {
   path: string
 }
 
+/**
+ * Where an inspected resource id came from. `name` means the host binds the resource by its name and needs no id.
+ * The CLI sets `provider-output` when only a generated Wrangler config names the id.
+ */
+export type ViteHubResourceIdSource = "config" | "env" | "name" | "provider-output" | "provision-state"
+
+/** One host resource that a Definition or store maps to. Owner packages read only local config and Provision State. */
+export interface ViteHubResourceSummary {
+  /** Cloudflare binding name, so the CLI can find the id in generated Wrangler config. */
+  binding?: string
+  /** Definition or store name. */
+  definition: string
+  /** Env variable that supplied the id when `source` is `env`. */
+  env?: string
+  host: "cloudflare" | "vercel"
+  id?: string
+  /** Same resource kind names as Provision actions, for example `cloudflare-d1`. */
+  kind: string
+  /** Resource name on the host, when the config names it. */
+  name?: string
+  /** Explains how the host finds the resource when no id or name is known locally. */
+  note?: string
+  owner: string
+  /** Absent when no id is known yet. */
+  source?: ViteHubResourceIdSource
+}
+
 export interface ViteHubInspectionContributor {
   definitions?: readonly ViteHubDefinitionInspector[]
   providerOutput?: readonly ViteHubProviderOutputEntry[]
+  resources?: () => readonly ViteHubResourceSummary[] | Promise<readonly ViteHubResourceSummary[]>
 }
 
 export type ViteHubInspectionContributorFactory = () =>
@@ -76,6 +104,13 @@ export async function collectViteHubProviderOutputEntries(plugins: readonly unkn
     for (const entry of contributor.providerOutput ?? []) entries.set(entry.path, entry)
   }
   return [...entries.values()]
+}
+
+/** Collects host resources from active plugins in plugin order. */
+export async function collectViteHubResourceSummaries(plugins: readonly unknown[]): Promise<ViteHubResourceSummary[]> {
+  const resources: ViteHubResourceSummary[] = []
+  for (const contributor of await collectContributors(plugins)) resources.push(...await contributor.resources?.() ?? [])
+  return resources
 }
 
 export function relativeDefinitionFile(projectRoot: string, file: string): string {

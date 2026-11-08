@@ -25,6 +25,7 @@ icon: i-lucide-code-2
 Call `runWorkflow()` from server code.
 
 ```ts [server/api/onboard.post.ts]
+import { defineEventHandler, readBody } from 'h3'
 import { runWorkflow } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
@@ -79,6 +80,7 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 Call `getWorkflowRun()` to read the current run state.
 
 ```ts [server/api/workflows/[id].get.ts]
+import { defineEventHandler, getRouterParam } from 'h3'
 import { getWorkflowRun } from '@vite-hub/workflow'
 
 export default defineEventHandler((event) => {
@@ -90,7 +92,7 @@ export default defineEventHandler((event) => {
 
 A typed Workflow handle needs a payload when its handler needs one, in both `run()` and `defer()`. With an optional payload or `void` input, it can run with no argument. To pass start options to a workflow with no input, pass `undefined` first.
 
-```ts
+```ts fragment
 const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })

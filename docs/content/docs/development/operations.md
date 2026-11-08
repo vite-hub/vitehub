@@ -16,7 +16,7 @@ An operation is a named action of your app, such as `content.publish` or `invoca
 
 ## Define an operation
 
-```ts [src/operations.ts]
+```ts [src/operations.ts] fragment
 import * as v from 'valibot'
 import { defineOperation } from 'vite-hub/operations'
 
@@ -55,6 +55,8 @@ export const reportOperations = [
 `run` gets this context:
 
 ```ts
+import type { OperationAccess, OperationActor, OperationUser } from 'vite-hub/operations'
+
 interface OperationContext {
   access: OperationAccess // the checked Console access of the call
   user: OperationUser | null // the signed-in user
@@ -223,7 +225,7 @@ Duplicate operation names fail every build, also without a `console` option. An 
 
 | Package | Operations |
 | --- | --- |
-| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
+| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
 | [Blob](/docs/development/cli#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, `blob.variants` |
 | [KV](/docs/development/cli#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.del` |
 | [Email](/docs/development/cli#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
@@ -231,7 +233,7 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
 | [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap` |
-| [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume` |
+| [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume`, `workflow.runs-list`, `workflow.runs-show`, `workflow.runs-clear` (development only) |
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 

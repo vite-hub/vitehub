@@ -38,7 +38,7 @@ Put a `*.template.md` file next to the module that renders it. Importing the fil
 Title: {{ data.pullRequest.title }}
 ```
 
-```ts [server/agents/reviewer/agent.ts]
+```ts [server/agents/reviewer/agent.ts] fragment
 import renderPrompt from './prompt.template.md'
 
 const prompt = await renderPrompt({
@@ -53,7 +53,7 @@ const prompt = await renderPrompt({
 
 To pick a template at runtime, list the allowed names in a TypeScript map:
 
-```ts [server/agents/reviewer/replies.ts]
+```ts [server/agents/reviewer/replies.ts] fragment
 import renderFailure from './failure.template.md'
 import renderSuccess from './success.template.md'
 

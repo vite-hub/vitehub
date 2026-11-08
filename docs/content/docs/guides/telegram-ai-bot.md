@@ -1,6 +1,6 @@
 ---
 title: Build an AI Telegram bot with ViteHub
-description: Build an AI Telegram bot with a ViteHub Agent. Create the bot with BotFather, add telegram() to defineAgent, register the webhook with the ViteHub CLI, and deploy it.
+description: "Build an AI Telegram bot with a ViteHub Agent. Create the bot with BotFather, add telegram() to defineAgent, register the webhook with the CLI, and deploy it."
 navigation.title: Telegram AI bot
 navigation.order: 6
 navigation.group: Chat bots

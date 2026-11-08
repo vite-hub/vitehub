@@ -1,6 +1,6 @@
 ---
 title: Build an AI Discord bot with ViteHub
-description: Build an AI Discord bot with a ViteHub Agent. Create the app in the Discord Developer Portal, add discord() to defineAgent, and run it on a Node server that keeps the Gateway connection open.
+description: "Build an AI Discord bot with a ViteHub Agent. Create the Discord app, add discord() to defineAgent, and run it on a Node server that keeps the Gateway open."
 navigation.title: Discord AI bot
 navigation.order: 5
 navigation.group: Chat bots
@@ -94,19 +94,24 @@ The `node` preset starts the Gateway listener in the server process. `workflow: 
 
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
+import { access } from 'vite-hub/agent/capabilities'
 import { discord } from 'vite-hub/agent/channels'
 
-const allowedUsers = new Set(['111111111111111111'])
+const allowedUsers = new Set(['discord:111111111111111111'])
 
 export default defineAgent({
   channels: {
     discord: discord({
       adapter: true,
-      messages: {
-        filter: ({ message }) => allowedUsers.has(message.author.userId),
-      },
     }),
   },
+  capabilities: [
+    access({
+      chat: {
+        resolve: ({ invoker }) => invoker !== undefined && allowedUsers.has(invoker.id),
+      },
+    }),
+  ],
   driver: {
     model: 'openai/gpt-5.1-mini',
     instructions: 'You are a helpful assistant in Discord. Keep answers short.',
@@ -115,7 +120,7 @@ export default defineAgent({
 ```
 
 - `adapter: true` builds the adapter from Server Env. With no `adapter` option, `discord()` has no adapter and no Gateway listener.
-- `messages.filter` is optional. Here it admits only the listed Discord user IDs. When it returns `false`, the Agent does not start or reply, but the adapter may already have made an empty thread for a server mention. To copy a user ID, turn on **Developer Mode** in Discord's advanced settings, then right-click the user.
+- `access()` admits only the invoker IDs in the set. Each ID is `discord:<user ID>`. Return `false` and the Agent does not start or reply. The Discord adapter may already have created an empty thread for a server mention. To copy a user ID, turn on **Developer Mode** in Discord's advanced settings, then right-click the user.
 - To answer a role mention, pass `adapter: { mentionRoleIds: ['<role id>'] }` instead of `adapter: true`. Omitted adapter options still come from Server Env.
 
 The model string runs through AI Gateway, so the server needs `AI_GATEWAY_API_KEY`. See [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) to use another model.
@@ -233,7 +238,7 @@ ViteHub does not call this route. Call it on a timer that overlaps the listener 
 
 - **Mentions.** The bot answers every direct message, but in a server channel only mentions, in a new thread. To also answer later replies in that thread, set `messages: { replyToSubscribedThreads: true }`. See [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
 - **Other bots.** ViteHub ignores other bots' messages unless you set `messages: { allowBots: true }`.
-- **Allowed users.** `messages.filter` is a filter, not sign-in. A Discord user ID is not a trusted identity. Before the Agent reads private data, resolve a trusted [Actor](/docs/agents/actors).
+- **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Discord user ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Actor](/docs/agents/actors).
 - **Slash commands.** The Agent answers chat messages. ViteHub does not register slash commands.
 - **Host.** An always-online bot needs a long-running Node.js process. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you choose another host.
 - **Proof.** We have contract tests for the Discord Channel, the Gateway route, and the Node listener plugin. CI runs no deployed Discord bot.

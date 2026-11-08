@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 A failed Env read throws a `ViteHubError` with a stable code and JSON-safe details. Codes separate invalid declarations, sync reads of provider values, missing values, invalid runtime values, and failed sources. Errors from your own build source resolvers stay unchanged.
 
-```ts
+```ts fragment
 import { getViteHubErrorShape } from '@vite-hub/runtime'
 
 try {

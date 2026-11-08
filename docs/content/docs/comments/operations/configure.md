@@ -75,7 +75,7 @@ People come from:
 
 `users({ query, threadId?, subject? })` leaves out people that `canMention` refuses for that thread or subject. See [Mention people](/docs/comments/configure#mention-people).
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 export default defineComments({
   authorize: ({ user }) => Boolean(user),
   onMention: async ({ users, message, link }) => {

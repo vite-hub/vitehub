@@ -22,6 +22,7 @@ icon: i-lucide-code-2
 Import `kv` in server code to save and read values.
 
 ```ts [server/api/settings.put.ts]
+import { defineEventHandler, readBody } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
@@ -32,6 +33,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/settings.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
@@ -59,6 +61,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `del()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 const flags = kv.store('default', { mode: 'read' })
@@ -79,7 +82,7 @@ The mode limits this API, not the host. The Cloudflare KV binding, the Upstash t
 
 Upstash has atomic single-use reads and counters:
 
-```ts [server/verification.ts]
+```ts [server/verification.ts] fragment
 const [consumeError, token] = await kv.getAndDelete('verification:token')
 if (consumeError) throw consumeError
 
@@ -89,7 +92,7 @@ if (incrementError) throw incrementError
 
 Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes, and nonces. It writes only when the key is empty, in one atomic step. It returns `true` to the one call that wrote:
 
-```ts [server/api/uploads/[ticket].put.ts]
+```ts [server/api/uploads/[ticket].put.ts] fragment
 const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
 if (claimError) throw claimError
 if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket already used' })
@@ -132,7 +135,7 @@ Keys are strings such as `users:alice` or `users/alice`. Both `/` and `:` separa
 
 `kv.get()` parses a stored string as JSON, so the string `'123'` reads back as the number `123`, and `'true'` as `true`. Pass `type` to get a fixed form:
 
-```ts [server/invite.ts]
+```ts [server/invite.ts] fragment
 const [error, code] = await kv.get('invite:alice', { type: 'text' })
 // code is the string '123456', not the number 123456
 ```
@@ -157,7 +160,7 @@ After the app stops taking new work, call `disposeKVStores()` in your shutdown h
 
 In Nitro, register the hook in a server plugin:
 
-```ts [server/plugins/kv-cleanup.ts]
+```ts [server/plugins/kv-cleanup.ts] fragment
 import { disposeKVStores } from '@vite-hub/kv'
 
 export default defineNitroPlugin((nitroApp) => {

@@ -340,7 +340,7 @@ A package that needs a database contributes its tables without `database`, or wi
 
 A package that uses its own SQL and has no Drizzle tables contributes an entry without `definition`. ViteHub checks its database and dialect as for tables:
 
-```ts [my-package/vite.ts]
+```ts [my-package/vite.ts] fragment
 vitehub: {
   databases: () => [{ name: 'my-package', database: 'default', dialect: 'sqlite', reason: 'Stores my-package state with its own SQL.' }],
 },
@@ -352,7 +352,7 @@ vitehub: {
 
 A package that owns a named database can add a whole Definition. For the default database, read [Need the default Database](#need-the-default-database). Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`. Here `definition` is the absolute module path, not a `{ module, export }` object:
 
-```ts [my-package/vite.ts]
+```ts [my-package/vite.ts] fragment
 // In the plugin object:
 vitehub: {
   databases: async ({ rootDir }) => {
@@ -393,7 +393,7 @@ For other build steps, `collectDatabaseContributions(plugins, context)` from `@v
 
 A package with its own tables, such as [Comments](/docs/comments/configure#choose-the-database), can connect to the app's database without a Definition or migrations. `connectDatabase()` takes a string that says where the database is and returns a Drizzle SQLite database:
 
-```ts [server/utils/notes.ts]
+```ts [server/utils/notes.ts] fragment
 import { connectDatabase } from '@vite-hub/database/connect'
 import { notes } from './schema'
 
@@ -427,10 +427,11 @@ Errors: [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not
 | `dialect` | `'sqlite' \| 'postgresql'` | No | Defaults to `sqlite`. Write it as a string literal. See [Define a Postgres database](#define-a-postgres-database). |
 | `schema` | `Record<string, Drizzle table>` | Yes | Your tables. Packages can [contribute more](#contribute-tables-from-a-package). |
 | `connection.url` | `DatabaseConfigValue` | No | SQLite or libSQL URL. Defaults to `file:.vitehub/data/database/sqlite.db` for the default database and `file:.vitehub/data/database/<name>.sqlite.db` for a named one. |
+| `remote` | `boolean` | No | In `vite dev`, queries the real D1 database over HTTP instead of local SQLite, so writes change real data. Builds ignore it. See [Use the real D1 database in development](/docs/database/hosts#use-the-real-d1-database-in-development). |
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
 | `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB`, or `DB_<NAME>` for a named database. |
 | `cloudflare.databaseId` | `DatabaseConfigValue` | No | D1 database id. |
-| `cloudflare.http` | `true \| { url?, authToken? }` | No | D1 over authenticated HTTP, locally and hosted. `true` uses Cloudflare's API. An object selects a compatible proxy. |
+| `cloudflare.http` | `true \| { url?, authToken? }` | No | D1 over authenticated HTTP, locally and hosted. `true` uses Cloudflare's API. An object selects a compatible proxy. In `vite dev`, it also makes the Database remote, like `remote: true`. |
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
 | `cloudflare.migrationsTable` | `string` | No | D1 migrations table that Wrangler and `vitehub db migrate` use. Default: `d1_migrations`. |

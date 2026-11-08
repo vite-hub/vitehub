@@ -1,6 +1,6 @@
 ---
-title: Comments server API
-description: The comments operations, their inputs, and the browser transport.
+title: Comments operations reference
+description: "Each comments.* operation with its input and result, how to page through threads, the anchor shapes, and the browser transport."
 navigation.title: Operations server API
 navigation.order: 23
 icon: i-lucide-server

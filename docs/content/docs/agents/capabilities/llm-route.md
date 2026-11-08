@@ -14,7 +14,7 @@ icon: i-lucide-route
 Define stable choice keys with short descriptions.
 Later code reads the recorded value and acts on it.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { llmRoute } from 'vite-hub/agent/capabilities'
 

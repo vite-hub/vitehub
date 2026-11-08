@@ -1,6 +1,6 @@
 ---
 title: Roles and access
-description: Give each user a CMS role with the Better Auth admin plugin. The roles decide who reads drafts, edits, publishes, and comments, and which Console sections each user sees.
+description: "Give each user a CMS role with the Better Auth admin plugin. Roles decide who reads drafts, edits, publishes, and comments, and which Console sections they see."
 navigation.title: Roles and access
 navigation.order: 8
 icon: i-lucide-shield-check
@@ -56,7 +56,7 @@ Or open the Auth section of the [Console](/docs/auth/console), select the user, 
 
 To give a role at sign-up, add a Better Auth database hook. Return a role only for users you know, so everyone else gets `user`:
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 export default defineAuth({
   plugins: [admin(cmsAccess)],
   databaseHooks: {
@@ -78,7 +78,7 @@ Set `extends: [cms, { access: 'roles' }]` so the CMS roles decide every `content
 
 Set `authorize` to use your own policy. It replaces the CMS roles:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { cmsCan } from 'vite-hub/cms/access'

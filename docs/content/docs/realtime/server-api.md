@@ -123,7 +123,7 @@ builds the ProseMirror schema from `extensions()` and calls the codec. It never
 creates an editor view, so a codec must not depend on the DOM. All functions
 can be async.
 
-```ts [shared/editor.ts]
+```ts [shared/editor.ts] fragment
 import { defineRealtimeEditor } from 'vite-hub/realtime'
 
 export const pagesEditor = defineRealtimeEditor({
@@ -153,7 +153,7 @@ drop an undeclared `::callout` wrapper or unwrap raw HTML. A room saves on its
 own, so the first save after any edit rewrites the stored document. Add
 `verify()` to tell Realtime what the codec does with a stored document:
 
-```ts [shared/editor.ts]
+```ts [shared/editor.ts] fragment
 export const pagesEditor = defineRealtimeEditor({
   extensions: () => [/* ... */],
   fromMarkdown,
@@ -195,6 +195,8 @@ Every room document has three root types, named in `realtimeDocumentLayout`:
 | `status` | `Y.Map`: `digest`, `error`, `issues`, `savedAt`, `savedBy` | The server only. `error` also holds the read-only reason from `verify()`. |
 
 ```ts
+import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
+
 const realtime = useRealtimeTiptap('pages', 'about')
 
 realtime.fields.value?.set('title', 'About us')
@@ -215,7 +217,7 @@ to a field. Nested objects in a field are replaced, not merged.
 
 ## Identity and authorization
 
-```ts [server/realtime/pages.ts]
+```ts [server/realtime/pages.ts] fragment
 export default defineRealtime({
   auth: true,
   identify: async ({ event }) => {
@@ -233,7 +235,7 @@ export default defineRealtime({
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
-`event` is the H3 event (`H3Event` from `h3`) of the WebSocket upgrade or HTTP request. `identify` and `authorize` can pass it, with no cast, to helpers that read cookies, `event.context`, or platform bindings.
+`event` is the request event of the WebSocket upgrade or HTTP request, a `RealtimeRequestEvent`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/reference/runtime-context#standard-context).
 
 An identified user replaces the client's `user` presence field, so nobody can
 fake names and avatars. Without an identity, the client sets its own presence.
@@ -256,7 +258,7 @@ with the same arguments as in TipTap's CollaborationCaret. `render` builds the
 caret element. `selectionRender` returns a selection's decoration attributes.
 Options you leave out keep the default.
 
-```ts
+```ts fragment
 const realtime = useRealtimeTiptap('docs', 'guides/welcome.md', {
   carets: {
     render: (user) => {
@@ -280,7 +282,7 @@ carets out.
 
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document and needs no Vue. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
-```ts
+```ts fragment
 import { connectRealtimeRoom } from '@vite-hub/realtime/client'
 import { commentRoom, normalizeCommentPage } from '@vite-hub/comments'
 
@@ -319,7 +321,7 @@ room.onChange(change => reload(change))
 
 Each call returns `[error, data]` and does not throw. `error.code` is a `RealtimeRequestErrorCode` ([Realtime limits and errors](/docs/realtime/limits-and-errors)).
 
-```ts
+```ts fragment
 const [error, saved] = await realtime.save()
 if (error) console.warn(error.code, error.why)
 else console.log(saved.digest)
@@ -335,7 +337,7 @@ Agent calls, call `refreshRealtimeDocument(definition, documentId)` after the
 write. The open room re-seeds and resets its clients at once, so people see
 the change without a browser `refresh()`:
 
-```ts [server/api/pages/[id].put.ts]
+```ts [server/api/pages/[id].put.ts] fragment
 import { refreshRealtimeDocument } from 'vite-hub/realtime/server'
 
 await db.pages.update(id, { body })
@@ -350,7 +352,7 @@ Content calls it after every save from outside a live room.
 
 Listen for resets to tell people what happened and recover unsaved text:
 
-```ts
+```ts fragment
 realtime.onReset(({ reason, previous }) => {
   // reason: 'source-changed' (someone saved outside the room) or 'stale' (the room was re-seeded while offline)
   // previous: the Y.Doc this client held, destroyed after listeners return

@@ -110,7 +110,7 @@ build packages only the build machine's native binaries.
 
 Set `dataDir` in `vitehub()`, for example `dataDir: '/var/lib/app'`, to keep
 local state in one persistent directory. It holds KV `fs-lite` data, Blob `fs`
-data, the Agent State database, the Console journal, and Workspace files.
+data, the Agent State database, the Agent Invocation journal, and Workspace files.
 `dataDir` works only with the `node` preset.
 
 ## Mount a server handler
@@ -133,7 +133,7 @@ export const handleAuth = createAuthHandler(definition)
 
 Pass the peer address from Node's `incomingMessage.socket.remoteAddress`:
 
-```ts
+```ts fragment
 const response = await handleAuth(webRequest, {
   clientAddress: incomingMessage.socket.remoteAddress,
 })

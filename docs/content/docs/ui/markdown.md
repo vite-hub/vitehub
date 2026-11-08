@@ -13,7 +13,7 @@ icon: i-ph-markdown-logo-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/markdown`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/markdown`:
 
 ```ts
 import { Markdown } from "@vite-hub/ui";

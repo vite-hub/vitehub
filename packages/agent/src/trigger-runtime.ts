@@ -1,4 +1,5 @@
 import { isResponse } from "./internal/response.ts"
+import { channelWebhookEventTarget } from "./internal/channel-webhook-events.ts"
 import {
   channelDeliveryEffectsContextKey,
   channelDeliveryFinishEffectsContextKey,
@@ -172,6 +173,20 @@ const channelTriggerQueues = new WeakMap<Request, { admit: AgentChannelQueuedDis
 /** Lets `dispatch(items, { queue: true })` of one Channel admit items into the webhook queue of this request. */
 export function bindAgentChannelTriggerQueue(request: Request, channelId: string, admit: AgentChannelQueuedDispatch): void {
   channelTriggerQueues.set(request, { admit, channelId })
+}
+
+const channelWebhookStates = new WeakMap<Request, string>()
+
+/** Marks a webhook request whose Channel has webhook State, which deduplicates deliveries by ID. */
+export function bindAgentChannelWebhookState(request: Request, channelId: string): void {
+  channelWebhookStates.set(request, channelId)
+}
+
+/** How the webhook route that runs this request can own a delivery: through the webhook queue, by delivery ID, or not. */
+export function agentChannelDeliveryMode(request: Request | undefined, channelId: string): "queue" | "dedupe" | "none" {
+  if (!request) return "none"
+  if (channelTriggerQueues.get(request)?.channelId === channelId) return "queue"
+  return channelWebhookStates.get(request) === channelId ? "dedupe" : "none"
 }
 
 async function queueAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -763,7 +778,7 @@ export async function resolveAgentTriggerInvocation<
   options?: AgentTriggerResolutionOptions & { verifyWebhook?: boolean },
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   const triggers = await resolveAgentTriggers(agent, context, options)
-  const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
+  let trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
     throw agentDiagnostics.AGENT_R0871({ message: `[vitehub] Agent trigger "${triggerId}" is not defined by this agent.` })
   }
@@ -772,6 +787,22 @@ export async function resolveAgentTriggerInvocation<
       ...(options?.receivedAt === undefined ? {} : { receivedAt: options.receivedAt }),
       requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
     })
+  }
+  const eventTarget = channelWebhookEventTarget(trigger.definition)
+  if (eventTarget && options?.rawBody !== undefined) {
+    const request = context.request
+    const name = eventTarget.webhook.event?.(isRecord(input) ? input.payload : undefined, {
+      headers: request ? Object.fromEntries(request.headers.entries()) : {},
+      method: request?.method ?? "POST",
+      url: request?.url ?? "",
+    }) ?? "webhook"
+    const channelId = trigger.channelId
+    const selected = Object.values(triggers).find(candidate => candidate.channelId === channelId
+      && channelWebhookEventTarget(candidate.definition)?.webhook === eventTarget.webhook
+      && channelWebhookEventTarget(candidate.definition)?.name === name)
+    if (!selected) return { response: Response.json({ accepted: false, ok: true, reason: `no target for event "${name}"` }), trigger: trigger as never }
+    // SAFETY: The selected trigger validates its input below, before invoke runs.
+    trigger = selected as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS>
   }
   let validatedInput = input
   if (isTriggerInputSchema(trigger.input)) {

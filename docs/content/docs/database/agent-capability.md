@@ -13,7 +13,7 @@ All tools use your [Database](/docs/database) setup. For app code, read the [Dat
 
 Use read mode until the Agent must change data.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { db } from 'vite-hub/agent/capabilities'
 
@@ -27,7 +27,7 @@ export default defineAgent({
 
 To allow data changes but not DDL, set `mode: 'write'` and keep `schemaMode: 'read'`.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 db({ mode: 'write', policy: 'require-approval' })
 ```
 

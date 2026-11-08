@@ -40,6 +40,7 @@ export default defineAgent({
 Use the Capability form to choose limits per run or to reuse a Capability list:
 
 ```ts
+import { defineAgent } from 'vite-hub/agent'
 import { budget } from 'vite-hub/agent/capabilities'
 
 const reviewBudget = budget({
@@ -77,6 +78,8 @@ For a `capacity`-only policy, inspect `config.driver.capacity`. The text output 
 In the default `observe` mode, the run completes and the `budget` finish extension reports each exceeded limit. Set `mode: 'enforce'` to fail the run once usage is known:
 
 ```ts
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'gpt-5.6-sol' },
   budget: {

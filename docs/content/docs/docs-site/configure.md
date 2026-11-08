@@ -110,6 +110,37 @@ fold: true
 
 Each group with a heading starts closed. The reader opens it with a click, Enter, or Space. The group with the current page opens itself, so its link stays visible. Pages without a group stay open. A [group of sections](#groups) folds the page groups of each section that sets `fold`.
 
+### Panels
+
+A long list of pages, such as one page for each error code, would bury the other pages of a section. Set `navigation.panel: true` on the `index.md` of a folder inside the section, and the folder becomes a panel:
+
+```md [content/docs/queue/diagnostics/index.md]
+---
+title: Queue diagnostics
+navigation.title: Diagnostics
+navigation.panel: true
+---
+```
+
+- The section sidebar shows one link to the panel, with the number of its pages, after the section pages.
+- On a page of the panel, the sidebar lists only the panel: a link back to the section, the panel Overview, and its pages by `navigation.group`. Each group folds. A page title that is a code, such as `QUEUE_DISABLED`, shows in monospace on one line.
+- The rail keeps the reader in the panel. On `/docs/queue/diagnostics/queue_disabled`, the KV item opens `/docs/kv/diagnostics` when that folder is a panel too, and `/docs/kv` when it is not.
+- Previous and next stay inside the panel.
+
+### Pages that search engines skip
+
+Set `seo.index: false` on a page that search engines must not index, such as one page in a long tail of generated pages:
+
+```md [content/docs/queue/diagnostics/queue_disabled.md]
+---
+title: QUEUE_DISABLED
+description: Queue is disabled.
+seo.index: false
+---
+```
+
+The page gets `<meta name="robots" content="noindex, follow">` and stays out of `sitemap.xml`, llms.txt, `llms-full.txt`, and the share images. The site search lists it by its title and description only. The build does not prerender it; the server renders it on request, so thousands of generated pages do not slow the build. Links to the page stay valid for the link checker, and its Markdown copy stays at `/raw/...`. Keep the page that lists these pages indexed.
+
 ### Moved pages
 
 When a page moves, keep its old URL with a `redirect` route rule:
@@ -118,7 +149,7 @@ When a page moves, keep its old URL with a `redirect` route rule:
 export default defineNuxtConfig({
   modules: ['@vite-hub/docs/nuxt'],
   routeRules: {
-    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', statusCode: 301 } },
+    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', status: 301 } },
   },
 })
 ```
@@ -233,11 +264,12 @@ export default defineNuxtConfig({
     banner: 'Lumen 2 is out. Read the upgrade guide.',
     github: { repo: 'acme/lumen' },
     socials: [{ label: 'Lumen on Discord', to: 'https://discord.gg/lumen', icon: 'i-simple-icons-discord' }],
+    footer: [{ label: 'About', to: '/about' }, { label: 'Privacy', to: '/privacy' }],
   },
 })
 ```
 
-The header shows on every page, with search and a color mode button. `github` adds a GitHub link with the star count when available. `socials` adds community links beside it, or in the header menu on narrow screens. `banner` shows one line above every docs page.
+The header shows on every page, with search and a color mode button. `github` adds a GitHub link with the star count when available. `socials` adds community links beside it, or in the header menu on narrow screens. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
 
 ## Design
 
@@ -343,11 +375,17 @@ Lumen does not run on Node.js 22 or older.
 ::
 ```
 
-The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example` (rendered Markdown next to its source). Every page also renders [comark-ui](https://comark-ui.onmax.me) blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, and cards.
+The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example` (rendered Markdown next to its source). Put an `md`, `markdown`, `mdc`, or `comark` code fence in each example; the default parser adds its preview. A site parser can supply its own `example-preview` node. Every page also renders [comark-ui](https://comark-ui.onmax.me) blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, and cards.
 
 ### Add Comark plugins
 
 The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. To add more, such as `comark-chips` (web links as chips with their favicon), put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts`.
+
+Install the plugin in your app first:
+
+```sh
+pnpm add comark-chips
+```
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'

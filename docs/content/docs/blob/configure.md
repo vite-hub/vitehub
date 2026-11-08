@@ -29,6 +29,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -47,6 +51,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -66,11 +73,57 @@ export default defineConfig({
 | Shape | Description |
 | --- | --- |
 | `blob: false` | Turns Blob off. |
-| `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. |
+| `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Named stores. `stores.default` is required. |
 | `blob: { serve: false }` | No serve route. This is the default. |
 | `blob: { serve: true }` | Adds a Nitro route at `/api/_vitehub/blob/**` that serves the default store. |
 | `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize?, anonymous? } }` | Adds a Nitro route. `route` defaults to `/api/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. `anonymous: true` also sends signed-out requests to the `authorize` export. |
+
+### Use the real store in development
+
+`vite dev` keeps Blob local by default. When ViteHub infers Vercel Blob for a store without a `driver`, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
+
+Set `remote: true` to use the real store in `vite dev`:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { blob: { remote: true } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { remote: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { remote: true } })],
+})
+```
+:::
+::
+
+::warning
+Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
+::
+
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare-r2` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
@@ -91,6 +144,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -102,6 +159,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -150,6 +210,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -161,6 +225,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -199,6 +266,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({ blob: { driver: 'fs', serve: true } }), nitro()],
 })
@@ -207,6 +278,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [vitehub({ blob: { driver: 'fs', serve: true } })],
 })
@@ -240,6 +314,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -263,6 +341,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -291,9 +372,9 @@ When your own middleware checks access before the serve route, use `private, no-
 - `no-cache`: the browser keeps its copy and asks again on each use. Your check runs on every request, and an unchanged file answers `304` with no body.
 - `no-store`: the browser keeps nothing and downloads the full file on every visit.
 
-The `304` needs an `ETag` from the driver. A file without one downloads in full each time.
+The generated Nitro route maps `${route}/**` to the selected Blob Store. It is a Fetchable route, `{ fetch(request) }`. Nitro supplies the raw pathname after `${route}`, also when the app has a `baseURL`, and the route delegates streaming to `blob.store(storeName).serve(request, pathname)`. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
 
-The route maps `${route}/**` to the selected store and streams through `blob.store(storeName).serve(event, pathname)`. The default route is a safe default, not advice to put public assets under `/api`.
+The `304` needs an `ETag` from the driver. A file without one downloads in full each time.
 
 The route also serves [image variants](/docs/blob/media#image-variants), such as `${route}/posts/cover.jpg?w=640&fmt=webp`.
 
@@ -321,6 +402,10 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -338,6 +423,9 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -394,7 +482,7 @@ Use filesystem storage on one machine with one process. On a serverless host, it
 | `defaultUrlExpiresIn` | `number` | Files SDK default | Default signed URL lifetime in seconds. |
 | `publicBaseUrl` | `string` | None | Public or CDN base URL for objects, instead of signed URLs when supported. |
 
-The runtime binding wins. ViteHub uses HTTP credentials only when no binding exists.
+The runtime binding takes precedence. HTTP credentials are used when no active binding exists. In `vite dev`, a store that the Cloudflare preset infers uses the local `fs` driver instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
 
 ### Vercel Blob
 

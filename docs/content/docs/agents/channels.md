@@ -46,11 +46,69 @@ The built-in helpers are `discord()`, `github()`, [`gitlab()` and `forgejo()`](/
 - `http()` is a generic HTTP Channel. Its route stays off until `http({ route: true })`.
 - `teams()` tells the Agent to cite sources as descriptive Markdown links to verified URLs. A native web citation that the Chat SDK cannot resolve shows `[source link unavailable]`, also while streaming. Codex app-server gives no citation-ID-to-URL map, so those links cannot be recovered. Ordinary links stay as they are.
 
+## Try Channels without credentials
+
+Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, Teams, and Telegram Channels in `vite dev` before you create any bot or token:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: { channels: { simulate: true } } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } })],
+})
+```
+:::
+::
+
+Each simulated Channel replaces its provider with the Chat SDK [web adapter](https://chat-sdk.dev/adapters/official/web). Its webhook route accepts an AI SDK chat request and streams the reply as an AI SDK UI message stream:
+
+```sh
+curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
+  -H 'content-type: application/json' \
+  -d '{"id":"try-1","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"Hello"}]}]}'
+```
+
+Open the Channel's webhook URL in a browser, such as `http://localhost:3000/api/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
+
+`pnpm vitehub channels list` marks each simulated Channel and prints the path of its chat page. The `channels.list` operation returns them as `simulated: true` and `simulator`.
+
+Point an AI SDK `useChat` client at the same route to chat from a page. The Agent still runs as that Channel, with its instructions and message settings. Simulated delivery runs inline within the HTTP request, even with `messages.durable: true` or an active Workflow runtime. A simulated Channel is a direct message with one user: mentions, threads, cards, and buttons are not simulated. Webhook verification, Telegram polling, and the Discord Gateway are off.
+
+The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
+
+Simulation applies to every app in the same Node.js process. To simulate only one app, start its dev server in a separate process.
+
 ## Answer replies in subscribed threads
 
 Built-in chat Channels answer in a shared channel only when mentioned. To also answer human messages in threads the Agent follows (subscribed threads), set `messages.replyToSubscribedThreads: true` on the Agent or one Channel:
 
 ```ts
+import { teams } from 'vite-hub/agent/channels'
+
 teams({
   messages: {
     replyToSubscribedThreads: true,
@@ -68,6 +126,8 @@ teams({
 Built-in chat Channels ignore bot messages, also mentions and direct messages, so two bots cannot answer each other forever. The Chat SDK already skips the Agent's own messages. To accept other bots, set `messages.allowBots: true` on the Agent or one Channel:
 
 ```ts
+import { teams } from 'vite-hub/agent/channels'
+
 teams({
   messages: {
     allowBots: true,
@@ -82,6 +142,8 @@ An ignored bot message is recorded as a `rejected` delivery and never reaches `m
 With `messages.concurrency: 'steer'`, a new message can redirect (steer) the active Invocation. Only the invoker (who started it) can steer by default. Others wait and start their own Invocation. To let others in the thread steer, set `messages.steerFromParticipants: true`:
 
 ```ts
+import { teams } from 'vite-hub/agent/channels'
+
 teams({
   messages: {
     concurrency: 'steer',
@@ -105,7 +167,7 @@ Hooks let the Agent act on the message that started it, for example to label an 
 2. In the Trigger (the function that turns a provider event into an Invocation), return JSON `message` data that identifies the provider message.
 3. Each method gets the Channel context first, with the Trigger's data in `context.message`. A `message.data` Standard Schema validates it.
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/labeller.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
 import * as v from 'valibot'
@@ -183,7 +245,7 @@ Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next
 
 A Channel can own its webhook without an Agent. Put it in `server/channels/<name>/index.ts`, default-export `defineChannel()`, and set `webhooks.path`. The trigger picks the Agent with a [task](/docs/agents/triggers):
 
-```ts [server/channels/tickets/index.ts]
+```ts [server/channels/tickets/index.ts] fragment
 import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
 import triage from '../../agents/triage'
 import { ticketEvent } from './events'
@@ -291,7 +353,7 @@ With durable webhook State (State that survives restarts, such as SQLite, libSQL
 
 The request is stored at `<scope>inbox:<id>`, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 webhooks: {
   path: '/api/github/webhook',
   ackTimeoutMs: 8_000, // `false` waits for admission
@@ -342,7 +404,7 @@ Conversations are private. Every surface answers `CHANNELS_THREAD_UNKNOWN` (404)
 
 On the Console, CLI, and [MCP](/docs/development/mcp) (where the app serves `/_vitehub/mcp`), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
 ```
 
@@ -356,7 +418,7 @@ operations({ include: ['channels.*', 'conversations.export'], conversations: 'pa
 
 | Operation | Input | Answer |
 | --- | --- | --- |
-| `channels.list` | none | Each Agent and Channel with its provider and retention. |
+| `channels.list` | none | Each Agent and Channel with its provider, retention, and `simulated`. A simulated Channel has its chat page path in `simulator`. |
 | `channels.threads` | `agent`, `channel`, `cursor?`, `limit?` | Journal threads, newest first, with title, people, last activity, and run count, but no message count. |
 | `channels.conversation` | `agent`, `channel`, `thread`, `cursor?`, `limit?` | The messages in order, each with `role`, `author`, `text`, `attachments`, `at`, and `invocationId`, and the `messageCount`. |
 | `conversations.export` | `agent`, `channel`, `thread`, `format`, `media?` | `text` in `markdown` or `json`, and the attachment files when `media` is on. |
@@ -454,7 +516,7 @@ pnpm vitehub channels replay --agent labeller --channel mailbox --folder archive
 
 Or call `replayChannel()` from trusted server code:
 
-```ts [server/api/backfill.post.ts]
+```ts [server/api/backfill.post.ts] fragment
 import { replayChannel } from 'vite-hub/agent/server'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import labeller from '../agents/labeller'
@@ -509,7 +571,7 @@ On a webhook delivery, `context.channelState` is the Channel's State Adapter. St
 
 A trigger that always needs State declares `durableState: true`. Its `invoke` gets `context.channelState` typed as present, and an unbound State, for example outside the webhook route, throws `AGENT_R1005` before `invoke`. Pair it with the Channel's `webhooks.durableState`, so the route answers `503` when the State is not durable.
 
-```ts
+```ts fragment
 triggers: {
   changed: defineChannelTrigger({
     durableState: true,
@@ -521,7 +583,7 @@ triggers: {
 }
 ```
 
-```ts
+```ts fragment
 triggers: {
   push: defineChannelTrigger({
     async invoke(context, input: { messageIds: string[] }) {
@@ -549,7 +611,7 @@ Queued dispatch needs the webhook route to run the calling trigger with a queue-
 
 Providers can resend changes or send them out of order. Give an item `order: { key, version }`, and it is skipped as `stale` before the trigger runs unless `version` beats the last one admitted or answered for `key` through that trigger. The version commits with the admission. If the trigger throws or answers 400 or above, it stays unchanged, so a retry is admitted.
 
-```ts
+```ts fragment
 await context.dispatch(changes.map(change => ({
   input: change,
   key: change.eventId,
@@ -568,7 +630,7 @@ Some providers send a short notification and keep changes in a cursor-read log. 
 
 It throws and keeps the cursor when `first` is not the requested cursor (a gap, such as expired history), a number cursor moves back, or `more` is `true` with an unchanged cursor. It checks `signal` before each fetch, item, and save. A failure or abort keeps the cursor, so the next pull refetches the page and skips admitted items as `stale` or `duplicate`. A lock on the key allows one pull at a time. `items` can be an async iterable that loads each item just before admission. The cursor is a number or string, typed like `initialCursor`.
 
-```ts
+```ts fragment
 webhook: defineChannelTrigger({
   async invoke(context, notification: { webhookId: string }) {
     await context.pull({
@@ -593,7 +655,7 @@ webhook: defineChannelTrigger({
 
 A trigger often reads a value, decides, and writes a new one, such as a record's last version. A transaction stops two deliveries from doing this at once. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` locks the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`, and the type argument types the value. A second delivery waits up to `waitMs` (default 10 seconds), then throws so it retries.
 
-```ts
+```ts fragment
 durableState: true,
 invoke: (context, change: { id: string, version: number, text: string }) =>
   context.channelState.transaction<{ version: number }>(`record:${change.id}`, (record) => {
@@ -644,7 +706,7 @@ export default defineAgent({
 
 Set `activity.publicUrl` to the Console's public origin, so runs from GitHub PR webhooks link to their Invocation from the start. Use `activity: true` when the app supplies links itself. When the app starts the Invocation, it selects the Channel, destination, and links, such as the session, memory, or another inspection page.
 
-```ts
+```ts fragment
 import { runAgent } from 'vite-hub/agent'
 
 await runAgent(agent, {
@@ -729,7 +791,7 @@ Each repository gets one token: `app.token` if set, else an App installation tok
 
 Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 
-```ts [server/agents/reviewer.ts]
+```ts [server/agents/reviewer.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { github } from 'vite-hub/agent/channels'
 
@@ -805,7 +867,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 
 Chat and webhook routes accept at most 1 MiB by default. `route.maxBodyBytes` lowers it, or raises it up to 10 MiB for larger JSON. Both `Content-Length` and streamed bytes are checked, so chunked requests cannot exceed it.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { webChat } from 'vite-hub/agent/channels'
 
@@ -833,7 +895,7 @@ If the shared route does not fit your rules, write your own with [`streamAgentTr
 
 A browser can reconnect to an active response. Set `resume: true` in `useChat()` and `resumable` with process scope on the route.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { webChat } from 'vite-hub/agent/channels'
 
@@ -896,7 +958,7 @@ See [Server Env variable names](/docs/env/configure).
 
 `teams()` always builds its adapter from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` in `env.server.teams`, so it needs no credential options. Pass `adapter` options such as `userName` or `appType`, or your own adapter or factory. Install `@chat-adapter/teams`.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 teams({ adapter: { userName: 'Support' } })
 ```
 
@@ -964,7 +1026,7 @@ With native reply support in the adapter (Telegram among the built-ins), a non-s
 - It selects manual delivery, so it excludes `messages.stream` and `messages.commentary`.
 - `messages.final.delivery: 'new-message'` posts the answer separately, then removes the placeholder.
 
-```ts
+```ts fragment
 messages: {
   loading: {
     text: ['Looking into it…', 'Still working…'],
@@ -977,7 +1039,7 @@ messages: {
 
 Some group messages need no answer. `messages.allowSilentReply: true` gives the Agent a `skip_reply` tool. Called with a short reason, it ends the Invocation without the final reply and removes the loading message. Errors still post, and sent messages stay. It needs `messages.loading` and excludes `delivery: 'manual'`, because only a held-back final reply can be skipped.
 
-```ts
+```ts fragment
 messages: {
   allowSilentReply: true,
   final: { delivery: 'placeholder' },

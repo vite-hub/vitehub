@@ -38,6 +38,8 @@ export const content = defineContent({
 
 A pattern must start with `/` and name only `:id` and defined fields. Otherwise loading the definition throws `CONTENT_R0006`.
 
+In a collection with [locales](/docs/content/configure#locales), a pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale, so `/docs/:id` gives `/docs/guide` and `/es/docs/guide`. Write `:locale` in the pattern, such as `/:locale/docs/:id`, to place the locale yourself. A `url()` function receives `{ id, data, locale }`.
+
 ### Source URLs
 
 A read-only Source (files Content does not edit) gets a `url` from `contentSource(input, { url })`. A Source document's id is its path without the leading slash and extension: `glob({ cwd: 'content' })` reads `content/guides/start.md` as `guides/start`. A `:<name>` in the pattern reads a frontmatter value.
@@ -59,6 +61,7 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt), but 
 `seo()` is a normal field. Add it to collections whose pages need their own search and social text:
 
 ```ts [server/content.ts]
+import { z } from 'zod'
 import { documents, image, seo } from 'vite-hub/content'
 
 const posts = documents({
@@ -84,7 +87,7 @@ Values are stored as nested YAML in Markdown frontmatter, or nested JSON or YAML
 
 ## Head tags
 
-`contentHead(document, options)` returns `{ title, meta, link, script? }`. It reads `seo()` values, then the document's fields, then `defaults`. It needs no framework and runs on the server or in the browser. Import it from `vite-hub/content`, or `vite-hub/content/client` in browser code.
+`contentHead(document, options)` returns `{ title, meta, link, script?, htmlAttrs? }`. It reads `seo()` values, then the document's fields, then `defaults`. It needs no framework and runs on the server or in the browser. Import it from `vite-hub/content`, or `vite-hub/content/client` in browser code.
 
 ```vue [pages/blog/[...id].vue]
 <script setup lang="ts">
@@ -118,11 +121,25 @@ Nuxt has `useHead()` built in. In a Vue app, install `@unhead/vue`. In a plain s
 
 The result has `description`, `robots: noindex` when set, Open Graph `og:title`, `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`, and `og:locale`, Twitter `summary_large_image` or `summary` card tags, and a `canonical` link. Empty tags are left out.
 
+### Pages in several locales
+
+A document from a collection with [locales](/docs/content/configure#pages-in-each-locale) carries `locale`, and `get()` gives it `alternates`, the URL of each locale that has its own version. `contentHead()` reads both:
+
+- `htmlAttrs: { lang }` is the locale of the version that the page shows. `useHead()` sets it on `<html>`.
+- When the document has its own version in two or more locales, `link` has `{ rel: 'alternate', hreflang, href }` for each of them, and `hreflang: 'x-default'` for the source locale page.
+- A page that shows the source locale because its locale has no translation (`fallback: true`) has `lang` of the source locale, and its canonical link points to the source locale page. `seo.canonical` still wins.
+
+```ts fragment
+contentHead(await docs.get('guide', { locale: 'es' }), { site: { url: 'https://vitehub.dev' } })
+// htmlAttrs: { lang: 'es' }
+// link: canonical https://vitehub.dev/es/docs/guide, alternate en /docs/guide, es /es/docs/guide, x-default /docs/guide
+```
+
 ## Sitemap and robots.txt
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   workspace: 'site',
   collections: { posts, home },
@@ -135,6 +152,8 @@ export const content = defineContent({
 | `site` | Public origin for absolute URLs. Defaults to the origin of each request. |
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves a `/robots.txt` that allows every crawler. `{ disallow }` keeps paths out. It names `/sitemap.xml` when the sitemap is on. |
+
+In a collection with locales, the sitemap lists each published translation at its own URL, with `locale` on each entry. It leaves out pages that show the source locale as a fallback: their canonical link points to the source locale page.
 
 The sitemap lists:
 

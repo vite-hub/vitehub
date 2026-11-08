@@ -274,3 +274,13 @@ it.each(["inspect", "provision"])("rejects %s as an operation namespace in the r
   })
   expect(() => createOperationRegistry([{ operations: [operation] }])).toThrowError(/reserved/)
 })
+
+it("rejects an operation that claims a setup command name", () => {
+  for (const namespace of ["init", "add", "remove", "status", "catalog", "check", "plan", "apply", "host", "explain", "link", "unlink", "deploy", "deployments"]) {
+    const operation = defineOperation({
+      name: `${namespace}.custom`, description: "Setup command name.", kind: "read", section: namespace,
+      input: v.object({}), run: () => true,
+    })
+    expect(() => createOperationRegistry([{ operations: [operation] }])).toThrowError(/reserved/)
+  }
+})

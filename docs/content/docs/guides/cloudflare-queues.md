@@ -20,7 +20,7 @@ You write the handler and the send call. ViteHub makes the bindings, queue names
 ### Enable Queue with the Cloudflare preset
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub @vite-hub/queue
 pnpm add -D wrangler
 ```
 

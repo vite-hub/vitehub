@@ -1,6 +1,6 @@
 ---
 title: Run the Claude Agent SDK in production with ViteHub
-description: Run the Claude Agent SDK as a ViteHub Agent. Define it in one file with claudeCodeDriver(), call it from a route or a Channel, inspect each run, and deploy it to a Node.js host.
+description: "Run the Claude Agent SDK as a ViteHub Agent. Define it with claudeCodeDriver(), call it from a route or a Channel, inspect each run, and deploy it to Node.js."
 navigation.title: Claude Agent SDK
 navigation.order: 4
 navigation.group: Agents

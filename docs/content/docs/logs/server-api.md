@@ -1,8 +1,8 @@
 ---
-title: Server API
+title: Logs server API
 navigation.title: Server API
 navigation.order: 4
-description: Server API for ViteHub Logs, powered by Evlog.
+description: "The Evlog logger API in vite-hub/logs, the LogSource read contract, the local buffer, and how the Console and the CLI read events."
 icon: i-lucide-logs
 ---
 

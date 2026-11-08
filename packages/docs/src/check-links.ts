@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { join, posix, relative, resolve, sep } from "node:path";
 
 import { ELEMENT_NODE, parse, walkSync } from "ultrahtml";
 
@@ -12,6 +12,8 @@ export interface DocsLinkCheckOptions {
   excludePages?: Array<string | RegExp>;
   /** Pages whose fragment holds application state rather than an element id. */
   ignoreFragments?: Array<string | RegExp>;
+  /** Accept missing output files for known server routes. Built files still have their fragments checked. */
+  isRuntimePath?: (pathname: string) => boolean;
   /** Application redirects that the route rules cannot describe, such as legacy host redirects. */
   redirect?: (url: URL) => string | undefined;
 }
@@ -26,18 +28,37 @@ export class DocsLinkError extends Error {
   }
 }
 
+/**
+ * Tests a value against paths, globs, and regular expressions. A site passes one path per page, and a large site checks
+ * thousands of links against them, so a plain path is a set lookup and only a pattern with glob characters, extglobs
+ * such as `@(a|b)` included, is a glob.
+ */
+function matcher(patterns: Array<string | RegExp> | undefined): (value: string) => boolean {
+  const paths = new Set<string>();
+  const tests: Array<(value: string) => boolean> = [];
+  for (const pattern of patterns ?? []) {
+    if (typeof pattern !== "string")
+      tests.push((value) => {
+        pattern.lastIndex = 0;
+        return pattern.test(value);
+      });
+    else {
+      paths.add(pattern);
+      if (/[*?[\]{}(]/.test(pattern)) tests.push((value) => posix.matchesGlob(value, pattern));
+    }
+  }
+  return (value) => paths.has(value) || tests.some((test) => test(value));
+}
+
 /** Check built HTML against the files and fragment ids in the same output, without fetching remote URLs. */
 export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number } {
   const root = resolve(options.dir);
   if (!existsSync(root)) throw new Error(`Docs output does not exist: ${root}`);
   const origin = new URL(options.siteUrl).origin;
   const appBase = `/${(options.appBase ?? "/").replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
-  const matches = (patterns: Array<string | RegExp> | undefined, value: string) =>
-    patterns?.some((pattern) => {
-      if (typeof pattern === "string") return pattern === value;
-      pattern.lastIndex = 0;
-      return pattern.test(value);
-    }) ?? false;
+  const excludedPage = matcher(options.excludePages);
+  const excludedLink = matcher(options.excludeLinks);
+  const ignoredFragment = matcher(options.ignoreFragments);
   const cache = new Map<string, { ids: Set<string>; links: string[]; base?: string }>();
   const document = (file: string) => {
     const cached = cache.get(file);
@@ -89,7 +110,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
     const path = `${appBase}/${relative(root, file).replaceAll("\\", "/")}`
       .replace(/\/index\.html$/, "/")
       .replace(/\.html$/, "");
-    if (matches(options.excludePages, path)) continue;
+    if (excludedPage(path)) continue;
     pages++;
     const page = document(file);
     const pageUrl = new URL(path, origin);
@@ -104,9 +125,9 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
       }
       if (
         url.origin !== origin ||
-        matches(options.excludeLinks, link) ||
-        matches(options.excludeLinks, url.pathname) ||
-        matches(options.excludeLinks, url.pathname + url.hash)
+        excludedLink(link) ||
+        excludedLink(url.pathname) ||
+        excludedLink(url.pathname + url.hash)
       )
         continue;
       const redirect = options.redirect?.(url);
@@ -116,13 +137,14 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
       }
       const target = fileOf(url.pathname);
       if (!target) {
+        if (options.isRuntimePath?.(url.pathname)) continue;
         problems.add(`${path} links to ${url.pathname}, which has no page or file`);
         continue;
       }
       if (
         url.hash.length <= 1 ||
         !target.endsWith(".html") ||
-        matches(options.ignoreFragments, url.pathname)
+        ignoredFragment(url.pathname)
       )
         continue;
       let id: string;

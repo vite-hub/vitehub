@@ -13,7 +13,7 @@ icon: i-ph-code-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`, `@vite-hub/ui/code-view`, or `@vite-hub/ui/file-view`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`, `@vite-hub/ui/code-view`, or `@vite-hub/ui/file-view`:
 
 ```ts
 import { CodeView, FileView } from "@vite-hub/ui";
@@ -87,7 +87,7 @@ Other attributes go to the Pierre view.
 
 `CodeViewItem`, `CodeViewOptions`, `CodeViewLineSelection`, `FileContents`, `FileOptions`, `LineAnnotation`, and `SelectedLineRange` are re-exported from `@pierre/diffs`.
 
-```ts
+```ts fragment
 interface FileContents {
   /** Shown in the header. Also selects the syntax highlighting language. */
   name: string;

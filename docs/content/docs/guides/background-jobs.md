@@ -1,5 +1,6 @@
 ---
 title: Choose Queue, Workflow, or Schedule for TypeScript background jobs
+seo.title: "Queue, Workflow, or Schedule for background jobs"
 description: Choose a ViteHub API for queued jobs, durable multi-step work, or cron triggers, with host and retry limits made explicit.
 navigation.title: Background jobs
 navigation.order: 23

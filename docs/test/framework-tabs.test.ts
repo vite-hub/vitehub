@@ -41,7 +41,8 @@ async function markdownFiles(directory: string): Promise<string[]> {
   const files: string[] = []
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name)
-    if (entry.isDirectory()) files.push(...await markdownFiles(path))
+    // Diagnostic pages are generated from package catalogs and show rule-specific config fragments.
+    if (entry.isDirectory() && entry.name !== "diagnostics") files.push(...await markdownFiles(path))
     else if (entry.name.endsWith(".md")) files.push(path)
   }
   return files

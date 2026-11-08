@@ -8,13 +8,16 @@ icon: i-lucide-database-zap
 ---
 
 ::product-hero{tagline="Save small values like settings under a key. Read them from any route." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::product-files{feature="kv"}
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
-    // On Node, values are saved in .vitehub/data/kv
-    vitehub: { preset: 'node', kv: true },
+    vitehub: {
+      preset: 'node',
+      // On Node, values are saved in .vitehub/data/kv
+      kv: true,
+    },
   })
   ```
   ::::
@@ -26,8 +29,11 @@ icon: i-lucide-database-zap
 
   export default defineConfig({
     plugins: [
-      // On Node, values are saved in .vitehub/data/kv
-      vitehub({ preset: 'node', kv: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, values are saved in .vitehub/data/kv
+        kv: true,
+      }),
       nitro(),
     ],
   })
@@ -40,8 +46,11 @@ icon: i-lucide-database-zap
 
   export default defineConfig({
     plugins: [
-      // On Node, values are saved in .vitehub/data/kv
-      vitehub({ preset: 'node', kv: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, values are saved in .vitehub/data/kv
+        kv: true,
+      }),
     ],
   })
   ```

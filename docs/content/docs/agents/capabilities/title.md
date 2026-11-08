@@ -15,7 +15,7 @@ The title comes from `execute()`, a title Driver, the inherited provider Driver,
 
 Add `title()` to the `defineAgent()` call. With no generator, ViteHub uses the first words of the text.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { title } from 'vite-hub/agent/capabilities'
 
@@ -29,7 +29,9 @@ export default defineAgent({
 
 ## How titles are generated
 
-`title()` reads the first user message after input processing, or `input.prompt`.
+`title()` reads the prepared user message matching `run.messageId`, or the last prepared user message when no message ID is available. It uses a string `input.prompt` only when no user message is present. If prepared messages exist and an explicit message ID has no matching user message, it leaves the title unset.
+Input Capabilities run first, so `transcribe()` can replace audio with transcript text before `title()` reads it. Audio with authored text uses both in their prepared order.
+When the message has no semantic text, such as an attachment-only audio or image message, `title()` waits for the successful Agent reply and uses that text. When the reply is also empty or the invocation fails, it leaves the title unset.
 
 - Input Capabilities run first, so `transcribe()` can replace audio with text before.
 - Audio and typed text are both used, in prepared order.
@@ -65,7 +67,7 @@ Finish hooks read it with `event.extensions.get('title')` or your custom `id`.
 
 ### Channel delivery
 
-For framework-managed Chat SDK message Channels, ViteHub sends the title once per thread by default, even when each webhook has only the current message or the handler is recreated. Later runs in that thread skip generation.
+For framework-managed Chat SDK message Channels, ViteHub delivers the title once per thread by default, even when each webhook contains only the current message or the handler is recreated. When an Invocation journal observes the run, follow-up invocations still generate and record their own titles without renaming the platform thread or replacing its established stream title. Without a journal, they skip title generation after successful delivery.
 
 - `channelDelivery: "always"` updates the title on every run.
 - If a Channel run fails after generation started, the title gets an `ERROR:` prefix.

@@ -1,5 +1,6 @@
 ---
 title: MCP
+seo.title: "MCP capability: tools from MCP servers"
 description: Give an Agent the tools of external MCP servers, log in through a Connection, and lock the tool definitions you reviewed.
 navigation.title: MCP
 navigation.order: 220
@@ -17,7 +18,7 @@ Tool names, descriptions, and schemas come from the server. Put guidance on when
 
 If a server's contract is incomplete or unstable, `toolOverrides` fixes the part your app needs. Key each override by server name and original tool name. It changes the description or schema the Agent sees, not the arguments sent to the server. Use overrides only for a contract you own and review:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: { support: supportMcpServer },
   toolOverrides: {
@@ -48,7 +49,7 @@ Pass a map of servers. Each entry is:
 - a client config or resolver, whose client the Invocation owns
 - `false`, `null`, or `undefined` when the server is not configured for this deployment or run
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import { docsMcpServer } from '../mcp/docs'
@@ -97,7 +98,7 @@ export default defineAgent({
 
 In an Agent that [`extends`](/docs/agents/agent-presets#extend-an-agent) another, `mcp()` adds to the parent's `mcp()`. `servers`, `integrity`, and `toolOverrides` merge by server name. A child entry replaces the parent's whole entry for that server, with per-server options such as `optional`. Unset options, such as `unavailableNotice`, are inherited.
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 export default defineAgent({
   extends: bot,
   capabilities: [mcp({ servers: { portal: { connection: 'portal' }, drop: false } })],
@@ -107,6 +108,8 @@ export default defineAgent({
 `drop: false` removes the inherited `drop` server. `inherit: false` replaces the parent's `mcp()`:
 
 ```ts
+import { mcp } from 'vite-hub/agent/capabilities'
+
 capabilities: [mcp({ servers: {}, inherit: false })]
 ```
 
@@ -114,7 +117,7 @@ capabilities: [mcp({ servers: {}, inherit: false })]
 
 Set `connection` on a client config to log in with a [Connection](/docs/connections), a stored login to an external account. It sends the `Authorization` header, refreshes the token, checks access per request, and records activity. The Agent and client never see the token.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     docs: {
@@ -131,7 +134,7 @@ mcp({
 
 If the provider declares an [`mcp` endpoint](/docs/connections/configure#mcp-endpoint), omit `transport` and ViteHub connects to it over HTTP. `transport` can still set `type` or `headers`. With no `transport.url` and no `mcp` endpoint, resolution fails with an error naming the Connection.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     crm: { connection: 'crm', optional: true, tools: ['search', 'get_record'] },
@@ -142,12 +145,10 @@ mcp({
 - `optional: true` leaves the server out, with no unavailable notice, until the Connection is connected.
 - `tools` exposes only the named tools, with or without a Connection.
 
-To call an MCP tool from server code, use `callMcpTool()` from `vite-hub/agent/mcp`:
-
-- It calls through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`.
-- It returns an `[error, value]` tuple and never rejects. `value` is the `structuredContent`, else the text content, parsed as JSON when possible. `error` is set when the server is unreachable or the tool reports an error.
+Outside an Agent, `callMcpTool()` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It returns a `Result` from `vite-hub/runtime`, `[error, undefined]` or `[undefined, value]`, and does not reject for a failed call. `value` is the tool's `structuredContent`, or its text content parsed as JSON when possible.
 
 ```ts [server/api/crm/search.get.ts]
+import { createError, defineEventHandler, getQuery } from 'h3'
 import { callMcpTool } from 'vite-hub/agent/mcp'
 
 export default defineEventHandler(async (event) => {
@@ -158,8 +159,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-- Writes that need approval fail as in the Agent client. A tool not in `tools` returns `MCP_TOOL_NOT_FOUND`.
-- `retries` retries after 100 ms, 200 ms, and so on, until `signal` aborts, and returns the last error.
+`error` is set when the server cannot be reached, the tool reports an error, the call times out, or `signal` aborts. Approval-gated writes fail like the Agent client. A tool that is not in `tools` returns an `MCP_TOOL_NOT_FOUND` error. See [callMcpTool() errors](#callmcptool-errors) for each code. `retries` repeats a failed call after 100 ms, then 200 ms, and so on, and stops when `signal` aborts. It returns the last error.
 
 Each request maps to a Connection Operation:
 
@@ -170,7 +170,7 @@ Each request maps to a Connection Operation:
 
 The transport uses the Connection's native `fetch` client. Writes are denied without a matching `fetch` rule, so allow the transport in the Agent rule:
 
-```ts [server/connections/docs.ts]
+```ts [server/connections/docs.ts] fragment
 access: {
   'agent:support': { read: true, write: ['fetch'], approve: false },
 },
@@ -196,7 +196,7 @@ The files exist only for that run and are never saved to the Workspace store. Ea
 
 If Skills fail, the server keeps its tools. Servers without the resources capability have no Skills. Set `skills: false` to turn this off:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     drop: { skills: false, transport: { type: 'http', url: 'https://drop.example.com/mcp' } },
@@ -210,7 +210,7 @@ mcp({
 
 With an OAuth 2 Connection named `executor`:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     executor: {
@@ -225,7 +225,7 @@ Allow the transport with `access: { 'agent:support': { read: true, write: ['fetc
 
 Without Connections, send a personal Executor API key from Server Env in a resolver. Executor rejects organization keys for MCP sessions.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     executor: () => {
@@ -263,7 +263,7 @@ A server can later change a reviewed tool's description, title, or input schema.
 2. Save it in app code or configuration.
 3. Pass it to `integrity` under the server name.
 
-```ts [scripts/review-docs-mcp.ts]
+```ts [scripts/review-docs-mcp.ts] fragment
 import { fingerprintTools } from 'ai'
 
 const approved = await fingerprintTools(await client.tools())
@@ -272,7 +272,7 @@ console.log(JSON.stringify(approved, null, 2))
 
 Never build the baseline at startup; that trusts whatever the server returns first.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import { docsMcpServer } from '../mcp/docs'
@@ -348,6 +348,30 @@ Integrity checks run before each run. Static inspection does not connect to serv
 
 Write guidance on when to use MCP in Driver Instructions with Capability coverage blocks. Keep tool descriptions on the server; they are part of the tool contract.
 
+## callMcpTool() errors
+
+`callMcpTool()` returns these errors. Each one has `code`, `why`, `fix`, and `docs`. `error.cause` keeps the lower-level error, and `JSON.stringify(error)` does not include it.
+
+### MCP_SERVER_FAILED
+
+The client could not connect, the server failed, or the server entry is not valid. Read `error.cause` for the connection or server error. Retry when the server is available, or pass `retries`.
+
+### MCP_TOOL_CALL_FAILED
+
+The tool answered with `isError: true`. `error.why` has the start of the tool's text content. Change the arguments or retry.
+
+### MCP_TOOL_CANCELLED
+
+The `signal` option aborted the call. `error.cause` is the abort reason.
+
+### MCP_TOOL_NOT_FOUND
+
+The server has no tool with this name, or the server entry lists `tools` without it.
+
+### MCP_TOOL_TIMEOUT
+
+The tool did not answer within the `timeout` option, in milliseconds. Raise `timeout`, or pass `retries`.
+
 ## Related pages
 
 - [Official capabilities](/docs/agents/capabilities/official)
@@ -365,4 +389,4 @@ In a run's **Capabilities** tab, select **MCP**. Each server shows:
 
 It shows which servers connected, were skipped as optional, or failed. A connected server can have no tools. It reflects the selected run, not current health. Opening it does not reconnect or call tools. MCP resources mounted through Sources are not listed.
 
-To keep the view and tool contracts, turn on `configuration: 'content'` on the journal. Missing schemas show as not recorded. The built-in Console journal captures configuration.
+To keep the view and tool contracts, turn on `configuration: 'content'` on the journal. Missing schemas show as not recorded. The default Agent journal captures configuration.

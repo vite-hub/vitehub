@@ -44,7 +44,7 @@ Sandbox Task folders are the exception. `server/sandbox-tasks/<path>/index.ts` d
 
 A `<path>.sandbox-task.ts` file still default-exports `defineSandboxTask(...)`.
 
-```ts [server/queues/welcome-email.ts]
+```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {

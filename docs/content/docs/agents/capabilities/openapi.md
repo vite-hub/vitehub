@@ -45,7 +45,7 @@ With `cli`, one Capability CLI tool replaces them, with one subcommand per opera
 
 Always pass the allowed operations; none are exposed by default.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingListCustomers', 'billingGetInvoice'],
@@ -58,7 +58,7 @@ Only selected operations are read, so others may use unsupported methods, repeat
 
 The `operationId` is the tool name, and its kebab-case form the CLI command. Generated ids such as `read_flow_run_flow_runs__id__get` are hard for Agents, so map names to `operationId`s:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://prefect.example.com/api/openapi.json',
   operations: {
@@ -79,7 +79,7 @@ The server URL is `servers[0].url`, else the spec URL origin.
 
 List fields your server must supply, such as a tenant path param or runtime body token, in `provides`. ViteHub removes them from the model and CLI schemas and from caller input, and validates the final request after the hook.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://portal.example.com/_openapi.json',
   operations: ['portalProductSearch', 'portalPurchaseOrders'],
@@ -118,7 +118,7 @@ Required fields the hook does not provide stay in the schemas. If it provides on
 
 Set `connection` to send requests with an OAuth 2 [Connection](/docs/connections), a stored login to an external account.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingListCustomers', 'billingCreateTicket'],
@@ -131,7 +131,7 @@ openapi({
 
 Credentials are added after `hooks.request`, so hooks never see the token. Requests go through the Connection client as the `fetch` action. `GET` and `HEAD` are reads, other methods are writes, and writes are denied without a matching `fetch` rule:
 
-```ts [server/connections/billing.ts]
+```ts [server/connections/billing.ts] fragment
 access: {
   'agent:support': { read: true, write: ['fetch'] },
 },
@@ -147,7 +147,7 @@ Access is checked before a tool runs:
 
 Set `server` when the `servers` entry is broken, missing, or not environment-specific. A callback can read the run context.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: './openapi.json',
   server: 'https://preview.example.com/api',
@@ -159,7 +159,7 @@ openapi({
 
 `cli` gives Agents and developers the operations as commands.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingListCustomers', 'billingGetInvoice'],
@@ -172,7 +172,7 @@ openapi({
 
 A `cli` callback reads the current run and returns `false` or `undefined` to omit the CLI. The Capability stays attached with an unchanged lifecycle.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://portal.example.com/_openapi.json',
   operations: ['portalProductSearch', 'portalPurchaseOrders'],
@@ -198,7 +198,7 @@ pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli billing
 
 `transformResponse` gives the Agent a smaller result when the raw response has transport fields or long provider rows.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingGetInvoice'],

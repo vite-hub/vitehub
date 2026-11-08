@@ -62,7 +62,7 @@ Tool policy defaults to `allow`. Set `policy: 'require-approval'` or `'deny'` wh
 
 To pick Capabilities per run, pass a callback. ViteHub calls it once, after it resolves the Agent Invoker (who started the run) and before Capability setup. Capabilities from the active Channel still apply.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 export default defineAgent({
   driver: { model },
   capabilities: ({ actor }) => [
@@ -97,7 +97,7 @@ For data read after a run by evals, finish hooks, or Channel delivery, use `defi
 
 When app code can answer without the model (the Driver), such as a mail rule that labels an email, skip it. A Capability `input` phase can only end a run with a `Response`. For a typed value, use `defineAgent({ data, intercept })`: its return value becomes the output, and `runAgent()` types the output as that value or the Driver output.
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/labeller.ts] fragment
 export default defineAgent({
   data: email,
   intercept: ({ data }) => data.from.endsWith('@github.com') ? { source: 'rule' as const, label: 'GitHub' } : undefined,
@@ -129,7 +129,7 @@ ViteHub compiles a compatible Eve extension (a tool package for the Eve agent fr
 pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
 ```
 
-```ts [server/agents/reviewer.ts]
+```ts [server/agents/reviewer.ts] fragment
 import github from '@github-tools/eve-extension'
 import { defineAgent } from 'vite-hub/agent'
 

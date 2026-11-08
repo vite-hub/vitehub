@@ -8,7 +8,23 @@ icon: i-lucide-circle-alert
 
 ## Handle Blob errors
 
-Each Blob method returns `[error, value]`. `error.code` is `BLOB_CONFLICT`, `BLOB_NOT_FOUND`, `BLOB_OPERATION_FAILED`, or `BLOB_PATHNAME_TOO_LONG`. `error.details` names the operation and store. `error.cause` keeps the provider error. Invalid arguments and config errors throw instead. See [Server API](/docs/blob/server-api).
+Each Blob method returns `[error, value]`. On success, `error` is `undefined`. When `error` is set, `error.code` is `BLOB_CONFLICT`, `BLOB_NOT_FOUND`, `BLOB_OPERATION_FAILED`, or `BLOB_PATHNAME_TOO_LONG`. `error.why` tells what went wrong and names the operation and the store, `error.fix` tells what to do, `error.docs` links to the code on this page, and `error.cause` keeps the provider error. Invalid arguments and configuration errors throw instead. See [Server API](/docs/blob/server-api) for each method.
+
+```ts [server/api/notes.post.ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async () => {
+  const [error, object] = await blob.put('notes/hello.txt', 'Hello')
+  if (error) {
+    console.error(error.code, error.why, error.cause)
+    throw error
+  }
+  return { pathname: object.pathname }
+})
+```
+
+`JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`. It does not include `cause` or `stack`, because provider errors can contain credentials or private data.
 
 ## Limits
 

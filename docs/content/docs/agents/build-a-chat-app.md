@@ -78,7 +78,7 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
 }
 ```
 
-In `nuxt.config.ts`:
+The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
 - The ViteHub module finds Agent Definitions (one file per Agent) in `server/agents`.
 - `preset: "node"` builds for a Node.js server.
@@ -92,7 +92,7 @@ import viteHub from "vite-hub/nuxt";
 
 export default defineNuxtConfig({
   buildDir: ".nuxt",
-  modules: ["@nuxt/ui", "@vite-hub/ui/nuxt", [viteHub, {
+  modules: ["@nuxt/ui", [viteHub, {
     preset: "node",
     agent: true,
     workflow: false,
@@ -113,6 +113,7 @@ export default defineNuxtConfig({
 ```css [app/assets/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "@vite-hub/ui/styles.css";
 
 body { margin: 0; font-family: system-ui, sans-serif; }
 ```

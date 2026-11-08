@@ -46,6 +46,7 @@ Better Auth loads on the first Auth request, the first request an access route m
 Server code can read the Auth instance or require a session.
 
 ```ts [server/api/me.get.ts]
+import { defineEventHandler, getRequestHeaders } from 'h3'
 import { auth } from '@vite-hub/auth/server'
 
 export default defineEventHandler(async (event) => {
@@ -58,6 +59,7 @@ export default defineEventHandler(async (event) => {
 To protect a route, wrap its handler. The guard checks the request, and your handler runs only if the check passes, with the checked `authorization`. You write no `if`, so a forgotten one cannot run the protected action.
 
 ```ts [server/api/profile.get.ts]
+import { defineEventHandler } from 'h3'
 import { withAuth } from '@vite-hub/auth/server'
 
 export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id })))
@@ -65,7 +67,7 @@ export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id }
 
 On H3 2, you can put the check in route middleware. `requireAuth()` rejects like `withAuth()`, and `requireAuthorization(authorize)` like `withAuthorization()`. When the check passes, the middleware calls `next()`, and the handler reads `authorization` with `getAuthorization(event)`.
 
-```ts [server/app.ts]
+```ts [server/app.ts] fragment
 import { getAuthorization, requireAuth, requireAuthorization } from '@vite-hub/auth/server'
 import { H3 } from 'h3'
 
@@ -87,9 +89,9 @@ export const app = new H3()
 | `auth` | Proxy to the discovered Better Auth instance. |
 | `getAuth(runtimeOptions?)` | Returns the discovered Better Auth instance. |
 | `getAuthForRequest(request, runtimeOptions?, event?)` | Returns a request-aware Better Auth instance. |
-| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request`, `{ req: Request }`, or an H3 1 event. |
+| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. |
 | `handleAuthRequest(definition, input, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
-| `toAuthRequest(input)` | Returns the Web `Request` of a request or server event. For an H3 1 event, it builds one from `node.req` and keeps the app base path. |
+| `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
 | `createAuthHandler(definition, runtimeOptions?)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches route metadata, checks the session, and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists, else an unauthorized or sign-in response. |
@@ -140,10 +142,6 @@ export default defineAuth({
         route: '/_vitehub/**',
         authorize: ({ user }) => user.isAdmin === true,
       },
-      {
-        route: '/api/_vitehub/console/**',
-        authorize: ({ user }) => user.isAdmin === true,
-      },
     ],
   },
 })
@@ -153,7 +151,7 @@ The callback receives the signed-in `user`, `session`, and request. ViteHub defi
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 
-Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request an access route matches. Manual hosts can call it with a Web `Request`, `{ req: Request }`, or an H3 1 event.
+Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request that an access route matches. Manual hosts can use it with a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app.
 
 - Pass `{ route, method?, authorize?: true }` entries in the order of the Definition's `access.routes`.
 - A route ending in `/**` matches its base path and everything below. Other routes match only that path.

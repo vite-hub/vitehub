@@ -4,7 +4,7 @@ export type RealtimeRequestAction = "checkpoint" | "refresh" | "save"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/realtime/limits-and-errors",
+  docs: "https://vitehub.dev/docs/realtime/diagnostics",
   codes: {
     // Client errors. `save()`, `history.checkpoint()`, and `refresh()` return them as `[error, undefined]`.
     REALTIME_DISABLED: {

@@ -9,7 +9,7 @@ icon: i-lucide-git-pull-request
 
 `forge()` gives an Agent tools for repositories, pull requests, and issues on one Forge (code host): GitHub, GitLab, or Forgejo. A thread is an issue, pull request, or discussion. GitLab merge requests use the `pull_request` kind.
 
-```ts [server/agents/reviewer.ts]
+```ts [server/agents/reviewer.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { forge } from 'vite-hub/agent/capabilities'
 
@@ -22,6 +22,8 @@ export default defineAgent({
 For a self-hosted Forge, set `baseUrl`:
 
 ```ts
+import { forge } from 'vite-hub/agent/capabilities'
+
 forge({
   forge: 'gitlab',
   baseUrl: 'https://gitlab.example.com',
@@ -61,6 +63,8 @@ Server Env discovery lists Forge fields as optional: one Forge's for a static `f
 - **Write mode** adds writes. `close` and `merge` only when listed in `operations`.
 
 ```ts
+import { forge } from 'vite-hub/agent/capabilities'
+
 forge({ mode: 'write', operations: ['read_thread', 'comment', 'merge'] })
 ```
 
@@ -115,6 +119,8 @@ A call can omit `repository` only when the list has one exact repository.
 By default, close, merge, and approving a review need user approval; other writes do not. `policy` replaces these defaults for all write tools:
 
 ```ts
+import { forge } from 'vite-hub/agent/capabilities'
+
 forge({ mode: 'write', policy: 'require-approval' })
 ```
 

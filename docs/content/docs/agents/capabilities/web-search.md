@@ -16,7 +16,7 @@ icon: i-lucide-search
 
 Use model mode when the provider supports native web search.
 
-```ts [server/agents/research.ts]
+```ts [server/agents/research.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { webSearch } from 'vite-hub/agent/capabilities'
 
@@ -34,7 +34,7 @@ Use tool mode to choose the search provider. Install `@agntn/web` first.
 pnpm add @agntn/web
 ```
 
-```ts [server/agents/research.ts]
+```ts [server/agents/research.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { webSearch } from 'vite-hub/agent/capabilities'
 

@@ -173,7 +173,7 @@ A collection is also a read-only [Collection](/docs/source/server-api) over its 
 
 ### Save and remove
 
-```ts
+```ts fragment
 const posts = content.collection('posts')
 const draft = await posts.get('hello', { ref: 'draft' })
 await posts.save('hello', { data: { title: 'Hello', date: '2026-10-14', tags: ['vue'] }, body: '# Hello' }, {
@@ -210,6 +210,8 @@ If another save moved the draft head, Content commits again on the new head. It 
 
 `status(id)` returns `{ collection, id, state, draft, published, issues?, schedule?, conflict? }`. `issues` counts the draft's field issues. `draft` and `published` are the digests on each ref, or `null`. `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document is on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
 
+In a collection with [locales](/docs/content/configure#locales), `status()` and `status(id)` compare the source locale, and each entry has `locale` and `translations`, such as `{ es: 'stale', fr: 'missing' }`. Pass `{ locale }` to compare another locale: `status({ locale: 'es' })` or `status('guide', { locale: 'es' })`.
+
 On the [GitHub store](/docs/cms/configure#github-store), `conflict: { base }` marks a document that both the draft and the published branch changed since the draft took it, for example with a Git commit. `base` is the digest the draft started from. `publish()` refuses the document until a save with `ifPublishedDigest` records the reviewed published version. `status()` shows it before anyone publishes.
 
 ### Publish
@@ -222,12 +224,12 @@ await content.publish()
 | Option | Behavior |
 | --- | --- |
 | `collection` | Publish one collection. Omit to publish every collection. |
-| `ids` | Publish only these documents. Needs `collection`. An id on neither ref throws `CONTENT_NOT_FOUND`. |
-| `expect` | `[{ collection, id, digest }]`: publish exactly these documents, only if each draft digest still matches. `digest: null` expects a deleted draft. Omit `id` for a singleton. Not with `collection` or `ids`. See [Publish what was reviewed](#publish-what-was-reviewed). |
-| `ifHead` | Expected `published` head revision id, or `null` before the first publish. A different head throws `WORKSPACE_CONFLICT` with `details.ref` `published`. Without it, a concurrent publish retries on the new head. |
+| `ids` | Publish only these documents. Requires `collection`. An id that exists on neither ref throws `CONTENT_NOT_FOUND`. |
+| `expect` | `[{ collection, id, locale?, digest }]`: publish exactly these documents, and only if each draft digest still matches. `digest: null` expects the document deleted on the draft. Omit `id` for a singleton. `locale` defaults to the source locale of a collection with [locales](/docs/content/configure#locales). Cannot be combined with `collection` or `ids`. See [Publish what was reviewed](#publish-what-was-reviewed). |
+| `ifHead` | Expected `published` head revision id, or `null` before the first publish. A different head throws `WORKSPACE_CONFLICT` with `details.ref` set to `published`. Without it, a concurrent publish is retried on the new head. |
 | `message`, `metadata` | Revision message and JSON-safe metadata. |
 
-`publish()` returns `{ revision, documents }`. `documents` lists each change as `{ collection, id, change }` with `add`, `update`, or `delete`. `revision` is `null` when nothing differed. Files outside collection paths are not published.
+`publish()` returns `{ revision, documents }`. `documents` lists each change as `{ collection, id, change }` with `add`, `update`, or `delete`, and `locale` in a collection with locales. Without `expect`, a collection with locales publishes every locale. `revision` is `null` when nothing differed from the draft. Files outside the collection paths are not published.
 
 ### Publish what was reviewed
 
@@ -271,7 +273,7 @@ await content.publish({ collection: 'posts' })
 
 `can()` runs [`defineContent({ authorize })`](/docs/content/configure#access), and returns `false` without a policy. Pass the signed-in Auth user as `user`, or omit it for `null`. When acting for an Agent, also pass the Invocation's `actor`:
 
-```ts
+```ts fragment
 await content.can({ user: authUser, actor, collection: 'posts', action: 'write', id: 'hello' })
 ```
 
@@ -283,7 +285,7 @@ An unknown collection, a `user` that is not an object or `null`, or an `actor` w
 
 ### Preview
 
-```ts
+```ts fragment
 await content.preview.enable(event, { maxAge: 900 }) // sets the cookie: { setCookie, expiresAt }
 content.preview.disable(event)                       // clears it
 await content.preview.run(event, () => posts.get('hello')) // draft when the event has a valid cookie

@@ -36,6 +36,7 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -65,6 +66,7 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
@@ -93,17 +95,17 @@ export default defineConfig({
 
 ViteHub then:
 
-- registers the evlog Nitro module in `vite dev` and `vite build`, with `evlog` as its options and `service` and `environment` as its `env`.
+- registers the evlog Nitro module in `vite dev` and `vite build`, with `evlog` as its options and `service` and `environment` as its `env`, in `vite dev` and `vite build`.
 - declares `posthog.apiKey` as Server Env `observability.posthog.apiKey` and reads it at startup, so the Console Env page shows it.
 - generates a Nitro plugin that installs one host instance, sets request IDs, connects the evlog drain and HTTP error hooks, and flushes on shutdown.
 - adds the observability Capability to every Agent, and with `papercuts`, the `report_papercut` tool.
-- reports `status()` as `observability` in `/api/_vitehub/console/status`.
+- reports `status()` as `observability` in `/_vitehub/api/status`.
 
 Remove your own evlog Nitro module and host plugin. Without an API key, events still reach local evlog output, `status().configured` is `false`, and `capture()` rejects.
 
 Read the instance in server code:
 
-```ts
+```ts fragment
 import { useObservability } from 'vite-hub/agent/observability'
 
 const observability = useObservability()

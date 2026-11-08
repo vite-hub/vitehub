@@ -1,5 +1,6 @@
 ---
 title: Comments
+seo.title: Comments UI components for Vue
 description: "Figma-style comments for your own running app: pins, threads, a composer, a side list, and a side panel."
 navigation.order: 34
 navigation.group: Collaboration
@@ -26,7 +27,7 @@ Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add 
 pnpm add @vite-hub/comments
 ```
 
-The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/comments`:
+`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/comments`:
 
 ```ts
 import { CommentLayer } from "@vite-hub/ui/comments";
@@ -111,7 +112,7 @@ Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `
 
 Without the layer, call `useComments()` from `@vite-hub/ui/headless`. It needs no Nuxt UI. Pass the state it returns as the `comments` prop:
 
-```ts
+```ts fragment
 import { useComments } from "@vite-hub/ui/headless";
 
 const comments = useComments({ client, subject: { kind: "page", id: "/pricing" } });
@@ -180,7 +181,7 @@ Each row shows the number, author, start of the first message as plain text, and
 
 A thread shows Resolve, Reopen, Edit, Delete, and the reply box only to users who may use them. By default, a signed-in user may reply to and resolve any thread, and edit and delete their own messages. A reader without a user gets no controls. Give `useComments()` a `can` function with your own rules, and every part follows them:
 
-```ts
+```ts fragment
 const comments = useComments({
   client,
   subject,

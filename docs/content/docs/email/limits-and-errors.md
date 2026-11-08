@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle delivery errors
 
-`email.send()` returns `[error, sent]`. When `error` is set, `error.code` names the failure, `error.why` says what went wrong and names the driver, `error.fix` says what to do, and `error.docs` links here. `error.cause` keeps the provider error.
+`email.send()` returns `[error, sent]`. When `error` is set, `error.code` names the failure, `error.why` says what went wrong and names the driver, `error.fix` says what to do, and `error.docs` links to the code in [Email diagnostics](/docs/email/diagnostics). `error.cause` keeps the provider error.
 
 ```ts [server/send.ts]
 import { type EmailMessage } from 'vite-hub/email'
