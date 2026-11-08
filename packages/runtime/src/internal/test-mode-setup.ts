@@ -7,7 +7,7 @@ interface Backend {
   value: unknown
 }
 
-let processRoot: Promise<string> | undefined
+const processRoots = new Map<string, Promise<string>>()
 
 function isRunning(pid: number): boolean {
   try {
@@ -24,7 +24,9 @@ function isRunning(pid: number): boolean {
  * so each process also deletes the folders of processes that no longer run.
  */
 function processTemporaryRoot(root: string): Promise<string> {
-  processRoot ??= (async () => {
+  const existing = processRoots.get(root)
+  if (existing) return existing
+  const processRoot = (async () => {
     const [{ rmSync }, { mkdir, mkdtemp, readdir, rm }, { join }] = await Promise.all([import("node:fs"), import("node:fs/promises"), import("node:path")])
     const parent = join(root, ".vitehub", "test")
     await mkdir(parent, { recursive: true })
@@ -36,6 +38,7 @@ function processTemporaryRoot(root: string): Promise<string> {
     process.once("exit", () => rmSync(directory, { force: true, recursive: true }))
     return directory
   })()
+  processRoots.set(root, processRoot)
   return processRoot
 }
 

@@ -11,6 +11,7 @@ import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../t
 // Docker), the Vite plugin writes the registry and a Nitro plugin that installs
 // it and the runtime config at startup.
 export const workflowDevGeneratedDir = ".vitehub/nitro/workflow"
+export const workflowTestSetupFile = "test-setup.mjs"
 const devRegistryFile = "dev-registry.mjs"
 const devPluginFile = "dev-plugin.mjs"
 
@@ -84,6 +85,15 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
     [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
     [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase)],
   ]
+  if (process.env.VITEST) {
+    files.push([resolve(directory, workflowTestSetupFile), [
+      `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${options.importBase ?? workflowPackageName}/runtime/state`)}`,
+      `import registry from "./${devRegistryFile}"`,
+      `setWorkflowRuntimeConfig(${JSON.stringify(options.workflow ?? false)})`,
+      "setWorkflowRuntimeRegistry(registry)",
+      "",
+    ].join("\n")])
+  }
   if (options.pluginPath && options.pluginPath !== plugin) {
     const pluginImport = `./${relative(dirname(options.pluginPath), plugin).replace(/\\/g, "/")}`
     files.push([options.pluginPath, `export { default } from ${JSON.stringify(pluginImport)}\n`])

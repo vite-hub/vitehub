@@ -12,6 +12,8 @@ icon: i-lucide-flask-conical
 
 Call `setupViteHubTest()` once in the test file, and `reset()` before each test. Every test then starts with empty storage.
 
+Test mode is shared by the process. Run tests in the same file in sequence; `test.concurrent()` and `describe.concurrent()` are not supported. Keep separate app roots in separate test processes.
+
 ```ts [test/signup.test.ts]
 import { H3 } from 'h3'
 import { beforeEach, expect, test } from 'vitest'
@@ -45,7 +47,7 @@ test('signup saves the user and sends the welcome email', async () => {
 })
 ```
 
-Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `#vitehub/env/server` and the Database schema.
+Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `#vitehub/env/server` and the Database schema. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
 
 ```ts [vite.config.ts]
 /// <reference types="vitest/config" />
@@ -148,3 +150,5 @@ The Channel adapter still calls the provider API for replies and files, so stub 
 | `deliverChannel(agent, channel, body, options?)` | Sends one webhook delivery and waits for its work. `options.headers` and `options.agentName` (default `agent`) shape the request. A string or bytes body goes as is; any other body goes as JSON. |
 
 `vite-hub/test` loads no Primitive. Each Primitive switches to its test backend only when your code calls it, so a test pays only for the features that the app uses.
+
+Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch keeps the host's `waitUntil()` behavior; wait for that work before reading `jobs`. Workflow signals are not supported by the test backend: `resumeWorkflowSignal()` rejects with `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.

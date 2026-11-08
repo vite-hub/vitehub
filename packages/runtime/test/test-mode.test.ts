@@ -1,4 +1,7 @@
 import { existsSync } from "node:fs"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, relative } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
@@ -39,4 +42,24 @@ it("keeps a backend until reset, then disposes it and starts again", async () =>
   expect(mode.env).toEqual({})
   expect(existsSync(directory)).toBe(false)
   expect(mode.backend("kv", create)).toEqual({ id: 2 })
+})
+
+it("keeps temporary folders under each app root in the same process", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-test-roots-"))
+  const first = enableViteHubTestMode({ root: join(root, "first") })
+  const second = enableViteHubTestMode({ root: join(root, "second") })
+  try {
+    const firstDirectory = await first.directory("kv")
+    const secondDirectory = await second.directory("blob")
+    expect(relative(first.root, firstDirectory)).toMatch(/^\.vitehub[/\\]test[/\\]/)
+    expect(relative(second.root, secondDirectory)).toMatch(/^\.vitehub[/\\]test[/\\]/)
+    await first.reset()
+    expect(existsSync(firstDirectory)).toBe(false)
+    expect(existsSync(secondDirectory)).toBe(true)
+  }
+  finally {
+    await first.reset()
+    await second.reset()
+    await rm(root, { recursive: true, force: true })
+  }
 })

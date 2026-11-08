@@ -18,5 +18,5 @@ it("runs an app's route test against the vite-hub/test backends", async () => {
     env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("VITEST"))), CI: "1", NO_COLOR: "1" },
   })
   expect(stdout).toContain("signup saves the user, counts it, sends the welcome email, queues the follow-up, and starts the onboarding")
-  expect(stdout).toContain("Tests  3 passed (3)")
+  expect(stdout).toContain("Tests  4 passed (4)")
 }, 120_000)

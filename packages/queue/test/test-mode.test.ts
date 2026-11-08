@@ -1,26 +1,38 @@
-import { afterAll, expect, it } from "vitest"
+import { afterAll, beforeEach, expect, it, vi } from "vitest"
 
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
-import { setQueueRuntimeConfig } from "../src/internal/runtime/state.ts"
+import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 
+import type { QueueEnqueueOptions, QueueProvider } from "../src/types.ts"
+
 const mode = enableViteHubTestMode()
+const handler = vi.fn()
+const createClient = vi.fn()
+
+beforeEach(async () => {
+  await mode.reset()
+  vi.clearAllMocks()
+  setQueueRuntimeConfig({ provider: "local" }, createClient)
+  setQueueRuntimeRegistry({ welcome: async () => ({ handler }), digest: async () => ({ handler }) })
+})
 
 afterAll(async () => {
   await mode.reset()
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.test"))
   setQueueRuntimeConfig(undefined)
+  setQueueRuntimeRegistry(undefined)
 })
 
-it("records every send without a Definition or a provider, and a reset empties the list", async () => {
-  // A disabled Queue and no Definitions: test mode needs neither.
-  setQueueRuntimeConfig(false)
-
+it("records valid sends and deferred sends without a provider or handler, and reset empties the list", async () => {
+  const pending: Promise<unknown>[] = []
+  setQueueRuntimeEventDefaults({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
   expect(await dynamicQueue.run("welcome", { userId: 1 }, { delaySeconds: 60, id: "job-1" })).toEqual([undefined, { messageId: "job-1", status: "queued" }])
   dynamicQueue.defer("welcome", { userId: 2 })
+  await Promise.all(pending)
   const queue = await dynamicQueue.get("digest")
-  const [error, sent] = await queue.sendBatch([{ body: { day: 1 } }], { delaySeconds: 5 })
+  const [error, sent] = await queue.sendBatch([{ body: { day: 1 }, delaySeconds: undefined }], { delaySeconds: 5 })
 
   expect(error).toBeUndefined()
   expect(sent).toHaveLength(1)
@@ -29,7 +41,55 @@ it("records every send without a Definition or a provider, and a reset empties t
     { options: {}, payload: { userId: 2 }, queue: "welcome" },
     { options: { delaySeconds: 5 }, payload: { day: 1 }, queue: "digest" },
   ])
+  expect(handler).not.toHaveBeenCalled()
+  expect(createClient).not.toHaveBeenCalled()
 
   await mode.reset()
   expect(mode.peek("queue")).toBeUndefined()
+})
+
+it("rejects disabled Queues and unknown Definitions", async () => {
+  setQueueRuntimeConfig(false)
+  await expect(dynamicQueue.get("welcome")).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+  await expect(dynamicQueue.run("welcome", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+  setQueueRuntimeConfig({ provider: "cloudflare" })
+  await expect(dynamicQueue.run("misspelled", {})).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+  expect(mode.peek("queue")).toBeUndefined()
+})
+
+it.each<[QueueProvider, QueueEnqueueOptions]>([
+  ["cloudflare", { idempotencyKey: "key" }],
+  ["cloudflare", { region: "iad1" }],
+  ["cloudflare", { retentionSeconds: 60 }],
+  ["vercel", { contentType: "json" }],
+  ["local", { region: "iad1" }],
+])("preserves %s option validation in sends and batches (%j)", async (provider, options) => {
+  setQueueRuntimeConfig({ provider })
+  const queue = await dynamicQueue.get("welcome")
+  expect(await queue.send({}, options)).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
+  expect(await queue.sendBatch([{ body: {} }], options)).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
+  expect(mode.peek("queue")).toBeUndefined()
+})
+
+it("uses the configured local delivery rules", async () => {
+  setQueueRuntimeConfig({ provider: "local", rules: "cloudflare" })
+  expect(await dynamicQueue.run("welcome", {}, { idempotencyKey: "key" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
+})
+
+it("reports a deferred validation failure through the host task and dispatch-error hook", async () => {
+  const pending: Promise<unknown>[] = []
+  const onDispatchError = vi.fn()
+  const log = vi.spyOn(console, "error").mockImplementation(() => {})
+  setQueueRuntimeConfig({ provider: "cloudflare" })
+  setQueueRuntimeRegistry({ welcome: async () => ({ handler, options: { onDispatchError } }) })
+  setQueueRuntimeEventDefaults({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
+  try {
+    dynamicQueue.defer("welcome", {}, { region: "iad1" })
+    await Promise.all(pending)
+    expect(onDispatchError).toHaveBeenCalledWith(expect.objectContaining({ code: "QUEUE_UNSUPPORTED_OPTION" }), { name: "welcome" })
+    expect(mode.peek("queue")).toBeUndefined()
+  }
+  finally {
+    log.mockRestore()
+  }
 })

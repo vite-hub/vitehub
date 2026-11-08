@@ -1,7 +1,8 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
+import { queueUnsupportedOptionsError } from "../errors.ts"
 
 import type { ViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { LocalQueueClient, QueueEnqueueOptions } from "../types.ts"
+import type { LocalQueueClient, QueueEnqueueOptions, QueueProvider } from "../types.ts"
 
 /** One job that the app sent while test mode was on. */
 export interface QueueTestMessage {
@@ -24,22 +25,28 @@ export function recordQueueTestMessage(test: ViteHubTestMode, queue: string, pay
 }
 
 /** A Queue client that records every job in the test's list. */
-export function createTestQueueClient(test: ViteHubTestMode, queue: string): LocalQueueClient {
+export function createTestQueueClient(test: ViteHubTestMode, queue: string, provider: QueueProvider): LocalQueueClient {
   return {
     native: undefined,
     provider: "local",
     queue,
     async send(payload, options) {
-      return [undefined, recordQueueTestMessage(test, queue, payload, options)]
+      const input = normalizeQueueEnqueueInput(payload, options)
+      const error = queueUnsupportedOptionsError(input.options, provider)
+      if (error) return [error, undefined]
+      return [undefined, recordQueueTestMessage(test, queue, input.payload, { ...input.options, id: input.id })]
     },
-    async sendBatch(items, options) {
-      return [undefined, items.map((item) => {
-        const delaySeconds = item.delaySeconds ?? options?.delaySeconds
-        return recordQueueTestMessage(test, queue, item.body, {
-          ...(delaySeconds === undefined ? {} : { delaySeconds }),
-          ...(item.idempotencyKey === undefined ? {} : { idempotencyKey: item.idempotencyKey }),
-        })
-      })]
+    async sendBatch(items: ({ body: unknown } & Omit<QueueEnqueueOptions, "id">)[], options: Omit<QueueEnqueueOptions, "id"> = {}) {
+      const inputs = items.map(({ body, ...itemOptions }) => normalizeQueueEnqueueInput(body, {
+        ...options,
+        ...Object.fromEntries(Object.entries(itemOptions).filter(([, value]) => value !== undefined)),
+      }))
+      // Reject the whole batch before recording any jobs.
+      for (const input of inputs) {
+        const error = queueUnsupportedOptionsError(input.options, provider)
+        if (error) return [error, undefined]
+      }
+      return [undefined, inputs.map(input => recordQueueTestMessage(test, queue, input.payload, { ...input.options, id: input.id }))]
     },
   }
 }
