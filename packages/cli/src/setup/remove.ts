@@ -8,7 +8,7 @@ import { featureIds, featurePackages, features, featureSupport, impliedFeatures 
 import { dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { confirmSetupChange, readFeatureId, setupConsolePackages, setupDiff } from "./add.ts"
+import { confirmSetupChange, isRecord, readFeatureId, setupConsolePackages, setupDiff } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus, uninstallArgs } from "./status.ts"
@@ -133,6 +133,20 @@ function isStarter(starter: FeatureStarter, path: string, content: string): bool
   return name !== undefined && [starter.template, ...starter.previousTemplates ?? []].some(template => template(name) === content)
 }
 
+/** Prerequisites selected by feature options, which do not participate in unconditional implications. */
+function optionPrerequisites(id: FeatureId, value: JsonValue | undefined): FeatureId[] {
+  if (id === "console" && value === true) return ["auth"]
+  if (!isRecord(value)) return []
+  if (id === "cache" && value.driver === "kv") return ["kv"]
+  if (id === "agent" && (value.invocations === "database" || (isRecord(value.invocations) && value.invocations.store === "database"))) return ["database"]
+  if (id === "connections" && value.management) return ["console"]
+  if (id === "console" && value.auth === "app") return ["auth"]
+  const required: FeatureId[] = []
+  if (id === "observability" && value.papercuts) required.push("agent", "console")
+  if (id === "observability" && value.posthog) required.push("env")
+  return required
+}
+
 interface PlannedRemove {
   plan: SetupRemovePlan
   configFile?: { path: string, before: string, after: string }
@@ -202,6 +216,13 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const valueOf = (source: typeof project.config, id: FeatureId): JsonValue | undefined => {
     const key = source?.ok ? source.site.keys[id] : undefined
     return key?.kind === "literal" ? key.value : undefined
+  }
+  // Check the final state, including prerequisites that go off when their last implying feature is removed.
+  if (!args.force) {
+    for (const id of turnedOff) {
+      const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent)).includes(id))
+      if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_IMPLIED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
+    }
   }
   const packagesOf = (id: FeatureId, value: JsonValue | undefined, state = status) => {
     const active = new Set(state.features.filter(item => item.enabled !== "off").map(item => item.id))

@@ -185,6 +185,87 @@ describe("vitehub remove", () => {
     expect(json.impliedBy).toEqual(["comments"])
   })
 
+  it.each([
+    { by: "cache", feature: "kv", options: 'preset: "netlify", cache: { driver: "kv" }, kv: { driver: "upstash" }' },
+    { by: "agent", feature: "database", options: 'agent: { invocations: "database" }, database: true' },
+    { by: "agent", feature: "database", options: 'agent: { invocations: { store: "database" } }, database: true' },
+    { by: "connections", feature: "console", options: 'connections: { management: true }, console: { auth: false }' },
+    { by: "observability", feature: "agent", options: 'observability: { service: "app", papercuts: true }, agent: true, console: { auth: false }' },
+    { by: "observability", feature: "console", options: 'observability: { service: "app", papercuts: true }, agent: true, console: { auth: false }' },
+    { by: "observability", feature: "env", options: 'observability: { service: "app", posthog: true }, env: {}' },
+    { by: "console", feature: "auth", options: 'auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" }' },
+    { by: "console", feature: "auth", options: 'auth: true, console: true' },
+  ])("preserves $feature required by $by options ($options)", async ({ by, feature, options }) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig(`{ ${options} }`),
+    })
+    const before = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove([feature, "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode, JSON.stringify(refused.json)).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IMPLIED")
+    expect(refused.json.impliedBy).toEqual([by])
+    expect(await snapshot(root)).toEqual(before)
+    expect(pm.calls).toEqual([])
+
+    const forced = await remove([feature, "--force", "--dry-run"], root)
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.turnedOff).toContain(feature)
+
+    const together = await remove([feature, by, "--yes"], root, pm.spawn)
+    expect(together.exitCode, JSON.stringify(together.json.error)).toBe(0)
+    expect(await enabled(root, feature)).toBe("off")
+    expect(await enabled(root, by)).toBe("off")
+  })
+
+  it("preserves a conditional prerequisite that would go off with its last implying feature", async () => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig('{ connections: true, agent: { invocations: "database" } }'),
+    })
+    const before = await snapshot(root)
+
+    const refused = await remove(["connections", "--yes"], root)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.impliedBy).toEqual(["agent"])
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it("refuses to uninstall app Auth while Console uses it", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/auth": "1.0.0", "better-auth": "1.0.0", "@better-auth/oauth-provider": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "vite.config.ts": viteConfig('{ auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" } }'),
+      "server/auth.ts": "export default {}\n",
+      "server/console-authorize.ts": "export default () => false\n",
+    })
+    const before = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove(["auth", "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.impliedBy).toEqual(["console"])
+    expect(await snapshot(root)).toEqual(before)
+    expect(pm.calls).toEqual([])
+  })
+
+  it.each(["false", '"token"', '{ provider: "github", org: "vite-hub" }'])("allows Auth removal with independent Console access: %s", async (auth) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig(`{ auth: true, console: { auth: ${auth} } }`),
+    })
+
+    const result = await remove(["auth", "--yes"], root)
+
+    expect(result.exitCode, JSON.stringify(result.json.error)).toBe(0)
+    expect(await enabled(root, "auth")).toBe("off")
+    expect(await enabled(root, "console")).toBe("on")
+  })
+
   it("keeps the Console's Agent packages when removing Database", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@libsql/client": "1.0.0", "@vite-hub/database": "1.0.0", "drizzle-orm": "1.0.0" }, devDependencies: { "drizzle-kit": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
