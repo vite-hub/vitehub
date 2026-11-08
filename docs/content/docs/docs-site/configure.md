@@ -288,7 +288,7 @@ The design follows the comark-ui site: Geist, neutral grays, hairline rings, sma
 
 `--vh-panel-width` sets the width of the page sidebar, `--vh-grain: none` turns the grain off, and the Nuxt UI `--ui-*` variables set the colors.
 
-In an app with its own `app.vue`, the theme applies to the docs pages only, and the app's `app.config.ts` stays as written. The docs pages then use the app's Nuxt UI colors. To set a variable on the docs pages only, use the `:root.vh-docs` selector. See [Add docs to a Nuxt app](/docs/docs-site/nuxt-app#what-the-module-changes-in-your-app).
+In an app with its own `app.vue`, the design applies to the docs pages only, and the app's `app.config.ts` stays as written. The docs pages then use the app's Nuxt UI colors. To set a variable on the docs pages only, use the `:root.vh-docs` selector. See [Add docs to a Nuxt app](/docs/docs-site/nuxt-app#what-the-module-changes-in-your-app).
 
 ### Icons
 

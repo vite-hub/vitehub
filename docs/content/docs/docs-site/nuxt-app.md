@@ -127,7 +127,7 @@ The module adds the docs and leaves the rest of the app as it is:
 | --- | --- | --- |
 | Routes | A catch-all page at `/docs/**`. | Unchanged. A static page, such as `pages/docs/faq.vue`, wins over the docs page. `pages/[...slug].vue` keeps every path outside `/docs`. |
 | `app.vue`, layouts, error page | The `docs` and `docs-article` layouts draw the docs header, sidebar, and search. | Unchanged. A missing docs page shows the app's error page. |
-| Theme | The docs theme. Its CSS applies below the `vh-docs` class, which the docs layouts set on `<html>`. Nuxt UI's `<UTheme>` gives the docs components their classes. | Unchanged. `app.config.ts` stays as written. The docs pages use the app's Nuxt UI colors. |
+| Design | The docs design. Its CSS applies below the `vh-docs` class, which the docs layouts set on `<html>`. Nuxt UI's `<UTheme>` gives the docs components their classes. | Unchanged. `app.config.ts` stays as written. The docs pages use the app's Nuxt UI colors. |
 | Head | Title template, canonical link, and share tags. | Unchanged. |
 | Prerender | Every docs page. | Not crawled. |
 
