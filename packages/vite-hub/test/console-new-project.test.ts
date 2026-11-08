@@ -101,24 +101,46 @@ describe("planNewProject", () => {
     expect(planNewProject(stack({ host: "node", features: ["schedule"] })).options.map(input => input.path)).toEqual(["schedule.runtime.driver"])
     expect(planNewProject(stack({ host: "cloudflare", features: ["schedule"] })).options).toEqual([])
     expect(planNewProject(stack({ host: "cloudflare", features: ["console"] })).options).toEqual([])
-    expect(planNewProject(stack({ host: "cloudflare", features: ["observability"] })).problems).toEqual([
-      { field: "option", path: "observability.service", message: "Enter a value for observability.service." },
-    ])
+    expect(planNewProject(stack({ host: "cloudflare", features: ["observability"] })).problems).toEqual([])
   })
 
-  it("requires an Observability service on every host before printing a command", () => {
+  it("prints a service-free Observability command on every host", () => {
     for (const { id: host } of newProjectHosts) {
       const value = stack({ host, features: ["observability"] })
-      expect(planNewProject(value).problems).toEqual([
-        { field: "option", path: "observability.service", message: "Enter a value for observability.service." },
-      ])
-      expect(newProjectCommand(value, ticket)).toBeUndefined()
+      expect(planNewProject(value).problems).toEqual([])
+      expect(newProjectCommand(value, ticket)).toContain(" --features console,observability ")
+      expect(newProjectCommand(value, ticket)).not.toContain("--option observability.")
+      expect(readNewProjectQuery(newProjectQuery(value))).toEqual(value)
+    }
+  })
 
+  it("offers optional telemetry and Logs source inputs on every host", () => {
+    for (const { id: host } of newProjectHosts) {
+      const value = stack({ host, features: ["observability"] })
+      expect(planNewProject(value).options).toEqual([
+        expect.objectContaining({ path: "observability.service", optional: true }),
+        expect.objectContaining({ path: "observability.logs.source", optional: true }),
+      ])
       const filled = { ...value, options: { ...value.options, "observability.service": "my-app" } }
       expect(planNewProject(filled).problems).toEqual([])
       expect(newProjectCommand(filled, ticket)).toContain(" --option observability.service=my-app ")
       expect(readNewProjectQuery(newProjectQuery(filled))).toEqual(filled)
+
+      const logs = { ...value, options: { "observability.logs.source": "./server/logs.ts" } }
+      expect(planNewProject(logs).problems).toEqual([])
+      expect(newProjectCommand(logs, ticket)).toContain(" --option observability.logs.source=./server/logs.ts ")
+      expect(newProjectCommand(logs, ticket)).not.toContain("observability.service")
+      expect(readNewProjectQuery(newProjectQuery(logs))).toEqual(logs)
     }
+  })
+
+  it("omits blank optional inputs and still rejects multiline values", () => {
+    const value = stack({ host: "node", features: ["observability"], options: { "observability.service": "   ", "observability.logs.source": "" } })
+    expect(planNewProject(value).problems).toEqual([])
+    expect(newProjectCommand(value, ticket)).not.toContain("--option observability.")
+    expect(planNewProject({ ...value, options: { "observability.logs.source": "./server/\nlogs.ts" } }).problems).toEqual([
+      { field: "option", path: "observability.logs.source", message: "observability.logs.source must be one line." },
+    ])
   })
 
   it.each([

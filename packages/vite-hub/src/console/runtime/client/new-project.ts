@@ -34,7 +34,7 @@ export interface NewProjectStack {
   options: Readonly<Record<string, string>>
 }
 
-/** An option that a feature needs on the chosen host, as `--option <path>=<value>`. */
+/** An option for a feature on the chosen host, as `--option <path>=<value>`. */
 export interface NewProjectOptionInput {
   feature: FeatureId
   /** The `--option` path, such as `email.driver`. */
@@ -42,6 +42,8 @@ export interface NewProjectOptionInput {
   /** The values that the option accepts. Without them the person types the value. */
   choices?: readonly [string, ...string[]]
   placeholder?: string
+  /** An empty value uses the feature default. */
+  optional?: boolean
   /** The value can contain credentials. Keep it in page memory, out of the shareable query. */
   private?: boolean
   /** Why the option is needed, from the feature catalog when the host is `explicit`. */
@@ -75,7 +77,7 @@ export type NewProjectProblem =
 
 export interface NewProjectPlan {
   features: readonly NewProjectFeature[]
-  /** The options that the turned-on features need on the host, in catalog order. */
+  /** The options for the turned-on features on the host, in catalog order. */
   options: readonly NewProjectOptionInput[]
   problems: readonly NewProjectProblem[]
 }
@@ -101,19 +103,22 @@ const optionRequires: Readonly<Record<string, { value: string, feature: FeatureI
   "cache.driver": { value: "kv", feature: "kv" },
 }
 
-/** The options that `vitehub add` needs for a feature on a host, beyond the `explicit` option of the catalog. */
-function requiredInputs(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
+/** Feature options beyond the `explicit` option of the catalog. */
+function featureInputs(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
   if (id === "blob" && host === "deno") return [{ feature: id, path: "blob.bucket", placeholder: "app-assets", detail: "The bucket in your S3-compatible store." }]
-  if (id === "observability") return [{ feature: id, path: "observability.service", placeholder: packageNameOf(dir), detail: "The service name in the telemetry of the app." }]
+  if (id === "observability") return [
+    { feature: id, path: "observability.service", optional: true, placeholder: packageNameOf(dir), detail: "Set a service name to enable Agent telemetry." },
+    { feature: id, path: "observability.logs.source", optional: true, placeholder: "./server/logs.ts", detail: "A Logs source for the Console. It works without Agent telemetry." },
+  ]
   if (id === "schedule" && host === "node") return [{ feature: id, path: "schedule.runtime.driver", choices: ["process"], detail: "A Node server runs Schedules in its own process." }]
   if (id === "workspace" && (host === "deno" || host === "netlify")) return [{ feature: id, path: "workspace.store.repository", placeholder: "owner/repo", detail: "The GitHub repository that stores your Workspaces." }]
   return []
 }
 
-/** The options that `id` needs on `host`. */
+/** The options for `id` on `host`. */
 function inputsOf(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
   const support = featureSupport(id, host)
-  const inputs = requiredInputs(id, host, dir)
+  const inputs = featureInputs(id, host, dir)
   if (support.level !== "explicit") return inputs
   const known = Object.hasOwn(optionInputs, support.option) ? optionInputs[support.option] : { path: support.option }
   return [{ feature: id, ...known, detail: support.detail }, ...inputs]
@@ -205,6 +210,7 @@ export function planNewProject(stack: NewProjectStack): NewProjectPlan {
       for (const input of inputsOf(row.id, host, stack.dir)) {
         options.push(input)
         const value = stack.options[input.path]?.trim() ?? ""
+        if (!value && input.optional) continue
         if (!value) problems.push({ field: "option", path: input.path, message: input.choices ? `Choose a value for ${input.path}.` : `Enter a value for ${input.path}.` })
         else if (input.choices && !input.choices.includes(value)) problems.push({ field: "option", path: input.path, message: `${input.path} must be ${input.choices.join(" or ")}.` })
         else if (/[\r\n]/.test(value)) problems.push({ field: "option", path: input.path, message: `${input.path} must be one line.` })
@@ -300,7 +306,7 @@ export function newProjectCommandParts(stack: NewProjectStack, ticket?: ConsoleP
     `--host ${stack.host}`,
     `--features ${["console", ...stack.features.filter(id => id !== "console" && !features[id].enabledByDefault)].join(",")}`,
     "--option console.auth=token",
-    ...plan.options.map(input => `--option ${shellQuote(`${input.path}=${stack.options[input.path]!.trim()}`)}`),
+    ...plan.options.filter(input => stack.options[input.path]?.trim()).map(input => `--option ${shellQuote(`${input.path}=${stack.options[input.path]!.trim()}`)}`),
     // A value that starts with a dash would read as a flag, so it goes after `=`.
     ...(consoleValue ? [consoleValue.startsWith("-") ? `--console=${consoleValue}` : `--console ${consoleValue}`] : []),
     "--yes",
