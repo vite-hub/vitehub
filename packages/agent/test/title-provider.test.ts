@@ -31,7 +31,8 @@ import { codexLaunchArgs } from "../src/internal/codex-launch-args.ts";
 import type { AgentProviderEnvironmentResolver } from "../src/types.ts";
 import { isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts";
 import { title } from "../src/capabilities.ts";
-import { claudeCodeDriver, codexDriver, createMessage, defineAgent, runAgent } from "../src/index.ts";
+import { claudeCodeDriver, codexDriver, createMessage, defineAgent } from "../src/index.ts";
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 
 describe("title provider inheritance", () => {
   it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2_147_483_648])(
@@ -90,7 +91,7 @@ describe("title provider inheritance", () => {
       driver: codexDriver({ model: "gpt-main" }),
       hooks: { "agent:finish": finish },
     });
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Explain model routing" })],
     });
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Requested model title" });
@@ -107,7 +108,7 @@ describe("title provider inheritance", () => {
       capabilities: [title({ model, reasoningEffort: "high" })],
       driver: claudeCodeDriver({ model: "claude-main" }),
     });
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Explain model routing" })],
     })).rejects.toMatchObject({
       code: "AGENT_R0924",
@@ -152,7 +153,7 @@ describe("title provider inheritance", () => {
         hooks: { "agent:finish": finish },
       });
 
-      await runAgent(
+      await runAgentWithContext(
         agent,
         { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
         {

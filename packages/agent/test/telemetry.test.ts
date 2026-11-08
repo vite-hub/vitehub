@@ -2,7 +2,8 @@ import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { defineAgent, defineCapability, runAgent, streamAgent, type AgentTelemetry } from "../src/index.ts"
+import { defineAgent, defineCapability, type AgentTelemetry } from "../src/index.ts"
+import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
@@ -591,7 +592,7 @@ describe("Agent telemetry", () => {
       name: "support",
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-config" },
       runtime: "unknown",
@@ -651,7 +652,7 @@ describe("Agent telemetry", () => {
       })() },
     })
 
-    const stream = await streamAgent(agent, {
+    const stream = await streamAgentInline(agent, {
       memo: vi.fn(),
       run: { runId: "run-capability-use" },
       runtime: "unknown",
@@ -720,7 +721,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-content" },
       runtime: "unknown",
@@ -788,7 +789,7 @@ describe("Agent telemetry", () => {
         },
       },
     })
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-steered-content" },
       runtime: "unknown",
@@ -830,7 +831,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-application-output" },
       runtime: "unknown",
@@ -899,7 +900,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-1" },
       runtime: "unknown",
@@ -958,7 +959,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    const active = runAgent(agent, {
+    const active = runAgentWithContext(agent, {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil(task) { tasks.push(Promise.resolve(task)) },
@@ -1026,7 +1027,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    const active = runAgent(agent, {
+    const active = runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-late-config" },
       runtime: "unknown",
@@ -1079,7 +1080,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-live-content" },
       runtime: "unknown",
@@ -1111,7 +1112,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: vi.fn(),
       runtime: "unknown",
       trace: { id: "host-trace" },
@@ -1135,7 +1136,7 @@ describe("Agent telemetry", () => {
       driver: { run() { throw new Error("provider failed") } },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-live-error" },
       runtime: "unknown",
@@ -1179,7 +1180,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil(task) { tasks.push(Promise.resolve(task)) },
@@ -1229,7 +1230,7 @@ describe("Agent telemetry", () => {
         },
       })
 
-      const active = runAgent(agent, {
+      const active = runAgentWithContext(agent, {
         memo: vi.fn(),
         runtime: "unknown",
         waitUntil(task) { tasks.push(Promise.resolve(task)) },
@@ -1293,7 +1294,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil(task) { tasks.push(Promise.resolve(task)) },
@@ -1320,7 +1321,7 @@ describe("Agent telemetry", () => {
         })() },
     })
 
-    const stream = await streamAgent(agent, {
+    const stream = await streamAgentInline(agent, {
       memo: vi.fn(),
       run: { runId: "run-live-stream" },
       runtime: "unknown",
@@ -1353,7 +1354,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    const active = runAgent(agent, {
+    const active = runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-live-abort" },
       runtime: "unknown",
@@ -1397,7 +1398,7 @@ describe("Agent telemetry", () => {
         },
       })
 
-      const active = runAgent(agent, {
+      const active = runAgentWithContext(agent, {
         memo: vi.fn(),
         run: { runId: "run-coalesced-live" },
         runtime: "unknown",
@@ -1454,7 +1455,7 @@ describe("Agent telemetry", () => {
         },
       })
 
-      const active = runAgent(agent, {
+      const active = runAgentWithContext(agent, {
         memo: vi.fn(),
         run: { runId: "run-bounded-live" },
         runtime: "unknown",
@@ -1523,7 +1524,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    const active = runAgent(agent, {
+    const active = runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-terminal-batch-boundary" },
       runtime: "unknown",
@@ -1575,7 +1576,7 @@ describe("Agent telemetry", () => {
         },
       })
 
-      const active = runAgent(agent, {
+      const active = runAgentWithContext(agent, {
         memo: vi.fn(),
         run: { runId: "run-terminal-configuration-fallback" },
         runtime: "unknown",
@@ -1631,7 +1632,7 @@ describe("Agent telemetry", () => {
         },
       })
 
-      const active = runAgent(agent, {
+      const active = runAgentWithContext(agent, {
         memo: vi.fn(),
         run: { runId: "run-multiple-exporters" },
         runtime: "unknown",
@@ -1675,8 +1676,8 @@ describe("Agent telemetry", () => {
     }
     const agent = defineAgent({ capabilities: [telemetryCapability(telemetry)], driver: { run: () => "ok" } })
 
-    await runAgent(agent, runtime, {})
-    await runAgent(agent, runtime, {})
+    await runAgentWithContext(agent, runtime, {})
+    await runAgentWithContext(agent, runtime, {})
     await Promise.all(tasks)
 
     expect(telemetry).toHaveBeenCalledTimes(2)
@@ -1698,7 +1699,7 @@ describe("Agent telemetry", () => {
       driver: { run: () => "unreachable" },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-setup-failure" },
       runtime: "unknown",
@@ -1722,7 +1723,7 @@ describe("Agent telemetry", () => {
       driver: { run: () => "unreachable" },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-events-failure" },
       runtime: "unknown",
@@ -1741,7 +1742,7 @@ describe("Agent telemetry", () => {
       driver: { model: () => { throw new Error("Model resolution failed") } },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-driver-failure" },
       runtime: "unknown",
@@ -1779,9 +1780,9 @@ describe("Agent telemetry", () => {
       waitUntil(task: PromiseLike<unknown>) { tasks.push(Promise.resolve(task)) },
     })
 
-    const active = runAgent(agent, runtime("run-active"), {})
+    const active = runAgentWithContext(agent, runtime("run-active"), {})
     await started
-    await expect(runAgent(agent, runtime("run-rejected"), {})).rejects.toMatchObject({ code: "AGENT_CAPACITY_QUEUE_FULL" })
+    await expect(runAgentWithContext(agent, runtime("run-rejected"), {})).rejects.toMatchObject({ code: "AGENT_CAPACITY_QUEUE_FULL" })
     await vi.waitFor(() => expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({
       run: { runId: "run-rejected" },
       spans: [expect.objectContaining({ status: expect.objectContaining({ code: "ERROR" }) })],
@@ -1800,7 +1801,7 @@ describe("Agent telemetry", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-export-failure" },
       runtime: "unknown",
@@ -1840,7 +1841,7 @@ describe("Agent telemetry", () => {
       },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-cyclic-trace" },
       runtime: "unknown",
@@ -1856,7 +1857,7 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const agent = defineAgent({ capabilities: [telemetryCapability(telemetry)], driver: { run: () => "ok" } })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-wait-until-failure" },
       runtime: "unknown",
