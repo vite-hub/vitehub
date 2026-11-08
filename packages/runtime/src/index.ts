@@ -37,6 +37,7 @@ export {
 } from "./execution-budget.ts"
 
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
+export { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "./hosted-console.ts"
 export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
 
 export {
