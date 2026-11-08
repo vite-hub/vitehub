@@ -47,6 +47,9 @@ Concurrent requests in different locales do not share a locale. ViteHub turns on
 ## t
 
 ```ts
+import { t } from "vite-hub/i18n"
+
+const name = "Ada"
 t`Payment received`
 t`Hello ${name}`
 t({ message: "Open", context: "button", comment: "Opens the file" })
@@ -63,6 +66,11 @@ Returns the message in the active locale. A message without a translation return
 ## plural, selectOrdinal, and select
 
 ```ts
+import { plural, select, selectOrdinal } from "vite-hub/i18n"
+
+const count = 3
+const place = 2
+const role = "admin"
 plural(count, { 0: "No files", one: "# file", other: "# files" })
 selectOrdinal(place, { one: "#st", two: "#nd", few: "#rd", other: "#th" })
 select(role, { admin: "Admin", other: "Member" })
@@ -75,6 +83,8 @@ select(role, { admin: "Admin", other: "Member" })
 ## msg and translate
 
 ```ts
+import { msg, translate } from "vite-hub/i18n"
+
 const label = msg`Draft`
 translate(label)
 ```
@@ -96,6 +106,8 @@ A `t` call at the top level of a module runs once, before any request. It does n
 ## getLocale and getLocales
 
 ```ts
+import { getLocale, getLocales } from "vite-hub/i18n"
+
 getLocale() // "es"
 getLocales() // ["en", "es", "pt-BR"]
 ```
@@ -105,6 +117,8 @@ getLocales() // ["en", "es", "pt-BR"]
 ## setLocale
 
 ```ts
+import { setLocale } from "vite-hub/i18n"
+
 const [error, locale] = await setLocale("es")
 if (error) console.error(error.code, error.fix)
 ```
