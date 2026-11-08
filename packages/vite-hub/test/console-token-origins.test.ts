@@ -92,11 +92,11 @@ describe("console: { auth: \"token\" }", () => {
   })
 
   it.each([
-    ["no hash is set", {}, "VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set"],
+    ["no hash is set", {}, "`VITEHUB_CONSOLE_TOKEN_SHA256` in the server environment, and it is not set"],
     ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "it is not set"],
-    ["the hash is not 64 hex characters", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash.slice(1) }, "VITEHUB_CONSOLE_TOKEN_SHA256 is not 64 hex characters"],
+    ["the hash is not 64 hex characters", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash.slice(1) }, "`VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
     ["the hash has a non-hex character", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash.slice(1)}g` }, "is not 64 hex characters"],
-    ["only the raw token is set", { VITEHUB_CONSOLE_TOKEN: token }, "VITEHUB_CONSOLE_TOKEN is set, but the server reads only VITEHUB_CONSOLE_TOKEN_SHA256"],
+    ["only the raw token is set", { VITEHUB_CONSOLE_TOKEN: token }, "`VITEHUB_CONSOLE_TOKEN` is set, but the server reads only `VITEHUB_CONSOLE_TOKEN_SHA256`"],
   ] satisfies Array<[string, Record<string, string>, string]>)("refuses every request with a diagnostic when %s", async (_name, env, message) => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN", undefined)
@@ -107,7 +107,7 @@ describe("console: { auth: \"token\" }", () => {
     await expect(response.json()).resolves.toMatchObject({
       code: "CONSOLE_TOKEN_NOT_CONFIGURED",
       docs: expect.stringContaining("#use-a-console-token"),
-      fix: expect.stringMatching(/openssl rand -hex 32.*printf %s "\$TOKEN" \| sha256sum.*wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256/),
+      fix: expect.stringMatching(/`openssl rand -hex 32`.*`printf %s "\$TOKEN" \| sha256sum`.*`wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256`/),
       message: expect.stringContaining(message),
     })
   })
