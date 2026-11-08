@@ -34,7 +34,7 @@ describe("cross realm Blob bodies", () => {
     }
     const storage = createBlobStorage(driver as never)
 
-    await expect(storage.put("file.bin", body as never)).resolves.toMatchObject([null, { contentType: "image/x-custom" }])
+    await expect(storage.put("file.bin", body as never)).resolves.toMatchObject([undefined, { contentType: "image/x-custom" }])
   })
 
   it("ignores spoofed Blob metadata on a supported byte body", async () => {
@@ -53,7 +53,7 @@ describe("cross realm Blob bodies", () => {
     }))
     const storage = createBlobStorage({ name: "probe", options: {}, put } as never)
 
-    await expect(storage.put("file.bin", body)).resolves.toMatchObject([null, { contentType: "application/octet-stream" }])
+    await expect(storage.put("file.bin", body)).resolves.toMatchObject([undefined, { contentType: "application/octet-stream" }])
     expect(put).toHaveBeenCalledWith("file.bin", body, { contentType: "application/octet-stream" })
   })
 
@@ -79,7 +79,7 @@ describe("cross realm Blob bodies", () => {
     }))
     const storage = createBlobStorage({ name: "probe", options: {}, put } as never)
 
-    await expect(storage.put("file.bin", body)).resolves.toMatchObject([null, { contentType: "application/octet-stream" }])
+    await expect(storage.put("file.bin", body)).resolves.toMatchObject([undefined, { contentType: "application/octet-stream" }])
     expect(put).toHaveBeenCalledWith("file.bin", body, { contentType: "application/octet-stream" })
   })
 })

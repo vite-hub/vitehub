@@ -17,6 +17,7 @@ import {
   connectionConnectURL,
   connectionListSchema,
   connectionNextStep,
+  connectionNotices,
   connectionResultSchema,
   loadConnectionApprovals,
   requestConnectionsManagement,
@@ -220,6 +221,15 @@ describe("Connections management client", () => {
     ["api-key", "connected", [], undefined],
   ] as const)("names the next step of a %s Connection that is %s (missing %o)", (credential, status, missing, expected) => {
     expect(connectionNextStep({ credential, scopes: { declared: [], granted: [], missing: [...missing] }, status })).toEqual(expected)
+  })
+
+  it("lists pending approvals and missing scopes, and nothing when none exist", () => {
+    const scopes = (missing: string[]) => ({ scopes: { declared: [], granted: [], missing } })
+    expect(connectionNotices(scopes([]))).toBeUndefined()
+    expect(connectionNotices(scopes([]), 0)).toBeUndefined()
+    expect(connectionNotices(scopes([]), 1)).toEqual({ count: 1, items: ["1 pending approval"], summary: "1 notice", tab: "approvals" })
+    expect(connectionNotices(scopes(["mail.send"]))).toEqual({ count: 1, items: ["1 missing scope"], summary: "1 notice", tab: "details" })
+    expect(connectionNotices(scopes(["a", "b"]), 3)).toEqual({ count: 5, items: ["3 pending approvals", "2 missing scopes"], summary: "5 notices", tab: "approvals" })
   })
 })
 

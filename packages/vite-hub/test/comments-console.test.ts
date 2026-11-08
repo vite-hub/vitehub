@@ -100,7 +100,7 @@ describe("Comments activation from the Console", () => {
       })
       vi.stubGlobal("fetch", fetch)
       setConsoleProject({ origin: "", base: mount })
-      await loadConsoleNavigation(`/api/_vitehub/console/sections?${encodeURIComponent(root)}`)
+      await loadConsoleNavigation(`/_vitehub/api/sections?${encodeURIComponent(root)}`)
       await vi.waitFor(() => expect(session?.status).toBe(200))
       expect(session?.headers.get("set-cookie")).toContain("vitehub-tools=1")
       expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })

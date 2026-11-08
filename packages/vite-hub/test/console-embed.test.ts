@@ -8,6 +8,7 @@ import { addConsolePageHandlers } from "../src/console/nitro.ts"
 import { consoleRuntimeRoot } from "../src/console/plugin.ts"
 import consoleNotEmbeddedHandler from "../src/console/runtime/server/not-embedded.ts"
 import { consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "../src/console/vite.ts"
+import { consoleEvent } from "./console-event.ts"
 import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
 type NitroHandler = { handler: string, lazy?: boolean, method?: string, middleware?: boolean, route?: string }
@@ -66,7 +67,7 @@ describe("console.embed", () => {
 
     expect(routesOf(nitro, page)).toEqual(["/_vitehub", "/_vitehub/**"])
     expect(routesOf(nitro, notEmbedded)).toEqual([])
-    expect(routesOf(nitro, client)).toEqual(["/api/_vitehub/console/client.js"])
+    expect(routesOf(nitro, client)).toEqual(["/_vitehub/api/client.js"])
     expect(assetBases(nitro)).toEqual(["/_vitehub/assets", "/_vitehub/.well-known/skills", "/_vitehub/page/assets"])
     await expect(generatedPlugin()).resolves.toContain('installConsolePageTool(nitroApp, { base: "/" })')
     await expect(generatedPlugin()).resolves.not.toContain("vitehub.console.hosted")
@@ -132,7 +133,7 @@ describe("Nuxt Console page handlers", () => {
 
 describe("the not-embedded answer", () => {
   it("links the hosted Console to the project origin and base", async () => {
-    const response = consoleNotEmbeddedHandler({ req: { url: "http://internal/portal/_vitehub/kv", headers: new Headers({ host: "app.example.com", "x-forwarded-proto": "https" }) } })
+    const response = consoleNotEmbeddedHandler(consoleEvent({ url: "http://internal/portal/_vitehub/kv", headers: { "x-forwarded-host": "app.example.com", "x-forwarded-proto": "https" } }))
 
     expect(response.status).toBe(404)
     expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8")

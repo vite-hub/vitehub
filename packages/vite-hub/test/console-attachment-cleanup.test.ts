@@ -20,26 +20,26 @@ function connect(base: string): Pick<BlobStorage, "put" | "del" | "list" | "get"
     async put(path, body) {
       if (typeof body !== "string") throw new Error("Fixture expects strings")
       await writeFile(filename(path), body)
-      return [null, metadata(path)]
+      return [undefined, metadata(path)]
     },
     async get(path) {
       try {
         const bytes = await readFile(filename(path))
-        return [null, new Blob([Uint8Array.from(bytes)])]
+        return [undefined, new Blob([Uint8Array.from(bytes)])]
       }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [null, null]
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [undefined, null]
         throw error
       }
     },
     async del(paths) {
       for (const path of typeof paths === "string" ? [paths] : paths) await rm(filename(path), { force: true })
-      return [null, undefined]
+      return [undefined, undefined]
     },
     async list(options) {
       const paths = (await readdir(base)).map(file => Buffer.from(file, "base64url").toString()).filter(path => path.startsWith(options?.prefix ?? "")).sort()
       const limit = options?.limit ?? paths.length
-      return [null, { blobs: paths.slice(0, limit).map(metadata), hasMore: paths.length > limit }]
+      return [undefined, { blobs: paths.slice(0, limit).map(metadata), hasMore: paths.length > limit }]
     },
   }
 }
