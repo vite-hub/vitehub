@@ -5,5 +5,6 @@ declare module "#vitehub/database/definition-runtime" {
   export function createConfiguredDatabase<TSchema extends Record<string, unknown>>(
     config: import("../types.ts").RuntimeDrizzleDatabaseConfig,
     schema: TSchema,
+    migrationsDir?: string,
   ): import("../types.ts").RuntimeDrizzleDatabase<TSchema>
 }

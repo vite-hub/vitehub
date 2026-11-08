@@ -36,7 +36,7 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
     return createMissingDatabaseProxy<TSchema>(name)
   }
 
-  return createConfiguredDatabase(config, schema)
+  return createConfiguredDatabase(config, schema, config.migrationsDir)
 }
 
 function resolveDatabases() {

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest"
+import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
 
@@ -25,10 +26,33 @@ const message: EmailMessage = {
   to: "maxi@example.com",
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await enableViteHubTestMode().reset()
+  Reflect.deleteProperty(globalThis, Symbol.for("vitehub.test"))
   delete (globalThis as Record<PropertyKey, unknown>)[Symbol.for("vitehub.email.definition")]
   vi.clearAllMocks()
   vi.resetModules()
+})
+
+it("rejects missing configuration before capturing a test email", async () => {
+  vi.doMock("#vitehub/email/definition", () => ({ default: undefined }))
+  const { email } = await import("../src/server.ts")
+  const mode = enableViteHubTestMode()
+
+  await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_NOT_CONFIGURED" })
+  expect(mode.peek("email")).toBeUndefined()
+})
+
+it.each(["imported", "generated"])("captures test emails with an %s definition without starting its driver", async (source) => {
+  vi.doMock("#vitehub/email/definition", () => ({ default: source === "imported" ? definition : undefined }))
+  const { email } = await import("../src/server.ts")
+  if (source === "generated") Reflect.set(globalThis, Symbol.for("vitehub.email.definition"), definition)
+  const mode = enableViteHubTestMode()
+
+  await expect(email.send(message)).resolves.toEqual([undefined, { driver: "memory", id: "memory-1" }])
+  expect(mode.peek<{ messages: EmailMessage[] }>("email")?.messages).toEqual([message])
+  expect(fixture.initialize).not.toHaveBeenCalled()
+  expect(fixture.send).not.toHaveBeenCalled()
 })
 
 it("keeps the configured driver's lifecycle across sends", async () => {

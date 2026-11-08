@@ -110,6 +110,32 @@ Applications that use the framework distribution register Schedule through `vite
 
 Nuxt projects enable Schedule with `vite-hub/nuxt` and `vitehub: { schedule: true }`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
+## Start a Schedule from code
+
+Leave out `cron` when your users pick the time, such as a reminder. Code then starts the Definition with `startSchedule()`, once at `at` or on a `cron` in a `timeZone`, and the handler gets `payload`.
+
+```ts
+// server/schedules/reminder.ts
+import { defineSchedule } from "@vite-hub/schedule";
+
+export default defineSchedule({
+  handler({ payload }) {
+    console.log("Reminder", payload);
+  },
+});
+```
+
+```ts
+import { cancelSchedule, listSchedules, startSchedule } from "@vite-hub/schedule";
+
+const [error, reminder] = await startSchedule("reminder", { at: "2026-11-08T09:00:00Z", payload: { text: "Call Ana" } });
+const [, standUp] = await startSchedule("reminder", { cron: "0 9 * * 1-5", timeZone: "Europe/Madrid", payload: { text: "Stand-up" } });
+const [, started] = await listSchedules({ name: "reminder" });
+await cancelSchedule(standUp!.id);
+```
+
+The functions return `[error, data]`. The Schedules are stored in KV, so they survive restarts and deploys. When a Definition has no `cron`, the build adds the Schedule `vitehub/started-schedules` with the cron `* * * * *`: Cloudflare wakes it with a Cron Trigger, and the Process Runtime wakes it on Node. Each wake runs the started Schedules that are due. Started Schedules need KV, and on Node the Process Runtime. `vitehub schedule list`, `start`, and `cancel` and the Console Schedules page show and change them. Read the [server API](https://vitehub.dev/docs/schedule/server-api#start-a-schedule-from-code) for the delivery rules.
+
 ## Understand time zones
 
 The value of `timeZone` must be an IANA name. Abbreviations such as `PST` and numeric offsets such as `+01:00` are rejected. The Process Runtime accepts any expression, such as a shared constant. Host cron output reads `timeZone` from the source file at build time, so write it as a string literal there. A dynamic value fails the build with `SCHEDULE_R0003`.
@@ -186,7 +212,7 @@ Custom stores must apply the `listRuns({ scheduleId, idPrefix, limit })` filters
 
 ## Run and inspect schedules
 
-`hubSchedule()` contributes the `schedule.runs`, `schedule.attempts`, and `schedule.run` operations. They are the `vitehub schedule runs <id> [--limit <n>]`, `attempts <runId>`, and `run <name>` commands, and the Console runs them too. Each command accepts `--json` and `--url`. Without `--url` the command calls the dev server of the project, whose Nitro runtime owns the same stores and registry as the running app. The operations import from `@vite-hub/schedule/operations`.
+`hubSchedule()` contributes the `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, and `schedule.cancel` operations. They are the `vitehub schedule runs <id> [--limit <n>]`, `attempts <runId>`, `run <name>`, `list [name]`, `start <name>`, and `cancel <id>` commands, and the Console runs them too. Each command accepts `--json` and `--url`. Without `--url` the command calls the dev server of the project, whose Nitro runtime owns the same stores and registry as the running app. The operations import from `@vite-hub/schedule/operations`.
 
 Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Add `--url <app-url>` with the Console credentials to run it on a deployment that enables `console.invoke`. A CI job can post a signed dispatch (`vitehub secret derive vitehub:dispatch`) to `/_vitehub/schedules/run` instead. Server code can call `runSchedule(name)` from `@vite-hub/schedule`. It reads the generated registry. Each manual run gets a new `srun_manual_` id.
 
@@ -198,7 +224,7 @@ The Console Schedules section lists Schedule Definitions with their cron, time z
 
 ## Import runtime helpers
 
-The main `@vite-hub/schedule` entry exports `defineSchedule`, `runSchedule`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
+The main `@vite-hub/schedule` entry exports `defineSchedule`, `runSchedule`, `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
 
 Static Schedule execution logs each failed handler as `[vitehub:schedule] Schedule "<name>" failed` with the message, stack, status, and cause chain. The other schedules on the same cron still finish. The run rejects with the error, or with an `AggregateError` when several failed.
 
