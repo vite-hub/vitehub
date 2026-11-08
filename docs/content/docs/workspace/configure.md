@@ -169,7 +169,7 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | --- | --- | --- |
 | `commit` | `boolean \| string` | Auto-commit all Workspace changes, optionally with a custom message. |
 | `rootDir` | `string` | Source root used by loaders. |
-| `sourceRootDir` | `string` | Source-specific root for Source helpers. |
+| `sourceRootDir` | `string` | Folder that local Source helpers such as `file()` and `glob()` read from. For application `server/workspaces/<name>.ts` files, the default is the resolved project root. For flat files in Nuxt layers, `server/workspaces/<name>/config.ts` and Agent folders, the default is the file's folder, or its `workspace/` folder when present. |
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |
 | `bindings` | `Record<string, WorkspaceInstructionBinding>` | Explicit scalar or file-backed values available to Agent Instruction Composition. Values can be `string`, `number`, `boolean`, `null`, or `{ path: string }`. |
 | `sources` | `Record<string, WorkspaceSourceInput>` | Workspace Source Bindings. |

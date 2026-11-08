@@ -360,6 +360,7 @@ describe("framework package contract", () => {
       "./console/documents",
       "./console/env",
       "./console/mcp-client",
+      "./console/operations",
       "./console/sections",
       "./console/server",
       "./console/ui",
@@ -905,11 +906,11 @@ describe("framework package contract", () => {
       }
       expect(handlers).toHaveLength(11);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/api/_vitehub/console/status",
-        "/api/_vitehub/console/usage",
+        "/_vitehub/api/status",
+        "/_vitehub/api/usage",
         "/_vitehub",
         "/_vitehub/**",
-        "/api/_vitehub/console/client.js",
+        "/_vitehub/api/client.js",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",

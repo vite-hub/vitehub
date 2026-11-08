@@ -14,7 +14,7 @@ describe("Queue errors", () => {
       expect(page, code).toContain(`\n### ${code}\n`)
     }
     const error = queueErrorDiagnostics.QUEUE_DISABLED()
-    expect(error.docs).toBe("https://vitehub.dev/docs/queue/limits-and-errors#queue_disabled")
+    expect(error.docs).toBe("https://vitehub.dev/docs/queue/diagnostics/queue_disabled")
     expect(error.why).not.toBe("")
     expect(error.fix).not.toBe("")
   })
@@ -30,7 +30,7 @@ describe("Queue errors", () => {
     expect(JSON.stringify(error)).not.toContain("private provider detail")
     expect(JSON.parse(JSON.stringify(error))).toEqual({
       code: "QUEUE_PROVIDER_FAILED",
-      docs: "https://vitehub.dev/docs/queue/limits-and-errors#queue_provider_failed",
+      docs: "https://vitehub.dev/docs/queue/diagnostics/queue_provider_failed",
       fix: expect.any(String),
       name: "QUEUE_PROVIDER_FAILED",
       why: "The vercel queue provider failed during send.",

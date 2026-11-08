@@ -3,7 +3,7 @@
 // It imports no Node builtin, so a Worker that selects D1 or memory starts without Node compatibility.
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
-import { createD1AgentInvocationStore, d1AgentInvocationSchema } from "./d1.ts"
+import { d1AgentInvocationRetention } from "./d1-retention.ts"
 import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
 
 import type { Client } from "@libsql/client"
@@ -173,6 +173,13 @@ function d1Journal(d1: DefaultAgentInvocationsD1, options: DefaultAgentInvocatio
   if (maxSize !== undefined && maxSize !== false) {
     throw agentDiagnostics.AGENT_R1027({ message: "[vitehub] agent.invocations.retention.maxSize is not supported by the D1 journal, because D1 reports the size of the whole app database. Use maxAge or maxRecords, or set agent.invocations.databaseUrl to a SQLite file." })
   }
+  // Check retention at startup, while the store code loads on the first read or write.
+  d1AgentInvocationRetention(limits)
+  let d1Store: Promise<typeof import("./d1.ts")> | undefined
+  const loadD1 = () => d1Store ??= import("./d1.ts").catch((error: unknown) => {
+    d1Store = undefined
+    throw error
+  })
   // Keep only completed initialization; Worker requests cannot share pending I/O.
   const migrated = new WeakSet<DefaultAgentInvocationsD1Database>()
   const open = async () => {
@@ -181,12 +188,17 @@ function d1Journal(d1: DefaultAgentInvocationsD1, options: DefaultAgentInvocatio
       throw agentDiagnostics.AGENT_R1028({ message: `[vitehub] The Agent Invocation journal requires the D1 binding ${JSON.stringify(d1.binding)} in the Worker env. Configure the Database D1 binding or set agent.invocations.databaseUrl.` })
     }
     if (!migrated.has(binding)) {
+      const { d1AgentInvocationSchema } = await loadD1()
       await binding.batch(d1AgentInvocationSchema().map(statement => binding.prepare(statement)))
       migrated.add(binding)
     }
     return binding
   }
-  const invocations = journal(createD1AgentInvocationStore({ database: open, migrate: false, ...limits }), options.observations)
+  let store: Required<AgentInvocationStore> | undefined
+  const invocations = journal(lazyAgentInvocationStore(async () => {
+    const { createD1AgentInvocationStore } = await loadD1()
+    return store ??= createD1AgentInvocationStore({ database: open, migrate: false, ...limits })
+  }), options.observations)
   databases.set(invocations, { driver: "d1", open })
   return invocations
 }

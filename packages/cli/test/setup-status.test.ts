@@ -22,8 +22,8 @@ describe("vitehub status", () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", workflow: ${options} }`) })
     const { exitCode, json } = await runSetup<SetupStatus>(["status", "--json"], root)
     expect(exitCode).toBe(0)
-    expect(feature(json, "workflow").missingPackages).toEqual([])
-    expect(feature(json, "workflow").fix).toBeUndefined()
+    expect(feature(json, "workflow").missingPackages).toEqual(["@vite-hub/workflow"])
+    expect(feature(json, "workflow").fix).toBe("pnpm add @vite-hub/workflow")
   })
 
   it.each([
@@ -372,7 +372,7 @@ describe("vitehub status", () => {
     expect(json).toEqual({
       error: {
         code: "SETUP_NOT_A_PROJECT",
-        docs: "https://vitehub.dev/docs/development/cli#setup_not_a_project",
+        docs: "https://vitehub.dev/docs/development/diagnostics/setup_not_a_project",
         fix: "Run the command in the folder of your Vite or Nuxt app, where its package.json is.",
         message: `${root} has no package.json, vite.config, or nuxt.config file.`,
         why: `${root} has no package.json, vite.config, or nuxt.config file.`,

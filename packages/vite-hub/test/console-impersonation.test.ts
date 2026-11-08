@@ -146,7 +146,7 @@ describe("App Auth Console during impersonation", () => {
   async function setup(session?: { onRefresh: AuthSessionRefresh, updateAge: number }) {
     const database = new DatabaseSync(":memory:")
     closers.push(() => database.close())
-    const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
+    const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/_vitehub/api/**`, authorize: true }]
     // Every signed-in user passes the access routes, so only the impersonation check keeps the Console closed.
     const definition = defineAuth(() => ({
       baseURL: origin,
@@ -201,7 +201,7 @@ describe("App Auth Console during impersonation", () => {
     expect(started.status).toBe(200)
     const impersonating = jar(operator.cookie, started)
 
-    const rejected = await access.check(requestEvent(new Request(`${origin}${mount}/api/_vitehub/console/sections`, { headers: { cookie: impersonating } })))
+    const rejected = await access.check(requestEvent(new Request(`${origin}${mount}/_vitehub/api/sections`, { headers: { cookie: impersonating } })))
     expect(rejected?.status).toBe(403)
     expect(await rejected?.json()).toMatchObject({ code: "CONSOLE_IMPERSONATING" })
 

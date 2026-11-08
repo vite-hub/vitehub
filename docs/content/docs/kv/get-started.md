@@ -15,6 +15,12 @@ Start with the working app from [Installation](/docs/getting-started/installatio
 ::tutorial-step{title="Enable KV"}
 ## Enable KV
 
+Install the KV package in the app:
+
+```bash [commands/install-kv]
+pnpm add @vite-hub/kv
+```
+
 Add `kv: true` to the existing `vitehub()` options in `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
 
 ```ts [vite.config.ts]
