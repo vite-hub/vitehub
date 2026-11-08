@@ -79,6 +79,8 @@ it.each([
   ["a%3Ab:child", "a:b"],
   ["a%3Ab", "a%253Ab", "a%25253Ab"],
   ["literal%", "lower%3a", "a%25:b"],
+  [".unstorage-tmp-vitehub-layout-v1:child"],
+  [".unstorage-tmp-vitehub-layout-v1:complete", ".unstorage-tmp-vitehub-layout-v1:staged", ".unstorage-tmp-vitehub-layout-v1:legacy:child", ".unstorage-tmp-vitehub-layout-v1:lock:child", ".unstorage-tmp-vitehub-layout-v1-1:child"],
 ])("preserves legacy keys %j through migration and reopening", (...keys) => withStore(async (storage, base) => {
   async function check(current: ReturnType<typeof createHostedKVStorage>) {
     expect((await current.getKeys()).sort()).toEqual([...keys].sort())
@@ -101,10 +103,15 @@ it.each([
   }
 }))
 
-it.each(["link", "rename"] as const)("retries an interrupted migration during %s without losing keys", phase => withStore(async (storage) => {
+it.each([
+  ["link", 2],
+  ["rename", 1],
+  ["rename", 2],
+  ["rename", 4],
+] as const)("retries an interrupted migration during %s operation %i without losing keys", (phase, failAt) => withStore(async (storage) => {
   let operations = 0
   interruption[phase] = () => {
-    if (++operations === 2) throw new Error("migration interrupted")
+    if (++operations === failAt) throw new Error("migration interrupted")
   }
   await expect(storage.getKeys()).rejects.toThrow("migration interrupted")
   interruption[phase] = undefined
@@ -117,21 +124,27 @@ it.each(["link", "rename"] as const)("retries an interrupted migration during %s
   await writeFile(join(base, "a%3Ab"), "literal")
 }))
 
-it("serializes migration when separate stores open the same folder", () => withStore(async (storage, base) => {
+it.each([
+  ["a:b", "a%3Ab"],
+  [".unstorage-tmp-vitehub-layout-v1:child", ".unstorage-tmp-vitehub-layout-v1:complete"],
+])("serializes migration of %s when separate stores open the same folder", (...keys) => withStore(async (storage, base) => {
   const other = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
   try {
-    const keys = ["a%3Ab", "a:b"]
-    expect((await Promise.all([storage.getKeys(), other.getKeys()])).map(page => page.sort())).toEqual([keys, keys])
-    await expect(storage.getItem("a:b")).resolves.toBe("colon")
-    await expect(other.getItem("a%3Ab")).resolves.toBe("literal")
+    const sorted = [...keys].sort()
+    expect((await Promise.all([storage.getKeys(), other.getKeys()])).map(page => page.sort())).toEqual([sorted, sorted])
+    for (const current of [storage, other]) {
+      for (const key of keys) await expect(current.getItem(key)).resolves.toBe(`value:${key}`)
+    }
   }
   finally {
     await other.dispose()
   }
 }, async (base) => {
-  await mkdir(join(base, "a"))
-  await writeFile(join(base, "a", "b"), "colon")
-  await writeFile(join(base, "a%3Ab"), "literal")
+  for (const key of keys) {
+    const parts = key.split(":")
+    await mkdir(join(base, ...parts.slice(0, -1)), { recursive: true })
+    await writeFile(join(base, ...parts), `value:${key}`)
+  }
 }))
 
 it("keeps the new layout when a cleared store is reopened", () => withStore(async (storage, base) => {

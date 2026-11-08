@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
-import { link, lstat, mkdir, opendir, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
-import { join, relative, resolve, sep } from "node:path"
+import { link, lstat, mkdir, mkdtemp, opendir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
+import { basename, join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
 import { lock } from "proper-lockfile"
@@ -12,8 +12,9 @@ import { createKVContinuations } from "./continuations.ts"
 
 // unstorage's atomic writes and setIfAbsentItem() stage values in files with this name. They are not keys.
 const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
-// Use unstorage's reserved temporary namespace so this record cannot be a key.
-const layoutDirectory = ".unstorage-tmp-vitehub-layout-v1"
+// Only regular files in this namespace are reserved. A legacy directory with the same name can contain keys.
+const layoutRecord = /^\.unstorage-tmp-vitehub-layout-v1(?:-\d+)?$/
+const layoutRecordName = ".unstorage-tmp-vitehub-layout-v1"
 
 // Each key is one file in the base folder, so `signups` and `signups:reset-at` can both exist.
 // The file name is the key with `%` and `:` escaped as in a URL, for example `signups%3Areset-at`.
@@ -42,23 +43,50 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+async function writeLayoutRecord(root: string, record: string, value: string): Promise<void> {
+  const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
+  try {
+    await writeFile(temporary, value)
+    await rename(temporary, record)
+  }
+  finally {
+    await rm(temporary, { force: true })
+  }
+}
+
 // Legacy root names are literal keys, even when they look encoded. Stage the whole old layout
 // before publishing any encoded names, so neither root files nor directories can claim another key's destination.
 async function migrateKeys(root: string): Promise<void> {
-  const layout = join(root, layoutDirectory)
-  const legacy = join(layout, "legacy")
-  const complete = join(layout, "complete")
-  if (await exists(complete)) return
-  await mkdir(layout, { recursive: true })
+  await mkdir(root, { recursive: true })
   // Serialize initialization across stores and processes. Stale locks can be recovered after a stopped process.
-  const release = await lock(layout, { lockfilePath: join(layout, "lock"), retries: { retries: 100, minTimeout: 20, maxTimeout: 100 } })
+  // The lock is beside the store, where it cannot claim a legacy key's directory.
+  const release = await lock(root, { retries: { retries: 100, minTimeout: 20, maxTimeout: 100 } })
   try {
-    if (await exists(complete)) return
+    const entries = await readdir(root, { withFileTypes: true })
+    const record = entries.find(entry => entry.isFile() && layoutRecord.test(entry.name))
+    let recordPath: string
+    let layout: string
+    if (record) {
+      recordPath = join(root, record.name)
+      const value = await readFile(recordPath, "utf8")
+      if (value === "complete") return
+      if (!/^\.unstorage-tmp-vitehub-migration-[a-z\d]{6}$/i.test(value)) throw new Error("Invalid KV layout record")
+      layout = join(root, value)
+    }
+    else {
+      let name = layoutRecordName
+      for (let suffix = 1; entries.some(entry => entry.name === name); suffix++) name = `${layoutRecordName}-${suffix}`
+      recordPath = join(root, name)
+      layout = await mkdtemp(join(root, ".unstorage-tmp-vitehub-migration-"))
+      // Publish the staging location before moving any key, so initialization can resume after interruption.
+      await writeLayoutRecord(root, recordPath, basename(layout))
+    }
+    const legacy = join(layout, "legacy")
     await mkdir(legacy, { recursive: true })
     const staged = join(layout, "staged")
     if (!await exists(staged)) {
       for (const entry of await readdir(root, { withFileTypes: true })) {
-        if (entry.name === layoutDirectory || (!entry.isDirectory() && (!entry.isFile() || temporaryFile.test(entry.name)))) continue
+        if (entry.name === basename(layout) || (!entry.isDirectory() && (!entry.isFile() || temporaryFile.test(entry.name)))) continue
         await rename(join(root, entry.name), join(legacy, entry.name))
       }
       await writeFile(staged, "")
@@ -78,8 +106,8 @@ async function migrateKeys(root: string): Promise<void> {
         if (!target.isFile() || target.dev !== source.dev || target.ino !== source.ino) throw error
       }
     }
-    await writeFile(complete, "")
-    await rm(legacy, { force: true, recursive: true })
+    await writeLayoutRecord(root, recordPath, "complete")
+    await rm(layout, { force: true, recursive: true })
   }
   finally {
     await release()
@@ -114,7 +142,7 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
       throw error
     })
     for (const entry of entries) {
-      if (entry !== layoutDirectory) await rm(join(root, entry), { force: true, recursive: true })
+      if (!layoutRecord.test(entry)) await rm(join(root, entry), { force: true, recursive: true })
     }
   }
   driver.hasItem = async (key, operationOptions) => {
@@ -163,7 +191,7 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
       throw error
     }
     for await (const entry of entries) {
-      if (entry.name !== layoutDirectory) yield entry.isFile() ? keyOf(entry.name) : undefined
+      if (!layoutRecord.test(entry.name)) yield entry.isFile() ? keyOf(entry.name) : undefined
     }
   }
 
