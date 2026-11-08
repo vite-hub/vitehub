@@ -23,7 +23,7 @@ const definitionsHandler = allowed(definitionsHandlerRoute)
 const scope = globalThis as ConsoleInvocationScope
 
 function event(query = "", method = "GET"): ConsoleRequestEvent {
-  return consoleEvent({ method, url: `http://localhost/api/_vitehub/console/definitions${query}` })
+  return consoleEvent({ method, url: `http://localhost/_vitehub/api/definitions${query}` })
 }
 
 function catalog(name: string): ConsoleSectionCatalog["content"] {

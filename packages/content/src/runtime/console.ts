@@ -490,7 +490,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           name: collection.name,
           label: collection.label,
           path: collection.path,
-          paths: [...collection.paths],
+          // The Console edits the source locale, the first globs of a collection with locales.
+          paths: collection.paths.slice(0, collection.paths.length / (collection.locales?.length ?? 1)),
           kind: collection.kind,
           format: collection.format,
           schema,

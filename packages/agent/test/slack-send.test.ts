@@ -16,7 +16,7 @@ const kvModule = vi.hoisted(() => ({
   },
 }))
 
-// Chat connectors load the optional @vite-hub/kv through this helper.
+// Chat adapters load the optional @vite-hub/kv through this helper when they send.
 vi.mock("../src/internal/optional-kv.ts", () => ({ importOptionalKV: async () => kvModule }))
 
 /** A fake with the thread ID shape of @chat-adapter/slack: `slack:<channel>:<thread ts>`. Message IDs are `ts` values. */
@@ -50,10 +50,10 @@ async function setup() {
   const adapter = createAdapter()
   const { slack } = await import("../src/channels.ts")
   // SAFETY: The fake implements the Slack adapter methods that the connector calls.
-  return { adapter, connector: slack.connector({ adapter: adapter as never }) }
+  return { adapter, connector: slack({ adapter: adapter as never }) }
 }
 
-describe("slack.connector()", () => {
+describe("slack() send", () => {
   it("posts to a channel and opens direct messages for user recipients", async () => {
     const { adapter, connector } = await setup()
     await expect(connector.send("Hello", { recipient: channel })).resolves.toEqual({ id: "1700000000.100" })
@@ -110,11 +110,11 @@ describe("slack.connector()", () => {
     await expect(connector.send("Reply", { recipient: channel, thread: { key: "topic" }, idempotencyKey: "reply", replace: "opening" })).rejects.toThrow("Slack replace cannot delete a channel thread root")
   })
 
-  it("rejects a thread recipient and a connector without an adapter", async () => {
+  it("rejects a thread recipient and a send without an adapter", async () => {
     const { connector } = await setup()
     await expect(connector.send("x", { recipient: "slack:C123:1700000000.1", thread: { key: "k" } })).rejects.toThrow("channel recipient without a message ID")
     const { slack } = await import("../src/channels.ts")
     // SAFETY: The test checks the runtime guard for an untyped caller.
-    expect(() => slack.connector({} as never)).toThrow("requires an adapter")
+    await expect(slack().send("x", { recipient: "slack:C123:" })).rejects.toThrow("requires an adapter")
   })
 })
