@@ -7,6 +7,7 @@ import { checkD1Limits, checkLibsqlD1Limits } from "./d1-limits.ts"
 import { useD1Session } from "./d1-sessions.ts"
 import { keepOwnClient, trackD1Database, trackLibsqlClient } from "./request-stats.ts"
 
+import type { Client } from "@libsql/client"
 import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -24,13 +25,10 @@ interface D1DatabaseLike {
   withSession?: (constraint: string) => D1DatabaseLike & { getBookmark: () => string | null }
 }
 
-interface LibsqlClientFactory {
-  createClient: (options: { authToken?: string, url: string }) => LibsqlClient
-  drizzle: (config: { casing?: "snake_case" | "camelCase", client: unknown, schema: Record<string, unknown> }) => unknown
-}
-
-interface LibsqlClient {
-  close?: () => void
+export interface LibsqlClientFactory {
+  createClient: (options: { authToken?: string, url: string }) => Client
+  /** Builds Drizzle's libSQL database on the client, as `createLibsqlDrizzle()` does. It must import no libSQL client. */
+  drizzle: (client: Client, config: { casing?: "snake_case" | "camelCase", schema: Record<string, unknown> }) => unknown
 }
 
 interface DrizzleSqliteAdapterOptions {
@@ -56,9 +54,19 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
   let libsqlInstance: RuntimeDrizzleDatabase<TSchema> | undefined
   let libsqlInstanceToken: string | undefined
   let libsqlInstanceUrl: string | undefined
-  let libsqlClient: LibsqlClient | undefined
+  let libsqlClient: Client | undefined
+  let remoteNoticeShown = false
 
   function getDb() {
+    if (config.remote) {
+      if (!remoteNoticeShown) {
+        remoteNoticeShown = true
+        const databaseId = resolveConfigValue(config.cloudflare?.databaseId)?.trim()
+        console.warn(`[vitehub] Database "${config.name}" is remote: \`vite dev\` queries the real D1 database${databaseId ? ` ${databaseId}` : ""} over HTTP. Writes change real data.`)
+      }
+      return getD1HttpDb()
+    }
+
     const bindingName = config.cloudflare?.binding
     const d1Binding = bindingName
       ? getActiveCloudflareBinding<D1DatabaseLike>(bindingName)
@@ -98,22 +106,21 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     let instance: RuntimeDrizzleDatabase<TSchema>
     try {
       // SAFETY: The injected libSQL adapters expose the same Drizzle database contract as the runtime schema generic.
-      instance = keepOwnClient(Object(options.libsql.drizzle({
-        casing: config.drizzle.casing,
-        // Local SQLite stands in for the D1 binding in a dev server for Cloudflare, so it rejects what D1 rejects.
-        client: trackLibsqlClient(config.cloudflare && config.localLimits === "d1" ? checkLibsqlD1Limits(client) : client),
-        schema,
-      })), client) as RuntimeDrizzleDatabase<TSchema>
+      // Local SQLite stands in for the D1 binding in a dev server for Cloudflare, so it rejects what D1 rejects.
+      instance = keepOwnClient(Object(options.libsql.drizzle(
+        trackLibsqlClient(config.cloudflare && config.localLimits === "d1" ? checkLibsqlD1Limits(client) : client),
+        { casing: config.drizzle.casing, schema },
+      )), client) as RuntimeDrizzleDatabase<TSchema>
     }
     catch (error) {
-      client.close?.()
+      client.close()
       throw error
     }
 
     // Refreshing credentials is an explicit lifecycle boundary: close the superseded
     // client after the replacement is ready. Callers must await database work before
     // changing the credential because libSQL close() aborts operations still in flight.
-    libsqlClient?.close?.()
+    libsqlClient?.close()
     libsqlClient = client
     libsqlInstance = instance
     libsqlInstanceToken = authToken

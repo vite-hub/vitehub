@@ -43,6 +43,7 @@ export function isRuntimeObject(value: unknown): value is object {
   return value !== null && Object(value) === value
 }
 
+const nativeResponse: unknown = globalThis.Response
 const nativeResponseStatus = hasRuntimeType(globalThis.Response, "function")
   ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
   : undefined
@@ -50,17 +51,32 @@ const nativeResponseStatus = hasRuntimeType(globalThis.Response, "function")
 const isProxy = globalThis.process?.getBuiltinModule?.("node:util")?.types.isProxy
 
 /**
- * Return whether `value` is a Response of this runtime.
- * The native `status` getter checks the internal Response slot, so a copied prototype, an object tagged `Response`,
+ * The `status` getter of the global `Response` when a server replaced the native class. srvx, which Nitro uses on Node.js,
+ * installs its own `Response` class, so `Response.json()` in app code and in ViteHub returns an instance of that class.
+ * Its getters read private fields, so they check the brand like the native getter does.
+ */
+function replacedResponseStatus(): ((this: unknown) => unknown) | undefined {
+  const current: unknown = globalThis.Response
+  if (!hasRuntimeType(current, "function") || current === nativeResponse) return undefined
+  const prototype: unknown = Reflect.get(current, "prototype")
+  return isRuntimeObject(prototype) ? Object.getOwnPropertyDescriptor(prototype, "status")?.get : undefined
+}
+
+/**
+ * Return whether `value` is a Response of this runtime: of the native class, or of the class that the server installed
+ * as the global `Response`.
+ * The `status` getter checks the internal Response slot, so a copied prototype, an object tagged `Response`,
  * and a Response from another Fetch implementation all fail. A proxy fails too. The check reads no property of `value`.
  */
 export function isRuntimeResponse(value: unknown): value is Response {
-  if (!nativeResponseStatus || value === null || !hasRuntimeType(value, "object") || isProxy?.(value)) return false
-  try {
-    Reflect.apply(nativeResponseStatus, value, [])
-    return true
+  if (value === null || !hasRuntimeType(value, "object") || isProxy?.(value)) return false
+  for (const status of [nativeResponseStatus, replacedResponseStatus()]) {
+    if (!status) continue
+    try {
+      Reflect.apply(status, value, [])
+      return true
+    }
+    catch {}
   }
-  catch {
-    return false
-  }
+  return false
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -7,6 +7,7 @@ import { resolveConfig } from "vite"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { expect, it, vi } from "vitest"
 
+import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { createCloudflareWorkflowNitroConfig } from "../src/internal/vite-build.ts"
@@ -62,6 +63,39 @@ it("installs discovered Agent workflows into a Cloudflare Nitro entry", async ()
       code: expect.stringMatching(/export \{ ViteHub.*Workflow \} from '\.\/workflow-cloudflare-exports\.mjs'/),
     })
     expect(renderChunk.call({}, "export default {}", { fileName: "other.js", isEntry: true })).toBeNull()
+  }
+  finally {
+    await rm(rootDir, { force: true, recursive: true })
+  }
+})
+
+it.each([false, true])("preserves Nitro's Wrangler config while cleaning standalone Workflow output (wrapper: %s)", async (standaloneWrapper) => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-cleanup-"))
+  try {
+    const workflowDir = join(rootDir, "server", "workflows")
+    await mkdir(workflowDir, { recursive: true })
+    await writeFile(join(workflowDir, "welcome.ts"), "export default defineWorkflow(async () => 'ok')\n")
+    const nitro = await createCloudflareWorkflowNitroConfig({ nitro: { preset: "cloudflare-module" }, rootDir, workflow: {} })
+    // SAFETY: Cloudflare configuration creation above installs the Wrangler workflows array.
+    const workflows = (nitro.cloudflare as { wrangler: { workflows: unknown[] } }).wrangler.workflows
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const worker = standaloneWrapper
+      ? 'import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"\n'
+      : "export default { fetch() {} }\n"
+    const wrangler = { compatibility_date: "2026-04-20", main: "nitro.mjs", workflows }
+    await mkdir(join(outputRoot, ".vitehub", "workflow", "sources"), { recursive: true })
+    await writeFile(join(outputRoot, "nitro.mjs"), "export default { fetch() {} }\n")
+    await writeFile(join(outputRoot, "index.js"), worker)
+    await writeFile(join(outputRoot, "worker.mjs"), "obsolete standalone Workflow bundle\n")
+    await writeFile(join(outputRoot, "wrangler.json"), JSON.stringify(wrangler))
+
+    const { generateWorkflowProviderOutputs } = await vi.importActual<typeof import("../src/internal/vite-build.ts")>("../src/internal/vite-build.ts")
+    await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), cloudflareInNitro: true, hosting: "cloudflare-module", rootDir, workflow: {} })
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual(wrangler)
+    await expect(readFile(join(outputRoot, "worker.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    if (standaloneWrapper) await expect(readFile(join(outputRoot, "index.js"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    else await expect(readFile(join(outputRoot, "index.js"), "utf8")).resolves.toBe(worker)
   }
   finally {
     await rm(rootDir, { force: true, recursive: true })

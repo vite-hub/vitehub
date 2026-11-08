@@ -64,6 +64,9 @@ The preset defaults to `dryRun: true`, `minConfidence: 0.6`, `hideUnmanagedLabel
 `cleanup` moves labelled mail to Trash after a number of days. Each rule names a declared label and an age in days. Starred mail stays. Cleanup is off by default: `cleanup` is empty.
 
 ```ts [server/agents/inbox.ts]
+import { labeller } from 'vite-hub/presets/labeller'
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   extends: labeller,
   options: {

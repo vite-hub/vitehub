@@ -24,7 +24,7 @@ const handler: EventHandler<EventHandlerRequest, Promise<DocsPageResponse>> = de
   }
   const found = findDocsPage(manifest, path)
   if (!found) throw createError({ statusCode: 404, statusMessage: "Page not found" })
-  const document = await loadDocsDocument(found.page.file)
+  const document = await loadDocsDocument(found.page.file, found.page.source)
   if (document === null) throw createError({ statusCode: 404, statusMessage: "Page not found" })
   const credits = found.page.credits ? await parseDocsDocument(found.page.credits) : null
   return docsPageResponse(manifest, found, document, credits)

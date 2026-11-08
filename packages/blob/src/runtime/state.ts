@@ -7,6 +7,7 @@ import {
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { normalizeBlobOptions } from "../config.ts"
 import { setServedBlobRoute } from "../served.ts"
@@ -15,6 +16,7 @@ export { setBlobPhotonLoader } from "../media/photon-module.ts"
 export { setBlobSharpModule } from "../media/sharp-module.ts"
 export { setBlobRequestBodyLimit } from "../internal/host-limits.ts"
 
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
 let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
@@ -44,6 +46,11 @@ export {
   installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
+}
+
+/** The Cloudflare bindings in the Standard Context of a request event, when the host provides them. */
+export function getRequestCloudflareEnv(event: ViteHubContext): Record<string, unknown> | undefined {
+  return getStandardContext(event).runtime?.cloudflare?.env
 }
 
 export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModuleOptions> {
