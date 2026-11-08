@@ -112,8 +112,8 @@ export function consoleImpersonationPage(input: {
   const nonce = crypto.randomUUID()
   const literal = (value: string) => JSON.stringify(value).replaceAll("<", "\\u003c")
   const script = `
-    const button = document.getElementById("switch");
-    const error = document.getElementById("switch-error");
+    const button = document.querySelector("button");
+    const error = document.querySelector("[role=alert]");
     button.addEventListener("click", async () => {
       button.disabled = true;
       button.textContent = "Stopping…";

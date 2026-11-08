@@ -272,7 +272,7 @@ Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256
 
 The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
 
-With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. A failed role grant releases the reservation so the code can be tried again.
+With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
 ## Sign MCP clients in
 

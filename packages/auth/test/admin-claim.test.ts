@@ -152,6 +152,11 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
             cache.delete(key)
             return value
           },
+          increment: async (key) => {
+            const value = Number(cache.get(key) ?? 0) + 1
+            cache.set(key, String(value))
+            return value
+          },
         },
       },
     })
@@ -170,7 +175,7 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     const adapter = (await auth.$context).internalAdapter
     const update = vi.spyOn(adapter, "updateUser")
     if (failure === "throw") update.mockRejectedValueOnce(new Error("database unavailable"))
-    else if (failure === "cancel") update.mockResolvedValueOnce(null)
+    else if (failure === "cancel") vi.spyOn((await auth.$context).adapter, "update").mockResolvedValueOnce(null)
     else vi.spyOn(adapter, "findUserById").mockResolvedValueOnce(null)
     expect((await claim(auth, cookie, code)).status).toBeGreaterThanOrEqual(400)
     expect(await roleOf(auth, "owner@example.com")).toBe("user")
@@ -178,6 +183,59 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     expect((await claim(auth, cookie, code)).status).toBe(200)
     expect(await roleOf(auth, "owner@example.com")).toBe("admin")
     expect(await available(auth, cookie)).toBe(false)
+  })
+
+  it.each([false, true])("keeps claims independent of secondary-storage outages (failed grant: %s)", async (failGrant) => {
+    const code = createAdminClaimCode()
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(code))
+    const cache = new Map<string, string>()
+    let unavailable = false
+    const checkStorage = () => { if (unavailable) throw new Error("secondary storage unavailable") }
+    const definition = defineAuth({
+      emailAndPassword: { enabled: true },
+      plugins: [admin()],
+      verification: { storeIdentifier: "hashed" },
+      runtime: {
+        secondaryStorage: {
+          get: async (key) => { checkStorage(); return cache.get(key) ?? null },
+          set: async (key, value) => {
+            // A reservation mirror fails after the durable insert, and all storage operations stay unavailable.
+            if (key.startsWith("verification:")) unavailable = true
+            checkStorage()
+            cache.set(key, value)
+          },
+          delete: async (key) => { checkStorage(); cache.delete(key) },
+          getAndDelete: async (key) => {
+            checkStorage()
+            const value = cache.get(key) ?? null
+            cache.delete(key)
+            return value
+          },
+          increment: async (key) => {
+            checkStorage()
+            const value = Number(cache.get(key) ?? 0) + 1
+            cache.set(key, String(value))
+            return value
+          },
+        },
+      },
+    })
+    const auth = createAuthForRequest(definition, new Request(origin))
+    const owner = await signUp(auth, "owner@example.com")
+    const guest = await signUp(auth, "guest@example.com")
+    if (failGrant) {
+      vi.spyOn((await auth.$context).internalAdapter, "updateUser").mockImplementationOnce(async () => {
+        unavailable = true
+        throw new Error("role update unavailable")
+      })
+    }
+    expect((await claim(auth, owner, code)).status).toBe(failGrant ? 500 : 200)
+    unavailable = false
+    expect(await available(auth, owner)).toBe(failGrant)
+    if (failGrant) expect((await claim(auth, owner, code)).status).toBe(200)
+    expect(await roleOf(auth, "owner@example.com")).toBe("admin")
+    expect((await claim(auth, guest, code)).status).toBe(409)
+    expect(await roleOf(auth, "guest@example.com")).toBe("user")
   })
 
   it("keeps the reservation when an update error follows a completed role grant", async () => {

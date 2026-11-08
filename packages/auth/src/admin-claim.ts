@@ -1,5 +1,6 @@
 import { APIError, createAuthEndpoint, sessionMiddleware } from "better-auth/api"
 import { createSessionStore, expireCookie } from "better-auth/cookies"
+import { createInternalAdapter } from "better-auth/db"
 
 import { adminClaimHash, adminClaimVariable } from "./admin-claim-code.ts"
 import { adminRoleGrant, grantAdminRole } from "./admins.ts"
@@ -29,8 +30,18 @@ function claimIdentifier(hash: string): string {
   return `vitehub-admin-claim:${hash}`
 }
 
-async function claimUsed(context: AuthContext, hash: string): Promise<boolean> {
-  return Boolean(await context.internalAdapter.findVerificationValue(claimIdentifier(hash)))
+function claimStorage(context: AuthContext): AuthContext["internalAdapter"] {
+  // Claim markers live only in the database. A failed cache mirror must not consume a code or block recovery.
+  return createInternalAdapter(context.adapter, {
+    options: { ...context.options, secondaryStorage: undefined },
+    logger: context.logger,
+    generateId: context.generateId,
+    hooks: [],
+  })
+}
+
+async function claimUsed(storage: AuthContext["internalAdapter"], hash: string): Promise<boolean> {
+  return Boolean(await storage.findVerificationValue(claimIdentifier(hash)))
 }
 
 /**
@@ -46,7 +57,7 @@ export function createAdminClaimPlugin(hash: string, plugins: readonly BetterAut
     endpoints: {
       vitehubAdminClaimStatus: createAuthEndpoint("/vitehub/admin-claim/status", { method: "GET", use: [sessionMiddleware] }, async (ctx) => {
         ctx.setHeader("cache-control", "no-store")
-        return ctx.json({ available: !await claimUsed(ctx.context, hash) })
+        return ctx.json({ available: !await claimUsed(claimStorage(ctx.context), hash) })
       }),
       vitehubAdminClaim: createAuthEndpoint("/vitehub/admin-claim", { method: "POST", use: [sessionMiddleware] }, async (ctx) => {
         ctx.setHeader("cache-control", "no-store")
@@ -54,26 +65,27 @@ export function createAdminClaimPlugin(hash: string, plugins: readonly BetterAut
         const code: unknown = body !== null && typeof body === "object" ? Reflect.get(body, "code") : undefined
         if (typeof code !== "string" || await adminClaimHash(code) !== hash) throw new APIError("FORBIDDEN", { message: "The claim code is wrong." })
         const userId = ctx.context.session.user.id
+        const storage = claimStorage(ctx.context)
         const use = async () => {
           // A database rejects a second row with the same primary key, so two instances cannot both use the code.
           // Better Auth's memory adapter does not, so the lookup and the queue cover it in one process.
-          if (await claimUsed(ctx.context, hash)) return false
+          if (await claimUsed(storage, hash)) return false
           const identifier = claimIdentifier(hash)
           const owner = crypto.randomUUID()
           try {
-            const reserved = await ctx.context.internalAdapter.reserveVerificationValue({ identifier, value: owner, expiresAt: new Date("9999-12-31T00:00:00Z") })
+            const reserved = await storage.reserveVerificationValue({ identifier, value: owner, expiresAt: new Date("9999-12-31T00:00:00Z") })
             if (!reserved) return false
             if (!await grantAdminRole(ctx.context, userId, grant)) throw new APIError("INTERNAL_SERVER_ERROR", { message: "The admin role could not be granted. Try the claim code again." })
             return true
           }
           catch (error) {
             // An update can throw after it commits. Keep a completed grant single-use, and release only our own
-            // reservation when no role was granted, including a reservation whose secondary-storage write failed.
+            // reservation when no role was granted, even if secondary storage is unavailable.
             const user = await ctx.context.internalAdapter.findUserById(userId)
             const role: unknown = user && Reflect.get(user, "role")
             const granted = typeof role === "string" && role.split(",").some(name => name.trim() === grant.role)
-            if (!granted && (await ctx.context.internalAdapter.findVerificationValue(identifier))?.value === owner) {
-              await ctx.context.internalAdapter.deleteVerificationByIdentifier(identifier)
+            if (!granted && (await storage.findVerificationValue(identifier))?.value === owner) {
+              await storage.deleteVerificationByIdentifier(identifier)
             }
             throw error
           }
