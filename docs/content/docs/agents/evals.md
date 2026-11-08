@@ -1,6 +1,6 @@
 ---
 title: Evals
-description: Send the same inputs to an Agent every time and score what it does.
+description: Send the same inputs to an Agent every time and score its answers and tool calls.
 navigation.order: 52
 navigation.group: Inspect and evaluate
 icon: i-lucide-clipboard-check

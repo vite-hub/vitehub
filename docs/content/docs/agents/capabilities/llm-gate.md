@@ -1,6 +1,6 @@
 ---
 title: LLM gate
-description: Let a model allow or reject a request before your Agent runs.
+description: Let a model allow or reject a request before your Agent runs, with clear categories.
 navigation.title: LLM gate
 navigation.order: 280
 navigation.group: Capabilities

@@ -1,6 +1,6 @@
 ---
 title: Decisions limits and errors
-description: Choices limits and the error code of each failure.
+description: Read Choices limits, set thresholds for answers, and fix each Decisions error code.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

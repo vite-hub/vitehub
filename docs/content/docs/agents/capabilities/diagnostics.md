@@ -1,6 +1,6 @@
 ---
 title: Diagnostics
-description: Report how each Agent run ends and how much memory and CPU it uses.
+description: Report how each Agent run ends and track memory and CPU use with a runtime inspector.
 navigation.title: Diagnostics
 navigation.order: 226
 navigation.group: Capabilities

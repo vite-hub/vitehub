@@ -1,6 +1,6 @@
 ---
 title: Schedule server API
-description: Run a schedule on demand and read its run history from server code.
+description: Run a schedule on demand, read its run history, and handle errors from server code.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
