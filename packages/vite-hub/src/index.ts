@@ -6,6 +6,7 @@ import type { ViteHubConfig, ViteHubOptions } from "./plugins.ts"
 
 export type {
   AgentInvocationsDefault,
+  AgentInvocationsDefaultJournal,
   CacheOptions,
   ConsoleOptions,
   DeploymentPreset,

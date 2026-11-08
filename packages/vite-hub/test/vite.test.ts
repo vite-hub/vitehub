@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { assertFeaturePackages, isPackageInstalled } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, isPackageInstalled, missingFeaturePackagesError } from "../src/internal/optional-owners.ts"
 
 vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
@@ -35,7 +35,7 @@ const integrationMocks = vi.hoisted(() => ({
   finalizeDeploymentPlanOutput: vi.fn(),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
-  hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
+  hubBlob: vi.fn((..._args: Parameters<typeof import("../../blob/src/vite.ts").hubBlob>) => ({ name: "@vite-hub/blob/vite" })),
   resolveBlobViteConfig: vi.fn((blob?: { driver?: string, stores?: Record<string, unknown> }, input?: { hosting?: string }) => ({
     blob: {
       store: blob?.driver ? { driver: blob.driver } : input?.hosting === "cloudflare-module" ? { driver: "cloudflare-r2" } : undefined,
@@ -139,7 +139,7 @@ import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli", "@vite-hub/web-container"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -652,7 +652,7 @@ describe("vitehub", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const implicit = dependencyPluginByName(
-        vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
+        vitehub({ agent: { invocations: false }, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
         "vite-hub/console",
       )
       const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
@@ -668,7 +668,7 @@ describe("vitehub", () => {
 
       const explicit = dependencyPluginByName(
         vitehub({
-          agent: true,
+          agent: { invocations: false },
           console: { auth: false, authorize: hostManagedAuthorize },
           preset: "netlify",
           workflow: { provider: "vercel" },
@@ -855,6 +855,7 @@ describe("vitehub", () => {
     }))
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({ driver: "fs" }, {
       importBase: "vite-hub/_internal/blob",
+      presetDriver: expect.any(Function),
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
@@ -994,9 +995,25 @@ describe("vitehub", () => {
     // Agents run on Workflow.
     [{ agent: true }, ["agent", "workflow"]],
     [{ agent: true, workflow: false }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false } }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: false }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: true }, ["agent", "workflow"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: {} }, ["agent", "workflow"]],
   ] as const)("checks the owner packages of %j", (options, features) => {
     vitehub({ preset: "node", ...options } as ViteHubOptions)
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(features)
+  })
+
+  it.each([undefined, false] as const)("keeps Netlify Agents inline without the Workflow peer (%s)", (workflow) => {
+    vi.mocked(assertFeaturePackages).withImplementation(features => {
+      if (features.includes("workflow")) throw missingFeaturePackagesError(["workflow"])
+    }, () => {
+      const workflowCallsBefore = integrationMocks.hubWorkflow.mock.calls.length
+      expect(pluginNames(vitehub({ preset: "netlify", agent: { invocations: false }, workflow })))
+        .not.toContain("@vite-hub/workflow/vite")
+      expect(integrationMocks.hubWorkflow).toHaveBeenCalledTimes(workflowCallsBefore)
+      expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+    })
   })
 
   it("checks no owner package without features", () => {
@@ -1925,8 +1942,45 @@ describe("vitehub", () => {
     vitehub({ preset, blob: true })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver }),
-      { importBase: "vite-hub/_internal/blob" },
+      { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) },
     )
+  })
+
+  it.each([
+    ["vercel", true],
+    ["vercel", false],
+    ["cloudflare", true],
+    ["cloudflare", false],
+  ] as const)("resolves an application-config Blob driver with the %s preset in development (explicit=%s)", async (preset, explicit) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-app-driver-"))
+    try {
+      const plugins = vitehub({ preset, blob: true })
+      const args = integrationMocks.hubBlob.mock.lastCall
+      if (!args) throw new Error("Expected the Blob plugin to be installed.")
+      const { hubBlob } = await import("../../blob/src/vite.ts")
+      const blob = hubBlob(...args)
+      if (blob.config && typeof blob.config !== "function") blob.config.order = "post"
+      await resolveConfig({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [
+          { name: "app-blob-driver", config: () => ({ blob: explicit ? { driver: "vercel-blob" as const, token: "app-token" } : {} }) },
+          dependencyPluginByName(plugins, "vite-hub/deployment-preset"),
+          blob,
+        ],
+        root,
+      }, "serve")
+
+      const store = explicit
+        ? { driver: "vercel-blob", token: "app-token" }
+        : preset === "cloudflare" ? { driver: "cloudflare-r2", localFallback: { driver: "fs" } } : { driver: "fs" }
+      expect(blob.api.getConfig().blob).toMatchObject({ store })
+      const [inspector] = blob.vitehub.inspect!().definitions!
+      expect(await inspector?.list()).toMatchObject([{ fields: [{ label: "Development", value: explicit ? "`vite dev` uses the configured `vercel-blob` driver." : expect.stringContaining("Local.") }] }])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("preserves a configured Netlify Blob store name", () => {
@@ -1935,7 +1989,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
       driver: "netlify-blobs",
       name: "assets",
-    }), { importBase: "vite-hub/_internal/blob" })
+    }), { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) })
   })
 
   it("keeps Blob disabled until requested and rejects unsupported presets", () => {
@@ -2161,7 +2215,7 @@ describe("vitehub", () => {
     vitehub({ name: "logical-app", preset: "cloudflare", blob: { driver: "fs" } })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver: "fs" }),
-      { importBase: "vite-hub/_internal/blob" },
+      { importBase: "vite-hub/_internal/blob", presetDriver: expect.any(Function) },
     )
   })
 

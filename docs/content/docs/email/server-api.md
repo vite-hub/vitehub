@@ -129,11 +129,11 @@ export async function sendWelcome(name: string, to: string) {
 
 ## Test without delivery
 
-The framework distribution does not re-export test utilities. Install the Email
-owner package as a development dependency when tests use its in-memory client.
+The framework distribution does not re-export test utilities. Keep the Email
+owner package as a runtime dependency when tests use its in-memory client.
 
 ```bash [Terminal]
-pnpm add -D @vite-hub/email
+pnpm add @vite-hub/email
 ```
 
 ```ts [welcome.test.ts]
