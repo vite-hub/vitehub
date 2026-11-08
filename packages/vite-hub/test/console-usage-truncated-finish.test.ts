@@ -1,4 +1,5 @@
-import { defineAgent, runAgent } from "@vite-hub/agent"
+import { defineAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { describe, expect, it, vi } from "vitest"
 
@@ -16,7 +17,7 @@ describe("Console usage of a truncated finish observation", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, { memo: vi.fn(), run: { runId: "long-result" }, runtime: "unknown", waitUntil: vi.fn() }, {})
+    await runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "long-result" }, runtime: "unknown", waitUntil: vi.fn() }, {})
 
     const record = await invocations.getByRunId("long-result")
     const finish = record?.observations.find(observation => observation.name === "agent.invocation.finish")

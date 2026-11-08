@@ -13,7 +13,7 @@ work, memoized values, and trace information.
 
 ## Runtime Context comes from the host
 
-Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the same values itself because `runAgent()` does not read framework globals.
+Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the same values itself as the `runtimeContext` option of `runAgent()` and `streamAgent()`, because they do not read framework globals.
 
 | Value | Used for |
 | --- | --- |
@@ -44,7 +44,9 @@ export default {
     const runtime = getRuntimeContext(request)
 
     try {
-      return Response.json(await runAgent(support, runtime, { prompt }))
+      const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
+      if (error) throw error
+      return Response.json({ text: result.text })
     }
     finally {
       await runtime.flushWaitUntil().catch(console.error)
@@ -70,7 +72,7 @@ when you use a primitive that sets them.
 Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. Create a new
 context for each invocation:
 
-```ts [server/api/support.post.ts]
+```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
@@ -82,7 +84,9 @@ export default defineEventHandler(async (event) => {
   })
 
   try {
-    return await runAgent(support, runtime, { prompt })
+    const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
+    if (error) throw error
+    return { text: result.text }
   }
   finally {
     await runtime.flushWaitUntil().catch(console.error)
