@@ -94,14 +94,14 @@ describe("blob pathname validation", () => {
     expect(driver.list).not.toHaveBeenCalled()
 
     const [error] = await storage.list({ prefix: "uploads/" })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(driver.list).toHaveBeenCalledWith(expect.objectContaining({ prefix: "uploads/" }))
   })
 
   it("accepts normal pathnames with dots, spaces, and percent signs", async () => {
     for (const pathname of ["notes/a.txt", ".env.example", "a/..b/c..", "a/.../b", "50%25 off.txt", "photo%201.png"]) {
       const [error] = await storage.put(pathname, "x")
-      expect(error, pathname).toBeNull()
+      expect(error, pathname).toBeUndefined()
     }
     expect(await readdir(base)).toEqual(expect.arrayContaining([".env.example", "50% off.txt", "a", "notes", "photo 1.png"]))
   })
@@ -181,7 +181,7 @@ describe("HTTP routes", () => {
   it("answers 400 to a serve request that leaves the store", async () => {
     await writeFile(join(root, "secret.txt"), "secret")
     const [error] = await storage.put("public.txt", "public")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
 
     for (const path of ["..%2Fsecret.txt", "dir/..%2F..%2F..%2Fsecret.txt", "%2E%2E%2Fsecret.txt"]) {
       const response = await app().fetch(new Request(`http://localhost/blob/${path}`))
@@ -213,7 +213,7 @@ describe("handleUpload pathnames", () => {
   it("keeps an encoded file name inside the prefix", async () => {
     const [error, objects] = await storage.handleUpload(formRequest(["..%2Fevil.txt"]), { put: { prefix: "uploads" } })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(objects?.map(object => object.pathname)).toEqual(["uploads/..%2Fevil.txt"])
     expect(await readdir(base)).not.toContain("evil.txt")
     expect(await readdir(join(base, "uploads"))).toEqual(["..%2Fevil.txt"])
@@ -222,7 +222,7 @@ describe("handleUpload pathnames", () => {
   it("stores file names literally instead of decoding them", async () => {
     const [error, objects] = await storage.handleUpload(formRequest(["a%2Fb.txt", "photo%201.png"]), { put: { prefix: "uploads" } })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(objects?.map(object => object.pathname)).toEqual(["uploads/a%2Fb.txt", "uploads/photo%201.png"])
   })
 

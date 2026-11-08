@@ -3,7 +3,8 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { blob, file, image, type BlobModuleOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobObject, type BlobResult, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import type { Result } from "@vite-hub/runtime"
+import { blob, file, image, type BlobModuleOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -97,23 +98,23 @@ describe("types", () => {
   })
 
   it("exposes the intended Blob runtime surface", () => {
-    expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<BlobResult<Blob | null>>>()
-    expectTypeOf(blob.head).returns.toEqualTypeOf<Promise<BlobResult<BlobObject | null>>>()
+    expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<Result<Blob | null, BlobErrorCode>>>()
+    expectTypeOf(blob.head).returns.toEqualTypeOf<Promise<Result<BlobObject | null, BlobErrorCode>>>()
     expectTypeOf(blob.list).toBeFunction()
     expectTypeOf(blob.put).toBeFunction()
     expectTypeOf(blob.serve).returns.toEqualTypeOf<Promise<Response>>()
     expectTypeOf(blob.serve).parameter(0).toEqualTypeOf<Request>()
-    expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toEqualTypeOf<Promise<BlobResult<{
+    expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toEqualTypeOf<Promise<Result<{
       headers: Record<string, string>
       method: "GET" | "PUT"
       url: string
-    }>>>()
+    }, BlobErrorCode>>>()
     expectTypeOf(blob.sign("private/audio.mp3", {
       contentType: "audio/mpeg",
       createOnly: true,
       expiresIn: 900,
       method: "PUT",
-    })).toMatchTypeOf<Promise<BlobResult<{ url: string }>>>()
+    })).toMatchTypeOf<Promise<Result<{ url: string }, BlobErrorCode>>>()
   })
 
   it("narrows Blob results by the error element", async () => {
@@ -123,7 +124,7 @@ describe("types", () => {
       expectTypeOf(value).toEqualTypeOf<undefined>()
       return
     }
-    expectTypeOf(error).toEqualTypeOf<null>()
+    expectTypeOf(error).toEqualTypeOf<undefined>()
     expectTypeOf(value.pathname).toEqualTypeOf<string>()
   })
 

@@ -9,11 +9,13 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { findExportNames, hasCJSSyntax } from "mlly"
 import { transform } from "esbuild"
+import { normalizeRoute } from "h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
 import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
+import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -290,29 +292,31 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   // A `:name` segment matches any one segment, like the Nitro route.
-  const routeSegments = normalizeNitroRoute(serve.route).split("/").filter(Boolean)
+  const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
+    "type RouteRequest = Request & { context?: { params?: { _?: string } } }",
+    "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     `const routeSegments: string[] = ${JSON.stringify(routeSegments)}`,
     "",
-    "// The raw path after the serve route. A Nitro baseURL can come before the route. `serve()` decodes the path once.",
-    "function blobPathname(url: URL): string {",
+    "// Nitro exposes its exact raw catch-all on the Request, including for root routes and a baseURL.",
+    "// A direct Fetchable call has no router context and matches the configured route at the URL root.",
+    "function blobPathname(request: RouteRequest, url: URL): string {",
+    "  if (request.context?.params) return request.context.params._ ?? ''",
     "  const segments = url.pathname.split('/').slice(1)",
-    "  for (let start = 0; start + routeSegments.length < segments.length; start++) {",
-    "    if (routeSegments.every((segment, index) => segment.startsWith(':') ? Boolean(segments[start + index]) : segment === segments[start + index])) {",
-    "      return segments.slice(start + routeSegments.length).join('/')",
-    "    }",
+    "  if (routeSegments.every((segment, index) => segment.startsWith(':') ? Boolean(segments[index]) : segment === segments[index])) {",
+    "    return segments.slice(routeSegments.length).join('/')",
     "  }",
     "  return ''",
     "}",
     "",
     "async function serveBlob(request: Request): Promise<Response> {",
     "  const url = new URL(request.url)",
-    "  const pathname = blobPathname(url)",
+    "  const pathname = blobPathname(request, url)",
     "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string, headers?: Record<string, string> } = { cacheControl: ${JSON.stringify(cacheControl)}${headers ? `, headers: ${JSON.stringify(headers)}` : ""} }`,
@@ -441,6 +445,7 @@ function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCl
 export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
   const importBase = internalOptions.importBase ?? blobPackageName
   let blob: BlobModuleOptions | undefined = options
+  let nitroCloudflare = false
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   // Nuxt replays `config` with the host command, but its replayed resolved config has no `command`.
@@ -473,6 +478,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
             resolved?.configFile ? relative(rootDir, resolved.configFile) : "vite.config",
           ),
         }],
+        resources: () => inspectBlobResources(blob, { hosting: nitroCloudflare ? "cloudflare" : undefined }),
       }),
     },
     config: {
@@ -500,6 +506,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
+      nitroCloudflare = cloudflare
       const development = (config.command ?? command) === "serve"
       // In `vite dev`, a store stays local unless it sets `remote: true`.
       const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), hosting: development ? devServerHost(config) : cloudflare ? "cloudflare" : undefined })

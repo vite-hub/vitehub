@@ -11,7 +11,9 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
@@ -351,7 +353,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     },
   }
   // Expects a pathname that `serve()` decoded and checked.
-  async function serveRequest(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<Response>> {
+  async function serveRequest(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     if (options.variant && !options.transform) {
       const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
       if (error) return [error, undefined]
@@ -365,7 +367,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     headers.set("Cache-Control", options.cacheControl ?? headers.get("Cache-Control") ?? "private, no-cache")
     return headers
   }
-  async function serveObject(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<Response>> {
+  async function serveObject(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [error, payload] = await blobResult("serve", store, async () => {
         // A driver that streams reads the object, or the requested range of it, with its metadata in one call, and
@@ -539,7 +541,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (payload === false) continue
       return payload === undefined
         ? [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-        : [null, payload]
+        : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
       throw new Error("Blob changed repeatedly while preparing its response.")

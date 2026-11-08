@@ -12,13 +12,15 @@ import { jpegOrientation, probeImage } from "../src/media/probe.ts"
 import { setBlobPhotonLoader } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobImageOperation } from "../src/media/types.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode } from "../src/types.ts"
 
 const fixture = (name: string) => readFile(new URL(`./fixtures/photon/${name}`, import.meta.url))
 const transformer = createPhotonImageTransformer()
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 

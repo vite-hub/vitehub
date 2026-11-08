@@ -10,10 +10,12 @@ import { createDriver } from "../src/drivers/fs.ts"
 import { createSharpImageTransformer } from "../src/media/transformers.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobImageOperation, BlobImageTransformer } from "../src/media/types.ts"
-import type { BlobResult, BlobStorage } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+import type { BlobErrorCode, BlobStorage } from "../src/types.ts"
+
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 

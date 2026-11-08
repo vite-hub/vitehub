@@ -251,7 +251,7 @@ describe("Blob response transforms", () => {
     }
     expect.soft(run).toHaveBeenCalledOnce()
     const [error, variants] = await storage.media.variants("private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(variants).toHaveLength(1)
     expect(variants?.[0]).toMatchObject({ contentType: "text/plain", key, size: 6 })
   })
@@ -590,7 +590,7 @@ describe("Blob response transforms", () => {
       cacheControl: "public, max-age=300",
       transform: { key: "failing", run() { throw new Error("private transform detail") } },
     })
-    await expect(result).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED", details: { operation: "serve" } })
+    await expect(result).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED", why: expect.stringMatching(/^The Blob serve operation failed on the ".+" store\.$/) })
     await expect(result).rejects.not.toThrow("private transform detail")
   })
 
@@ -639,7 +639,7 @@ describe("Blob response transforms", () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "list").mockRejectedValue(new Error("cache listing unavailable"))
     const [error] = await storage.del("private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await driver.head("private/original")).toBeNull()
     expect(warning).toHaveBeenCalledOnce()
   })
