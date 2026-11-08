@@ -215,6 +215,8 @@ pnpm vitehub i18n export es --output es.po
 pnpm vitehub i18n import es es.po --by ana
 ```
 
+Keep the `vitehub-i18n-expected` comments in the PO file. They hold each record's text at export time, so an import refuses an edit if another translator changed that record. Export the locale again before editing a refused entry. A PO file without these comments can add new translations, but cannot change existing ones. Importing a translation that is already saved changes nothing.
+
 When you change the source text of a message, it gets a new ID and a new hash, and its old record becomes unused. `prune` lists the unused records, and deletes them with `--yes`:
 
 ```bash [Terminal]
