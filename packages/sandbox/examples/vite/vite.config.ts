@@ -12,6 +12,6 @@ export default defineConfig({
   },
   plugins: [hubSandboxTask()],
   sandboxTask: {
-    provider: "cloudflare",
+    driver: "cloudflare",
   },
 })

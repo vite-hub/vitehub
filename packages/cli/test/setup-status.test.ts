@@ -27,7 +27,7 @@ describe("vitehub status", () => {
   })
 
   it.each([
-    ["workflow", '{ provider: "openworkflow" }', ["openworkflow"]],
+    ["workflow", '{ driver: "openworkflow" }', ["openworkflow"]],
     ["workflow", '{ sqlite: { path: ".data/workflows.db" } }', ["openworkflow"]],
     ["workflow", '{ postgres: { url: "postgres://localhost/workflows" } }', ["openworkflow"]],
     ["workflow", '{ postgres: { url: { kind: "env-variable", source: { kind: "env", name: "DATABASE_URL" } } } }', ["openworkflow"]],

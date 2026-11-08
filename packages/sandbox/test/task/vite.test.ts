@@ -1570,7 +1570,7 @@ describe("hubSandboxTask", () => {
   it.each(["native", "Windows"])("reloads server environments that still import a previous runtime generation with %s realpath separators", async (separators) => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })

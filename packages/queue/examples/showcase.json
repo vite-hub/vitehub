@@ -9,14 +9,14 @@
       "id": "cloudflare",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  queue: {\n    provider: 'cloudflare',\n  },"
+      "configOverride": "  queue: {\n    driver: 'cloudflare',\n  },"
     },
     {
       "id": "vercel",
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
       "darkInvert": true,
-      "configOverride": "  queue: {\n    provider: 'vercel',\n    region: 'fra1',\n  },",
+      "configOverride": "  queue: {\n    driver: 'vercel',\n    region: 'fra1',\n  },",
       "envOverride": "QUEUE_REGION=fra1"
     }
   ],

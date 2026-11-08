@@ -52,7 +52,7 @@ async function tempDir(name: string) {
  */
 function app(options: { refs?: GitHubWorkspaceRefs, user?: OperationUser | null } = {}) {
   resetWorkspaceRegistry()
-  const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "content", ...(options.refs ? { refs: options.refs } : {}) }, "content")
+  const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "content", ...(options.refs ? { refs: options.refs } : {}) }, "content")
   const definition: WorkspaceDefinition = { name: "content", store }
   registerWorkspace("content", { store })
   const { history } = useWorkspace("content", { definition, mode: "write" })

@@ -13,6 +13,6 @@ export default defineConfig({
   },
   plugins: [hubWorkflow()],
   workflow: {
-    provider: "vercel",
+    driver: "vercel",
   },
 })

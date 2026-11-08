@@ -13,7 +13,7 @@ export default defineConfig({
     nitro(),
   ],
   queue: {
-    provider: "vercel",
+    driver: "vercel",
     region: "fra1",
   },
 })

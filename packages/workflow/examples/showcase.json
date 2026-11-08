@@ -9,20 +9,20 @@
       "id": "cloudflare",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  workflow: {\n    provider: 'cloudflare',\n  },"
+      "configOverride": "  workflow: {\n    driver: 'cloudflare',\n  },"
     },
     {
       "id": "vercel",
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
       "darkInvert": true,
-      "configOverride": "  workflow: {\n    provider: 'vercel',\n  },"
+      "configOverride": "  workflow: {\n    driver: 'vercel',\n  },"
     },
     {
       "id": "openworkflow",
       "label": "Docker/OpenWorkflow",
       "icon": "i-simple-icons-docker",
-      "configOverride": "  workflow: {\n    provider: 'openworkflow',\n    sqlite: {\n      path: '.vitehub/data/workflow.sqlite',\n    },\n  },"
+      "configOverride": "  workflow: {\n    driver: 'openworkflow',\n    sqlite: {\n      path: '.vitehub/data/workflow.sqlite',\n    },\n  },"
     }
   ],
   "frameworks": {
