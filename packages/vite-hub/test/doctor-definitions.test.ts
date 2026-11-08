@@ -185,9 +185,9 @@ describe("vitehub/no-destructure-non-tuples", () => {
         "export async function run(agent, options) {",
         '  const run = await runWorkflow("onboard", {})',
         '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
-        '  const [failure, text] = await runAgent(agent, { prompt: "hi" }, { output: "drained" })',
+        '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
         '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { run, error, answer, failure, text, unknown, value }",
+        "  return { run, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -359,9 +359,9 @@ describe("second review regressions", () => {
 })
 
 describe("pullfrog review regressions", () => {
-  it("accepts destructured Agent output from runAgent with a Runtime Context", async () => {
+  it("accepts the destructured runAgent tuple with a Runtime Context", async () => {
     expect(await codes(noDestructureNonTuples, {
-      "server/api/ask.post.ts": 'import { runAgent } from "vite-hub/agent"\nexport default defineEventHandler(async (event) => { const [first, second] = await runAgent(agent, ctx, { prompt: "hi" }); return { first, second } })\n',
+      "server/api/ask.post.ts": 'import { runAgent } from "vite-hub/agent"\nexport default defineEventHandler(async (event) => { const [error, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: ctx }); return { error, result } })\n',
     })).toEqual([])
   })
 

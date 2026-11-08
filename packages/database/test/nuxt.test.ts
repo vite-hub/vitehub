@@ -908,7 +908,7 @@ describe("Database Nuxt integration", () => {
         code: "DATABASE_MISSING_D1_RESOURCE",
         why: expect.stringContaining("`cloudflare.databaseName`"),
       })
-      expect(config.alias).not.toHaveProperty("@vite-hub/database/drizzle")
+      expect(config.alias).not.toHaveProperty("@vite-hub/database/runtime/registry")
       await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     }
     finally {
@@ -933,7 +933,7 @@ describe("Database Nuxt integration", () => {
         code: "DATABASE_MISSING_D1_RESOURCE",
         why: expect.stringContaining("`database.databaseName`"),
       })
-      expect(config.alias).not.toHaveProperty("@vite-hub/database/drizzle")
+      expect(config.alias).not.toHaveProperty("@vite-hub/database/runtime/registry")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -948,10 +948,10 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
       await hubDb({ driver: "d1" })(undefined, nuxt)
-      const config = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs" }, preset: "cloudflare_module" }
+      const config = { alias: { "@vite-hub/database/runtime/registry": "/custom/database.mjs" }, preset: "cloudflare_module" }
 
       await callHook(hooks, "nitro:config", config)
-      expect(config.alias["@vite-hub/database/drizzle"]).toBe("/custom/database.mjs")
+      expect(config.alias["@vite-hub/database/runtime/registry"]).toBe("/custom/database.mjs")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })

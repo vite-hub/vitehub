@@ -652,21 +652,24 @@ Select the Channel and its destination when the application starts the invocatio
 ```ts fragment
 import { runAgent } from 'vite-hub/agent'
 
-await runAgent(agent, {
-  runtime: 'vite',
-  waitUntil: schedule.waitUntil ?? (() => {}),
-  run: {
-    activity: {
-      links: [
-        { label: 'Session', url: sessionUrl },
-        { label: 'Memory', url: memoryUrl },
-      ],
-      target: { repository: 'acme/storefront', issue: 42 },
+const [error] = await runAgent(agent, { prompt: 'Converge this pull request.' }, {
+  runtimeContext: {
+    runtime: 'vite',
+    run: {
+      activity: {
+        links: [
+          { label: 'Session', url: sessionUrl },
+          { label: 'Memory', url: memoryUrl },
+        ],
+        target: { repository: 'acme/storefront', issue: 42 },
+      },
+      channelId: 'github',
+      runId: schedule.runId,
     },
-    channelId: 'github',
-    runId: schedule.runId,
   },
-}, { prompt: 'Converge this pull request.' }, { schedule, output: 'drained' })
+  schedule,
+})
+if (error) throw error
 ```
 
 The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.

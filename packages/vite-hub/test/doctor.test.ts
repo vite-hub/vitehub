@@ -364,7 +364,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
     })).toEqual(Array(4).fill("VHUB0003"))
   })
 
-  it("accepts runAgent with a Runtime Context, error-only patterns, and tuples passed on from helpers", async () => {
+  it("accepts error-only patterns and tuples passed on from helpers", async () => {
     expect(await codes(destructureResultTuples, {
       "server/utils/settings.ts": [
         'import { kv } from "vite-hub/kv"',
@@ -384,8 +384,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         '  return await kv.get("settings")',
         "}",
         "export async function ask(agent, ctx) {",
-        '  const answer = await runAgent(agent, ctx, { prompt: "hi" })',
-        "  return answer",
+        '  return await runAgent(agent, { prompt: "hi" }, { runtimeContext: ctx })',
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -398,7 +397,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
       "server/utils/dispatch.ts": [
         'import { kv } from "vite-hub/kv"',
         'import { blob } from "vite-hub/blob"',
-        'import { email } from "vite-hub/email/server"',
+        'import { email } from "vite-hub/email"',
         'import { runQueue, getQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
@@ -457,7 +456,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
     })).toEqual(["VHUB0003", "VHUB0003"])
     expect(await codes(destructureResultTuples, {
       "server/utils/learner-emails.ts": [
-        "import { email } from 'vite-hub/email/server'",
+        "import { email } from 'vite-hub/email'",
         "async function send(to: string, subject: string, html: string, idempotencyKey?: string) {",
         "  await email.send({ from: sender, to, subject, html, idempotencyKey })",
         "}",
