@@ -12,7 +12,7 @@ afterEach(() => {
 
 it("keeps production access and operation identity when runtime NODE_ENV says development", async () => {
   const handle = withConsoleAccess(async (_event, access) => ({ user: await readConsoleOperationUser(access) }), { anySection: true })
-  const event = () => (requestEvent(new Request("http://localhost/_vitehub/rpc/__call")))
+  const event = () => requestEvent(new Request("http://localhost/_vitehub/rpc/__call"), { remoteAddress: "127.0.0.1" })
   vi.stubEnv("NODE_ENV", "development")
   installConsoleDevelopment("/test/app", false)
   installConsoleAccess({ mode: "open" })
