@@ -50,7 +50,7 @@ export interface NewProjectOptionInput {
 
 /** How a feature shows on the page for the chosen host. */
 export type NewProjectFeatureState =
-  /** On in every app, such as Env. */
+  /** Always on in this new-project flow, such as Env and Console. */
   | { kind: "default" }
   | { kind: "off" }
   | { kind: "on" }
@@ -104,7 +104,6 @@ const optionRequires: Readonly<Record<string, { value: string, feature: FeatureI
 /** The options that `vitehub add` needs for a feature on a host, beyond the `explicit` option of the catalog. */
 function requiredInputs(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
   if (id === "blob" && host === "deno") return [{ feature: id, path: "blob.bucket", placeholder: "app-assets", detail: "The bucket in your S3-compatible store." }]
-  if (id === "console") return [{ feature: id, path: "console.auth", choices: ["token"], detail: "The hosted Console signs in with the key of the one-time link. App sign-in needs a session on the app's origin." }]
   if (id === "logs") return [{ feature: id, path: "logs.source", placeholder: "./server/logs.ts", detail: "The server module that exports your LogSource. Add this module before you build the app." }]
   if (id === "observability") return [{ feature: id, path: "observability.service", placeholder: packageNameOf(dir), detail: "The service name in the telemetry of the app." }]
   if (id === "schedule" && host === "node") return [{ feature: id, path: "schedule.runtime.driver", choices: ["process"], detail: "A Node server runs Schedules in its own process." }]
@@ -186,7 +185,7 @@ export function planNewProject(stack: NewProjectStack): NewProjectPlan {
     const definition = features[id]
     const support = host ? featureSupport(id, host) : undefined
     const by = implied.get(id)
-    const state: NewProjectFeatureState = definition.enabledByDefault
+    const state: NewProjectFeatureState = definition.enabledByDefault || id === "console"
       ? { kind: "default" }
       : on.includes(id) ? { kind: "on" } : by ? { kind: "implied", by } : { kind: "off" }
     return { id, title: definition.title, summary: definition.summary, state, ...(support ? { support } : {}) }
@@ -290,6 +289,7 @@ export function shellQuote(value: string): string {
 
 /**
  * The `vite-hub init` command for a stack, as groups of a flag and its value, or undefined while the plan has problems.
+ * Console with token auth is always enabled so every stack can complete its one-time link.
  * With a ticket it adds `--console <pendingId>:sha256:<verifier>`. The ticket holds no secret: the key stays in this
  * browser. The groups join with spaces into the command; the page wraps lines only between them.
  */
@@ -299,7 +299,8 @@ export function newProjectCommandParts(stack: NewProjectStack, ticket?: ConsoleP
   return [
     `pnpm dlx vite-hub init ${shellQuote(stack.dir)}`,
     `--host ${stack.host}`,
-    `--features ${stack.features.filter(id => !features[id].enabledByDefault).join(",") || "''"}`,
+    `--features ${["console", ...stack.features.filter(id => id !== "console" && !features[id].enabledByDefault)].join(",")}`,
+    "--option console.auth=token",
     ...plan.options.map(input => `--option ${shellQuote(`${input.path}=${stack.options[input.path]!.trim()}`)}`),
     // A value that starts with a dash would read as a flag, so it goes after `=`.
     ...(consoleValue ? [consoleValue.startsWith("-") ? `--console=${consoleValue}` : `--console ${consoleValue}`] : []),

@@ -6,7 +6,8 @@ import { transform } from "esbuild"
 import { expect, it, vi } from "vitest"
 
 import { getAgentLayerOptions, inheritAgentLayerOptions } from "../src/agent-layers.ts"
-import { agentWithSkills, codexDriver, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithSkills, codexDriver, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { hubAgent } from "../src/vite.ts"
 import { workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions } from "../src/workspace-agent.ts"
@@ -138,7 +139,7 @@ it("keeps generated colocated skills available to derived definitions", async ()
     const inheritedOnly = defineAgent({ extends: runnable })
     const discoveredInheritedOnly = decorate(inheritedOnly, "/child", undefined, undefined)
     decorate(runnable, "/parent", undefined, encodedSkills)
-    await runAgent(discoveredInheritedOnly as typeof inheritedOnly, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    await runAgentWithContext(discoveredInheritedOnly as typeof inheritedOnly, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
     expect(seen).toEqual([Reflect.get(runnable, colocatedAgentSkillsSymbol)])
     expect(seen[0]).toMatchObject({ review: { content: new TextEncoder().encode("Review.") } })
     const manual = agentWithSkills(defineAgent({ driver: { model }, workspace: {} }), { manual: "Manual.", review: "Manual review." })

@@ -76,7 +76,7 @@ function itemStatus(item: DropdownMenuItem): ConsoleProjectStatus {
 function forget(): void {
   const project = forgetting.value;
   forgetting.value = undefined;
-  if (project) forgetConsoleProject(project.id);
+  if (project) void forgetConsoleProject(project.id);
 }
 </script>
 
@@ -118,7 +118,7 @@ function forget(): void {
   >
     <template #body>
       <p class="text-pretty text-[13px] text-muted">
-        This browser removes the URL and the Console token of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}. The project does not change. To open it again, link it with its token.
+        This browser removes the URL and the tokens of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}, and signs out of it. The project does not change. To open it again, link it again.
       </p>
     </template>
     <template #footer>

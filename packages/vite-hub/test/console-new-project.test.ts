@@ -100,7 +100,7 @@ describe("planNewProject", () => {
   it("asks for the options that vitehub add requires beyond the catalog", () => {
     expect(planNewProject(stack({ host: "node", features: ["schedule"] })).options.map(input => input.path)).toEqual(["schedule.runtime.driver"])
     expect(planNewProject(stack({ host: "cloudflare", features: ["schedule"] })).options).toEqual([])
-    expect(planNewProject(stack({ host: "cloudflare", features: ["console"] })).options.map(input => input.path)).toEqual(["console.auth"])
+    expect(planNewProject(stack({ host: "cloudflare", features: ["console"] })).options).toEqual([])
     expect(planNewProject(stack({ host: "cloudflare", features: ["observability"] })).problems).toEqual([
       { field: "option", path: "observability.service", message: "Enter a value for observability.service." },
     ])
@@ -144,16 +144,15 @@ describe("planNewProject", () => {
     expect(plan.problems).toEqual([{ field: "option", path: "email.driver", message: "email.driver must be resend." }])
   })
 
-  it("offers only token auth and rejects app auth from a shared URL", () => {
+  it("keeps token auth fixed when an older shared URL specifies another mode", () => {
     for (const { id: host } of newProjectHosts) {
-      const value = stack({ host, features: ["console"], options: { "database.connection.url": "libsql://db.example.com" } })
-      expect(planNewProject(value).options.find(input => input.path === "console.auth")?.choices).toEqual(["token"])
-      expect(value.options["console.auth"]).toBe("token")
-      expect(planNewProject(value).problems).toEqual([])
-
-      const shared = readNewProjectQuery(`?host=${host}&features=console&option=console.auth%3Dapp`)
-      expect(planNewProject(shared).problems).toContainEqual({ field: "option", path: "console.auth", message: "console.auth must be token." })
-      expect(newProjectCommand(shared, ticket)).toBeUndefined()
+      for (const auth of ["app", "false"]) {
+        const shared = readNewProjectQuery(`?host=${host}&features=console&option=console.auth%3D${auth}`)
+        expect(planNewProject(shared).problems).toEqual([])
+        expect(newProjectCommand(shared, ticket)).toContain(" --option console.auth=token ")
+        expect(newProjectCommand(shared, ticket)).not.toContain(`console.auth=${auth}`)
+        expect(newProjectQuery(shared)).not.toContain("console.auth")
+      }
     }
   })
 
@@ -167,7 +166,7 @@ describe("planNewProject", () => {
   it("shows Env as on by default and never puts it in --features", () => {
     const plan = planNewProject(stack({ host: "node", features: ["env", "kv"] }))
     expect(plan.features.find(row => row.id === "env")!.state).toEqual({ kind: "default" })
-    expect(newProjectCommand(stack({ host: "node", features: ["env", "kv"] }))).toBe("pnpm dlx vite-hub init my-app --host node --features kv --yes")
+    expect(newProjectCommand(stack({ host: "node", features: ["env", "kv"] }))).toBe("pnpm dlx vite-hub init my-app --host node --features console,kv --option console.auth=token --yes")
   })
 })
 
@@ -223,20 +222,31 @@ describe("new project query", () => {
 })
 
 describe("newProjectCommand", () => {
+  it.each(newProjectHosts)("always enables token Console for empty and selected stacks on $id", ({ id: host }) => {
+    for (const selected of [[], ["kv"], ["console", "kv"]] satisfies NewProjectStack["features"][]) {
+      const value = stack({ host, features: selected })
+      const command = newProjectCommand(value, ticket)!
+      expect(command.match(/--features (\S+)/u)![1].split(",")).toContain("console")
+      expect(command).toContain(" --option console.auth=token ")
+      expect(command.match(/console.auth=/gu)).toHaveLength(1)
+      expect(planNewProject(value).features.find(row => row.id === "console")!.state).toEqual({ kind: "default" })
+    }
+  })
+
   it("prints the vite-hub init command with the Console link", () => {
     const value = stack({ host: "cloudflare", features: ["kv", "queue"] })
-    expect(newProjectCommand(value, ticket)).toBe(`pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --console Q2xp_bk-9wAa3xYz:sha256:${"a".repeat(64)} --yes`)
+    expect(newProjectCommand(value, ticket)).toBe(`pnpm dlx vite-hub init my-app --host cloudflare --features console,kv,queue --option console.auth=token --console Q2xp_bk-9wAa3xYz:sha256:${"a".repeat(64)} --yes`)
   })
 
   it("prints each option as --option feature.key=value, quoted for the shell", () => {
     const value = stack({ host: "deno", features: ["comments", "email"], options: { "database.connection.url": "libsql://db.example.com/x?a=b&c='d'", "email.driver": "resend" } })
     expect(newProjectCommand(value)).toBe(
-      `pnpm dlx vite-hub init my-app --host deno --features comments,email --option 'database.connection.url=libsql://db.example.com/x?a=b&c='\\''d'\\''' --option email.driver=resend --yes`,
+      `pnpm dlx vite-hub init my-app --host deno --features console,comments,email --option console.auth=token --option 'database.connection.url=libsql://db.example.com/x?a=b&c='\\''d'\\''' --option email.driver=resend --yes`,
     )
   })
 
-  it("prints an empty feature list as an empty argument", () => {
-    expect(newProjectCommand(stack({ host: "node" }))).toBe("pnpm dlx vite-hub init my-app --host node --features '' --yes")
+  it("keeps Console enabled when no optional feature is selected", () => {
+    expect(newProjectCommand(stack({ host: "node" }))).toBe("pnpm dlx vite-hub init my-app --host node --features console --option console.auth=token --yes")
   })
 
   it("puts a link id that starts with a dash after =, so it does not read as a flag", () => {
