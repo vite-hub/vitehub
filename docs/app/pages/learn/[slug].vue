@@ -166,7 +166,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
             <TutorialWorkspace v-model:selected="selected" :tutorial="tutorial" :step="step" :actions="actions" />
           </div>
           <div v-else class="vh-run-open">
-            <p class="text-sm text-muted">Edit and run the code of each step in your browser. The first start installs the app, which takes a few minutes.</p>
+            <p class="text-sm text-muted">Edit and run the code of each step in your browser.{{ tutorial.snapshot ? "" : " The first start installs the app, which takes a few minutes." }}</p>
             <UButton class="mt-3" color="neutral" icon="i-lucide-play" label="Open workspace" @click="opened = true" />
           </div>
         </div>

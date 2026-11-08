@@ -260,7 +260,9 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
 
   function touching(target: CommentsDatabase, id: string, now: number, values: Partial<typeof threads.$inferInsert> = {}, only?: SQL) {
     // Each mutation needs a newer snapshot even when the clock has not advanced.
-    return target.update(threads).set({ ...values, updatedAt: sql`case when ${threads.updatedAt} >= ${now} then ${threads.updatedAt} + 1 else ${now} end` }).where(and(eq(threads.id, id), only))
+    const updatedAt = sql`case when ${threads.updatedAt} >= ${now} then ${threads.updatedAt} + 1 else ${now} end`
+    // A resolution uses the same timestamp so it acknowledges every earlier reply.
+    return target.update(threads).set({ ...values, updatedAt, ...(values.status === "resolved" ? { resolvedAt: updatedAt } : {}) }).where(and(eq(threads.id, id), only))
   }
 
   function messageRow(threadId: string, input: NewMessage): typeof messages.$inferInsert {
@@ -394,8 +396,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         target.insert(messages).select(sql`select
           ${input.id}, ${threadId}, ${input.body}, ${input.author.id}, ${input.author.name ?? null}, ${input.author.image ?? null},
           ${input.actor ? JSON.stringify(input.actor) : null}, ${JSON.stringify(input.mentions)}, ${JSON.stringify(input.attachments)},
-          (select case when max(${messages.createdAt}) >= ${input.now} then max(${messages.createdAt}) + 1 else ${input.now} end
-            from ${messages} where ${messages.threadId} = ${threadId}), null
+          ${threads.updatedAt}, null
           from ${threads} where ${threads.id} = ${threadId}${allowResolved ? sql`` : sql` and ${threads.status} = 'open'`}`),
       ])
       const after = await one(threadId)
@@ -434,7 +435,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     async setStatus(threadId, status, by, now) {
       await one(threadId)
       await touching(db, threadId, now, status === "resolved"
-        ? { resolvedAt: now, resolvedBy: JSON.stringify(by), status }
+        ? { resolvedBy: JSON.stringify(by), status }
         : { resolvedAt: null, resolvedBy: null, status })
       return one(threadId)
     },

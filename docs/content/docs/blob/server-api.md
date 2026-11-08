@@ -69,11 +69,35 @@ import { blob } from '@vite-hub/blob'
 export const reports = blob.store('reports')
 ```
 
+### Read-only handles
+
+Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, so calling them is a type error, and they are absent at runtime. The Default Blob Store is `blob.store('default', { mode: 'read' })`.
+
+```ts [server/api/reports/[...path].get.ts]
+import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { blob } from '@vite-hub/blob'
+
+const reports = blob.store('reports', { mode: 'read' })
+
+export default defineEventHandler(async (event) => {
+  const [error, file] = await reports.get(getRouterParam(event, 'path')!)
+  if (error) throw error
+  // reports.put() is a type error.
+  return file ?? createError({ statusCode: 404 })
+})
+```
+
+`mode` defaults to `'write'`. Another value throws `BLOB_R0038`. `sign()` with `method: 'PUT'` throws `BLOB_R0037`.
+
+The mode limits this API, not the host. The R2 binding, the Vercel token, and other provider credentials keep full access, and the full `blob` export stays importable. It is not a security boundary against code that reads the binding or imports `blob` directly. Use it to show intent and to keep write calls out of code that only reads.
+
+`media.get()` builds and stores a missing media record, and `serve()` with a `transform` or `variant` stores cached variants. These writes go under the reserved `_vitehub/` prefix and never change your objects.
+
 ## Runtime helper
 
 `blob` implements `BlobStorage`.
 
-Every async method returns `[error, value]`. Expected provider and storage failures are `ViteHubError` values with `BLOB_*` codes, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()` and pass its error to H3.
+Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefined]` on failure, `[undefined, value]` on success. Expected provider and storage failures are errors with a `BLOB_*` code, `why`, `fix`, and `docs`, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Read [Blob limits and errors](/docs/blob/limits-and-errors) for each code. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()`, answer `BLOB_NOT_FOUND` with `404`, and throw other errors to the host.
 
 | Method | Description |
 | --- | --- |
@@ -83,14 +107,14 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
-| `blob.serve(event, pathname, options?)` | Serves an object stream through an H3 event, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
+| `blob.serve(event, pathname, options?)` | Serves an object stream through a request event or a Fetchable `Request`, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
-| `blob.store(name)` | Selects a named Blob Store. |
+| `blob.store(name, options?)` | Selects a named Blob Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so a route that lets it through answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so a route that lets it through answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
 
@@ -100,7 +124,7 @@ With a partial prefix such as `docs/re`, a native page can be empty while `hasMo
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts Nuxt H3 v1 and Nitro H3 v2 events, sets content headers, and handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub app, and the `Request` of a Fetchable route. It reads the request from `event['~standard'].req`, writes the status and content headers to `event['~standard'].res`, and handles conditional GET and HEAD requests. A Fetchable route must move that status and those headers to the `Response` that it returns: copy them, then delete them from `res.headers`, so Nitro does not add them a second time. The generated serve route does this for you. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` sets more response headers. When it does not serve the object, `serve()` removes these headers and restores any values the response had before the call.
 
 `blob.serve()` also answers byte-range requests, so a `<video>` or `<audio>` element can seek, and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`. A GET or HEAD request with one `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` gets `206` with `Content-Range` and only those bytes. A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body. Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file. Transformed responses ignore `Range`.
 
@@ -284,7 +308,11 @@ if (completeError) throw completeError
 | `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing; Vercel discards unfinished uploads. |
 
 The framework-neutral client is `@vite-hub/blob/client`, with `uploadFiles()`
-and `createMultipartUploader()`. The Vue composables use it.
+and `createMultipartUploader()`. The Vue composables use it. Pass `onProgress` to
+`uploadFiles()` to hear the upload progress from 0 to 100; the files then go through
+XMLHttpRequest, since `fetch` can't report it. For a cross-origin upload route,
+the server must also answer CORS preflight (`OPTIONS`) requests: listening for
+upload progress makes the browser preflight even a simple multipart POST.
 
 ## Signed requests
 

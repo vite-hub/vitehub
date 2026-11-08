@@ -1,6 +1,6 @@
 import { createRuntimeContext } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent, runAgent, workflow } from "../src/index.ts"
+import { defineAgent, runAgent, startAgentInvocation, streamAgent, workflow } from "../src/index.ts"
 
 function deferred() {
   let resolve!: () => void
@@ -187,6 +187,32 @@ describe("standalone Agent invocations", () => {
     const runtime = { runtime: "unknown", waitUntil: vi.fn() } as const
     await expect(runAgent(agent, runtime, {})).resolves.toBe(true)
     await expect(runAgent(agent, runtime, {})).resolves.toBe(true)
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(runtime).not.toHaveProperty("memo")
+  })
+
+  it("creates a memo cache for streamAgent() and startAgentInvocation() when the Runtime Context has none", async () => {
+    const create = vi.fn(() => ({}))
+    const cached = (context: { memo: <T>(key: string, create: () => T) => T }) => context.memo("value", create) === context.memo("value", create) ? "cached" : "missed"
+    const agent = defineAgent({ driver: { run: cached }, runtime: false })
+    const streaming = defineAgent({
+      driver: { run: context => (async function* () { yield cached(context) })() },
+      runtime: false,
+    })
+    const runtime = { runtime: "unknown", waitUntil: vi.fn() } as const
+
+    const stream = await streamAgent(streaming, runtime, {})
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+    expect(JSON.stringify(events)).toContain("cached")
+
+    const controller = await startAgentInvocation(agent, runtime, {})
+    await vi.waitFor(async () => {
+      await expect(controller.inspect()).resolves.toEqual({
+        invocation: { id: controller.id, output: "cached", status: "completed" },
+        outcome: "available",
+      })
+    })
     expect(create).toHaveBeenCalledTimes(2)
     expect(runtime).not.toHaveProperty("memo")
   })

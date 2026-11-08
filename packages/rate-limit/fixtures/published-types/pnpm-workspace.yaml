@@ -1,0 +1,3 @@
+overrides:
+  "@vite-hub/rate-limit": "file:./vite-hub-rate-limit-0.0.1.tgz"
+  "@vite-hub/runtime": "file:./vite-hub-runtime-0.0.1.tgz"

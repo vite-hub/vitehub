@@ -1,8 +1,10 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -21,6 +23,11 @@ describe("documentation snippet check", () => {
       "export default 1",
       "```",
       "",
+      "```ts",
+      "// server/queues/jobs.cts",
+      "export default 1",
+      "```",
+      "",
       "```sh",
       "pnpm vitehub types prepare",
       "```",
@@ -30,8 +37,32 @@ describe("documentation snippet check", () => {
       { code: "export default 1", fragment: false, label: "server/routes/[id].get.ts" },
       { code: "tools: {}", fragment: true, label: "server/agents/support.ts" },
       { code: "// src/welcome-email.queue.ts\nexport default 1", fragment: false, label: "src/welcome-email.queue.ts" },
+      { code: "// server/queues/jobs.cts\nexport default 1", fragment: false, label: "server/queues/jobs.cts" },
     ])
   })
+
+  it("preserves CTS paths and resolves relative imports from README labels", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-snippets-"))
+    try {
+      const file = join(directory, "README.md")
+      writeFileSync(file, [
+        "```ts",
+        "// server/queues/jobs.cts",
+        "export const name = 'jobs'",
+        "```",
+        "```ts [server/consumer.ts]",
+        "import { name } from './queues/jobs.cts'",
+        "export const queue: string = name",
+        "```",
+      ].join("\n"))
+      const snippets = collectSnippets([{ file, root: join(repoRoot, "docs") }])
+      expect(snippets[0].file).toBe(join(snippets[0].pageRoot, "server/queues/jobs.cts"))
+      expect(checkSnippets(snippets).failures).toEqual([])
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   const knownFailure = {
     snippet: { page: "test-page.md", code: "export const value: number = dependency.value", label: "server/value.ts" },
@@ -59,6 +90,43 @@ describe("documentation snippet check", () => {
   it("reports a listed block that now passes", () => {
     const expected = baselineEntry(knownFailure)
     expect(compareBaseline([], [expected])).toEqual({ fresh: [], stale: [expected] })
+  })
+
+  describe("baseline updates", () => {
+    let directory: string
+    let path: string
+    const original = `${JSON.stringify([baselineEntry(knownFailure)], null, 2)}\n`
+
+    beforeEach(() => {
+      directory = mkdtempSync(join(tmpdir(), "vitehub-snippet-baseline-"))
+      path = join(directory, "baseline.json")
+      writeFileSync(path, original)
+    })
+
+    afterEach(() => rmSync(directory, { recursive: true, force: true }))
+
+    it("removes fixed failures while preserving known failures", () => {
+      expect(updateBaseline([knownFailure], path)).toBe(true)
+      expect(readFileSync(path, "utf8")).toBe(original)
+      expect(updateBaseline([], path)).toBe(true)
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual([])
+    })
+
+    it.each([
+      ["new block", { ...knownFailure, snippet: { ...knownFailure.snippet, page: "new-page.md" } }],
+      ["edited block", { ...knownFailure, snippet: { ...knownFailure.snippet, code: "export const value = missing" } }],
+      ["changed label", { ...knownFailure, snippet: { ...knownFailure.snippet, label: "other.ts" } }],
+      ["changed diagnostics", { ...knownFailure, diagnostics: knownFailure.diagnostics.slice(1) }],
+    ])("rejects a %s without changing the baseline", (_name, current) => {
+      expect(updateBaseline([current], path)).toBe(false)
+      expect(readFileSync(path, "utf8")).toBe(original)
+    })
+
+    it("cannot admit a failure when the baseline is absent", () => {
+      rmSync(path)
+      expect(updateBaseline([knownFailure], path)).toBe(false)
+      expect(() => readFileSync(path)).toThrow()
+    })
   })
 
   it("compares complete diagnostic messages without checkout-specific paths", () => {
@@ -182,7 +250,31 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"githubToken": import("@vite-hub/env/secret").SecretEnv<string>')
   })
 
-  it.each(["ts", "mts", "tsx"])("types the Definition names of a page from %s files", async (extension) => {
+  it("checks Vite import.meta.glob calls against the app's ambient types", () => {
+    const page = join(repoRoot, "docs/.snippets/vite-glob")
+    const snippet = (label: string, code: string) => ({ code, file: join(page, label), label, line: 1, page: "vite-glob.md" })
+    const { failures } = checkSnippets([
+      snippet("valid.ts", "const files = import.meta.glob<string>('./skills/**', { query: '?raw', import: 'default', eager: true })\nexport const content: string = Object.values(files)[0]"),
+      snippet("invalid.ts", "import.meta.glob(123)"),
+    ])
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["invalid.ts", [2769]],
+    ])
+  }, 60_000)
+
+  it("includes the app's Standard Context types for H3 handlers", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/standard-context-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "standard-context-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet("valid.ts", "import { defineEventHandler } from 'h3'\nimport { requireRateLimit } from 'vite-hub/rate-limit'\nexport default defineEventHandler(event => requireRateLimit(event, 'upload', { limit: 10, window: '1m' }))"),
+      snippet("invalid.ts", "import { requireRateLimit } from 'vite-hub/rate-limit'\nrequireRateLimit({}, 'upload', { limit: 10, window: '1m' })"),
+    ])
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["invalid.ts", [2345]],
+    ])
+  }, 60_000)
+
+  it.each(["ts", "mts", "cts", "tsx"])("types the Definition names of a page from %s files", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
     const snippets = [
@@ -210,20 +302,32 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
       `server/${directory}/email.${kind}.ts`,
       `src/typed.${kind}.ts`,
       `src/module.${kind}.mts`,
+      `src/commonjs.${kind}.cts`,
       `src/unsupported.${kind}.tsx`,
-    ].map(label => ({ code: "export default { connectors: { log: { send: () => ({ id: 'sent' }) } } }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "definition-paths.md", pageRoot }))
+    ].map(label => ({ code: "export default { adapter: { kind: 'log', send: () => ({ id: 'sent' }) } }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "definition-paths.md", pageRoot }))
     const declarations = await generatedDeclarations(snippets)
     expect(declarations).toHaveLength(1)
-    expect([...declarations[0].code.matchAll(/^    ("[^"]+"): /gm)].map(match => JSON.parse(match[1]))).toEqual([serverName, "typed", "module"])
+    const serverNames = kind === "queue" ? [serverName, "server/queues/email"] : [serverName]
+    expect([...declarations[0].code.matchAll(/^    ("[^"]+"): /gm)].map(match => JSON.parse(match[1]))).toEqual([...serverNames, "typed", "module", "commonjs"])
   })
 
-  it("uses Collection file paths and only registers the matching route-enabled export", async () => {
+  it.each(["ts", "mts", "cts"])("excludes %s declaration files from Definition registries", async (extension) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/declaration-files")
+    const snippets = ["queues", "browsers", "channels", "connections", "collections"].map(directory => `server/${directory}/email.d.${extension}`)
+    snippets.push(`src/email.queue.d.${extension}`, `src/email.database.d.${extension}`)
+    const declarations = await generatedDeclarations(snippets.map(label => ({
+      code: "export default {}", file: join(pageRoot, label), fragment: false, label, line: 1, page: "declaration-files.md", pageRoot,
+    })))
+    expect(declarations).toEqual([])
+  })
+
+  it.each(["ts", "mts", "cts"])("uses %s Collection file paths and only registers the matching route-enabled export", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/collection-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "collection-page.md", pageRoot })
     const collection = "defineCollection({ source: array([{ id: 'intro', title: 'Introduction' }]) })"
     const imports = "import { array, defineCollection } from 'vite-hub/source'\n"
     const snippets = [
-      snippet("server/collections/docs/guides.ts", `${imports}const local = ${collection}\nexport { local as guides }\nexport const unrelated = ${collection}`),
+      snippet(`server/collections/docs/guides.${extension}`, `${imports}const local = ${collection}\nexport { local as guides }\nexport const unrelated = ${collection}`),
       snippet("server/collections/hidden.ts", `${imports}export const hidden = defineCollection({ source: array([]), route: false })`),
       snippet("server/collections/aliased.ts", "import { array, defineCollection as make } from 'vite-hub/source'\nexport const aliased = make({ source: array([]), route: false })"),
       snippet("server/collections/namespaced.ts", "import * as source from 'vite-hub/source'\nconst options = { source: source.array([]), route: false as const }\nexport const namespaced = source.defineCollection(options)"),
@@ -253,7 +357,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-page.md", pageRoot })
     const snippets = [
       snippet("server/channels/inbox.ts", "import { defineChannel } from 'vite-hub/agent/channels'\nexport default defineChannel('inbox', { messages: false, triggers: {} })"),
-      snippet("server/channels/alerts.ts", "import { defineOutboundChannel } from 'vite-hub/channels'\nexport default defineOutboundChannel({ connectors: { log: { send: (text: string) => ({ id: text }) } } })"),
+      snippet("server/channels/alerts.ts", "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"),
       snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('alerts')"),
       snippet("inbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),
     ]
@@ -263,22 +367,25 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ])
   }, 60_000)
 
-  it("excludes helpers inside indexed Channel folders", async () => {
+  it.each(["ts", "cts"])("excludes helpers inside indexed Channel folders with %s indexes", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/channel-folder-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-folder-page.md", pageRoot })
-    const channel = "import { defineOutboundChannel } from 'vite-hub/channels'\nexport default defineOutboundChannel({ connectors: { log: { send: (text: string) => ({ id: text }) } } })"
+    const channel = "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"
     const snippets = [
-      snippet("server/channels/teams/config.ts", "import channel from './index'\nexport default channel"),
+      snippet("server/channels/teams/config.ts", `import channel from './index.${extension}'\nexport default channel`),
       snippet("server/channels/teams/connectors.ts", channel),
-      snippet("server/channels/teams/index.ts", channel),
+      snippet(`server/channels/teams/index.${extension}`, channel),
+      snippet(`server/channels/teams/slack/index.${extension}`, channel),
       snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('teams')"),
       snippet("opaque-helper.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('teams/config')"),
       snippet("outbound-helper.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('teams/connectors')"),
+      snippet("nested-index.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('teams/slack')"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["opaque-helper.ts", [2769]],
       ["outbound-helper.ts", [2769]],
+      ["nested-index.ts", [2769]],
     ])
   }, 60_000)
 
@@ -299,6 +406,37 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
       ["wrong-sqlite.ts", [2339]],
     ])
   }, 60_000)
+
+  it.each([
+    ["server/databases/config.cts", "default"],
+    ["server/databases/analytics/config.cts", "analytics"],
+    ["src/database.ts", "default"],
+    ["src/analytics.database.cts", "analytics"],
+    ["analytics.database.cts", "analytics"],
+  ])("types the Database name and schema from %s", async (label, name) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/database-cts-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "database-cts-page.md", pageRoot })
+    const consumer = `import { useDatabase } from 'vite-hub/database/drizzle'\nconst { db, schema } = useDatabase('${name}')\n`
+    const snippets = [
+      snippet(label, `import { defineDatabase } from 'vite-hub/database'\nimport { sqliteTable, text } from 'drizzle-orm/sqlite-core'\nconst notes = sqliteTable('notes', { title: text('title').notNull() })\nexport default defineDatabase({ name: '${name}', schema: { notes } })`),
+      snippet("valid.ts", `${consumer}db.insert(schema.notes).values({ title: 'Introduction' })`),
+      snippet("wrong-name.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('unknown')"),
+      snippet("wrong-payload.ts", `${consumer}db.insert(schema.notes).values({ title: 123 })`),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["wrong-name.ts", [2345]],
+      ["wrong-payload.ts", [2769]],
+    ])
+  }, 60_000)
+
+  it.each(["mts", "cts"])("does not register src/database.%s as a default Database", async (extension) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/unsupported-default-database")
+    const label = `src/database.${extension}`
+    expect(await generatedDeclarations([{
+      code: "export default { schema: {} }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "unsupported-default-database.md", pageRoot,
+    }])).toEqual([])
+  })
 
   it("checks the Workflow README steps against generated declarations", async () => {
     const root = join(repoRoot, "packages/workflow")
