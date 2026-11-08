@@ -41,7 +41,7 @@ describe("shared Console navigation layout", () => {
   it("shows appearance and sign-out inside one avatar menu", () => {
     const rail = component("console-rail")
     expect(rail).toContain("inject(consoleAppearanceKey, undefined)")
-    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu[\s\S]*?v-if="appearance \|\| signedIn"[\s\S]*?<UAvatar/)
+    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu[\s\S]*?v-if="appearance \|\| signedIn \|\| tokenSignedIn"[\s\S]*?<UAvatar/)
     expect(rail).toMatch(/type: "checkbox",[\s\S]*?checked: appearance\?\.preference\.value === option/)
     expect(rail).toContain('label: signOutFailed.value ? "Retry sign out" : "Sign out"')
     expect(rail).toContain("userIdentity.value")

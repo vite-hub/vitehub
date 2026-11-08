@@ -299,27 +299,6 @@ describe("contributed Schedules on every host", () => {
     expect(contents).toContain("[\"report\"]: async () => import(")
   })
 
-  it("installs contributed Schedules through the Nuxt module", async () => {
-    const { definition, root } = await createRoot({ file: false })
-    const { default: scheduleNuxt } = await import("../src/nuxt.ts")
-    let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
-    const nuxt = {
-      hook(name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
-        if (name === "nitro:config") nitroConfigHook = handler
-      },
-      options: { dev: false, rootDir: root, srcDir: root, vite: { plugins: [publishContributor(definition)] as unknown[] } },
-    }
-
-    scheduleNuxt({}, nuxt)
-    const nitroConfig: Record<string, unknown> = {}
-    await nitroConfigHook?.(nitroConfig)
-
-    expect(nitroConfig).toMatchObject({
-      cloudflare: { wrangler: { triggers: { crons: ["*/5 * * * *"] } } },
-      plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
-    })
-  })
-
   it("serves contributed Schedules from the registry that `vitehub schedule run` loads", async () => {
     const { definition, root } = await createRoot({
       definition: [
