@@ -11,6 +11,7 @@
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/rate-limit/vite.config.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/workspace/vite.config.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/browser/vite.config.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "server/routes/videos/[file].ts", "fixture": "cloudflare/server/routes/videos/[file].ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/vercel.md", "label": "vite.config.ts", "fixture": "vercel/vite.config.ts", "verification": "build" },
   { "page": "frameworks-hosts/vercel.md", "label": "server/databases/config.ts", "fixture": "vercel/server/databases/config.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/vercel.md", "label": "vite.config.ts", "fixture": "vercel/database/vite.config.ts", "verification": "typecheck" },

@@ -19,7 +19,7 @@ function normalize(source: string) {
 }
 
 function sourceBlocks(source: string) {
-  return [...normalize(source).matchAll(/```(ts|json) \[([^\]]+)\][^\n]*\n([\s\S]*?)\n```/g)].map(match => ({
+  return [...normalize(source).matchAll(/```(ts|json) \[(.+)\][^\n]*\n([\s\S]*?)\n```/g)].map(match => ({
     label: match[2]!,
     source: normalize(match[3]!),
   }))
@@ -30,9 +30,9 @@ async function readContracts() {
 }
 
 describe("launch-critical documentation snippets", () => {
-  it("reads source blocks from CRLF pages", () => {
-    expect(sourceBlocks("```ts [vite.config.ts]\r\nexport default {}\r\n```\r\n")).toEqual([
-      { label: "vite.config.ts", source: "export default {}" },
+  it.each(["vite.config.ts", "server/routes/videos/[file].ts"])("reads %s source blocks from CRLF pages", (label) => {
+    expect(sourceBlocks(`\`\`\`ts [${label}]\r\nexport default {}\r\n\`\`\`\r\n`)).toEqual([
+      { label, source: "export default {}" },
     ])
   })
 
@@ -40,7 +40,7 @@ describe("launch-critical documentation snippets", () => {
     const contracts = await readContracts()
     const pages = [...new Set(contracts.map(contract => contract.page))]
 
-    expect(contracts).toHaveLength(21)
+    expect(contracts).toHaveLength(22)
 
     for (const page of pages) {
       const blocks = sourceBlocks(await readFile(resolve(docsRoot, "content/docs", page), "utf8"))

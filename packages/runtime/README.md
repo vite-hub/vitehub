@@ -219,7 +219,7 @@ message, or Workflow step. It returns `[error, binding]`:
 Run `wrangler types` to type the binding from `Cloudflare.Env`. Without it, the
 binding is `unknown`.
 
-```ts
+```ts fragment
 import { getHostBinding } from "vite-hub/runtime"
 
 const [error, email] = getHostBinding("REVIEW_EMAIL", event)

@@ -229,7 +229,9 @@ Range request on an R2 bucket or a `send_email` binding, read the raw binding wi
 `vite-hub/runtime`. Declare the binding in the project `wrangler.json`, and run `wrangler types` so that the result
 has the type of the binding.
 
-```ts [server/routes/videos/[file].ts]
+This route uses the `VIDEOS` R2 binding and the generated `Cloudflare.Env` types.
+
+```ts [server/routes/videos/[file].ts] fragment
 import { defineEventHandler, getRouterParam } from "h3";
 import { getHostBinding } from "vite-hub/runtime";
 
