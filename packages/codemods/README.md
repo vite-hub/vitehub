@@ -35,6 +35,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
+| `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 
 ## `nuxt-safe-runtime-config`
 
@@ -72,6 +73,14 @@ The migration copies the schema's value shape. Parser behavior needs manual revi
 The codemod rewrites `emails.send()` on `useResend()` clients of `nuxt-resend` and on `new Resend()` clients in server code to `email.send()` from `vite-hub/email/server`. It renames `reply_to` to `replyTo` and turns `const { data, error } = await ...send()` into `const [error, data] = await email.send()`. It replaces `nuxt-resend` with `vite-hub/nuxt` and sets `vitehub.email` to the Resend driver. The API key is Secret Env read from `NUXT_RESEND_API_KEY`, or from the variables that `runtimeConfig.resend.apiKey` and `new Resend()` read.
 
 Code that checks `runtimeConfig.resend.apiKey` keeps working: the codemod preserves existing runtime config and declares the module's key when it removes `nuxt-resend`, even when it cannot detect readers. Dynamic runtime config needs a manual declaration. Credential inference follows global Env reads and proven runtime-config bindings; unknown sources need manual migration. `nuxt-resend` stays while a `useResend()` call is left that the codemod does not rewrite, such as a class field, and the `resend` package stays while code uses `batch`, contacts, audiences, or CommonJS imports. The report lists literal or dynamic API keys to move to Env, clients with different credential sources, `react` payloads, fields outside the portable Email message, and results that code reads in another shape. All migrated sends share one Email credential. Check that the sources refer to the same account; keep clients with different credentials on the SDK or configure them separately by hand. In `vite dev`, Email keeps messages in the development outbox unless `vitehub.email.remote` is `true`.
+
+## `nuxt-cron`
+
+The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `server/schedules/<name>.ts` as a `defineSchedule()` Definition, and drops a `.cron` suffix from the name. Presets such as `daily` become five-field cron strings, and functions that return a literal cron keep it. On Node, it sets `vitehub.schedule.runtime.driver` to `process`, so the Process Runtime runs the jobs in the server process as `nuxt-cron` did, and `timeZone` stays. On other hosts, it sets `vitehub.schedule: true`: the host runs each Schedule from its own cron in UTC, and the codemod drops `timeZone` and reports it.
+
+Jobs with six-field crons, computed times or time zones, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. A computed module time zone keeps each job that does not override it with a literal. The report also lists `runOnInit`, which Schedule does not have.
+
+Jobs that map to the same Schedule name all stay unchanged, including names from existing files with another source extension or an `index` file. Configuration and module options must be object literals with explicit, unique property names. Opaque option objects, spreads, dynamic keys, or accessors stop the migration without edits; jobs with such options stay with `nuxt-cron`. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective host or jobs directory is computed, or the host is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
 
 ## Check real apps
 

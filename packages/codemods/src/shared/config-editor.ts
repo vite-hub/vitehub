@@ -2,7 +2,7 @@ import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, l
 import MagicString from "magic-string"
 
 import { CodemodError } from "../types.ts"
-import { findModuleEntry, literalValue, nitroPreset } from "./nuxt-config.ts"
+import { findModuleEntry, literalValue, nitroPreset, staticOptionsObject, unwrapExpression } from "./nuxt-config.ts"
 
 import type { ObjectExpression, ObjectProperty, Statement } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -110,7 +110,7 @@ export class ConfigEditor {
     const kept = object.properties.filter(property => !removedProperties.has(property))
     const last = kept.at(-1)
     const closing = end(object) - 1
-    // A one-line object such as `{ preset: 'node' }` goes on several lines, so the new entries can span lines.
+    // A one-line object such as `{ host: 'node' }` goes on several lines, so the new entries can span lines.
     if (last && kept.length === object.properties.length && !this.code.slice(start(object), end(object)).includes("\n")) {
       const indent = this.propertyIndent(object)
       this.output.overwrite(start(object) + 1, start(kept[0]!), `\n${indent}`)
@@ -219,23 +219,34 @@ export function findViteHubEntry(config: NuxtConfigFile): Node | undefined {
   const viteHubImports = new Set(config.program.program.body.flatMap(statement => statement.type === "ImportDeclaration" && statement.source.value === vitehubModule
     ? statement.specifiers.map(specifier => specifier.local.name)
     : []))
-  return modules?.elements.find((element) => {
-    if (!element) return false
-    const head = element.type === "ArrayExpression" ? element.elements[0] : element
-    if (!head) return false
-    return literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))
-  }) ?? undefined
+  for (const element of modules?.elements ?? []) {
+    if (!element) continue
+    const entry = unwrapExpression(element)
+    const first = entry.type === "ArrayExpression" ? entry.elements[0] : entry
+    if (!first) continue
+    const head = unwrapExpression(first)
+    if (literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))) return entry
+  }
+  return undefined
 }
 
 export function objectPropertyArray(object: ObjectExpression, name: string) {
   const property = findProperty(object, name)
-  return property?.value.type === "ArrayExpression" ? property.value : undefined
+  const value = property ? unwrapExpression(property.value) : undefined
+  return value?.type === "ArrayExpression" ? value : undefined
 }
 
-export function hasInlineHost(entry: Node | undefined): boolean {
-  if (entry?.type !== "ArrayExpression") return false
-  const options = entry.elements[1]
-  return options?.type === "ObjectExpression" && Boolean(findProperty(options, "host"))
+/** Reads an explicit ViteHub option. Rejects opaque objects; inline options take precedence over `vitehub`. */
+export function findViteHubOption(config: NuxtConfigFile, name: string): ObjectProperty | undefined {
+  const entry = findViteHubEntry(config)
+  const inline = entry?.type === "ArrayExpression" ? entry.elements[1] : undefined
+  const inlineOptions = inline ? staticOptionsObject(inline) : undefined
+  if (inline && !inlineOptions) throw new CodemodError(`${config.fileName} sets inline vite-hub/nuxt options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  const existing = findProperty(config.root, "vitehub")
+  const rootOptions = existing ? staticOptionsObject(existing.value) : undefined
+  if (existing && !rootOptions) throw new CodemodError(`${config.fileName} sets vitehub options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  return (inlineOptions ? findProperty(inlineOptions, name) : undefined)
+    ?? (rootOptions ? findProperty(rootOptions, name) : undefined)
 }
 
 /** Returns the line of the property at `path` from the config root in `code`, or of its nearest parent. */
@@ -326,6 +337,34 @@ export interface ViteHubOptionsResult {
   hostNote?: string
 }
 
+/** The ViteHub host an app builds for, and the host that `addViteHubOptions()` adds when the app sets none. */
+export interface HostPlan {
+  /** The host the app will build for, when the codemod can tell. */
+  host?: string
+  /** The host to add under `vitehub`. */
+  add?: string
+  note?: string
+}
+
+export function planHost(config: NuxtConfigFile): HostPlan {
+  const existingHost = findViteHubOption(config, "host")
+  if (existingHost) {
+    const value = literalValue(existingHost.value)
+    return { host: typeof value === "string" ? value : undefined }
+  }
+  const preset = nitroPreset(config)
+  if (preset.property && preset.value === undefined) {
+    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.host, then run the codemod again.`)
+  }
+  if (preset.value) {
+    const mapped = nitroPresetHosts[preset.value.trim().toLowerCase().replaceAll("_", "-")]
+    return mapped
+      ? { host: mapped, add: mapped }
+      : { note: `nitro.preset "${preset.value}" has no ViteHub host. Set vitehub.host to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
+  }
+  return { host: "node", add: "node", note: `ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.` }
+}
+
 /**
  * Adds `options` under `vitehub`, and a host when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
@@ -334,25 +373,9 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
-  const existingHost = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "host") : undefined
-  const inlineHost = hasInlineHost(findViteHubEntry(config))
-  const preset = nitroPreset(config)
-  if (preset.property && preset.value === undefined && !inlineHost && !existingHost) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.host, then run the codemod again.`)
-  }
-  let vitehubHost: string | undefined = "node"
-  let hostNote: string | undefined = `ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
-  if (preset.value) {
-    vitehubHost = nitroPresetHosts[preset.value.trim().toLowerCase().replaceAll("_", "-")]
-    hostNote = vitehubHost
-      ? undefined
-      : `nitro.preset "${preset.value}" has no ViteHub host. Set vitehub.host to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.`
-  }
-  if (inlineHost) {
-    vitehubHost = undefined
-    hostNote = undefined
-  }
-
+  const planned = planHost(config)
+  let vitehubHost = planned.add
+  let hostNote = planned.note
   const unit = style.indent
   const baseIndent = config.root.properties[0] ? indentAt(config.code, start(config.root.properties[0])) : unit
   if (existingOptions) {

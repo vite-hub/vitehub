@@ -1,0 +1,21 @@
+nuxt-cron: moved 2 cron jobs from server/cron to server/schedules, host "node".
+Dry run: no files were written.
+
+Files to change (6):
+  nuxt.config.ts
+  server/cron/clean-users.ts (deleted)
+  server/schedules/clean-users.ts (new)
+  server/cron/reminders.cron.ts (deleted)
+  server/schedules/reminders.ts (new)
+  package.json
+
+Manual follow-ups (0):
+  none
+
+Notes:
+  - On Node, the Process Runtime runs each Schedule in the server process, as nuxt-cron did. Run one server process or replica: the runtime does not lock across processes.
+  - The Process Runtime records Schedule Runs in KV, so the codemod set vitehub.kv to true. On Node that stores them under .vitehub/data/kv. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and remove nuxt-cron.
+  - Run `npx nuxi prepare`, then type-check the app.
