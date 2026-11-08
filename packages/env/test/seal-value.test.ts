@@ -67,7 +67,10 @@ describe("seal and unseal", () => {
   it("returns ENV_SEAL_SCHEMA_MISMATCH with the issues in cause", async () => {
     const [error, value] = await unseal("app:test", await seal("app:test", { userId: 1 }), { schema: v.object({ userId: v.string() }) })
     expect(value).toBeUndefined()
-    expect(error?.code).toBe("ENV_SEAL_SCHEMA_MISMATCH")
+    expect(error).toMatchObject({
+      code: "ENV_SEAL_SCHEMA_MISMATCH",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_schema_mismatch",
+    })
     expect(error?.cause).toEqual([expect.objectContaining({ kind: "schema" })])
     expect(JSON.stringify(error)).not.toContain("userId")
   })
@@ -77,7 +80,7 @@ describe("seal and unseal", () => {
     expect(value).toBeUndefined()
     expect(error).toMatchObject({
       code: "ENV_SEAL_WRONG_PURPOSE",
-      docs: "https://vitehub.dev/docs/env/limits-and-errors#env_seal_wrong_purpose",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_wrong_purpose",
     })
     expect(error?.why).toContain("app:choice")
   })
@@ -95,7 +98,10 @@ describe("seal and unseal", () => {
 
   it.each(["", "not sealed", "a.b", "AAAA", "%%%"])("returns ENV_SEAL_INVALID for %j", async (input) => {
     const [error] = await unseal("app:test", input)
-    expect(error?.code).toBe("ENV_SEAL_INVALID")
+    expect(error).toMatchObject({
+      code: "ENV_SEAL_INVALID",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_invalid",
+    })
   })
 
   it("returns ENV_SEAL_INVALID after the root secret changes", async () => {
@@ -116,7 +122,7 @@ describe("seal and unseal", () => {
     expect(error).toMatchObject({ code: "ENV_SEAL_EXPIRED", why: "The sealed value expired at 2026-11-07T10:15:00.000Z." })
     expect(JSON.parse(JSON.stringify(error))).toEqual({
       code: "ENV_SEAL_EXPIRED",
-      docs: "https://vitehub.dev/docs/env/limits-and-errors#env_seal_expired",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_expired",
       fix: expect.any(String),
       name: "ENV_SEAL_EXPIRED",
       why: "The sealed value expired at 2026-11-07T10:15:00.000Z.",
@@ -195,6 +201,9 @@ describe("seal and unseal", () => {
     ["a short secret", () => seal("app:test", 1, { secret: "short" })],
     ["an empty purpose in unseal", () => unseal("", "x")],
   ])("throws ENV_SEAL_ARGUMENT_INVALID for %s", async (_name, call) => {
-    await expect(call()).rejects.toMatchObject({ code: "ENV_SEAL_ARGUMENT_INVALID" })
+    await expect(call()).rejects.toMatchObject({
+      code: "ENV_SEAL_ARGUMENT_INVALID",
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_argument_invalid",
+    })
   })
 })

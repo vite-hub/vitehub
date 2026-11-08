@@ -8,30 +8,35 @@ import type { Result, ViteHubContext } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "./schema.ts"
 import type { SealKey } from "./seal.ts"
 
-// Keep published codes stable. Each code has a heading on the docs page.
+// Keep published codes stable. Explicit URLs also support runtimes that use anchor links.
 const sealErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/env/limits-and-errors",
+  docs: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
     // Runtime errors. `unseal()` returns them as `[error, undefined]`.
     ENV_SEAL_EXPIRED: {
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_expired",
       why: ({ expiresAt }: { expiresAt: number }) => `The sealed value expired at ${new Date(expiresAt).toISOString()}.`,
       fix: "Seal a new value. Give `seal()` a longer `ttl` when the value must live longer.",
     },
     ENV_SEAL_INVALID: {
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_invalid",
       why: "The string is not a sealed value, someone changed it, or another root secret sealed it.",
       fix: "Treat the string as untrusted and seal a new value. After a rotation of `VITEHUB_SECRET`, values sealed with the old secret do not open.",
     },
     ENV_SEAL_SCHEMA_MISMATCH: {
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_schema_mismatch",
       why: "The sealed value opened, but it does not match `schema`.",
       fix: "Read `error.cause` for the schema issues. A value sealed by an older deployment can have an older shape: seal a new value.",
     },
     ENV_SEAL_WRONG_PURPOSE: {
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_wrong_purpose",
       why: ({ purpose }: { purpose: string }) => `The value was sealed for another purpose than "${purpose}".`,
       fix: "Pass the purpose that `seal()` used. Each purpose has its own key, so a value cannot pass as a value of another purpose.",
     },
 
     // Config errors. `seal()` and `unseal()` throw them because the code must change.
     ENV_SEAL_ARGUMENT_INVALID: {
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_argument_invalid",
       why: ({ problem }: { problem: string }) => problem,
       fix: "Pass a purpose such as \"my-app:upload\", a JSON value, a `ttl` in seconds, and a `secret` of at least 32 characters.",
     },
