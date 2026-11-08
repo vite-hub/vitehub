@@ -80,6 +80,79 @@ describe("nuxt-cron migration safety", () => {
     for (const file of ["cleanup.ts", "cleanup.cron.ts"]) expect(await readFile(join(cwd, "server/cron", file), "utf8")).toBe(dailyJob)
   })
 
+  it.each(["daily.js", "daily.mjs", "daily.cjs", "daily.cts", "daily.mts", "daily.tsx", "daily.jsx", "daily/index.ts"])("preserves an existing Schedule named daily in %s", async (file) => {
+    const cwd = await createApp('export default defineNuxtConfig({ modules: ["nuxt-cron"] })', { "daily.ts": dailyJob, "independent.ts": dailyJob })
+    const existing = join(cwd, "server/schedules", file)
+    const schedule = 'export default defineSchedule({ cron: "0 * * * *", handler: () => {} })\n'
+    await mkdir(dirname(existing), { recursive: true })
+    await writeFile(existing, schedule)
+
+    const run = await runCodemod("nuxt-cron", { cwd })
+    expect(await readFile(existing, "utf8")).toBe(schedule)
+    expect(await readFile(join(cwd, "server/cron/daily.ts"), "utf8")).toBe(dailyJob)
+    await expect(readFile(join(cwd, "server/schedules/daily.ts"), "utf8")).rejects.toThrow()
+    expect(await readFile(join(cwd, "server/schedules/independent.ts"), "utf8")).toContain("defineSchedule")
+    expect(run.result.followUps).toContainEqual(expect.objectContaining({ file: "server/cron/daily.ts", message: expect.stringContaining("already exists") }))
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).dependencies).toHaveProperty("nuxt-cron")
+  })
+
+  it("keeps planned Schedules with the same normalized name", async () => {
+    const config = 'export default defineNuxtConfig({ modules: ["nuxt-cron"] })'
+    const cwd = await createApp(config, { "daily.ts": dailyJob, "daily/index.ts": dailyJob })
+    await expect(runCodemod("nuxt-cron", { cwd })).rejects.toThrow("collide")
+    for (const file of ["daily.ts", "daily/index.ts"]) expect(await readFile(join(cwd, "server/cron", file), "utf8")).toBe(dailyJob)
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+  })
+
+  it.each([
+    'modules: [["vite-hub/nuxt", options], "nuxt-cron"]',
+    'modules: [[vitehub, options], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", options] as const, "nuxt-cron"]',
+    'modules: [[vitehub as NuxtModule, options], "nuxt-cron"] as const',
+    'modules: [["vite-hub/nuxt", getOptions()], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { ...options }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { preset: "node", ...options }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { [optionName]: false }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { get schedule() { return false } }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { preset: "node", preset: "cloudflare" }], "nuxt-cron"]',
+    'modules: ["nuxt-cron"], vitehub: { ...options }',
+    'modules: ["nuxt-cron"], cron: getCronOptions()',
+    'modules: [["nuxt-cron", getCronOptions()]]',
+    'modules: ["nuxt-cron"], cron: { ...cronOptions }',
+    'modules: [["nuxt-cron", { ...cronOptions }]]',
+    'modules: ["nuxt-cron"], cron: { [optionName]: "America/New_York" }',
+    'modules: ["nuxt-cron"], cron: { jobsDir: getJobsDir() }',
+    'modules: ["nuxt-cron"], ...configOptions',
+  ])("changes nothing when configuration options cannot be read: %s", async (options) => {
+    const config = `import vitehub from "vite-hub/nuxt"\nconst options = { schedule: false }\nexport default defineNuxtConfig({ ${options} })`
+    const cwd = await createApp(config)
+    const manifest = await readFile(join(cwd, "package.json"), "utf8")
+    await expect(runCodemod("nuxt-cron", { cwd })).rejects.toThrow(/literal/)
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+    expect(await readFile(join(cwd, "package.json"), "utf8")).toBe(manifest)
+    expect(await readFile(join(cwd, "server/cron/daily.ts"), "utf8")).toBe(dailyJob)
+    await expect(readFile(join(cwd, "server/schedules/daily.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it.each([
+    "jobOptions",
+    "getJobOptions()",
+    "{ ...jobOptions }",
+    '{ timeZone: "UTC", ...jobOptions }',
+    '{ [optionName]: "America/New_York" }',
+    '{ timeZone: "UTC", timeZone: "America/New_York" }',
+  ])("keeps a job whose complete options cannot be read: %s", async (options) => {
+    const config = 'export default defineNuxtConfig({ modules: ["nuxt-cron"] })'
+    const opaqueJob = `export default defineCronHandler("daily", () => {}, ${options})\n`
+    const cwd = await createApp(config, { "opaque.ts": opaqueJob, "daily.ts": dailyJob })
+    const run = await runCodemod("nuxt-cron", { cwd })
+    expect(await readFile(join(cwd, "server/cron/opaque.ts"), "utf8")).toBe(opaqueJob)
+    await expect(readFile(join(cwd, "server/schedules/opaque.ts"), "utf8")).rejects.toThrow()
+    expect(await readFile(join(cwd, "server/schedules/daily.ts"), "utf8")).toContain("defineSchedule")
+    expect(run.result.followUps).toContainEqual(expect.objectContaining({ file: "server/cron/opaque.ts", message: expect.stringContaining("options") }))
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).dependencies).toHaveProperty("nuxt-cron")
+  })
+
   it.each(["cloudflare", "netlify", "vercel", "node"])("uses the inline %s preset before the root preset", async (preset) => {
     const config = `export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "${preset}" }], "nuxt-cron"], vitehub: { preset: "${preset === "node" ? "cloudflare" : "node"}" } })`
     const cwd = await createApp(config, { "daily.ts": 'export default defineCronHandler("daily", () => {}, { timeZone: "America/New_York" })' })

@@ -2,7 +2,7 @@ import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, l
 import MagicString from "magic-string"
 
 import { CodemodError } from "../types.ts"
-import { findModuleEntry, literalValue, nitroPreset, unwrapExpression } from "./nuxt-config.ts"
+import { findModuleEntry, literalValue, nitroPreset, staticOptionsObject, unwrapExpression } from "./nuxt-config.ts"
 
 import type { ObjectExpression, ObjectProperty, Statement } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -219,28 +219,34 @@ export function findViteHubEntry(config: NuxtConfigFile): Node | undefined {
   const viteHubImports = new Set(config.program.program.body.flatMap(statement => statement.type === "ImportDeclaration" && statement.source.value === vitehubModule
     ? statement.specifiers.map(specifier => specifier.local.name)
     : []))
-  return modules?.elements.find((element) => {
-    if (!element) return false
-    const head = element.type === "ArrayExpression" ? element.elements[0] : element
-    if (!head) return false
-    return literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))
-  }) ?? undefined
+  for (const element of modules?.elements ?? []) {
+    if (!element) continue
+    const entry = unwrapExpression(element)
+    const first = entry.type === "ArrayExpression" ? entry.elements[0] : entry
+    if (!first) continue
+    const head = unwrapExpression(first)
+    if (literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))) return entry
+  }
+  return undefined
 }
 
 export function objectPropertyArray(object: ObjectExpression, name: string) {
   const property = findProperty(object, name)
-  return property?.value.type === "ArrayExpression" ? property.value : undefined
+  const value = property ? unwrapExpression(property.value) : undefined
+  return value?.type === "ArrayExpression" ? value : undefined
 }
 
-/** Reads an explicit ViteHub option. Inline module options take precedence over `vitehub`. */
+/** Reads an explicit ViteHub option. Rejects opaque objects; inline options take precedence over `vitehub`. */
 export function findViteHubOption(config: NuxtConfigFile, name: string): ObjectProperty | undefined {
   const entry = findViteHubEntry(config)
   const inline = entry?.type === "ArrayExpression" ? entry.elements[1] : undefined
-  const inlineOptions = inline ? unwrapExpression(inline) : undefined
-  const inlineProperty = inlineOptions?.type === "ObjectExpression" ? findProperty(inlineOptions, name) : undefined
-  if (inlineProperty) return inlineProperty
+  const inlineOptions = inline ? staticOptionsObject(inline) : undefined
+  if (inline && !inlineOptions) throw new CodemodError(`${config.fileName} sets inline vite-hub/nuxt options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
   const existing = findProperty(config.root, "vitehub")
-  return existing?.value.type === "ObjectExpression" ? findProperty(existing.value, name) : undefined
+  const rootOptions = existing ? staticOptionsObject(existing.value) : undefined
+  if (existing && !rootOptions) throw new CodemodError(`${config.fileName} sets vitehub options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  return (inlineOptions ? findProperty(inlineOptions, name) : undefined)
+    ?? (rootOptions ? findProperty(rootOptions, name) : undefined)
 }
 
 /** Returns the line of the property at `path` from the config root in `code`, or of its nearest parent. */

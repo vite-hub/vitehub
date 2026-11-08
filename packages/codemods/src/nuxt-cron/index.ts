@@ -3,13 +3,14 @@ import { readFile } from "node:fs/promises"
 import { join, posix } from "node:path"
 
 import { detectStyle, end, findProperty, indentAt, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { listSourceFiles, normalizePathDefinitionName } from "@vite-hub/internal/definition-catalog"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
 import { addViteHubOptions, ConfigEditor, createLineResolver, findViteHubOption, planPreset, useViteHubModule } from "../shared/config-editor.ts"
 import { detectNuxtModule } from "../shared/detect.ts"
-import { findModuleEntry, literalValue, readNuxtConfig, unwrapExpression } from "../shared/nuxt-config.ts"
+import { findModuleEntry, literalValue, readNuxtConfig, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { CodemodError } from "../types.ts"
 
@@ -102,17 +103,18 @@ function migrateJob(file: string, target: string, code: string, defaults: Module
   const followUps: FollowUp[] = []
   let timeZoneOption = defaults.timeZone
   let runOnInit = defaults.runOnInit
-  if (options && options.type === "ObjectExpression") {
-    for (const property of options.properties) {
+  const optionsObject = options ? staticOptionsObject(options) : undefined
+  if (options && !optionsObject) {
+    return { edits: [], followUps: [follow(options, "The options cannot be read completely, so this job stayed with nuxt-cron. Use an object literal with explicit, unique property names, then run the codemod again.")], migrated: false }
+  }
+  if (optionsObject) {
+    for (const property of optionsObject.properties) {
       const key = property.type === "ObjectProperty" ? keyName(property.key, property.computed) : undefined
       const value = property.type === "ObjectProperty" ? literalValue(property.value) : undefined
       if (key === "timeZone" && property.type === "ObjectProperty") timeZoneOption = property.value
       else if (key === "runOnInit" && typeof value === "boolean") runOnInit = value
       else followUps.push(follow(property, "This defineCronHandler() option has no Schedule equivalent and was dropped."))
     }
-  }
-  else if (options) {
-    followUps.push(follow(options, "The options are not an object literal, so the codemod dropped them. Set timeZone in defineSchedule() by hand if the job needs one."))
   }
   const zone = timeZoneOption ? literalValue(timeZoneOption) : undefined
   if (timeZoneOption && typeof zone !== "string") {
@@ -165,17 +167,22 @@ function migrateJob(file: string, target: string, code: string, defaults: Module
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
+  if (!staticOptionsObject(config.root)) throw new CodemodError(`${config.fileName} has options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
   const optionsProperty = findProperty(config.root, "cron")
   const defaults: ModuleOptions = { jobsDir: "cron" }
   const inlineEntry = findModuleEntry(config, moduleName)?.inlineOptions
   for (const node of [optionsProperty?.value, inlineEntry]) {
-    const object = node ? unwrapExpression(node) : undefined
-    if (object?.type !== "ObjectExpression") continue
+    if (!node) continue
+    const object = staticOptionsObject(node)
+    if (!object) throw new CodemodError(`${config.fileName} sets cron or inline nuxt-cron options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
     for (const property of object.properties) {
       if (property.type !== "ObjectProperty") continue
       const key = keyName(property.key, property.computed)
       const value = literalValue(property.value)
-      if (key === "jobsDir" && typeof value === "string") defaults.jobsDir = value
+      if (key === "jobsDir") {
+        if (typeof value !== "string") throw new CodemodError(`${config.fileName} sets a computed cron jobsDir. Use a string literal, then run the codemod again.`)
+        defaults.jobsDir = value
+      }
       if (key === "timeZone") defaults.timeZone = property.value
       if (key === "runOnInit" && typeof value === "boolean") defaults.runOnInit = value
     }
@@ -195,22 +202,25 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (processDriver && kv && literalValue(kv.value) === false) {
     throw new CodemodError(`${config.fileName} disables KV, but the Schedule Process Runtime needs its default KV store. Set the effective vitehub.kv or inline module kv to true or configure a default store, then run the codemod again.`)
   }
+  const schedulesDirectory = join(cwd, "server/schedules")
+  const existingNames = new Set(listSourceFiles(schedulesDirectory).map(file => normalizePathDefinitionName(schedulesDirectory, file)))
   const jobs = files.map((relativeFile) => {
     const name = relativeFile.replace(/\.(?:ts|js|mjs)$/, "").replace(/\.cron$/, "")
-    return { file: posix.join(jobsDirectory, relativeFile), target: posix.join("server/schedules", `${name}.ts`) }
+    const target = posix.join("server/schedules", `${name}.ts`)
+    return { file: posix.join(jobsDirectory, relativeFile), target, scheduleName: normalizePathDefinitionName(schedulesDirectory, join(cwd, target)) }
   })
   const targetCounts = new Map<string, number>()
-  for (const { target } of jobs) targetCounts.set(target, (targetCounts.get(target) ?? 0) + 1)
+  for (const { scheduleName } of jobs) targetCounts.set(scheduleName, (targetCounts.get(scheduleName) ?? 0) + 1)
   const edits: FileEdit[] = []
   const followUps: FollowUp[] = []
   let migrated = 0
-  for (const { file, target } of jobs) {
-    if (targetCounts.get(target)! > 1) {
+  for (const { file, target, scheduleName } of jobs) {
+    if (targetCounts.get(scheduleName)! > 1) {
       followUps.push({ file, message: `Multiple cron jobs collide at ${target}, so none of them were moved. Give them unique names and run the codemod again.` })
       continue
     }
-    if (existsSync(join(cwd, target))) {
-      followUps.push({ file, message: `${target} already exists, so this job was not moved. Rename one of them and move the job by hand.` })
+    if (existingNames.has(scheduleName) || existsSync(join(cwd, target))) {
+      followUps.push({ file, message: `A Schedule named "${scheduleName}" already exists, so this job was not moved. Rename one of them and move the job by hand.` })
       continue
     }
     const job = migrateJob(file, target, await readFile(join(cwd, file), "utf8"), defaults, processDriver)
