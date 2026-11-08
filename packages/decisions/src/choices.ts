@@ -1,8 +1,8 @@
-import { ask } from "@vite-hub/gateways"
+import { ask, askWithModel } from "@vite-hub/gateways"
 
 import { decisionsDiagnostics } from "./diagnostics.ts"
 
-import type { AskAnswers, AskQuestion, AskQuestions } from "@vite-hub/gateways"
+import type { AiGatewayAsk, AskAnswers, AskQuestion, AskQuestions } from "@vite-hub/gateways"
 import type {
   ChoiceGroup,
   ChoiceGroups,
@@ -55,8 +55,11 @@ function probability(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
 
-function checkDefinition(definition: ChoicesDefinition<ChoiceGroups>, limits: ChoicesLimits, thresholds: Required<NonNullable<ChoicesDefinition<ChoiceGroups>["thresholds"]>>): void {
-  if (typeof definition.gateway?.ask !== "function") define("defineChoices() needs a gateway with ask(), such as typesafe() or vercel() from vite-hub/gateways.")
+/** Checks the definition and returns what answers the questions: the gateway, or the model through `askWithModel()`. */
+function checkDefinition(definition: ChoicesDefinition<ChoiceGroups>, limits: ChoicesLimits, thresholds: Required<NonNullable<ChoicesDefinition<ChoiceGroups>["thresholds"]>>): { ask: AiGatewayAsk } {
+  const { gateway, model } = definition
+  if ((gateway === undefined) === (model === undefined)) define("defineChoices() needs one of gateway or model: a gateway with ask(), such as vercel() from vite-hub/gateways, or an AI SDK model.")
+  if (model === undefined && typeof gateway?.ask !== "function") define("defineChoices() needs a gateway with ask(), such as typesafe() or vercel() from vite-hub/gateways.")
   const entries = Object.entries(definition.groups ?? {})
   if (!entries.length) define("defineChoices() needs at least one group.")
   if (entries.length > limits.groups) define(`defineChoices() has ${entries.length} groups. The limit is ${limits.groups}.`)
@@ -73,6 +76,8 @@ function checkDefinition(definition: ChoicesDefinition<ChoiceGroups>, limits: Ch
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isInteger(value) || value < 1) define(`limits.${name} must be a positive integer.`)
   }
+  // SAFETY: The checks above leave a gateway with ask() when there is no model.
+  return model === undefined ? gateway as { ask: AiGatewayAsk } : askWithModel(model)
 }
 
 async function loadGroups(definition: ChoicesDefinition<ChoiceGroups>, limits: ChoicesLimits, context: unknown): Promise<Loaded> {
@@ -251,7 +256,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
   const limits: ChoicesLimits = { ...defaultLimits, ...definition.limits }
   const thresholds = { ...defaultThresholds, ...definition.thresholds }
   const base: ChoicesDefinition<ChoiceGroups> = definition
-  checkDefinition(base, limits, thresholds)
+  const asker = checkDefinition(base, limits, thresholds)
   const hints = definition.hints?.trim() ?? ""
 
   async function prepare(text: string, request: { context?: unknown, signal?: AbortSignal } | undefined): Promise<ChoicesResult<{ groups: LoadedGroup[], plan: ChoicesPlan, text: string }>> {
@@ -278,7 +283,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       if (Object.keys(prepared.plan.questions).length) {
         try {
           // SAFETY: The plan questions come from the `ask` builders.
-          answers = await definition.gateway.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { signal: request?.signal })
+          answers = await asker.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { signal: request?.signal })
         }
         catch (cause) {
           return [decisionsDiagnostics.DECISIONS_R0005({ message: "[vitehub] The gateway request failed.", cause })]

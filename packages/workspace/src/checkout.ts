@@ -3,8 +3,10 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
+import { staleDerivedFiles } from "./lineage.ts"
 import { workspaceCommitRequestBytes } from "./results.ts"
 
+import type { WorkspaceStaleFile } from "./lineage.ts"
 import type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails } from "./results.ts"
 
 /** The lock file at the project root. Commit it: it records the remote revision that each checkout folder matches. */
@@ -46,8 +48,9 @@ type Bytes = Uint8Array
 // ignores case and trailing dots and spaces, because Windows opens `NODE_MODULES` and `node_modules.` as
 // `node_modules`, and macOS ignores case. A remote path can come from any system, so the match is the same everywhere.
 const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
-const conflictStart = /^<{7}(?: |$)/m
-const conflictEnd = /^>{7}(?: |$)/m
+/** Line patterns shared by working-tree scans and Git index searches. */
+export const conflictMarkerPatterns = ["^<{7}( |\r?$)", "^>{7}( |\r?$)"]
+const conflictMarkers = conflictMarkerPatterns.map(pattern => new RegExp(pattern, "m"))
 
 /** The suffix of the temporary file of an atomic write. A command that stopped before the rename leaves one behind. */
 const temporarySuffix = ".vitehub-tmp"
@@ -56,7 +59,8 @@ function portableKey(name: string): string {
   return name.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC")
 }
 
-function ignoredName(name: string): boolean {
+/** True for a file or folder name that a checkout skips, such as `node_modules`, `.GIT`, or a leftover temporary file. */
+export function ignoredName(name: string): boolean {
   const normalized = portableKey(name).replace(/[. ]+$/, "")
   return ignored.has(normalized) || normalized.endsWith(temporarySuffix)
 }
@@ -135,7 +139,7 @@ function encode(bytes: Bytes): { content: string, encoding: "base64" | "utf8" } 
 
 /** True when a text file still has Git conflict markers. */
 function hasConflictMarkers(content: string): boolean {
-  return conflictStart.test(content) && conflictEnd.test(content)
+  return conflictMarkers.every(pattern => pattern.test(content))
 }
 
 function lines(value: string): string[] {
@@ -397,7 +401,8 @@ async function saveWorkspaceLock(rootDir: string, lock: WorkspaceLock, names: re
   })
 }
 
-function folderOf(rootDir: string, dir: string): string {
+/** The absolute checkout folder of a lock `dir`. Fails unless it is a folder inside the project. */
+export function folderOf(rootDir: string, dir: string): string {
   const folder = resolve(rootDir, dir)
   const inside = relative(rootDir, folder)
   if (!inside || inside.startsWith("..") || inside.split(sep).includes("..")) {
@@ -451,7 +456,7 @@ async function scan(rootDir: string, folder: string, directories: string[] = [])
 }
 
 /** Checks every existing path component inside the project before a checkout reads or writes it. */
-async function assertNoSymlinks(rootDir: string, target: string): Promise<void> {
+export async function assertNoSymlinks(rootDir: string, target: string): Promise<void> {
   let current = rootDir
   for (const segment of relative(rootDir, target).split(sep)) {
     current = join(current, segment)
@@ -547,6 +552,8 @@ export interface WorkspaceStatus {
   remote?: string
   head: string | null
   local: WorkspaceLocalChanges
+  /** Local derived files, such as translations, whose `derivedFrom` source changed or is gone. */
+  stale: WorkspaceStaleFile[]
   /** Paths that changed on the remote ref since `head`. Set when the status asked the remote. */
   remoteChanges?: Array<{ path: string, change: "added" | "changed" | "deleted" }>
   remoteHead?: string | null
@@ -824,13 +831,15 @@ export async function workspaceStatus(context: WorkspaceCheckoutContext, options
   const results: WorkspaceStatus[] = []
   for (const name of selected(lock, options.workspace)) {
     const entry = lock.workspaces[name]!
+    const files = await scan(context.rootDir, folderOf(context.rootDir, entry.dir))
     const status: WorkspaceStatus = {
       workspace: name,
       dir: entry.dir,
       ref: entry.ref,
       ...(entry.remote ? { remote: entry.remote } : {}),
       head: entry.head,
-      local: localChanges(entry, await scan(context.rootDir, folderOf(context.rootDir, entry.dir))),
+      local: localChanges(entry, files),
+      stale: staleDerivedFiles(files),
     }
     if (options.remote) {
       const changes = await callOrThrow<WorkspaceChanges>(context, entry.remote, "workspace.changes", { workspace: name, ref: entry.ref, since: entry.head, content: false })
@@ -853,6 +862,7 @@ export function formatWorkspaceStatus(status: WorkspaceStatus): string {
     ...local.deleted.map(path => `  deleted   ${path}`),
   ]
   lines.push(rows.length ? "Local changes:" : "No local changes.", ...rows)
+  if (status.stale.length) lines.push("Stale derived files (their source changed):", ...status.stale.map(file => `  ${file.reason.padEnd(9)} ${file.path} <- ${file.derivedFrom.path}`))
   if (status.remoteChanges) {
     if (!status.remoteChanges.length) lines.push("No remote changes.")
     else lines.push(`Remote changes since ${status.head ?? "(empty)"} (run \`vitehub pull\`):`, ...status.remoteChanges.map(change => `  ${change.change.padEnd(9)} ${change.path}`))

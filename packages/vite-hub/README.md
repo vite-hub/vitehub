@@ -15,21 +15,36 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
-`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels, Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Other features are optional peers, so an app installs only what it enables. Add their packages before you enable them:
+`vite-hub` includes Env, Source, Logs, and the Console. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent` |
+| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
 | `auth` | `@vite-hub/auth better-auth` |
+| `blob` | `@vite-hub/blob` |
+| `browser` | `@vite-hub/browser` |
+| `channels` | `@vite-hub/channels` |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `email` | `@vite-hub/email` |
+| `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
+| `queue` | `@vite-hub/queue` |
+| `rateLimit` | `@vite-hub/rate-limit` |
 | `realtime` | `@vite-hub/realtime` |
+| `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
 | `server/comments.ts` | `@vite-hub/comments` |
+| `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
+| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
@@ -82,6 +97,8 @@ ViteHub derives one deployment identity from the nearest `package.json` name, fa
 Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: true,
   blob: true,
@@ -213,6 +230,8 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify preset and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: {
     invocations: {
@@ -262,7 +281,7 @@ Set `console.mcpClient: true` to add the MCP client section. It runs on the serv
 
 `impersonation: true` lets a Console user with the `auth` section open the app as one of its users. It is off by default. It needs app Auth with Better Auth's admin plugin and `events.store`, and the app session must have Better Auth's `impersonate` permission. The session lasts one hour by default, cannot create credentials, and never opens the Console. See [Impersonate users](https://vitehub.dev/docs/development/console#impersonate-users).
 
-All Console paths use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: "/portal/"`, host middleware that you keep in front of the Console must protect `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` and `/api/_vitehub/console/**` at root. Relative bases (`""` or `"./"`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Host middleware is an optional first layer; `authorize` is the check that ViteHub enforces.
+All Console paths use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: "/portal/"`, host middleware that you keep in front of the Console must protect `/portal/_vitehub/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` at root. Relative bases (`""` or `"./"`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Host middleware is an optional first layer; `authorize` is the check that ViteHub enforces.
 
 `auth: "token"` reads `VITEHUB_CONSOLE_TOKEN_SHA256`, the SHA-256 of the token as 64 hex characters, from the host environment on each request, on Cloudflare from the Worker `env`. The server never stores the token. Create one with `openssl rand -hex 32` and store its hash, `printf %s "$TOKEN" | sha256sum`. The server hashes the bearer token and compares the digests in constant time. A missing, short, or wrong token gets `401` with `WWW-Authenticate: Bearer realm="vitehub-console"`. A missing or malformed hash gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`, and so does a raw `VITEHUB_CONSOLE_TOKEN` without the hash. The CLI sends the token with `VITEHUB_CONSOLE_AUTHORIZATION="Bearer <token>"`. The token is a bearer secret. Rotate it by storing the hash of a new token and restarting or redeploying the server. See [Use a Console token](https://vitehub.dev/docs/development/console#use-a-console-token).
 
@@ -271,6 +290,8 @@ All Console paths use the application base: an explicit ViteHub application base
 The Console RPC transport accepts browser requests only from its own origin, including in development, except for the token calls from `console.origins` above. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. The built-in Console client adds this header to its RPC calls. Server clients must add it too and still require the configured authentication. Each Console operation is one stateless `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`, so hosts such as Cloudflare Workers can send consecutive calls to different instances. The `project.get` operation (`vitehub project info`) returns `{ protocol: 1, name, vitehub, sections, operations }`: the `vite-hub` version, and the installed sections and operations that `authorize` allows for the caller. It works without Agents. See [Read the project](https://vitehub.dev/docs/development/console#read-the-project).
 
 One Console build can open many projects. The Console that an app serves opens that app, and asks for the token when the app uses `auth: "token"`. A Console on another origin links each app by its URL, reads `project.get`, and keeps the project list and tokens in `localStorage` (`vitehub-console:projects`) of its own origin. The app must use `auth: "token"` and list that origin in `console.origins`. Features that need the app origin or its cookies, such as live editing, the Content preview, impersonation, Env management, and the Connections connect flow, work only in the Console that the app serves. See [Use one Console for many projects](https://vitehub.dev/docs/development/console#use-one-console-for-many-projects).
+
+[console.vitehub.dev](https://console.vitehub.dev) hosts that Console build as a static site. It keeps no server state, and the browser calls each project directly, so ViteHub never receives tokens or project data. An app with `auth: "token"` and the default `console.origins` can link there. To self-host the same build, run `pnpm --dir packages/vite-hub run build:console-hosted` in a repository clone and serve `.vitehub/console-hosted` with its `_headers` file; `console.hosted.wrangler.jsonc` is the Cloudflare configuration of console.vitehub.dev. See [Hosted Console](https://vitehub.dev/docs/development/console#hosted-console).
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 

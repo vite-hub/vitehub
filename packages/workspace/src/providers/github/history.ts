@@ -114,6 +114,7 @@ function isNoHistoryError(error: unknown): boolean {
 function isUnrelatedHistoryError(error: unknown): boolean {
   for (let current = error; current instanceof Error; current = current.cause) {
     const body = Reflect.get(current, "body")
+    // provider-message-match: GitHub has no error code that distinguishes unrelated histories from other compare failures.
     if (/no common ancestor/i.test(`${current.message}\n${typeof body === "string" ? body : ""}`)) return true
   }
   return false
@@ -128,6 +129,7 @@ function isMissingCommitError(error: unknown): boolean {
   if (status !== 404 && status !== 422) return false
   for (let current = error; current instanceof Error; current = current.cause) {
     const body = Reflect.get(current, "body")
+    // provider-message-match: GitHub uses 404 and 422 for both missing commits and other lookup failures, with no distinct error code.
     if (/no commit found for/i.test(`${current.message}\n${typeof body === "string" ? body : ""}`)) return true
   }
   return false

@@ -15,7 +15,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
   return { ...actual, useWorkspace: vi.fn(actual.useWorkspace) }
 })
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 afterEach(() => {
   setAgentWorkflowRuntimeLoaders({

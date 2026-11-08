@@ -41,7 +41,7 @@ export type ErrorCatalog<TCodes extends Record<string, DiagnosticDefinition>> = 
 export interface DefineErrorsOptions<TCodes extends Record<string, DiagnosticDefinition>> {
   /** Each code with a `why` and a `fix`. */
   codes: TCodes
-  /** Docs page that has one heading for each code. The `docs` URL of an error is `<page>#<code in lowercase>`. */
+  /** Base URL of the diagnostics pages, which have one page for each code. The `docs` URL of an error is `<docs>/<code in lowercase>`. */
   docs: string
 }
 
@@ -90,7 +90,7 @@ export function defineErrors<const TCodes extends Record<string, DiagnosticDefin
   // SAFETY: Each Nostics handle takes one optional params object and returns a Diagnostic.
   const diagnostics = defineDiagnostics({
     codes: options.codes,
-    docsBase: code => `${options.docs}#${String(code).toLowerCase()}`,
+    docsBase: options.docs,
   }) as Record<string, Create>
   const catalog: Record<string, unknown> = {}
   for (const [code, create] of Object.entries(diagnostics)) {

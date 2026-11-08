@@ -1105,6 +1105,7 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
   const ownsClient = !options.client
   let client: LibsqlAgentStateClient | undefined
   let writeKey: string | LibsqlAgentStateClient | undefined
+  let synchronousNormal = false
   const openClient = async () => {
     if (options.client) return options.client
     const filePath = libsqlFilePath(options.url)
@@ -1127,6 +1128,7 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
         const result = await retrySqliteBusy(async () => await opened.execute(`PRAGMA journal_mode = ${requested.toUpperCase()}`), 30_000)
         const actual = rows(result)[0]?.journal_mode
         if (actual !== requested) throw agentDiagnostics.AGENT_R0947({ requested, actual: String(actual) })
+        synchronousNormal = actual === "wal"
       } catch (error) {
         await opened.close?.()
         throw error
@@ -1170,6 +1172,10 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
         }
         const connected = client
         return await serializeLibsqlWrite(writeKey, async () => {
+          // WAL with synchronous NORMAL syncs at checkpoints instead of on every commit; a commit still
+          // survives a process crash. The setting is per connection and cannot change inside a transaction,
+          // so it is set on the pooled connection the transaction borrows next.
+          if (synchronousNormal) await connected.execute("PRAGMA synchronous = NORMAL")
           const transaction = await connected.transaction("write")
           try {
             const result = await run({ execute: libsqlExecute(transaction) })
