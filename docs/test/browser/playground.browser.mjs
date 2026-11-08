@@ -62,6 +62,22 @@ async function readPreviewTab(page, pattern) {
   return text.trim();
 }
 
+/** Finds the Channel simulator page whose title matches `title` in the preview frames, sends `text`, and waits for the reply. */
+async function chatInPreview(page, title, text) {
+  let chat;
+  for (let attempt = 0; attempt < 120 && !chat; attempt++) {
+    await page.waitForTimeout(500);
+    for (const frame of page.frames().filter(candidate => candidate.url().includes("webcontainer-api.io"))) {
+      const read = frame.evaluate(() => document.getElementById("input") ? document.title : "").catch(() => "");
+      if (title.test(await Promise.race([read, new Promise(done => setTimeout(done, 1000, ""))]))) chat = frame;
+    }
+  }
+  assert.ok(chat, `the preview shows a page titled ${title}`);
+  await chat.locator("#input").fill(text);
+  await chat.locator("#input").press("Enter");
+  await chat.getByText(`You said "${text}". This reply came from the support Agent.`).waitFor({ timeout: 60_000 });
+}
+
 async function waitForApp(page) {
   await page.locator(".vh-ws-preview-frame").waitFor({ timeout: bootTimeout });
   await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: bootTimeout });
@@ -155,6 +171,20 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await waitForApp(page);
     assert.match(await readPreview(page, /"ok"/), /"ok":\s*true/);
     await shot(page, "desktop-agent");
+
+    // The Channels template shares the Agent snapshot. Its preview opens the simulated Slack page of the Agent, and
+    // a message sent there streams the reply of the Agent back into the page.
+    await page.getByRole("button", { name: /^Template:/ }).click();
+    await page.getByRole("menuitem", { name: /^Channels/ }).click();
+    await page.getByRole("treeitem", { name: "support.ts" }).waitFor();
+    await page.waitForURL(/\/playground\?template=channels$/);
+    await waitForApp(page);
+    await chatInPreview(page, /Slack simulator/, "Hello from Slack");
+    await shot(page, "desktop-channels");
+    // Another Channel is another path on the same Agent.
+    await page.getByLabel("Preview path").fill("/api/_vitehub/agents/support/webhooks/discord");
+    await page.getByLabel("Preview path").press("Enter");
+    await chatInPreview(page, /Discord simulator/, "Hello from Discord");
 
     // Back to KV without edits: no question.
     await page.getByRole("button", { name: /^Template:/ }).click();

@@ -41,6 +41,8 @@ export interface DocsCatalogGroup {
 export interface DocsSidebarGroup {
   label: string | null
   pages: DocsPage[]
+  /** Whether the group starts folded. Only a labeled group of a section with `fold: true` folds. */
+  fold: boolean
 }
 
 /**
@@ -153,6 +155,23 @@ export function docsSectionGroup(section: Pick<DocsSection, "id" | "group">, gro
   return groups.find(group => group.sections?.includes(section.id))?.title ?? section.group ?? null
 }
 
+/**
+ * The sections that share a section's sidebar under the rail, or `null` when it lists its own pages. A group lists all
+ * its sections. A section whose only listed page is its home would list that one link, so it lists its category.
+ */
+export function docsSidebarGroup(manifest: DocsManifest, section: DocsSection, groups: readonly DocsGroup[]): { title: string, sections: DocsSection[] } | null {
+  const title = docsSectionGroup(section, groups)
+  if (title !== null) {
+    const sections = manifest.sections.filter(candidate => docsSectionGroup(candidate, groups) === title)
+    return sections.length > 1 ? { title, sections } : null
+  }
+  const { category } = section
+  const pages = section.pages.filter(page => page.navigation)
+  if (!category || pages.length !== 1 || pages[0]?.path !== docsSectionHome(section)) return null
+  const sections = manifest.sections.filter(candidate => candidate.category === category)
+  return sections.length > 1 ? { title: category, sections } : null
+}
+
 /** Sections grouped by category, in the order of `categories`. Sections of other categories are left out. */
 export function docsCatalog(manifest: DocsManifest, categories: readonly string[]): DocsCatalogGroup[] {
   return categories
@@ -220,16 +239,94 @@ export function docsSidebarSections(sections: readonly DocsSection[]): DocsSideb
   return blocks
 }
 
-/** Sidebar rows of a section: listed pages in order, grouped by `navigation.group` in order of first appearance. */
-export function docsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
+/**
+ * Sidebar rows of a section: listed pages in order, grouped by `navigation.group` in order of first appearance. Pages
+ * inside a panel are left out: the section sidebar links to each panel once, with `docsSectionPanels()`.
+ */
+export function docsSidebarGroups(section: Pick<DocsSection, "pages" | "fold">): DocsSidebarGroup[] {
+  return sidebarGroups(docsPanelPages(section, null), section.fold)
+}
+
+/** Sidebar rows of a panel: its listed pages without its Overview, grouped like a section. Panels hold long lists, so their groups fold. */
+export function docsPanelSidebarGroups(section: Pick<DocsSection, "pages">, panel: DocsPage): DocsSidebarGroup[] {
+  return sidebarGroups(docsPanelPages(section, panel).filter(page => page.id !== panel.id), true)
+}
+
+function sidebarGroups(pages: readonly DocsPage[], fold: boolean): DocsSidebarGroup[] {
   const groups = new Map<string | null, DocsPage[]>()
-  for (const page of section.pages) {
+  for (const page of pages) {
     if (!page.navigation) continue
     const label = page.group?.trim() || null
     groups.set(label, [...groups.get(label) ?? [], page])
   }
-  // A group of one page needs no heading.
-  return [...groups].map(([label, pages]) => ({ label: pages.length > 1 ? label : null, pages }))
+  // A group of one page needs no heading, and a group without a heading cannot fold.
+  return [...groups].map(([label, groupPages]) => {
+    const heading = groupPages.length > 1 ? label : null
+    return { label: heading, pages: groupPages, fold: fold && heading !== null }
+  })
+}
+
+/**
+ * The panel that holds a page: the Overview of the nearest folder with `navigation.panel: true`, or `null` for a page
+ * outside every panel. A panel's Overview is inside its own panel.
+ */
+export function docsPanelOf(section: Pick<DocsSection, "pages">, page: Pick<DocsPage, "id">): DocsPage | null {
+  return panelOf(section.pages.filter(candidate => candidate.panel), page)
+}
+
+function panelOf(panels: readonly DocsPage[], page: Pick<DocsPage, "id">): DocsPage | null {
+  let found: DocsPage | null = null
+  for (const panel of panels) {
+    if (page.id !== panel.id && !page.id.startsWith(`${panel.id}/`)) continue
+    if (!found || panel.id.length > found.id.length) found = panel
+  }
+  return found
+}
+
+/** The pages of one panel, or with `null` the pages of the section outside every panel. */
+export function docsPanelPages(section: Pick<DocsSection, "pages">, panel: Pick<DocsPage, "id"> | null): DocsPage[] {
+  const panels = section.pages.filter(candidate => candidate.panel)
+  if (!panels.length) return panel ? [] : [...section.pages]
+  return section.pages.filter(page => panelOf(panels, page)?.id === panel?.id)
+}
+
+/** The listed panels of a section, each with the number of listed pages inside it. The section sidebar links to each one. */
+export function docsSectionPanels(section: Pick<DocsSection, "pages">): { page: DocsPage, count: number }[] {
+  return section.pages
+    // A panel inside another panel belongs to that panel's sidebar, not to the section's.
+    .filter(page => page.panel && page.navigation && !section.pages.some(outer => outer.panel && page.id.startsWith(`${outer.id}/`)))
+    .map(page => ({ page, count: docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }))
+}
+
+/**
+ * The page that a rail item opens. Inside a panel, the rail keeps the reader in it: a section with a panel of the same
+ * folder name opens that panel. Any other section opens its home page.
+ */
+export function docsRailTarget(section: DocsSection, panel: Pick<DocsPage, "id"> | null): string {
+  const same = panel ? section.pages.find(page => page.panel && page.id === panel.id) : undefined
+  return same?.path ?? docsSectionHome(section)
+}
+
+/** Whether search engines may index a page. `seo.index: false` keeps it out of the sitemap, llms.txt, and the prerender, and search lists only its title. */
+export function docsPageIndexed(page: Pick<DocsPage, "seo">): boolean {
+  return page.seo?.index !== false
+}
+
+/** Every page that search engines may index, root first. */
+export function docsIndexedPages(manifest: DocsManifest): DocsPage[] {
+  return docsManifestPages(manifest).filter(docsPageIndexed)
+}
+
+/**
+ * One search record for each page that search engines skip: its title and description, without its headings. The record
+ * ranks as a heading under its section, so a long tail of generated pages, such as error codes, stays below the real pages.
+ */
+export function docsUnindexedSearchSections(manifest: DocsManifest): DocsSearchSection[] {
+  const record = (page: DocsPage, titles: string[]): DocsSearchSection => ({ id: page.path, title: page.sourceTitle, titles, level: 2, content: page.description ?? "" })
+  return [
+    ...manifest.sections.flatMap(section => section.pages.filter(page => !docsPageIndexed(page)).map(page => record(page, [section.title]))),
+    ...[...(manifest.root ? [manifest.root] : []), ...manifest.pages].filter(page => !docsPageIndexed(page)).map(page => record(page, [])),
+  ]
 }
 
 /** Sections listed under Related, in the order that `.navigation.yml` declares them. */

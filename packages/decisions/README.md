@@ -10,11 +10,11 @@ Turn text into choices over options that you declare. A person types "nord parts
 pnpm add @vite-hub/decisions @vite-hub/gateways advocaat
 ```
 
-The model call goes through an AI gateway that has `ask()`, such as `typesafe()` or `vercel()` from `@vite-hub/gateways`. The gateway reads its key from the environment. The key stays on your server.
+The model call goes through an AI gateway that has `ask()`, such as `typesafe()` or `vercel()` from `@vite-hub/gateways`, to TypeSafe Jev. The gateway reads its key from the environment. The key stays on your server. To use another model, pass any AI SDK model as `model` instead of `gateway`, and install `ai`.
 
 ## Use
 
-```ts
+```ts fragment
 import { defineChoices, toOptions } from '@vite-hub/decisions'
 import { typesafe } from '@vite-hub/gateways'
 
@@ -54,7 +54,7 @@ selection.chart // { value: null, confidence: 0.9, ranked: [{ value: 'line', pro
 
 An `options` function receives `context`. Annotate its parameter, and `resolve()` asks for the same type:
 
-```ts
+```ts fragment
 options: async ({ tenantId }: { tenantId: string }) => toOptions(await loadSites(tenantId), { value: s => s.id, label: s => s.name })
 // await sites.resolve(text, { context: { tenantId: session.tenantId } })
 ```
@@ -116,7 +116,7 @@ A newer request cancels the older one through `signal`, and the older result nev
 | `DECISIONS_R0002` | The options are over a limit or invalid. Nothing was asked. |
 | `DECISIONS_R0003` | The text is empty or too long. Nothing was asked. |
 | `DECISIONS_R0004` | The model says the options cannot express the text. |
-| `DECISIONS_R0005` | The gateway request failed. `cause` has the error. |
+| `DECISIONS_R0005` | The gateway request failed. `message` and `fix` show known, client-safe gateway diagnostics. Other failures use a generic message. `cause` has the original error for server-side inspection. |
 | `DECISIONS_R0006` | The model answer misses a question. |
 
 `thresholds.option` (0.5) decides one option. `thresholds.supported` (0.6) decides whether the text can be expressed at all. A decision model answers from the options you gave it. It cannot compare numbers or invent a value.

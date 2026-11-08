@@ -42,7 +42,7 @@ The check uses installed Playwright Chromium, the real Console components, and i
 `packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
 
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
-`/api/_vitehub/console/`, and it also matches the paths under it:
+`/_vitehub/api/`, and it also matches the paths under it:
 
 ```js
 document.cookie = "playground-fail=agents=401,invocations=401" // Sign-in on the Agents page

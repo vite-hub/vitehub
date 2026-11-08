@@ -3,7 +3,7 @@ import type { Plugin } from "vite"
 
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
-import { consoleRequestURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
+import { consolePublicURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
 import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
@@ -73,7 +73,7 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
     body = { ...input, action: payload.operation.split(".")[1] }
   }
   if (!route) return { code: "CONSOLE_REQUEST_INVALID", message: `The playground has no fixture for ${payload.operation}.`, ok: false, status: 404 }
-  const url = new URL(`/api/_vitehub/console/${route}`, origin)
+  const url = new URL(`/_vitehub/api/${route}`, origin)
   if (method === "GET") {
     for (const [key, value] of Object.entries(query)) {
       if (key === "id" && payload.operation !== "invocations.list") continue
@@ -105,7 +105,7 @@ export function consoleMockRPC(): Plugin {
           const payload = JSON.parse(await readBody(request))
           // MCP links go back to the browser, while HTTP fixtures stay on the local server.
           const origin = payload.operation.startsWith("mcp-client.")
-            ? consoleRequestURL({ node: { req: request } }).origin
+            ? consolePublicURL(new Request(new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`), { headers: Object.entries(request.headers).flatMap(([name, value]) => value === undefined ? [] : [[name, Array.isArray(value) ? value.join(", ") : value]]) })).origin
             : server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0]
           if (!origin) throw new Error("Playground server is not listening")
           const result = await callConsoleFixture(origin, payload, request.headers.cookie)

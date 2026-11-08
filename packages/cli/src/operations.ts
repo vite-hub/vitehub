@@ -465,15 +465,67 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
   }
 }
 
-/** One namespace per operation namespace, with a command for each operation. */
+/** `vitehub <namespace> <group> <command>`: one feature that runs the commands whose name starts with `<group> `. */
+function groupOf(namespace: string, name: string, commands: readonly ViteHubCliFeature[]): ViteHubCliFeature {
+  const usage = `vitehub ${namespace} ${name} <${commands.map(command => command.name).join("|")}> [args...]`
+  const help = () => {
+    const width = Math.max(...commands.map(command => command.name.length))
+    return [
+      `Usage: ${usage}`,
+      "",
+      "Commands:",
+      ...commands.map(command => `  ${command.name.padEnd(width)}  ${command.description ?? ""}`.trimEnd()),
+      "",
+      `Run \`vitehub ${namespace} ${name} <command> --help\` for the options of one command.`,
+      "",
+    ].join("\n")
+  }
+  return {
+    description: `${commands.map(command => command.name).join(", ")}.`,
+    name,
+    async run(args, context) {
+      const [commandName, ...rest] = args
+      if (commandName === "-h" || commandName === "--help") {
+        context.stdout.write(help())
+        return 0
+      }
+      const command = commands.find(candidate => candidate.name === commandName)
+      if (!command) {
+        context.stderr.write(`${commandName ? `Unknown ViteHub CLI command: ${namespace} ${name} ${commandName}\n` : ""}${help()}`)
+        return 1
+      }
+      return await command.run(rest, context) ?? 0
+    },
+    usage,
+  }
+}
+
+/**
+ * One namespace per operation namespace, with a command for each operation. A command name with a space, such as
+ * `jobs list`, becomes `list` in the `jobs` group: `vitehub queue jobs list`.
+ */
 export function createOperationNamespaces(operations: readonly AnyOperation[]): ViteHubCliCommandNamespace[] {
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
+  const groups = new Map<string, { commands: ViteHubCliFeature[], name: string, namespace: string }>()
   for (const operation of operations) {
-    const { namespace: name } = operationCliPath(operation)
+    const { command, namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }
-    namespace.features.push(featureOf(operation))
-    if (operation.cli?.default) namespace.defaultFeature = operationCliPath(operation).command
+    const space = command.indexOf(" ")
+    if (space < 0) namespace.features.push(featureOf(operation))
+    else {
+      const groupName = command.slice(0, space)
+      const key = `${name} ${groupName}`
+      const group = groups.get(key) ?? { commands: [], name: groupName, namespace: name }
+      group.commands.push({ ...featureOf(operation), name: command.slice(space + 1) })
+      groups.set(key, group)
+    }
+    if (operation.cli?.default) namespace.defaultFeature = command
     namespaces.set(name, namespace)
+  }
+  for (const group of groups.values()) {
+    const namespace = namespaces.get(group.namespace)!
+    // An operation command with the group name wins, as a hand-written command wins over a generated one.
+    if (!namespace.features.some(feature => feature.name === group.name)) namespace.features.push(groupOf(group.namespace, group.name, group.commands))
   }
   return [...namespaces.values()]
 }

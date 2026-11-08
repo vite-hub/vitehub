@@ -1,14 +1,15 @@
-import { registerWorkspace, resolveRegisteredWorkspaceDefinition, setWorkspaceRegistry, type WorkspaceRegistry } from "../core/registry.ts"
+import { resolveRegisteredWorkspaceDefinition, setWorkspaceRegistry, type WorkspaceRegistry } from "../core/registry.ts"
 import { setWorkspaceAssetsRegistry } from "../asset-registry.ts"
 import { invalidateCachedWorkspaceStore } from "../core/workspace-cache.ts"
 import type { WorkspaceAssetsRegistry } from "../core/types.ts"
 export { setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-export { useWorkspace } from "../core/use.ts"
-export type { ReadonlyWorkspaceFacade, UseWorkspaceOptions, WritableWorkspaceFacade } from "../core/use.ts"
+export { useWorkspace } from "../core/use-tools.ts"
+export { useWorkspaceFiles } from "../core/use.ts"
+export type { ReadonlyWorkspaceFacade, ReadonlyWorkspaceFiles, UseWorkspaceOptions, WritableWorkspaceFacade, WritableWorkspaceFiles } from "../core/use.ts"
 export { resetWorkspaceStoreCache } from "../core/workspace-cache.ts"
 export { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "./hosted-store-loader.ts"
 export { getWorkspaceRuntimeConfig, setWorkspaceRuntimeConfig } from "./config.ts"
-export { registerWorkspace }
+export { registerWorkspace, setWorkspaceRuntimeDefinitions } from "../core/registry.ts"
 export { resolveRegisteredWorkspaceDefinition }
 
 export async function invalidateWorkspaceStore(name: string): Promise<void> {

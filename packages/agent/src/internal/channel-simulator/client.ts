@@ -129,20 +129,25 @@ export function channelSimulatorClient(
     if (stick) scroller.scrollTop = scroller.scrollHeight
   }
 
-  // Yields the JSON parts of a Server-Sent Events body until `data: [DONE]`.
+  // Yields JSON parts until `data: [DONE]`, then drains the body so the Channel records a completed delivery.
   async function* events(body: ReadableStream<Uint8Array>): AsyncGenerator<{ delta?: unknown, errorText?: unknown, type?: unknown }> {
     const reader = body.getReader()
     const decoder = new TextDecoder()
     let buffer = ""
+    let ended = false
     try {
       for (;;) {
         const { done, value } = await reader.read()
         if (done) return
+        if (ended) continue
         buffer += decoder.decode(value, { stream: true }).replace(/\r/g, "")
         for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
           const data = buffer.slice(0, end).split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).replace(/^ /, "")).join("\n")
           buffer = buffer.slice(end + 2)
-          if (data === "[DONE]") return
+          if (data === "[DONE]") {
+            ended = true
+            break
+          }
           if (data) yield JSON.parse(data)
         }
       }
@@ -198,7 +203,6 @@ export function channelSimulatorClient(
       for await (const event of events(response.body)) {
         if (event.type === "text-delta" && typeof event.delta === "string") append(event.delta)
         else if (event.type === "error") throw new Error(typeof event.errorText === "string" ? event.errorText : "The Agent stream failed.")
-        else if (event.type === "finish") break
       }
     }
     catch (error) {
