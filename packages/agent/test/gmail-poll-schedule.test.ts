@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -53,6 +54,8 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
     await build({
       entryPoints: [input], outfile: output, bundle: true, platform: "node", format: "esm", packages: "external", tsconfigRaw: { compilerOptions: {} },
       plugins: [{ name: "generated-agent-runtime", setup(builder) {
+        // Schedule owns this dependency. Bundle it before moving its runtime into Agent's dist directory.
+        builder.onResolve({ filter: /^cron-schedule$/ }, args => ({ path: createRequire(args.importer).resolve(args.path) }))
         builder.onResolve({ filter: /^#vitehub\/agent\/registry$/ }, () => ({ path: aliases["#vitehub/agent/registry"]! }))
         builder.onResolve({ filter: /^@vite-hub\/agent(?:\/|$)/ }, args => ({ path: join(packageRoot, manifest.exports[args.path === "@vite-hub/agent" ? "." : `.${args.path.slice("@vite-hub/agent".length)}`].import) }))
       } }],

@@ -267,15 +267,16 @@ The SQLite and D1 adapters and the memory store implement both operations. A cus
 Read the recorded prompt of a finished record to start it again:
 
 ```ts fragment
-import { agentInvocationRerunInput } from 'vite-hub/agent'
+import { agentInvocationRerunInput, runAgent } from 'vite-hub/agent'
 
 const record = await invocations.get(invocationId)
 const input = record ? agentInvocationRerunInput(record) : undefined
 if (input?.available) {
-  await runAgent(agent, context, {
+  const [error] = await runAgent(agent, {
     prompt: input.prompt,
     ...(input.invokerProfileId ? { context: { invokerProfileId: input.invokerProfileId } } : {}),
-  })
+  }, { runtimeContext })
+  if (error) throw error
 }
 ```
 
@@ -388,6 +389,8 @@ const invocations = defineAgentInvocations({
 })
 ```
 
+A store that connects on first use, such as one that loads its database client and creates its tables, can implement `open()`. The journal calls it once before its first operation and waits up to 10 seconds for it, outside `storeTimeoutMs`, so a slow cold start does not make the first operation unconfirmed. Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried. The libSQL store and the default Agent journal implement it.
+
 ## Inspect and maintain from the CLI
 
 When an application exposes the standard invocation journal route, inspect it without a dashboard:
@@ -464,7 +467,7 @@ Vercel Agent Definitions currently run through the inline Workflow adapter becau
 
 Use the D1 adapter when the application already has a D1 database. The binding can be resolved for each operation, so an Agent Definition does not need access to request bindings at module load:
 
-```ts [server/invocations.ts]
+```ts [server/invocations.ts] fragment
 import { env } from 'cloudflare:workers'
 import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations'
 import { defineAgentInvocations } from 'vite-hub/agent/server'

@@ -176,7 +176,7 @@ it.each(['review', '__proto__'])('bundles the published runtime lookup for %s wi
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
   await writeFile(entry, `import { loadAgent } from '@vite-hub/agent'
-import registry, { metadata } from '#vitehub/agent/registry'
+import registry, { loadAgentHost, metadata } from '#vitehub/agent/registry'
 import { agents } from ${JSON.stringify(join(root, '.vitehub/agent/registry-agents.mjs'))}
 export async function inspect() {
   const agent = await loadAgent(${JSON.stringify(name)})
@@ -184,6 +184,7 @@ export async function inspect() {
     instructions: agent.__vitehubAgentSettings.driver.instructions,
     registryNames: Object.keys(registry),
     metadataNames: Object.keys(metadata),
+    hostLoaderType: typeof loadAgentHost,
     identity: metadata[${JSON.stringify(name)}],
     catalogNames: Object.keys(agents),
   }
@@ -209,6 +210,7 @@ export async function inspect() {
       instructions: { template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' },
       registryNames: [name],
       metadataNames: [name],
+      hostLoaderType: 'function',
       identity: { name },
       catalogNames: [name],
     })
@@ -231,9 +233,10 @@ export async function inspect() {
   setWorkspaceRuntimeRegistry({ standalone: async () => ({ default: { sources: { context: { content: 'Standalone context.' } } } }) })
   const agent = await loadAgent('review')
   const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { provider: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
-  const result = await runAgent(runnable, { runtime: 'unknown', memo: (_key, create) => create(), waitUntil: () => {} }, {})
+  const [error, run] = await runAgent(runnable, {})
+  if (error) throw error
   const standalone = await resolveRegisteredWorkspaceDefinition('standalone')
-  return { result, instructions: agent.__vitehubWorkspaceAgentOptions.driver.instructions, standalone: standalone.sources.context.content }
+  return { result: run.text, instructions: agent.__vitehubWorkspaceAgentOptions.driver.instructions, standalone: standalone.sources.context.content }
 }`)
   const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
   try {

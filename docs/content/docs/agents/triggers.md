@@ -14,15 +14,19 @@ A Trigger turns a product event into Agent Invocation input. Use it when a Capab
 An application route can call `runAgent()` when no Capability needs to prepare the event.
 
 ```ts [server/api/support.post.ts]
+import { createError, defineEventHandler, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const body = await readBody<{ prompt: string }>(event)
+  if (!body?.prompt) throw createError({ statusCode: 400, statusMessage: 'A prompt is required.' })
   const runtime = getRuntimeContext(event)
   try {
-    return await runAgent(support, runtime, { prompt })
+    const [error, result] = await runAgent(support, { prompt: body.prompt }, { runtimeContext: runtime })
+    if (error) throw error
+    return { text: result.text }
   }
   finally {
     await runtime.flushWaitUntil().catch(console.error)
@@ -375,6 +379,6 @@ With the built-in SQLite state providers, a pending notification survives a rest
 | A server route already owns validation and input | `runAgent()` or `streamAgent()` |
 | A Capability owns history, policy, or event preparation | `runAgentTrigger()` or `streamAgentTrigger()` |
 | A messaging provider delivers an event | A [Channel](/docs/agents/channels) and its Trigger |
-| A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations), handling its runtime-specific return value |
+| A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations) for the result |
 
 Webhook adapters may retain ownership until delivery finishes. Configure Channel timeout, concurrency, and durable delivery there rather than adding webhook policy to the Driver.

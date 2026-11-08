@@ -14,7 +14,8 @@ import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInv
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { resolveAgentTriggerInvocation, runAgentInline, streamAgent } from "../index.ts"
+import { resolveAgentTriggerInvocation } from "../index.ts"
+import { runAgentInline, streamAgentInline } from "../internal/agent-run.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
 import { handleChannelReplayRequest } from "../channel-replay.ts"
 import { channelDeliveryHandlers } from "../internal/channel-delivery-handlers.ts"
@@ -483,8 +484,8 @@ async function streamAgentWithWorkspaceProgress(
   entry: AgentInvocationStreamEntry,
   emit: (event: AgentInvocationStreamEvent) => void,
   signal: AbortSignal,
-  run: () => ReturnType<typeof streamAgent>,
-): ReturnType<typeof streamAgent> {
+  run: () => ReturnType<typeof streamAgentInline>,
+): ReturnType<typeof streamAgentInline> {
   const workspace = agentWorkspaceName(entry)
   if (!workspace) return await run()
 
@@ -722,7 +723,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   }
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {
-    let output: Awaited<ReturnType<typeof streamAgent>>
+    let output: Awaited<ReturnType<typeof streamAgentInline>>
     const trigger = selectedTrigger(entry, body)
     if (trigger) {
       const triggerContext = { ...context, request: undefined }
@@ -749,7 +750,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
             }
           : invocation.input
         // SAFETY: The resolved trigger and preview Agent share the discovered Agent contract; only Dev Loop context defaults and cancellation are added.
-        output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevLoopAbortSignal(input, signal) as never, {
+        output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgentInline(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevLoopAbortSignal(input, signal) as never, {
           output: "events",
         }))
       }
@@ -760,7 +761,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
         if (!signal.aborted) emit(event)
       })
-      output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgent(previewAgent as never, context as never, {
+      output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgentInline(previewAgent as never, context as never, {
         ...payload,
         abortSignal: signal,
         ...(typeof body.invokerProfileId === "string" && payload?.invokerProfileId === undefined

@@ -79,7 +79,8 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -3507,7 +3508,7 @@ cli_auth_credentials_store = "keyring"
     })
     const agent = defineAgent({ driver: codexDriver(), invocations, runtime: false })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: <T>(_key: string, create: () => T) => create(),
       run: { runId, threadId },
       runtime: "vite",
@@ -3883,7 +3884,7 @@ cli_auth_credentials_store = "keyring"
       runtime: false,
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: <T>(_key: string, create: () => T) => create(),
       run: { runId, threadId },
       runtime: "vite",

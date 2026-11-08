@@ -308,10 +308,10 @@ export async function createProcessAgentInvocations(
     recovery: Parameters<typeof import("../server/invocation-health.ts").failInterruptedAgentInvocations>[1]
   },
 ): Promise<import("../invocations.ts").AgentInvocations> {
-  const { defineAgentInvocations } = await import("../invocations.ts")
-  const { failInterruptedAgentInvocations } = await import("../server/invocation-health.ts")
-  await failInterruptedAgentInvocations(options.store, options.recovery)
-  return defineAgentInvocations(options)
+  const { defineAgentInvocations, recoverInterruptedAgentInvocations } = await import("../invocations.ts")
+  const invocations = defineAgentInvocations(options)
+  await recoverInterruptedAgentInvocations(invocations, options.recovery)
+  return invocations
 }
 
 export { createProcessAgentHost } from './process-host.ts'

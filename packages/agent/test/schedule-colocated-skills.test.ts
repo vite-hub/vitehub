@@ -36,7 +36,7 @@ it.each(["default-expression", "default-binding", "default-reexport"])("preserve
       "import { defineSchedule } from '@vite-hub/schedule'",
       "import reporter from '../agents/reporter/index'",
       "const daily = defineAgent({ extends: reporter, description: 'Daily report' })",
-      "export default defineSchedule({ cron: '0 9 * * *', handler: async () => runAgent(daily, { runtime: 'unknown', memo: () => {}, waitUntil: () => {} }, { prompt: 'Write the report.' }) })",
+      "export default defineSchedule({ cron: '0 9 * * *', handler: async () => { const [error, result] = await runAgent(daily, { prompt: 'Write the report.' }); if (error) throw error; return result } })",
     ].join("\n"))
     const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
     await build({

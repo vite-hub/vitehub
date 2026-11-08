@@ -101,9 +101,9 @@ export async function enqueueWelcome(email: string) {
 
 ### Send many jobs in one request
 
-`sendBatch()` on the client from `getQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delaySeconds`, `idempotencyKey`, and `retentionSeconds`; the second argument sets `delaySeconds` and `retentionSeconds` for jobs that do not set them. The batch uses the client's region.
+`sendBatch()` on the client from `getQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delaySeconds`, `idempotencyKey`, and `retentionSeconds`; the second argument sets `delaySeconds` and `retentionSeconds` for jobs that do not set them. The batch uses the client's region. This excerpt uses the Queue registry generated when Vite loads the app configuration.
 
-```ts [server/utils/enqueue-welcomes.ts]
+```ts [server/utils/enqueue-welcomes.ts] fragment
 import { getQueue } from 'vite-hub/queue'
 
 export async function enqueueWelcomes(emails: string[]) {

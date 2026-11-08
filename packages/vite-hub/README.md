@@ -253,6 +253,7 @@ Set `invocations` on an Agent Definition to record into another journal, such as
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  driver: { run: () => "Done." },
   invocations: "database",
 })
 ```
@@ -291,7 +292,7 @@ The Console RPC transport accepts browser requests only from its own origin, inc
 
 One Console build can open many projects. The Console that an app serves opens that app, and asks for the token when the app uses `auth: "token"`. A Console on another origin links each app by its URL, reads `project.get`, and keeps the project list and tokens in `localStorage` (`vitehub-console:projects`) of its own origin. The app must use `auth: "token"` and list that origin in `console.origins`. Features that need the app origin or its cookies, such as live editing, the Content preview, impersonation, Env management, and the Connections connect flow, work only in the Console that the app serves. See [Use one Console for many projects](https://vitehub.dev/docs/development/console#use-one-console-for-many-projects).
 
-[console.vitehub.dev](https://console.vitehub.dev) hosts that Console build as a static site. It keeps no server state, and the browser calls each project directly, so ViteHub never receives tokens or project data. An app with `auth: "token"` and the default `console.origins` can link there. To self-host the same build, run `pnpm --dir packages/vite-hub run build:console-hosted` in a repository clone and serve `.vitehub/console-hosted` with its `_headers` file; `console.hosted.wrangler.jsonc` is the Cloudflare configuration of console.vitehub.dev. See [Hosted Console](https://vitehub.dev/docs/development/console#hosted-console).
+[console.vitehub.dev](https://console.vitehub.dev) hosts that Console build as a static site. It keeps no server state, and the browser calls each project directly, so ViteHub never receives tokens or project data. An app with `auth: "token"` and the default `console.origins` can link there. To self-host the same build, run `pnpm --dir packages/vite-hub run build:console-hosted` in a repository clone and serve `.vitehub/console-hosted` with its `_headers` file; `console.hosted.wrangler.jsonc` is the Cloudflare configuration of console.vitehub.dev. See [Hosted Console](https://vitehub.dev/docs/development/console#hosted-console). A link such as `https://console.vitehub.dev/open?project=<app URL>&path=/kv` opens one page of a project there, and asks to link the project first when this browser has not. Build it with `hostedConsoleUrl(projectUrl, path)` from `vite-hub/runtime`.
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 

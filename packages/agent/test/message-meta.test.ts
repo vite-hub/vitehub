@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createChatMessageTriggerInput, markDerivedChatTriggerInvoker } from "../src/chat-message-input.ts"
-import { defineAgent, portableAgentWorkflowInput, runAgentInline } from "../src/index.ts"
+import { defineAgent, portableAgentWorkflowInput } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"

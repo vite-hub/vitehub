@@ -1,5 +1,6 @@
 import { expectTypeOf, it } from "vitest"
-import { codexDriver, defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
+import { codexDriver, defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 import { github } from "../src/channels.ts"
 import type { AgentRuntimeContext, WorkspaceAgentWorkspaceConfig } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { agentWithColocatedInstructions, agentWithSkills, codexDriver, defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { agentWithColocatedInstructions, agentWithSkills, codexDriver, defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { getAgentLayerOptions } from "../src/agent-layers.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { markWorkspaceAgentDefinitionRegistered, workspaceAgentUsesRegisteredDefinition, workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
@@ -9,7 +10,7 @@ describe("Agent presets from a package", () => {
     const run = vi.fn(() => ({ text: "notes" }))
     const notetaker = defineAgent({ name: "published-notetaker", driver: { run } })
     const agent = defineAgent({ extends: notetaker, description: "Local notes" })
-    await runAgent(agent, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "Summarize this" })
+    await runAgentWithContext(agent, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "Summarize this" })
     expect(run).toHaveBeenCalledTimes(1)
     expect(agent.name).toBeUndefined()
     expect(agent.description).toBe("Local notes")
@@ -91,7 +92,7 @@ describe("configured Agent presets", () => {
     expect(third.name).toBeUndefined()
     expect(third.options.autoMerge).toBe(false)
     expect(defaults.filter.author.allow).toEqual(["original"])
-    const result = await runAgent(third, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "repair" })
+    const result = await runAgentWithContext(third, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "repair" })
     expect(result).toMatchObject({ text: expect.stringContaining('"autoMerge":false') })
     expect(third.resolve).not.toBe(second.resolve)
   })

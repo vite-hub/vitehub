@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
 import { defineChannel, discord, teams, telegram } from "../src/channels.ts"
-import { defineAgent, runAgent, runAgentTrigger } from "../src/index.ts"
-import { createAgentInspectionMetadata, resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
+import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { bindMessageChannelInstructions, inheritMessageChannelInstructions, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
@@ -367,7 +369,7 @@ describe("Channel instructions", () => {
       },
     })
 
-    await runAgent(agent, runtime, {
+    await runAgentWithContext(agent, runtime, {
       context: {
         channel: {
           run: { origin: "spoofed", runId: "spoofed" },
@@ -558,7 +560,7 @@ describe("Channel instructions option", () => {
       driver: { instructions: agentInstructions, model: model as never },
     })
 
-    await runAgent(agent, runtime, { messages: [createMessage({ role: "user", text: "Hello" })] })
+    await runAgentWithContext(agent, runtime, { messages: [createMessage({ role: "user", text: "Hello" })] })
 
     const system = model.doGenerateCalls[0]!.prompt.filter(message => message.role === "system").map(message => message.content).join("\n")
     expect(system).not.toContain(ticketRules)

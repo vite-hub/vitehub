@@ -1,7 +1,8 @@
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { agentInvocationRerunInput, defineAgent, runAgentInline, startAgentInvocation, agentWorkflow } from "../src/index.ts"
+import { agentInvocationRerunInput, defineAgent, startAgentInvocation, agentWorkflow } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { runAgentWorkflowDefinition, type AgentWorkflowInvocationPayload } from "../src/runtime/workflow.ts"
 import { markAgentInvocationCallerAbortSignal } from "../src/internal/invocation-input.ts"

@@ -115,6 +115,16 @@ describe("generated process hosts", () => {
     expect(await readFile(join(root, ".vitehub/agent/process-hosts-plugin.ts"), "utf8")).toContain("setTimeout(() => host.start(), 0)")
     expect(await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")).toContain("export const agentProcessHostState = () => chatStateFromLibsql()")
     expect(await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")).toContain('"journalMode":"delete"')
+    // The drain and health routes are Fetchables. Run them with a stub host.
+    const host = { health: async () => ({ agents: {}, status: "healthy" }), status: () => "accepting" }
+    for (const [file, body] of [["process-hosts-drain.ts", { status: "accepting" }], ["process-hosts-health.ts", { agents: {}, status: "healthy" }]] as const) {
+      const source = await readFile(join(root, ".vitehub/agent", file), "utf8")
+      expect(source).not.toContain("h3")
+      const route = new Function("host", source.replace(/^import .*\n/gm, "").replace("export default ", "return "))(host) as { fetch: () => Response | Promise<Response> }
+      const response = await route.fetch()
+      expect(response.headers.get("content-type")).toBe("application/json")
+      await expect(response.json()).resolves.toEqual(body)
+    }
 
     await writeFile(join(root, "server", "agents", "worker", "agent.ts"), "export default {}", "utf8")
     await plugin.configResolved.call({} as never, { command: "build", root } as never)

@@ -109,7 +109,8 @@ describe("agent test runner", () => {
   })
 
   it("keeps Agent Run Event store resolvers out of workflow payloads", async () => {
-    const { defineAgent, runAgent, agentWorkflow } = await import("../src/index.ts")
+    const { defineAgent, agentWorkflow } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { defineAgentRunEvents } = await import("../src/server.ts")
     const resolveStore = vi.fn()
     const agent = defineAgent({
@@ -118,7 +119,7 @@ describe("agent test runner", () => {
       runtime: agentWorkflow("run-events-payload"),
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "run-events-1" },
       runtime: "vercel",
@@ -323,7 +324,8 @@ describe("agent test runner", () => {
   })
 
   it("runs workflow-backed Agent Definitions inline only in tests", async () => {
-    const { defineAgent, runAgent, agentWorkflow } = await import("../src/index.ts")
+    const { defineAgent, agentWorkflow } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const { createAgentRuntimeContext, createAgentTestRunner } = await import("../src/test.ts")
     const agent = defineAgent({
       driver: { run: () => "inline" },
@@ -336,7 +338,7 @@ describe("agent test runner", () => {
     expect(workflowMock.create).not.toHaveBeenCalled()
     expect(workflowMock.run).not.toHaveBeenCalled()
 
-    await expect(runAgent(agent, createAgentRuntimeContext({
+    await expect(runAgentWithContext(agent, createAgentRuntimeContext({
       runtime: "unknown",
       runtimeConfig: {},
       waitUntil: vi.fn(),

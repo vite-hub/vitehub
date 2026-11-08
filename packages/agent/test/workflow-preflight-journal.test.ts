@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineAgent, portableAgentWorkflowInput, runAgent, startAgentInvocation, agentWorkflow } from "../src/index.ts"
+import { defineAgent, portableAgentWorkflowInput, startAgentInvocation, agentWorkflow } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 
@@ -38,7 +39,7 @@ describe("Workflow preparation Invocation journal", () => {
       }),
     })
     const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
-    const result = runAgent(agent, runtime(), stage === "input" ? { context: { invalid: () => true } } : {})
+    const result = runAgentWithContext(agent, runtime(), stage === "input" ? { context: { invalid: () => true } } : {})
     if (stage === "input") await expect(result).rejects.toThrow()
     else await expect(result).rejects.toBe(failure)
     expect(providerRun).not.toHaveBeenCalled()
@@ -56,7 +57,7 @@ describe("Workflow preparation Invocation journal", () => {
       workflow: () => import("@vite-hub/workflow"),
     })
     const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
-    await expect(runAgent(agent, runtime(), { abortSignal: controller.signal })).rejects.toBe(failure)
+    await expect(runAgentWithContext(agent, runtime(), { abortSignal: controller.signal })).rejects.toBe(failure)
     await expect(invocations.getByRunId("parent-run", "preflight")).resolves.toMatchObject({ status: "cancelled" })
   })
 
@@ -96,7 +97,7 @@ describe("Workflow preparation Invocation journal", () => {
     const failure = new Error("Preparation failed")
     setAgentWorkflowRuntimeLoaders({ state: async () => { throw failure }, workflow: () => import("@vite-hub/workflow") })
     const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, runtime: agentWorkflow("preflight") })
-    await expect(runAgent(agent, runtime(), {})).rejects.toBe(failure)
+    await expect(runAgentWithContext(agent, runtime(), {})).rejects.toBe(failure)
     expect(store.create).toHaveBeenCalled()
   })
 })
