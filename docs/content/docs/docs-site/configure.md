@@ -378,6 +378,12 @@ The package has `::tutorial-step`, `::product-features`, `:::product-feature-ite
 
 The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. To add more, such as `comark-chips`, which turns web links into chips with their favicon, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
 
+Install the plugin in your app first:
+
+```sh
+pnpm add comark-chips
+```
+
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
 import chips from 'comark-chips'

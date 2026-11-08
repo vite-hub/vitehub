@@ -71,7 +71,7 @@ export default defineNuxtConfig({
 
 `sections` overrides `.navigation.yml` fields by section id. A source's synchronous `frontmatter(data, { file, path, markdown })` callback can supply generated titles or migrate legacy fields. Its return value still passes the full docs schema. `file` stays relative to the source directory; `path` is the public page path.
 
-The `components` module exports a default map of Comark tags to Vue components. Components passed directly to `DocsMarkdown` override that map. Blocks in `components/content/` continue to load on demand, so adding a package's component map needs no renderer override.
+The `components` module exports a default map of Comark tags to Vue components. Components passed directly to `DocsMarkdown` override that map. Both maps override app blocks in `components/content/`, which override the built-in Comark blocks and load on demand.
 
 ### Frontmatter
 
@@ -206,6 +206,12 @@ The server parses each page with Comark, and the browser renders the nodes with 
 `::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. Put the source in an `md`, `markdown`, `mdc`, or `comark` code fence inside each example. The parser adds the rendered copy as an `example-preview` node before the source. A site's parser can still supply its own preview node. Content without a preview node stays visible.
 
 Comark plugins are functions, so more of them go in a module that `parser` names:
+
+Install the plugin in your app first:
+
+```sh
+pnpm add comark-chips
+```
 
 ```ts
 // docs.parser.ts
