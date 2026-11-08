@@ -69,6 +69,7 @@ export function parseShellCommand(command: string, mode: "execution" | "inspecti
 export interface ShellCommandSegment {
   command: string
   followsPipe: boolean
+  invalid?: boolean
   separatorAfter?: "&&" | "||" | "|" | ";" | "\n"
 }
 
@@ -84,7 +85,7 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
     file = parseSync(command, { keepComments: true, variant: LangVariant.LangBash })
   }
   catch {
-    return [{ command, followsPipe: false }]
+    return [{ command, followsPipe: false, invalid: true }]
   }
 
   const toIndex = createSourceIndex(command)
@@ -181,8 +182,14 @@ function stripLineContinuations(command: string): string {
   let quote: "'" | "\"" | undefined
   let ansiCQuoted = false
   let escaped = false
+  let comment = false
   for (let index = 0; index < command.length; index++) {
     const char = command[index]!
+    if (comment) {
+      result += char
+      if (char === "\n") comment = false
+      continue
+    }
     if (escaped) {
       if (char === "\n" && !ansiCQuoted) {
         result = result.slice(0, -1)
@@ -211,6 +218,11 @@ function stripLineContinuations(command: string): string {
       ansiCQuoted = true
       result += "$'"
       index += 1
+      continue
+    }
+    if (char === "#" && (index === 0 || /[\s;|&()]/.test(command[index - 1]!))) {
+      comment = true
+      result += char
       continue
     }
     if (char === "'" || char === "\"") {

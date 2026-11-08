@@ -3,6 +3,7 @@ import { parseShellCommand, splitShellCommandSegments } from "../command/parse.t
 export interface WorkspaceInspectionCommandSegment {
   command: string
   followsPipe: boolean
+  invalid?: boolean
   paths: string[]
   searchRecursive: boolean
   separatorAfter?: "&&" | "||" | "|" | ";" | "\n"

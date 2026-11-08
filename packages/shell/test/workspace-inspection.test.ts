@@ -193,6 +193,22 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
     const fs = createReadonlyWorkspaceFs(workspace)
 
+    await expect(runWorkspaceInspectionCommand(workspace, "# note \\\nrm README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "echo ok\nrm README.md\nif", {
+      commands: ["echo"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "# note\ncat README.md", {
       commands: ["cat"],
       cwd: workspaceMountPoint,

@@ -409,6 +409,9 @@ function preflightUnsupportedWorkspaceCommand(command: string, commands?: string
 }
 
 function preflightUnsupportedWorkspaceSyntax(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
+  if (analyzeWorkspaceInspectionCommand(command).some(segment => segment.invalid)) {
+    return unsupportedWorkspaceCommandFeedback(command, "invalid shell syntax", commands)
+  }
   if (usesShellSubstitution(command)) {
     if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
     return undefined
