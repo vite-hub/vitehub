@@ -15,6 +15,7 @@ const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
 // Layout records point to an exclusively allocated metadata directory, outside the encoded key namespace.
 const layoutRecord = /^\.unstorage-tmp-vitehub-layout-v1(?:-\d+)?$/
 const layoutRecordName = ".unstorage-tmp-vitehub-layout-v1"
+const layoutMarkerName = ".unstorage-tmp-vitehub-record"
 const keyPrefix = "key-"
 
 // Each key is one file in the base folder, so `signups` and `signups:reset-at` can both exist.
@@ -60,7 +61,15 @@ async function migrateKeys(root: string): Promise<string> {
         if (hasCode(error, "ENOENT")) return ""
         throw error
       })
-      if (!/^\.unstorage-tmp-vitehub-migration-[a-z\d]{6}$/i.test(value) || !await exists(join(root, value))) continue
+      if (!/^\.unstorage-tmp-vitehub-migration-[a-z\d]{6}$/i.test(value)) continue
+      const identity = await Promise.all([lstat(path), lstat(join(root, value, layoutMarkerName))]).catch((error: unknown) => {
+        if (hasCode(error, "ENOENT", "ENOTDIR")) return undefined
+        throw error
+      })
+      // Legacy values can imitate any name or contents, but cannot create hard links.
+      if (!identity) continue
+      const [record, marker] = identity
+      if (!record.isFile() || !marker.isFile() || record.dev !== marker.dev || record.ino !== marker.ino) continue
       recordPath = path
       layout = join(root, value)
       break
@@ -72,13 +81,15 @@ async function migrateKeys(root: string): Promise<string> {
     const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
     try {
       await writeFile(temporary, basename(candidate))
+      await link(temporary, join(candidate, layoutMarkerName))
       // Publish one shared workspace without replacing another initializer's record.
       await link(temporary, join(root, name))
       layout = candidate
       recordPath = join(root, name)
     }
     catch (error) {
-      if (!hasCode(error, "EEXIST")) throw error
+      // Another initializer can stage this unpublished workspace before its marker is linked.
+      if (!hasCode(error, "EEXIST", "ENOENT")) throw error
     }
     finally {
       await rm(temporary, { force: true })

@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
 const interruption = vi.hoisted(() => ({
-  link: undefined as (() => void) | undefined,
+  link: undefined as ((destination: string) => void | Promise<void>) | undefined,
   rename: undefined as (() => void) | undefined,
 }))
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -15,7 +15,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     link: async (...args: Parameters<typeof actual.link>) => {
-      interruption.link?.()
+      await interruption.link?.(String(args[1]))
       return actual.link(...args)
     },
     rename: async (...args: Parameters<typeof actual.rename>) => {
@@ -130,6 +130,42 @@ it("keeps a key with an escaped colon apart from a key with a colon", () => with
   expect((await readdir(base)).filter(name => !name.startsWith(".unstorage-tmp-vitehub-")).sort()).toEqual(["key-a%253Ab", "key-a%3Ab"])
 }))
 
+it.each(["", "-1"])("does not trust legacy values that imitate a layout record%s", (suffix) => {
+  const record = `.unstorage-tmp-vitehub-layout-v1${suffix}`
+  const workspace = ".unstorage-tmp-vitehub-migration-abcdef"
+  const values = {
+    [record]: workspace,
+    [`${workspace}:child`]: "legacy child",
+    [`${workspace}:record`]: workspace,
+    [`${workspace}:complete`]: "",
+    [`${workspace}:staged`]: "",
+    [`${workspace}:legacy:child`]: "nested child",
+  }
+  async function check(current: ReturnType<typeof createHostedKVStorage>) {
+    expect((await current.getKeys()).sort()).toEqual(Object.keys(values).sort())
+    for (const [key, value] of Object.entries(values)) await expect(current.getItem(key)).resolves.toBe(value)
+  }
+  return withStore(async (storage, base) => {
+    await check(storage)
+    await storage.dispose()
+    const reopened = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+    try {
+      await check(reopened)
+    }
+    finally {
+      await reopened.dispose()
+    }
+  }, async (base) => {
+    for (const [key, value] of Object.entries(values)) {
+      const parts = key.split(":")
+      await mkdir(join(base, ...parts.slice(0, -1)), { recursive: true })
+      await writeFile(join(base, ...parts), value)
+    }
+    // Matching marker contents do not prove that this is migration state.
+    await writeFile(join(base, workspace, ".unstorage-tmp-vitehub-record"), workspace)
+  })
+})
+
 it.each([
   ["a:b", "a%3Ab"],
   ["a", "key-a", "key-key-a"],
@@ -206,6 +242,26 @@ it.each([
     await mkdir(join(base, ...parts.slice(0, -1)), { recursive: true })
     await writeFile(join(base, ...parts), `value:${key}`)
   }
+}))
+
+it("retries when another initializer stages its unpublished workspace", () => withStore(async (storage, base) => {
+  const other = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  interruption.link = async (destination) => {
+    if (!destination.endsWith(".unstorage-tmp-vitehub-record")) return
+    interruption.link = undefined
+    await expect(other.getKeys()).resolves.toEqual(["a:b"])
+  }
+  try {
+    await expect(storage.getItem("a:b")).resolves.toBe("legacy")
+    await expect(other.getItem("a:b")).resolves.toBe("legacy")
+    await expect(storage.getKeys()).resolves.toEqual(["a:b"])
+  }
+  finally {
+    await other.dispose()
+  }
+}, async (base) => {
+  await mkdir(join(base, "a"))
+  await writeFile(join(base, "a", "b"), "legacy")
 }))
 
 it("keeps the new layout when a cleared store is reopened", () => withStore(async (storage, base) => {
