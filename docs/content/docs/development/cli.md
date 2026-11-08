@@ -59,7 +59,7 @@ Available namespaces:
   env         Server Env inspection workflows.
   secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
-  schedule    Run Static Schedule Definitions and inspect their recorded runs.
+  schedule    Run Static Schedule Definitions, start Schedules from the CLI, and inspect their recorded runs.
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
@@ -136,6 +136,9 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
+| `vitehub schedule list` | Available | Schedule Package | List the Schedules that code started with `startSchedule()`. |
+| `vitehub schedule start` | Available | Schedule Package | Start a Schedule Definition without `cron`, once with `--at` or on `--cron`. |
+| `vitehub schedule cancel` | Available | Schedule Package | Cancel a started Schedule. |
 | `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
 | `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
@@ -918,7 +921,7 @@ pnpm vitehub invocations list --url https://app.example.com
 
 The generated commands need the Console RPC. `vitehub()` installs it, and standalone `hubKv()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` plugins install a local development RPC for their storage commands. Other standalone package plugins, such as `hubWorkflow()`, `hubSchedule()`, and `hubQueue()`, need a running app with an operation RPC to run their generated commands.
 
-An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
+An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
 The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub agent usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
@@ -976,6 +979,16 @@ pnpm vitehub schedule attempts srun_static_digest_2026-05-22T07:00:00.000Z
 ```txt [Output]
 RUN                                          STATUS     SCHEDULED AT              ATTEMPTS  ERROR
 srun_static_digest_2026-05-22T07:00:00.000Z  succeeded  2026-05-22T07:00:00.000Z  1         -
+```
+
+`list`, `start`, and `cancel` work on the Schedules that code starts with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). The Definition has no `cron`. `start` takes `--at` for one run, or `--cron` and `--time-zone` for a repeating one. To pass a payload, give the whole input as JSON with `--input`.
+
+```bash [Terminal]
+pnpm vitehub schedule start reminder --at 2026-11-08T09:00:00Z
+pnpm vitehub schedule start reminder --input '{"name":"reminder","cron":"0 9 * * 1-5","timeZone":"Europe/Madrid","payload":{"text":"Stand-up"}}'
+pnpm vitehub schedule list
+pnpm vitehub schedule runs sched_mh1x2y3z_ab12cd34
+pnpm vitehub schedule cancel sched_mh1x2y3z_ab12cd34 --yes
 ```
 
 Every command accepts `--json`, `--url <origin>`, and `--timeout <ms>`. `runs` accepts `--limit <n>`. Errors go to stderr, or into the JSON body with `--json`. `schedule.runs` and `schedule.attempts` are `read` operations of the Schedules section.
