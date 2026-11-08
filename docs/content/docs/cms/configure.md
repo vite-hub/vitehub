@@ -1,6 +1,6 @@
 ---
 title: CMS configuration
-description: Choose the Database, Blob store, and Workspace of the cms preset, keep documents in a GitHub repository, publish through pull requests, and decide who may edit and publish.
+description: "Choose the Database, Blob store, and Workspace of the cms preset, keep documents in GitHub, publish through pull requests, and decide who may edit."
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal

@@ -11,7 +11,7 @@ import { parseJSONC, parseTOML } from "confbox"
 import { transform } from "esbuild"
 import { findNearestFile } from "pkg-types"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer"
+import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -597,6 +597,10 @@ async function installConsole(
     Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: { options: { devHandlers: Array<{ handler?: unknown, route?: string }> } }) => {
       addViteHubDevPeerDevHandler(nitro.options.devHandlers)
     }])
+    // WebSocket upgrades, such as Realtime rooms of the Console, skip Nitro's dev handlers. Sign them on the listener.
+    Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer) => {
+      addViteHubDevPeerUpgradeSigner(server)
+    }])
     const tab = consoleNuxtDevToolsTab(nuxt.options.app?.baseURL)
     // Nuxt DevTools 3 and 4 read this hook. DevTools 4 shows the tab in its Devframe dock.
     Reflect.apply(nuxt.hook, nuxt, ["devtools:customTabs", (tabs: ConsoleNuxtDevToolsTab[]) => {
@@ -987,6 +991,7 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOp
 /** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
+  getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
   getMeta: () => Promise<{
     configKey: "vitehub"
     name: "vite-hub/nuxt"
@@ -995,7 +1000,7 @@ type ViteHubNuxtModule = {
 
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
- * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both. Headless apps
+ * them Nuxt UI's Nuxt icon, their icons in the `@nuxt/icon` client bundle, and component auto-imports. `@vite-hub/ui` owns all three. Headless apps
  * do not need the optional Nuxt UI peer or its module, so they must not receive a plugin that imports it.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
@@ -1011,6 +1016,8 @@ async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
       hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
       options: { plugins: (nuxt.options.plugins ??= []) },
     })
+    // Auto-import the components, as the UI module did. The app still imports `@vite-hub/ui/styles.css` itself.
+    ui.addViteHubUIComponents(nuxt)
   })
 }
 
@@ -1835,6 +1842,12 @@ viteHubNuxtModule.getMeta = async () => ({
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })
+
+viteHubNuxtModule.getModuleDependencies = async () => {
+  if (!isPackageInstalled("@nuxt/ui")) return {}
+  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+  return ui?.viteHubUIIconDependencies ?? {}
+}
 
 export default viteHubNuxtModule
 

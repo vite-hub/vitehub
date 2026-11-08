@@ -147,6 +147,18 @@ async function verify(request: Request, key: string, now: number): Promise<boole
   return true
 }
 
+/**
+ * Whether a development request came from this machine. Headers can be forged, so only the socket decides.
+ * - A dev server whose front process signs loopback requests gives its worker a key. The worker then trusts only
+ *   that evidence, because its own peer is the proxy of the front process.
+ * - Without a key, `remoteAddress`, the peer address that the host adapter reports, decides. An unknown peer is refused.
+ */
+export async function isViteHubLoopbackPeer(request: Request, remoteAddress: string | undefined): Promise<boolean> {
+  if (remoteAddress && !isViteHubLoopbackAddress(remoteAddress)) return false
+  const key = readViteHubDevPeerKey()
+  return key ? verifyViteHubDevPeer(request, key) : isViteHubLoopbackAddress(remoteAddress)
+}
+
 /** The parts of an H3 1 (Nitro 2) or H3 2 (Nitro 3) event that the dev handler reads. */
 interface DevPeerEvent {
   node?: { req?: DevPeerNodeRequest }
@@ -161,6 +173,13 @@ interface DevPeerNodeRequest {
   url?: string
 }
 
+/** Remove a client copy of the evidence. Returns the request to sign when it came from a loopback socket. */
+function takeSignableRequest(node: DevPeerNodeRequest): { method: string, path: string } | undefined {
+  delete node.headers[viteHubDevPeerHeader]
+  if (!isViteHubLoopbackAddress(node.socket?.remoteAddress) || !node.method || !node.url?.startsWith("/")) return
+  return { method: node.method, path: node.url }
+}
+
 /**
  * The Nitro dev handler that runs in the front process before Nitro forwards a request to its worker. It accepts
  * H3 1 events (Nitro 2) and H3 2 events (Nitro 3), and it never answers a request itself.
@@ -171,11 +190,37 @@ export async function viteHubDevPeerDevHandler(event: DevPeerEvent): Promise<voi
   const node = event.runtime?.node?.req ?? event.node?.req
   web?.delete(viteHubDevPeerHeader)
   if (!node) return
-  delete node.headers[viteHubDevPeerHeader]
-  if (!isViteHubLoopbackAddress(node.socket?.remoteAddress) || !node.method || !node.url?.startsWith("/")) return
-  const evidence = await signViteHubDevPeer(useViteHubDevPeerKey(), { method: node.method, path: node.url })
+  const request = takeSignableRequest(node)
+  if (!request) return
+  const evidence = await signViteHubDevPeer(useViteHubDevPeerKey(), request)
   node.headers[viteHubDevPeerHeader] = evidence
   web?.set(viteHubDevPeerHeader, evidence)
+}
+
+/**
+ * Sign a WebSocket upgrade in the front process. Nitro 3 dev servers hand an upgrade to the worker without
+ * their dev handlers, and Node calls `upgrade` listeners one after another without waiting, so this signs at once with
+ * `node:crypto`. It signs only in a process that {@link addViteHubDevPeerDevHandler} gave a key.
+ */
+export function viteHubDevPeerUpgradeListener(req: DevPeerNodeRequest): void {
+  const request = takeSignableRequest(req)
+  const hmac = globalThis.process?.getBuiltinModule?.("node:crypto")?.createHmac
+  if (!request || !state.key || !hmac) return
+  const timestamp = String(Date.now()).padStart(13, "0")
+  const nonce = random(16)
+  const signature = hmac("sha256", state.key).update(payload(request.method, request.path, timestamp, nonce)).digest()
+  req.headers[viteHubDevPeerHeader] = `${version}.${timestamp}.${nonce}.${base64url(new Uint8Array(signature))}`
+}
+
+/** The parts of a Node HTTP server that {@link addViteHubDevPeerUpgradeSigner} uses. */
+export interface ViteHubDevPeerUpgradeServer {
+  listeners(event: "upgrade"): readonly unknown[]
+  prependListener(event: "upgrade", listener: typeof viteHubDevPeerUpgradeListener): unknown
+}
+
+/** Run {@link viteHubDevPeerUpgradeListener} before every other `upgrade` listener of a dev server, once. */
+export function addViteHubDevPeerUpgradeSigner(server: ViteHubDevPeerUpgradeServer): void {
+  if (!server.listeners("upgrade").includes(viteHubDevPeerUpgradeListener)) server.prependListener("upgrade", viteHubDevPeerUpgradeListener)
 }
 
 const devHandlerMark = Symbol.for("vitehub.dev-peer.dev-handler")

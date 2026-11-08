@@ -1,6 +1,6 @@
 ---
 title: Build an AI Slack bot with ViteHub
-description: Create a Slack bot that answers with AI. Make the Slack app from a manifest, pass the Chat SDK Slack adapter to slack() in defineAgent, and point Slack Event Subscriptions at the ViteHub webhook route.
+description: "Create a Slack bot that answers with AI. Make the Slack app from a manifest, pass the Chat SDK Slack adapter to slack(), and send Slack events to ViteHub."
 navigation.title: Slack AI bot
 navigation.order: 4
 navigation.group: Chat bots

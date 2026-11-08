@@ -37,7 +37,8 @@ const page = computed(() => props.response.page)
       <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
     </UPageBody>
 
-    <DocsCatalogFooter :current="section" />
+    <!-- Below the content: its links work before it hydrates. -->
+    <LazyDocsCatalogFooter hydrate-on-visible :current="section" />
   </article>
 </template>
 
