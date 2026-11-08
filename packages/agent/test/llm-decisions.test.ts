@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vite-hub/agent"
 import { llmGate, llmRoute } from "../src/capabilities.ts"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -50,7 +51,7 @@ describe("LLM decision capabilities", () => {
         } },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [createMessage({ role: "user", text: "I need help with billing." })],
     })).resolves.toEqual({
       choice: "support",
@@ -70,7 +71,7 @@ describe("LLM decision capabilities", () => {
       runtime: false,
     })
 
-    await runAgent(agent, runtime(), { prompt: "The API returns 500." })
+    await runAgentWithContext(agent, runtime(), { prompt: "The API returns 500." })
     expect(prompts[0]).toContain("The API returns 500.")
   })
 
@@ -95,7 +96,7 @@ describe("LLM decision capabilities", () => {
         } },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [createMessage({ role: "user", text: "Do something unsafe." })],
     })).rejects.toMatchObject({
       code: "LLM_GATE_REJECTED",
@@ -116,7 +117,7 @@ describe("LLM decision capabilities", () => {
       driver: { async run() { return "should not run" } },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "Buy now" })).rejects.toMatchObject({ code: "DECISIONS_R0005" })
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "Buy now" })).rejects.toMatchObject({ code: "DECISIONS_R0005" })
   })
 
   it.each(["route", "gate"] as const)("passes the Invocation signal to the %s model request", async (kind) => {
@@ -132,7 +133,7 @@ describe("LLM decision capabilities", () => {
       } },
     })
 
-    await runAgent(agent, runtime(), { abortSignal: new AbortController().signal, prompt: "Help with billing" })
+    await runAgentWithContext(agent, runtime(), { abortSignal: new AbortController().signal, prompt: "Help with billing" })
     expect(invocationSignal).toBeInstanceOf(AbortSignal)
     expect(signals).toEqual([invocationSignal])
   })
@@ -143,6 +144,6 @@ describe("LLM decision capabilities", () => {
       driver: { async run(context) { return context.context.get("route") } },
     })
 
-    await expect(runAgent(agent, runtime(), {})).resolves.toEqual({ choice: "support", confidence: 1, probabilities: { support: 1 } })
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toEqual({ choice: "support", confidence: 1, probabilities: { support: 1 } })
   })
 })

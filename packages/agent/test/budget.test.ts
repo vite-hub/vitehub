@@ -33,7 +33,8 @@ describe("budget Capability", () => {
 
   it("accepts provider usage records backed by getters on a prototype", async () => {
     const { budget } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     class ProviderUsageRecord {
       get usage() {
@@ -52,7 +53,7 @@ describe("budget Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
       exceeded: [
         { metric: "totalTokens", actual: 12, limit: 10 },
@@ -63,7 +64,8 @@ describe("budget Capability", () => {
 
   it("normalizes frozen records from a custom accessor prototype", async () => {
     const { budget } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const prototype = {
       get usage() {
@@ -82,7 +84,7 @@ describe("budget Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
       exceeded: [
         { metric: "totalTokens", actual: 12, limit: 11 },
@@ -93,7 +95,8 @@ describe("budget Capability", () => {
 
   it("reports token and provider cost exceedance", async () => {
     const { budget } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [budget({ tokens: { total: 100, output: 19 }, usd: "0.01", pricing: false })],
@@ -109,7 +112,7 @@ describe("budget Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
       exceeded: [
         { metric: "outputTokens", actual: 20, limit: 19 },
@@ -121,7 +124,8 @@ describe("budget Capability", () => {
 
   it("can reject an invocation after usage is known", async () => {
     const { budget } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [budget({ tokens: 10, mode: "enforce", pricing: false })],
       driver: {
@@ -129,7 +133,7 @@ describe("budget Capability", () => {
       },
     })
 
-    const error = await runAgent(agent, runtime(), { prompt: "hello" }).catch(error => error)
+    const error = await runAgentWithContext(agent, runtime(), { prompt: "hello" }).catch(error => error)
     expect(error).toMatchObject({ code: "AGENT_BUDGET_EXCEEDED", details: { limits: { tokens: { total: 10 } } } })
     const limits = record(record(error)?.details)?.limits
     const tokens = record(limits)?.tokens
@@ -139,7 +143,8 @@ describe("budget Capability", () => {
 
   it("accepts numeric USD limits that use scientific notation", async () => {
     const { budget } = await import("../src/capabilities.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [budget({ usd: 1e-7, pricing: false })],
@@ -155,7 +160,7 @@ describe("budget Capability", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, runtime(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtime(), { prompt: "hello" })
     expect(finish.mock.calls[0]![0].extensions.get("budget")).toMatchObject({
       exceeded: [{ metric: "usd", actual: "0.00000011", limit: 1e-7 }],
     })

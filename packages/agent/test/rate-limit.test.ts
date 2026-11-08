@@ -34,18 +34,20 @@ function limiter(limit = 1, window: "1s" | "1m" = "1m") {
 
 describe("rateLimit capability", () => {
   it("preserves peek and reset on callback limiters", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const onAllowed = vi.fn(async (event: import("../src/capabilities/rate-limit.ts").RateLimitEvent) => {
       expect(await event.limiter.peek({ key: event.decision.key })).toMatchObject({ status: "known", used: 1 })
       expect(await event.limiter.reset({ key: event.decision.key })).toEqual({ status: "reset" })
     })
     const agent = defineAgent({ capabilities: [rateLimit({ identity: () => "user", limiter: limiter(), onAllowed })], driver: { run: () => "ok" } })
-    await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toBe("ok")
     expect(onAllowed).toHaveBeenCalledOnce()
   })
 
   it("rejects before the Agent Invocation when an identity exhausts its limiter", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const run = vi.fn((context: { context: { get: (id: string) => unknown } }) => context.context.get("rate-limit"))
     const agent = defineAgent({
       capabilities: [
@@ -57,7 +59,7 @@ describe("rateLimit capability", () => {
       driver: { run },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [createMessage({ role: "user", text: "first" })],
     })).resolves.toMatchObject({
       allowed: true,
@@ -67,12 +69,12 @@ describe("rateLimit capability", () => {
       used: 1,
       windowMs: 60_000,
     })
-    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toMatchObject({
       allowed: true,
       remaining: 0,
       used: 2,
     })
-    await expect(runAgent(agent, runtime(), {})).rejects.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), {})).rejects.toMatchObject({
       code: "RATE_LIMIT_REJECTED",
       details: { capabilityId: "rate-limit", reason: "limited", retryAfter: expect.any(Number) },
       name: "ViteHubError",
@@ -81,7 +83,8 @@ describe("rateLimit capability", () => {
   })
 
   it("keeps Agent identity and scope resolution above the portable limiter", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const sharedLimiter = limiter()
     const agent = defineAgent({
       capabilities: [
@@ -95,7 +98,7 @@ describe("rateLimit capability", () => {
       driver: { run: context => context.context.get("customer-quota") },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { invoker: { id: "user_1", kind: "chat", meta: { customer: "acme" } } },
     })).resolves.toMatchObject({
       capabilityId: "customer-quota",
@@ -103,16 +106,17 @@ describe("rateLimit capability", () => {
       identitySource: "invoker",
       scope: "customer:acme",
     })
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { invoker: { id: "user_1", kind: "inspection", meta: { customer: "acme" } } },
     })).resolves.toMatchObject({ identity: "inspection:user_1" })
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { invoker: { id: "user_1", kind: "chat", meta: { customer: "acme" } } },
     })).rejects.toBeInstanceOf(ViteHubError)
   })
 
   it("resolves a user's preferred limiter from Agent Invocation Context", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const free = limiter(1)
     const pro = limiter(2)
     const agent = defineAgent({
@@ -125,22 +129,23 @@ describe("rateLimit capability", () => {
       driver: { run: context => context.context.get("rate-limit") },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { invoker: { id: "user_1", meta: { tier: "pro" } } },
     })).resolves.toMatchObject({ limit: 2, remaining: 1 })
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { invoker: { id: "user_1", meta: { tier: "pro" } } },
     })).resolves.toMatchObject({ limit: 2, remaining: 0 })
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { invoker: { id: "user_2" } },
     })).resolves.toMatchObject({ limit: 1, remaining: 0 })
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       context: { invoker: { id: "user_2" } },
     })).rejects.toBeInstanceOf(ViteHubError)
   })
 
   it("runs callbacks with the Agent decision and resolved limiter", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const onAllowed = vi.fn()
     const onDecision = vi.fn()
     const onRejected = vi.fn()
@@ -158,8 +163,8 @@ describe("rateLimit capability", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {})).rejects.toBeInstanceOf(ViteHubError)
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, runtime(), {})).rejects.toBeInstanceOf(ViteHubError)
 
     expect(onDecision).toHaveBeenCalledTimes(2)
     expect(onAllowed).toHaveBeenCalledTimes(1)
@@ -171,7 +176,8 @@ describe("rateLimit capability", () => {
   })
 
   it("uses only explicitly trusted request headers for IP identity", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const request = new Request("https://example.com/api/agent", {
       headers: { "x-forwarded-for": "203.0.113.10, 10.0.0.1" },
     })
@@ -195,15 +201,16 @@ describe("rateLimit capability", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(trustedAgent, runtime({ request }), {})).resolves.toMatchObject({
+    await expect(runAgentWithContext(trustedAgent, runtime({ request }), {})).resolves.toMatchObject({
       identity: "203.0.113.10",
       identitySource: "ip",
     })
-    await expect(runAgent(untrustedAgent, runtime({ request }), {})).rejects.toThrow("requires trustedIpHeaders")
+    await expect(runAgentWithContext(untrustedAgent, runtime({ request }), {})).rejects.toThrow("requires trustedIpHeaders")
   })
 
   it("requires stable Agent Run metadata for run identity", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const agent = defineAgent({
       capabilities: [
         rateLimit({
@@ -214,15 +221,16 @@ describe("rateLimit capability", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, runtime({ run: { runId: "run_1" } }), {})).rejects.toThrow("could not resolve Agent Run metadata")
-    await expect(runAgent(agent, runtime({ run: { runId: "run_2", threadId: "thread_1" } }), {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, runtime({ run: { runId: "run_1" } }), {})).rejects.toThrow("could not resolve Agent Run metadata")
+    await expect(runAgentWithContext(agent, runtime({ run: { runId: "run_2", threadId: "thread_1" } }), {})).resolves.toBe("ok")
   })
 
   it("preserves retry metadata on HTTP error responses", async () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(0)
-      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const agent = defineAgent({
         capabilities: [
           rateLimit({
@@ -234,8 +242,8 @@ describe("rateLimit capability", () => {
         driver: { run: () => "ok" },
       })
 
-      await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
-      const error = await runAgent(agent, runtime(), {}).catch(error => error)
+      await expect(runAgentWithContext(agent, runtime(), {})).resolves.toBe("ok")
+      const error = await runAgentWithContext(agent, runtime(), {}).catch(error => error)
       const response = toHttpErrorResponse(error)
 
       expect(response?.status).toBe(429)
@@ -253,7 +261,8 @@ describe("rateLimit capability", () => {
   })
 
   it("omits retry headers when a provider cannot report reset metadata", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const providerLimiter = {
       capabilities: {
         enforcement: "best-effort" as const,
@@ -274,14 +283,15 @@ describe("rateLimit capability", () => {
       driver: { run: () => "ok" },
     })
 
-    const error = await runAgent(agent, runtime(), {}).catch(error => error)
+    const error = await runAgentWithContext(agent, runtime(), {}).catch(error => error)
     const response = toHttpErrorResponse(error)
     expect(response?.status).toBe(429)
     expect(response?.headers.has("retry-after")).toBe(false)
   })
 
   it("preserves provider unavailability as a service error", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const cause = new Error("provider offline")
     const providerLimiter = {
       capabilities: {
@@ -303,7 +313,7 @@ describe("rateLimit capability", () => {
       driver: { run: () => "ok" },
     })
 
-    const error = await runAgent(agent, runtime(), {}).catch(error => error)
+    const error = await runAgentWithContext(agent, runtime(), {}).catch(error => error)
     expect(error).toMatchObject({ cause, code: "RATE_LIMIT_UNAVAILABLE", name: "ViteHubError" })
     const response = toHttpErrorResponse(error)
     expect(response?.status).toBe(503)
