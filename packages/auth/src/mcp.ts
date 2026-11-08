@@ -17,7 +17,7 @@ import type { BetterAuthPlugin } from "better-auth"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 const mcpErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/auth/limits-and-errors",
+  docs: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
     // Config errors. They throw because the Auth must change.
     AUTH_MCP_OAUTH_MISSING: {

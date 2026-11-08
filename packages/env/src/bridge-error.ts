@@ -14,11 +14,11 @@ export function envBridgeError(code: keyof typeof messages): ViteHubError {
   return new ViteHubError(`ENV_BRIDGE_${code.toUpperCase()}`, messages[code]);
 }
 
-const docs = "https://vitehub.dev/docs/env/bridge#structured-errors";
-const guidance = (fix: string) => ({ why: ({ message }: { message: string }) => message, fix, docs });
+const guidance = (fix: string) => ({ why: ({ message }: { message: string }) => message, fix });
 
 /** Repair guidance that the management route adds to each bridge error body. */
 const envBridgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
     ENV_BRIDGE_DENIED: guidance("Ask an Env admin to grant the permission for this key."),
     ENV_BRIDGE_CONFLICT: guidance("Reload the credential details, then replace it again."),

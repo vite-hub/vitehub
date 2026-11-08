@@ -7,10 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareWorkflowBindingName } from "@vite-hub/workflow"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig } from "@vite-hub/workflow/runtime/state"
+
+import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineChannel, discord, slack, teams, telegram } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { channelSimulationEnv, createSimulatedChatAdapter, isChannelSimulated } from "../src/internal/channel-simulation.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
+import { agentChannelOperations } from "../src/operations.ts"
 import { createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
@@ -38,6 +41,20 @@ function streamedText(body: string): string {
 function lastUserText({ messages }: AgentRunContext): string {
   const parts = messages.filter(message => message.role === "user").at(-1)?.parts ?? []
   return parts.map(part => part.type === "text" ? part.text : "").join("")
+}
+
+const [channelsList, channelsThreads, channelsConversation, conversationsExport] = agentChannelOperations
+const consoleContext = { access: { mode: "open", sections: "all" }, request: new Request("http://vitehub.local/_vitehub/rpc/__call"), surface: "console", user: null } as const
+
+/** Runs `channels.list` for one Agent named `support`, the way the Console and `vitehub channels list` call it. */
+async function listChannels(channels: Parameters<typeof defineAgent>[0]["channels"]) {
+  const agent = defineAgent({ channels, driver: { run: () => "ok" } })
+  installChannelsConsoleHost({
+    agents: { support: agent },
+    handlers: { support: createChannelWebhookRouteHandler(agent) },
+    options: () => ({ agentIdentity: { name: "support" } }),
+  })
+  return await channelsList.run({}, consoleContext)
 }
 
 describe("simulated chat Channels", () => {
@@ -100,8 +117,8 @@ describe("simulated chat Channels", () => {
       expect(response.status, channel).toBe(200)
       expect(response.headers.get("content-type"), channel).toBe("text/html; charset=utf-8")
       const html = await response.text()
-      expect(html.match(/Unofficial simulator/g), channel).toHaveLength(1)
-      expect(html, channel).toContain(`<div class="sim-strip"><span class="sim-label">Unofficial simulator · not affiliated with ${platform}</span></div>`)
+      expect(html.match(/<span class="sim-label">/g), channel).toHaveLength(1)
+      expect(html, channel).toContain(`<div class="sim-strip"><span class="sim-label">Unofficial <span class="sim-optional">simulator </span>· not affiliated with ${platform}</span>`)
       // The embed check runs in <head>, before the first paint, so an embedded page never shows its app chrome.
       const head = html.slice(0, html.indexOf("</head>"))
       expect(head, channel).toContain("<script>if(self!==top)document.documentElement.dataset.embed=\"\"</script>")
@@ -110,6 +127,108 @@ describe("simulated chat Channels", () => {
       expect(html, channel).not.toMatch(/<link|<img|\bsrc=|@import|url\(\s*["']?https?:/)
       const script = /<script type="module">([\s\S]*)<\/script>/.exec(html)?.[1] ?? ""
       expect(() => new Script(script), channel).not.toThrow()
+    }
+  })
+
+  it("links the other simulated Channels of the Agent from each chat page", async () => {
+    const agent = defineAgent({
+      channels: { discord: discord(), helpdesk: slack(), telegram: telegram() },
+      driver: { run: () => "ok" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const html = await (await handler(new Request("https://example.com/hooks/support/helpdesk/in"), "helpdesk", { agentName: "support" })).text()
+    // The switcher is in the strip with the unofficial label. A narrow screen shows the select instead of the links.
+    const strip = /<div class="sim-strip">(.*?)<\/div>/.exec(html)?.[1]
+    const links = /<nav class="sim-switch" aria-label="Simulated Channels"><span class="sim-links">(.*?)<\/span>/.exec(strip ?? "")?.[1]
+    expect(links).toBe([
+      "<a href=\"/hooks/support/discord/in\">Discord</a>",
+      "<a aria-current=\"page\">Slack (helpdesk)</a>",
+      "<a href=\"/hooks/support/telegram/in\">Telegram</a>",
+    ].join(""))
+    expect(/<select aria-label="Simulated Channel"[^>]*>(.*?)<\/select>/.exec(strip ?? "")?.[1]).toBe([
+      "<option value=\"/hooks/support/discord/in\">Discord</option>",
+      "<option value=\"/hooks/support/helpdesk/in\" selected>Slack (helpdesk)</option>",
+      "<option value=\"/hooks/support/telegram/in\">Telegram</option>",
+    ].join(""))
+    expect(html).toContain("[data-embed] .sim-switch { display: none; }")
+
+    const single = defineAgent({ channels: { slack: slack() }, driver: { run: () => "ok" } })
+    const alone = await (await createChannelWebhookRouteHandler(single)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/slack"), "slack", { agentName: "support" })).text()
+    expect(alone).not.toContain("<nav class=\"sim-switch\"")
+  })
+
+  it("marks simulated Channels in the Channel list, with the path of their chat page", async () => {
+    const result = await listChannels({ discord: discord(), slack: slack() })
+    expect(result.channels).toEqual([
+      expect.objectContaining({ agent: "support", channel: "discord", provider: "discord", simulated: true, simulator: "/api/_vitehub/agents/support/webhooks/discord" }),
+      expect.objectContaining({ agent: "support", channel: "slack", provider: "slack", simulated: true, simulator: "/api/_vitehub/agents/support/webhooks/slack" }),
+    ])
+    // The chat page keeps the messages in browser memory, so the provider window is not a reason to warn.
+    for (const channel of result.channels) expect(channel.retention, channel.channel).not.toHaveProperty("warning")
+    expect(channelsList.cli?.format?.(result)).toBe([
+      "AGENT    CHANNEL  PROVIDER             HISTORY          CHAT PAGE",
+      "support  discord  discord (simulated)  provider-window  /api/_vitehub/agents/support/webhooks/discord",
+      "support  slack    slack (simulated)    provider-window  /api/_vitehub/agents/support/webhooks/slack",
+      "",
+    ].join("\n"))
+  })
+
+  it("lists Channels as not simulated when simulation is off", async () => {
+    delete process.env[channelSimulationEnv]
+    const result = await listChannels({ telegram: telegram() })
+    expect(result.channels).toEqual([expect.objectContaining({ channel: "telegram", provider: "telegram", simulated: false })])
+    expect(result.channels[0]).not.toHaveProperty("simulator")
+    expect(result.channels[0]?.retention.warning).toContain("older messages may be missing")
+  })
+
+  it.each([
+    { webhooks: [{}, {}], selector: "slack-1" },
+    { webhooks: { id: "primary", provider: "custom" }, selector: "primary" },
+  ])("links a selectable webhook registration ($selector)", { timeout: 20_000 }, async ({ webhooks, selector }) => {
+    const agent = defineAgent({
+      channels: { slack: slack({ webhooks }), discord: discord() },
+      driver: { run: context => `echo: ${lastUserText(context)}` },
+    })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const options = { agentName: "support" }
+    const channels = await handler.channels(new Request("https://example.com/channels"), options)
+    const simulator = channels.find(channel => channel.id === "slack")?.simulator
+    expect(simulator).toBe(`/api/_vitehub/agents/support/webhooks/${selector}`)
+    const url = `https://example.com${simulator}`
+    const response = await handler(new Request(url), undefined, options)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('<a aria-current="page">Slack</a>')
+    expect(html).toContain('href="/api/_vitehub/agents/support/webhooks/discord"')
+    const other = await (await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord"), undefined, options)).text()
+    expect(other).toContain(`href="${simulator}"`)
+    const reply = await handler(new Request(url, chatRequest("slack", "hi registration")), undefined, options)
+    expect(reply.status).toBe(200)
+    expect(streamedText(await reply.text())).toBe("echo: hi registration")
+  })
+
+  it("reads the threads and conversations of a simulated Channel without the provider window warning", async () => {
+    // The default state keeps no durable transcripts, so a real Channel would warn about the provider window.
+    const agent = defineAgent({ channels: { slack: slack() }, driver: { run: context => `echo: ${lastUserText(context)}` } })
+    const handler = createChannelWebhookRouteHandler(agent)
+    await (await handler(chatRequest("slack", "hi"), "slack", { agentName: "support" })).text()
+    installChannelsConsoleHost({ agents: { support: agent }, handlers: { support: handler }, options: () => ({ agentIdentity: { name: "support" } }) })
+    const { retention } = await channelsThreads.run({ agent: "support", channel: "slack" }, consoleContext)
+    expect(retention).toMatchObject({ durable: false, mode: "provider-window" })
+    expect(retention).not.toHaveProperty("warning")
+
+    const retentionWindow = { durable: false, maxMessages: 100, transcripts: false, ttlMs: 604_800_000 }
+    const conversation = { agent: "support", channel: "slack", messages: [], participants: [], provider: "slack", retention: retentionWindow, threadId: "slack:learner:c", truncated: false }
+    for (const simulated of [true, false]) {
+      // SAFETY: The test host has the members of the webhook handler that the conversation operations call.
+      const reader = { conversation: async () => ({ ...conversation, simulated }) } as unknown as typeof handler
+      installChannelsConsoleHost({ agents: { support: agent }, handlers: { support: reader }, options: () => ({}) })
+      const input = { agent: "support", channel: "slack", thread: "slack:learner:c" }
+      const read = await channelsConversation.run(input, consoleContext)
+      const exported = await conversationsExport.run({ ...input, format: "markdown", media: false }, consoleContext)
+      expect(read.retention.warning === undefined, `simulated: ${simulated}`).toBe(simulated)
+      expect(exported.retention.warning === undefined, `simulated: ${simulated}`).toBe(simulated)
+      expect(exported.text.includes("Warning: transcripts are not durable"), `simulated: ${simulated}`).toBe(!simulated)
     }
   })
 
@@ -137,8 +256,9 @@ describe("simulated chat Channels", () => {
         const response = await handler(new Request(url), webhook, options)
         expect(response.status, route).toBe(200)
         const html = await response.text()
-        expect(html, route).toContain("Unofficial simulator · not affiliated with Discord")
+        expect(html, route).toContain("· not affiliated with Discord")
         expect(html, route).toContain(`"route":"${route}"`)
+        if (route.startsWith("/hooks/") || route.startsWith("/legacy/")) expect(html, route).not.toContain('<nav class="sim-switch"')
       }
       const route = "/legacy/slack/"
       const reply = await handler(new Request(`https://example.com${route}`, chatRequest("support", "hi alias")), "", { agentName: "support", state })

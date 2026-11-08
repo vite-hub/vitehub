@@ -377,7 +377,7 @@ describe("blob runtime", () => {
     expect(error).toMatchObject({
       cause,
       code: "BLOB_OPERATION_FAILED",
-      docs: "https://vitehub.dev/docs/blob/limits-and-errors#blob_operation_failed",
+      docs: "https://vitehub.dev/docs/blob/diagnostics/blob_operation_failed",
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again.",
       name: "BLOB_OPERATION_FAILED",
       why: "The Blob put operation failed on the \"archive\" store.",

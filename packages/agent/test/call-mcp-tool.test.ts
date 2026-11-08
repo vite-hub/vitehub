@@ -242,7 +242,7 @@ describe("callMcpTool", () => {
     expect(toolValue).toBeUndefined()
     expect(toolError).toMatchObject({
       code: "MCP_TOOL_CALL_FAILED",
-      docs: "https://vitehub.dev/docs/agents/capabilities/mcp#mcp_tool_call_failed",
+      docs: "https://vitehub.dev/docs/agents/diagnostics/mcp_tool_call_failed",
       why: "MCP tool \"threads_get\" reported an error: Unknown thread",
     })
 
