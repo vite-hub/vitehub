@@ -746,7 +746,7 @@ describe("kv runtime", () => {
 
       const first = await driver.listKeys({ limit: 1 })
       const remaining = ["a", "b", "c"].filter(key => key !== first.keys[0])
-      await rm(join(root, first.keys[0]!), { force: true })
+      await rm(join(root, `key-${first.keys[0]!}`), { force: true })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
       const third = second.cursor
         ? await driver.listKeys({ cursor: second.cursor, limit: 2 })

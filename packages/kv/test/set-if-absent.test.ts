@@ -22,7 +22,7 @@ describe("fs-lite", () => {
 
     expect(results.filter(Boolean)).toHaveLength(1)
     expect(await storage.getItem("uploads:ticket")).toEqual({ at: 1 })
-    expect(await readFile(join(base, "uploads%3Aticket"), "utf8")).toBe("{\"at\":1}")
+    expect(await readFile(join(base, "key-uploads%3Aticket"), "utf8")).toBe("{\"at\":1}")
     await storage.dispose()
   })
 
@@ -43,12 +43,12 @@ describe("fs-lite", () => {
     const value = "x".repeat(8 * 1024 * 1024)
     const reads = await claims(4, async () => {
       if (await storage.setIfAbsentItem!("big", value)) return true
-      expect(await readFile(join(base, "big"), "utf8")).toHaveLength(value.length)
+      expect(await readFile(join(base, "key-big"), "utf8")).toHaveLength(value.length)
       return false
     })
 
     expect(reads.filter(Boolean)).toHaveLength(1)
-    expect((await readdir(base)).sort()).toEqual([".unstorage-tmp-vitehub-layout-v1", "big"])
+    expect((await readdir(base)).filter(name => !name.startsWith(".unstorage-tmp-vitehub-")).sort()).toEqual(["key-big"])
     await storage.dispose()
   })
 

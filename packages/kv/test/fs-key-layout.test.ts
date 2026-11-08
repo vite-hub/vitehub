@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -42,6 +42,63 @@ async function withStore(run: (storage: ReturnType<typeof createHostedKVStorage>
   }
 }
 
+it("keeps application keys separate from all migration and temporary names", () => withStore(async (storage, base) => {
+  const keys = [".unstorage-tmp-vitehub-layout-v1", ".unstorage-tmp-vitehub-layout-v1-1", ".unstorage-tmp-vitehub-migration-abcdef:lock", ".unstorage-tmp-1234", "key-.unstorage-tmp-vitehub-layout-v1"]
+  for (const key of keys) {
+    await expect(storage.getItem(key)).resolves.toBeNull()
+    await storage.setItem(key, `value:${key}`)
+    await expect(storage.setIfAbsentItem?.(key, "replacement")).resolves.toBe(false)
+  }
+  expect((await storage.getKeys()).sort()).toEqual([...keys].sort())
+  expect((await storage.listKeys({ limit: 20 })).keys.sort()).toEqual([...keys].sort())
+  await storage.dispose()
+  const reopened = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  try {
+    for (const key of keys) await expect(reopened.getItem(key)).resolves.toBe(`value:${key}`)
+    await reopened.removeItem(keys[0]!)
+    await expect(reopened.setIfAbsentItem?.(keys[0]!, "claimed")).resolves.toBe(true)
+    await reopened.clear()
+    await expect(reopened.getKeys()).resolves.toEqual([])
+  }
+  finally {
+    await reopened.dispose()
+  }
+  const cleared = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  try {
+    for (const key of keys) await expect(cleared.getItem(key)).resolves.toBeNull()
+    await cleared.setItem(keys[0]!, "after clear")
+    await expect(cleared.getKeys()).resolves.toEqual([keys[0]])
+  }
+  finally {
+    await cleared.dispose()
+  }
+}))
+
+it.skipIf(process.platform === "win32")("opens a writable store under a read-only parent", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "vitehub-kv-readonly-parent-"))
+  const base = join(parent, "store")
+  await mkdir(base)
+  await chmod(parent, 0o555)
+  const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  try {
+    await storage.setItem("signups:reset-at", 1)
+    await storage.dispose()
+    const reopened = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+    try {
+      await expect(reopened.getItem("signups:reset-at")).resolves.toBe(1)
+      await reopened.setItem("signups", 2)
+    }
+    finally {
+      await reopened.dispose()
+    }
+  }
+  finally {
+    await storage.dispose()
+    await chmod(parent, 0o755)
+    await rm(parent, { force: true, recursive: true })
+  }
+})
+
 it.each([
   ["signups", "signups:reset-at"],
   ["signups:reset-at", "signups"],
@@ -70,11 +127,13 @@ it("keeps a key with an escaped colon apart from a key with a colon", () => with
   await expect(storage.getItem("a:b")).resolves.toBe("colon")
   await expect(storage.getItem("a%3Ab")).resolves.toBe("percent")
   expect((await storage.getKeys()).sort()).toEqual(["a%3Ab", "a:b"])
-  expect((await readdir(base)).sort()).toEqual([".unstorage-tmp-vitehub-layout-v1", "a%253Ab", "a%3Ab"])
+  expect((await readdir(base)).filter(name => !name.startsWith(".unstorage-tmp-vitehub-")).sort()).toEqual(["key-a%253Ab", "key-a%3Ab"])
 }))
 
 it.each([
   ["a:b", "a%3Ab"],
+  ["a", "key-a", "key-key-a"],
+  [".unstorage-tmp-vitehub-layout-v1", ".unstorage-tmp-vitehub-layout-v1-1"],
   ["a:b", "a%3Ab:child"],
   ["a%3Ab:child", "a:b"],
   ["a%3Ab", "a%253Ab", "a%25253Ab"],
@@ -104,10 +163,11 @@ it.each([
 }))
 
 it.each([
+  ["link", 1],
   ["link", 2],
+  ["link", 3],
   ["rename", 1],
   ["rename", 2],
-  ["rename", 4],
 ] as const)("retries an interrupted migration during %s operation %i without losing keys", (phase, failAt) => withStore(async (storage) => {
   let operations = 0
   interruption[phase] = () => {
@@ -126,6 +186,7 @@ it.each([
 
 it.each([
   ["a:b", "a%3Ab"],
+  [".unstorage-tmp-vitehub-layout-v1", ".unstorage-tmp-vitehub-layout-v1-1"],
   [".unstorage-tmp-vitehub-layout-v1:child", ".unstorage-tmp-vitehub-layout-v1:complete"],
 ])("serializes migration of %s when separate stores open the same folder", (...keys) => withStore(async (storage, base) => {
   const other = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
@@ -172,7 +233,7 @@ it("reads keys that an older version stored in nested folders", () => withStore(
 
   await storage.setItem("team", "name")
   expect((await storage.getKeys()).sort()).toEqual(["flag", "team", "team:lead", "team:members:ada"])
-  expect((await readdir(base)).sort()).toEqual([".unstorage-tmp-vitehub-layout-v1", "flag", "team", "team%3Alead", "team%3Amembers%3Aada"])
+  expect((await readdir(base)).filter(name => !name.startsWith(".unstorage-tmp-vitehub-")).sort()).toEqual(["key-flag", "key-team", "key-team%3Alead", "key-team%3Amembers%3Aada"])
 }, async (base) => {
   await mkdir(join(base, "team", "members"), { recursive: true })
   await writeFile(join(base, "team", "members", "ada"), JSON.stringify({ name: "Ada" }))

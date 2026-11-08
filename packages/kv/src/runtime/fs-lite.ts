@@ -12,20 +12,22 @@ import { createKVContinuations } from "./continuations.ts"
 
 // unstorage's atomic writes and setIfAbsentItem() stage values in files with this name. They are not keys.
 const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
-// Only regular files in this namespace are reserved. A legacy directory with the same name can contain keys.
+// Layout records point to an exclusively allocated metadata directory, outside the encoded key namespace.
 const layoutRecord = /^\.unstorage-tmp-vitehub-layout-v1(?:-\d+)?$/
 const layoutRecordName = ".unstorage-tmp-vitehub-layout-v1"
+const keyPrefix = "key-"
 
 // Each key is one file in the base folder, so `signups` and `signups:reset-at` can both exist.
-// The file name is the key with `%` and `:` escaped as in a URL, for example `signups%3Areset-at`.
+// The fixed prefix separates every application key from metadata and temporary files.
 function fileName(key: string): string {
-  return key.replace(/[%:]/g, encodeURIComponent)
+  return keyPrefix + key.replace(/[%:]/g, encodeURIComponent)
 }
 
 // Returns undefined for a file that is not a key, such as a temporary file or a name with another escape.
 function keyOf(name: string): string | undefined {
-  const key = name.replace(/%(?:25|3A)/g, decodeURIComponent)
-  return !temporaryFile.test(name) && fileName(key) === name ? key : undefined
+  if (!name.startsWith(keyPrefix)) return
+  const key = name.slice(keyPrefix.length).replace(/%(?:25|3A)/g, decodeURIComponent)
+  return fileName(key) === name ? key : undefined
 }
 
 function hasCode(error: unknown, ...codes: string[]): boolean {
@@ -43,56 +45,64 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function writeLayoutRecord(root: string, record: string, value: string): Promise<void> {
-  const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
-  try {
-    await writeFile(temporary, value)
-    await rename(temporary, record)
-  }
-  finally {
-    await rm(temporary, { force: true })
-  }
-}
-
 // Legacy root names are literal keys, even when they look encoded. Stage the whole old layout
 // before publishing any encoded names, so neither root files nor directories can claim another key's destination.
-async function migrateKeys(root: string): Promise<void> {
+async function migrateKeys(root: string): Promise<string> {
   await mkdir(root, { recursive: true })
-  // Serialize initialization across stores and processes. Stale locks can be recovered after a stopped process.
-  // The lock is beside the store, where it cannot claim a legacy key's directory.
-  const release = await lock(root, { retries: { retries: 100, minTimeout: 20, maxTimeout: 100 } })
-  try {
+  let recordPath = ""
+  let layout = ""
+  while (!layout) {
     const entries = await readdir(root, { withFileTypes: true })
-    const record = entries.find(entry => entry.isFile() && layoutRecord.test(entry.name))
-    let recordPath: string
-    let layout: string
-    if (record) {
-      recordPath = join(root, record.name)
-      const value = await readFile(recordPath, "utf8")
-      if (value === "complete") return
-      if (!/^\.unstorage-tmp-vitehub-migration-[a-z\d]{6}$/i.test(value)) throw new Error("Invalid KV layout record")
+    for (const entry of entries) {
+      if (!entry.isFile() || !layoutRecord.test(entry.name)) continue
+      const path = join(root, entry.name)
+      const value = await readFile(path, "utf8").catch((error: unknown) => {
+        if (hasCode(error, "ENOENT")) return ""
+        throw error
+      })
+      if (!/^\.unstorage-tmp-vitehub-migration-[a-z\d]{6}$/i.test(value) || !await exists(join(root, value))) continue
+      recordPath = path
       layout = join(root, value)
+      break
     }
-    else {
-      let name = layoutRecordName
-      for (let suffix = 1; entries.some(entry => entry.name === name); suffix++) name = `${layoutRecordName}-${suffix}`
+    if (layout) break
+    let name = layoutRecordName
+    for (let suffix = 1; entries.some(entry => entry.name === name); suffix++) name = `${layoutRecordName}-${suffix}`
+    const candidate = await mkdtemp(join(root, ".unstorage-tmp-vitehub-migration-"))
+    const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
+    try {
+      await writeFile(temporary, basename(candidate))
+      // Publish one shared workspace without replacing another initializer's record.
+      await link(temporary, join(root, name))
+      layout = candidate
       recordPath = join(root, name)
-      layout = await mkdtemp(join(root, ".unstorage-tmp-vitehub-migration-"))
-      // Publish the staging location before moving any key, so initialization can resume after interruption.
-      await writeLayoutRecord(root, recordPath, basename(layout))
     }
+    catch (error) {
+      if (!hasCode(error, "EEXIST")) throw error
+    }
+    finally {
+      await rm(temporary, { force: true })
+      if (!layout) await rm(candidate, { force: true, recursive: true })
+    }
+  }
+  // The unique workspace cannot contain legacy keys. Lock inside it so only the store must be writable.
+  const release = await lock(layout, { lockfilePath: join(layout, "lock"), retries: { retries: 100, minTimeout: 20, maxTimeout: 100 } })
+  try {
+    const complete = join(layout, "complete")
+    if (await exists(complete)) return layout
     const legacy = join(layout, "legacy")
     await mkdir(legacy, { recursive: true })
     const staged = join(layout, "staged")
     if (!await exists(staged)) {
       for (const entry of await readdir(root, { withFileTypes: true })) {
-        if (entry.name === basename(layout) || (!entry.isDirectory() && (!entry.isFile() || temporaryFile.test(entry.name)))) continue
+        if (entry.name === basename(layout) || join(root, entry.name) === recordPath) continue
+        if (!entry.isDirectory() && (!entry.isFile() || (temporaryFile.test(entry.name) && !layoutRecord.test(entry.name)))) continue
         await rename(join(root, entry.name), join(legacy, entry.name))
       }
       await writeFile(staged, "")
     }
     for (const file of await readdir(legacy, { recursive: true, withFileTypes: true })) {
-      if (!file.isFile() || temporaryFile.test(file.name)) continue
+      if (!file.isFile() || (temporaryFile.test(file.name) && !layoutRecord.test(file.name))) continue
       const path = join(file.parentPath, file.name)
       const destination = join(root, fileName(relative(legacy, path).split(sep).join(":")))
       try {
@@ -106,8 +116,9 @@ async function migrateKeys(root: string): Promise<void> {
         if (!target.isFile() || target.dev !== source.dev || target.ino !== source.ino) throw error
       }
     }
-    await writeLayoutRecord(root, recordPath, "complete")
-    await rm(layout, { force: true, recursive: true })
+    await writeFile(complete, "")
+    await rm(legacy, { force: true, recursive: true })
+    return layout
   }
   finally {
     await release()
@@ -116,7 +127,7 @@ async function migrateKeys(root: string): Promise<void> {
 
 export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): Promise<KVRuntimeDriver> {
   const root = resolve(options.base)
-  await migrateKeys(root)
+  const layout = await migrateKeys(root)
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
   const { getItem, getItemRaw, getMeta, hasItem, removeItem, setItem, setItemRaw } = driver
@@ -136,13 +147,13 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
   driver.setItemRaw = (key, value, operationOptions) => setItemRaw?.(fileName(key), value, operationOptions)
   driver.removeItem = (key, operationOptions) => removeItem?.(fileName(key), operationOptions)
   driver.clear = async () => {
-    // Keep the layout record: a later driver must not interpret new percent escapes as legacy literal names.
+    // Delete only encoded key files, keeping the layout record and its workspace for later initialization.
     const entries = await readdir(root).catch((error: unknown) => {
       if (hasCode(error, "ENOENT")) return []
       throw error
     })
     for (const entry of entries) {
-      if (!layoutRecord.test(entry)) await rm(join(root, entry), { force: true, recursive: true })
+      if (keyOf(entry) !== undefined) await rm(join(root, entry), { force: true, recursive: true })
     }
   }
   driver.hasItem = async (key, operationOptions) => {
@@ -191,7 +202,7 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
       throw error
     }
     for await (const entry of entries) {
-      if (!layoutRecord.test(entry.name)) yield entry.isFile() ? keyOf(entry.name) : undefined
+      if (entry.name !== basename(layout) && !layoutRecord.test(entry.name)) yield entry.isFile() ? keyOf(entry.name) : undefined
     }
   }
 
