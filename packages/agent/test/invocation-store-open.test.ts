@@ -5,8 +5,6 @@ import { recoverInterruptedAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
 
-const runtime = (runId: string) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil: () => {} })
-
 /** A store that loads its client on first use, as the Console journal loads libSQL. Every operation waits for that load. */
 function lazyStore(open: () => Promise<void>) {
   const backing = createMemoryAgentInvocationStore()
@@ -71,8 +69,10 @@ describe("Agent Invocation store open", () => {
     const invocations = defineAgentInvocations({ store: lazyStore(() => new Promise(resolve => setTimeout(resolve, 100))), storeTimeoutMs: 20, enforcement: "strict" })
     const run = vi.fn(() => "done")
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("first-run"), {})).resolves.toBe("done")
-    await expect(invocations.getByRunId("first-run")).resolves.toMatchObject({ status: "completed" })
+    const [error] = await runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), {})
+    expect(error).toBeFalsy()
+    expect(run).toHaveBeenCalledOnce()
+    await expect(invocations.list()).resolves.toMatchObject({ invocations: [{ status: "completed" }] })
   })
 
   it("opens before creating the first run in a store that requires initialization", async () => {
@@ -90,9 +90,11 @@ describe("Agent Invocation store open", () => {
     const invocations = defineAgentInvocations({ enforcement: "strict", store, storeTimeoutMs: 20 })
     const run = vi.fn(() => "done")
 
-    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("initialized-run"), {})).resolves.toBe("done")
+    const [error] = await runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), {})
+    expect(error).toBeFalsy()
+    expect(run).toHaveBeenCalledOnce()
     expect(store.create).toHaveBeenCalledOnce()
-    await expect(invocations.getByRunId("initialized-run")).resolves.toMatchObject({ status: "completed" })
+    await expect(invocations.list()).resolves.toMatchObject({ invocations: [{ status: "completed" }] })
   })
 
   it("opens again after a rejected open", async () => {
