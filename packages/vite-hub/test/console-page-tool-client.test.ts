@@ -8,6 +8,31 @@ import { createMemoryHistory, createRouter, isNavigationFailure } from "vue-rout
 
 import start, { consolePageUrl, draftChanges, draftSwitch, isDraftView, liveUrl } from "../src/console/page/tool.ts"
 
+it("initializes the built-in routes and supplies Setup with the project API paths", () => {
+  const client = readFileSync(`${import.meta.dirname}/../src/console/runtime/client/main.js`, "utf8")
+  const start = client.indexOf("const router = createRouter(")
+  const end = client.indexOf("\n});", start) + "\n});".length
+  const create = vi.fn(createRouter)
+  runInNewContext(client.slice(start, end), {
+    ...Object.fromEntries([...client.matchAll(/const (Console\w+) =/g)].map(([, name]) => [name, {}])),
+    createRouter: create,
+    createWebHistory: createMemoryHistory,
+    consoleBase: "/_vitehub/",
+    consoleDatabasesSchemaPath: "/databases/schema",
+    consoleDatabasesTablePath: "/databases/:table?",
+    sectionsBase: "/_vitehub/api/sections",
+    capabilitiesBase: "/_vitehub/api/invocation-capabilities",
+  })
+  expect(create).toHaveBeenCalledOnce()
+  expect(create.mock.results[0]!.value.getRoutes().find(route => route.path === "/setup")?.props.default).toEqual({
+    agentsBase: "/_vitehub/api/agents",
+    definitionsBase: "/_vitehub/api/definitions",
+    kvBase: "/_vitehub/api/kv",
+    searchBase: "/_vitehub/api/search",
+    sectionsBase: "/_vitehub/api/sections",
+  })
+})
+
 it("remembers only the document actually opened when a leave guard cancels navigation", async () => {
   const router = createRouter({
     history: createMemoryHistory(),
