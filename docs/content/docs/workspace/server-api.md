@@ -190,15 +190,18 @@ The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `ma
 - **Pull.** A file that only the remote changed takes the remote version. A text file that both sides changed is merged by line. Lines that both sides changed get Git conflict markers, with your lines first. A remote edit of a file that you deleted brings the file back. Your edit of a file that the remote deleted stays, and the next push restores it. `--theirs <path>` takes the remote version of one path.
 - **Push.** It pulls first, then commits every local change to the ref in one revision with `ifHead` set to the pulled head. When another save lands between the two steps, it pulls and tries again. It refuses while a file has conflict markers. Some Stores start a new ref from the files of another ref. Then the first push to that ref also pulls those files, and `after` in the result lists them.
 - **Size.** One push is one `workspace.commit` call of at most 4 MiB, with binary files in base64. Vercel Functions accept request bodies up to 4.5 MB and Cloudflare Workers up to 100 MB, so this limit works on every host. A larger push fails with `WORKSPACE_CHECKOUT_TOO_LARGE` before it calls the app, and names the largest files. A push stays one revision, so it is not split: keep large media in Blob, or add new files in smaller groups. A pull reads all changes since the last pull in one `workspace.changes` response. ViteHub sets no limit on it, but Vercel Functions fail on a response over 4.5 MB, so on Vercel pull often enough that the changes stay below that.
+- **Edit leases.** Someone who edits a file in the Console can hold its edit lease, as [Content](/docs/content/editing-together) does for a document. A push that writes a leased file fails with the error of the plugin, such as `CONTENT_LEASE_HELD` and status 409, and saves nothing. Because the push is one revision, one held lease blocks the whole push, and the error names every blocked document. The push does not try again. Wait for the editors to finish, or run `vitehub push --override-lease`: the revision then records `lease: "override"` in its metadata, and the lease plugin lets it through.
 - **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
 - **Status.** `vitehub status` lists the added, modified, deleted, and conflicting files of each checkout folder, without calling the app. `vitehub pull --dry-run` also lists what changed on the ref since the last pull, and writes nothing.
+
+`pnpm vitehub hooks install` adds two Git hooks. Before a commit, `vitehub hooks pre-commit` fails while a checkout folder has conflicts; it works offline. Before a push, `vitehub hooks pre-push` runs `vitehub push` when the Git push updates the default branch (`origin/HEAD`, else `init.defaultBranch`, else `main`), and fails the Git push when the Workspace push fails. When the Workspace push changes `vitehub.lock` or pulls files into a checkout folder, the hook also fails the Git push, because the commits that Git pushes do not contain those changes: commit them, then run `git push` again. The second push has nothing for the Workspace, so it goes through. Other branches push nothing. Without `vitehub.lock`, both hooks do nothing. When Husky, lefthook, pre-commit, simple-git-hooks, or `core.hooksPath` runs the hooks of the repository, `install` writes no file and prints the two commands to add there. It never replaces or removes a hook that differs from the one it writes, so commands that you add to a hook stay. `vitehub hooks uninstall` removes its hooks.
 
 The commands call two operations of the app, which the Console section `workspaces` grants:
 
 | Operation | Kind | Result |
 | --- | --- | --- |
 | `workspace.changes` `{ workspace, ref?, since?, content? }` | read | `{ head, files }`: each file that differs between revision `since` and the head of `ref`, with its content at the head and at `since`. Without `since`, every file of the head. `content: false` leaves the content out. |
-| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | Request body up to 4 MiB. `{ revision, normalized? }`. `normalized` maps submitted paths to their committed `{ content, encoding }` when validators or hooks changed the bytes. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. A replaced file keeps its media type and metadata from `ifHead`, or from the seed revision when the Store starts a missing ref from another ref. The revision metadata records `source` (the surface, such as `cli`) and `author` (`{ id, name, email }` of the signed-in user, as Content records it). Without a signed-in user, such as a local dev server, the revision has no author. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
+| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message?, lease? }` | write | Request body up to 4 MiB. `{ revision, normalized? }`. `normalized` maps submitted paths to their committed `{ content, encoding }` when validators or hooks changed the bytes. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. A replaced file keeps its media type and metadata from `ifHead`, or from the seed revision when the Store starts a missing ref from another ref. The revision metadata records `source` (the surface, such as `cli`) and `author` (`{ id, name, email }` of the signed-in user, as Content records it). Without a signed-in user, such as a local dev server, the revision has no author. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. A plugin can refuse the commit, such as an edit lease held on a document. `lease: "override"` passes that lease and is recorded in the revision metadata. On the Agent and MCP surfaces, an override needs `operations({ overrideLeases: true })`, else it fails with `WORKSPACE_FORBIDDEN` and status 403. |
 
 The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. On Windows and macOS, folder names that differ only in case are one folder. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter case and with any trailing dots or spaces (Windows opens `node_modules.` as `node_modules`), are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
 
@@ -215,6 +218,18 @@ Each command fails on a flag that it does not know, before it calls the app. Pul
 Commands reject existing symbolic links in the checkout folder and its ancestors inside the project. These checks do not isolate files from another process that can replace paths during an operation. Use an OS or container boundary for that isolation.
 
 A push sends whole files, is limited to 4 MiB, and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
+
+#### On the GitHub Store
+
+The commands work the same on the GitHub Store, with these differences:
+
+- A revision id is a commit sha, and the digest of a file is its Git blob sha. `vitehub.lock` still records SHA-256.
+- Each instance of the app keeps the head of a ref for up to 5 seconds. A pull right after a commit on GitHub, or through another instance, can report the older head. A push still checks the real head before it commits, so it cannot overwrite that commit. If your push reaches an instance with an older head, the push can first undo the newer commit in your folder and then pull it again. A line that you also changed then gets conflict markers.
+- The media type of a file comes from its name. A push keeps the Git mode of an executable file or a symbolic link (`gitMode` metadata). The Store keeps no other file metadata.
+- GitHub records the account of the token as the author of each commit, and the revision `author` is that account. The signed-in user is in the `Vitehub-Metadata` trailer of the commit message. Anyone with write access to the repository can write that trailer, so the Store does not report it as the author.
+- The first push to a ref that does not exist creates a branch from the published branch when the Store sets `refs.published`, else from the default branch. The push then pulls the files that the new branch has from that branch.
+- A pull reads up to two blobs for each changed file: the head version and the version at the last pull. The first pull reads one blob for each file. GitHub allows 5,000 API requests per hour for most tokens, so the first pull of a large Workspace can use a large part of that limit. `vitehub status` and `vitehub pull --dry-run` read no file content.
+- A force push can remove the revision that `vitehub.lock` records. A pull then fails with `WORKSPACE_NOT_FOUND`. Move the folder away, remove its entry from `vitehub.lock`, pull again, and copy your changes back.
 
 ### Derived files
 
@@ -274,6 +289,16 @@ registerWorkspacePlugin('content', {
 ```
 
 The plugin applies to `fs` writes, Sessions, and history commits on every ref, including facades created before the call. Registering the same id again replaces the earlier plugin. A plugin with the same id in the Workspace Definition wins. The call returns a function that removes this registration. The Workspace does not need to exist yet when you register.
+
+In a history commit, each hook also gets `input.commit`, which is read-only:
+
+| Field | Value |
+| --- | --- |
+| `message` | The message of the commit. |
+| `metadata` | The revision metadata that the caller passed to `history.commit()`, such as `{ lease: 'override' }` from `vitehub push --override-lease`. |
+| `paths` | Every path that the commit adds, changes, or deletes, sorted. Check them together to name every problem in one error. |
+
+`input.commit` is the same object for every path of one commit, so a hook can keep one check per commit in a `WeakMap`. Writes to the working tree have no `input.commit`. A hook error with a `status` from 400 to 499, such as `Object.assign(error, { status: 409, fix })`, reaches `workspace.commit` callers with that status, its `fix`, and its `details`.
 
 Rules from several plugins and the Definition do not merge per path. For one path, the most specific pattern wins, and a later rule with the same pattern replaces an earlier one. Hooks from every plugin run in order. Prefer a `write:validate` hook that throws when a contributed check must always run.
 

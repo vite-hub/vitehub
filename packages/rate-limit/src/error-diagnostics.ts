@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/rate-limit/diagnostics",
   codes: {
     RATE_LIMIT_R0001: dynamicError,
     RATE_LIMIT_R0002: dynamicError,
