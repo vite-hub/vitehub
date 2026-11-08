@@ -99,8 +99,9 @@ const LANE_MAX_WIDTH = 736;
 
 /**
  * An agent session laid out like T3 Code: the timeline in the default slot, a details card that the header toggle
- * opens, and a right panel of `surfaces`. Each surface renders from the `surface-<id>` slot. Give `storageKey` to keep
- * the panel, its width, its tabs and the details card as the user left them.
+ * opens, and a right panel of `surfaces`. Each surface renders from the `surface-<id>` slot, else from `surface` with
+ * `{ surface }`. A timeline that scrolls itself goes in `body` instead of the default slot. Give `storageKey` to keep the
+ * panel, its width, its tabs and the details card as the user left them.
  */
 export const AgentSession = defineComponent({
   name: "AgentSession",
@@ -390,7 +391,9 @@ export const AgentSession = defineComponent({
             ]),
           ]),
           h("div", { ref: body, class: "vh-agent-session__body", "data-slot": "agent-session-body" }, [
-            h("div", { class: "vh-agent-session__scroll", "data-slot": "agent-session-scroll" }, [
+            // `body` replaces the scroller and its lane, for a timeline that scrolls itself. It reads
+            // `--vh-agent-session-inset-end` to stay clear of an inline details card.
+            slots.body?.() ?? h("div", { class: "vh-agent-session__scroll", "data-slot": "agent-session-scroll" }, [
               h("div", { class: "vh-agent-session__lane", "data-slot": "agent-session-lane" }, slots.default?.()),
             ]),
             showDetails
