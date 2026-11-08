@@ -90,7 +90,8 @@ export const content = defineContent({
 
 | `documents()` option | Type | Description |
 | --- | --- | --- |
-| `path` | `string \| string[]` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). A list takes files from [several folders](#several-folders). |
+| `path` | `string \| string[]` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). A list takes files from [several folders](#several-folders). With `locales`, `{locale}` marks the locale folder. |
+| `locales` | `string[]` | Locales of a [translated collection](#locales), such as `['en', 'es']`. The first one is the source locale. |
 | `fields` | `Record<string, StandardSchema>` | One validator per frontmatter field. |
 | `label` | `string \| { singular, plural }` | Display name, such as `'Posts'`. Pass `{ singular: 'Person', plural: 'People' }` when the plural is not the singular plus `s`, so the Console shows **New person**. Defaults to the collection name in title case. |
 | `titleField` | `string` | The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`, `name`, `label`, and `heading` that is a string field, then to the first required string field. |
@@ -130,6 +131,71 @@ const route = await content.resolve('/blog/hello?utm=x')
 Each `documents()` collection maps a document to a path with its [`url`](/docs/content/seo#document-urls), the same URL that reads carry as `document.url`. A document whose `url` is `null` has no page and does not resolve. A collection without `url` maps the id after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. A query string, a hash, and a trailing slash are ignored. When two collections give the same path, the first one defined wins. The path is percent-decoded, so `/caf%C3%A9` finds `café`. `resolve()` reads what a read without `ref` reads (`published`, or `draft` in a preview request); pass `{ ref: 'draft' }` to include documents that are not published.
 
 Content builds the map from paths to documents once per revision of the ref and keeps it, so a call costs a lookup until the ref changes. A `url` pattern whose only placeholder is `:id`, such as `'/blog/:id'`, needs only the ids, so Content reads no documents to build the map. A `url` function or a pattern with a field reads the documents that `list()` reads, so on `published` a document whose fields do not validate does not resolve. A `url` that throws for one document skips that document, with one warning per collection. Singletons do not resolve.
+
+### Locales
+
+Set `locales` to keep one document in several languages. The first locale is the source locale: you write it, and the other locales are translations of it. `{locale}` in the path marks the folder of each locale.
+
+```ts [server/content.ts] fragment
+docs: documents({
+  path: 'docs/{locale}/**/*.md',
+  locales: ['en', 'es'],
+  url: '/docs/:id',
+  fields: { title: z.string() },
+})
+```
+
+A document keeps its id in every locale: `guide` is `docs/en/guide.md` in English and `docs/es/guide.md` in Spanish. `{locale}` must be a whole folder before the first wildcard, and with several globs, all of them must share the folder that holds it.
+
+```ts fragment
+const docs = content.collection('docs')
+await docs.save('guide', { data: { title: 'Guide' }, body: 'Hello.' })
+const english = await docs.get('guide', { ref: 'draft', locale: 'es' }) // { locale: 'en', fallback: true, source: { path, digest }, ... }: no translation yet
+const spanish = await docs.save('guide', { data: { title: 'Guía' }, body: 'Hola.' }, { locale: 'es', sourceDigest: english.source.digest })
+spanish.derivedFrom // { path: 'docs/en/guide.md', digest: 'sha256-…' }
+await docs.status('guide') // { locale: 'en', translations: { es: 'current' }, ... }
+```
+
+- **Reads.** `get()`, `raw()`, and `list()` take `locale` and default to the source locale. When a locale has no translation of a document, `get()` and `list()` return the source locale version with `locale` set to the source locale and `fallback: true`. `raw()` returns `null`. `get()` also returns `source: { path, digest }`, the source locale version on the same ref. Its `digest` is `sha256-` and the hex SHA-256 of the file bytes, the form `derivedFrom` records.
+- **Saves.** `save()`, `remove()`, and `restore()` take `locale` in their options. A save in another locale writes `derivedFrom: { path, digest }` into the file, as [Workspace lineage](/docs/workspace/server-api#derived-files) records it. Pass `sourceDigest`, the `source.digest` of the read you translated: the translation then records that version, and it is `stale` when the source changed between your read and your save. Without `sourceDigest`, an existing translation keeps its `derivedFrom`, so a typo fix does not mark a stale translation current, and a new translation records the source locale version on the draft at save time. `derivedFrom` is a reserved key, so a localized collection cannot have a field with that name, and Content ignores it in `data`.
+- **Status.** `status()` compares the source locale by default. Each source locale document on the draft has `translations`, such as `{ es: 'stale' }`. A translation is `current` when its `derivedFrom` names the source version on the draft, `stale` when the source changed since, when the translation has no `derivedFrom`, or when its `derivedFrom` names another file than the source locale file of the same id, and `missing` when the locale has no file for the document. `status({ locale: 'es' })` compares the Spanish files themselves. `vitehub content status` prints stale and missing translations next to each document.
+- **Publish.** `publish()` and `publish({ collection, ids })` publish every locale. An id that only a translation has publishes that translation. `publish({ expect })` entries take `locale`. `schedule()` publishes source locale documents only.
+- **URLs.** A `url` pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale: `/docs/guide` and `/es/docs/guide`. Write `:locale` in the pattern to place it yourself, such as `'/:locale/docs/:id'`. A `url()` function receives `locale`. A read in a locale without a translation carries the URL of the requested locale. `content.resolve()` returns `{ collection, id, locale }`, and resolves the URL of a missing translation too, so the page can show the fallback.
+- **Agents.** The [Agent Capability](/docs/content/agent-capability#translations) lists missing and stale translations and saves them with `locale`.
+
+#### Pages in each locale
+
+A catch-all page serves every locale with the calls a page already makes. `content.resolve(path)` gives the document and the locale of the path, and `get(id, { locale })` reads that locale:
+
+```ts [server/api/page.get.ts] fragment
+import { defineEventHandler, getQuery, HTTPError } from 'h3'
+import { content } from '../content'
+
+export default defineEventHandler(async (event) => {
+  const page = await content.resolve(String(getQuery(event).path))
+  if (page?.collection !== 'docs') throw new HTTPError({ status: 404 })
+  return await content.collection('docs').get(page.id, { locale: page.locale })
+})
+```
+
+```vue [pages/[...slug].vue]
+<script setup lang="ts">
+import { contentHead } from 'vite-hub/content/client'
+
+const route = useRoute()
+const { data: page } = await useFetch('/api/page', { query: { path: route.path } })
+useHead(computed(() => contentHead(page.value, { site: { url: 'https://vitehub.dev' } })))
+</script>
+
+<template>
+  <p v-if="page?.fallback">This page is not translated yet. It shows the English version.</p>
+  <h1>{{ page?.data.title }}</h1>
+</template>
+```
+
+`/es/docs/guide` shows the Spanish document, and `/docs/guide` the English one. Before a translation exists, `/es/docs/guide` shows the English document with `fallback: true`. In a collection with `url`, `get()` also returns `alternates`: the URL of each locale that has its own version, source locale first, such as `[{ locale: 'en', url: '/docs/guide' }, { locale: 'es', url: '/es/docs/guide' }]`. Use it for a language switcher. [`contentHead()`](/docs/content/seo#pages-in-several-locales) turns `locale` and `alternates` into `<html lang>`, `hreflang` links, and the canonical link.
+
+The Console editor and live editing work on the source locale. Edit leases and live rooms belong to the source locale document, so a translation save does not wait for the person who edits the source.
 
 ### Fields
 
