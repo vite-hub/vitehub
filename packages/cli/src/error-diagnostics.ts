@@ -50,7 +50,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     SETUP_INSTALL_FAILED: {
-      fix: "Run the install command by hand to see the error, then run the command again. ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles.",
+      fix: ({ filesWritten }: { filesWritten?: unknown }) => `Run the install command by hand to see the error, then run the command again. ${filesWritten === "possible"
+        ? "Scaffolding may have left new app files on disk; inspect the target folder before retrying."
+        : filesWritten
+          ? "The new app files were written before installation failed; keep them when retrying."
+          : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
     SETUP_STALE_PLAN: {
@@ -78,6 +82,76 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_LINK_PROJECT_NOT_FOUND: {
       fix: ({ rerun }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `Run \`${String(rerun)}\` to create it, or pass --project with the name of a project that exists.`,
       why: ({ host, project, account }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `The ${String(host)} project ${JSON.stringify(String(project))} does not exist${account ? ` in account ${String(account)}` : ""}.`,
+    },
+    SETUP_INIT_DIR_NOT_EMPTY: {
+      fix: "Choose a new or empty folder, or run `vitehub init` on the folder of a Vite or Nuxt app.",
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} is not empty and holds no Vite or Nuxt app. ViteHub never overwrites a file.`,
+    },
+    SETUP_INIT_FRAMEWORK_MISMATCH: {
+      fix: ({ found }: { dir?: unknown, found?: unknown, framework?: unknown }) => `Pass --framework ${String(found)}, or choose another folder.`,
+      why: ({ dir, found, framework }: { dir?: unknown, found?: unknown, framework?: unknown }) => `${String(dir)} holds a ${String(found)} app, not a ${String(framework)} app.`,
+    },
+    SETUP_INIT_HOST_MIGRATION: {
+      fix: "Use the app's current host, or migrate its enabled features, providers and Definitions in the config before running init again.",
+      why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} preset.`,
+    },
+    SETUP_INIT_NUXT_VERSION: {
+      fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
+    },
+    SETUP_CONSOLE_INVALID: {
+      fix: "Copy the command from the Console \"New project\" page again. Never pass the Console token itself.",
+      why: () => "--console must be `<pendingId>:sha256:<64 hex characters>`. The value is not printed, because it can hold a secret.",
+    },
+    SETUP_DEPLOY_HOST_UNSUPPORTED: {
+      fix: "Set `preset` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
+      why: ({ host }: { host?: unknown }) => `\`vitehub deploy\` has no upload for the ${String(host)} host.`,
+    },
+    SETUP_DEPLOY_CREDENTIALS_MISSING: {
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
+    },
+    SETUP_DEPLOY_TEMPORARY_UNSUPPORTED: {
+      fix: "Remove --temporary and deploy with your host login.",
+      why: ({ reason }: { reason?: unknown }) => `--temporary cannot run here. ${String(reason)}`,
+    },
+    SETUP_DEPLOY_PREVIEW_UNSUPPORTED: {
+      fix: "Remove --preview to deploy to production.",
+      why: ({ host }: { host?: unknown }) => `The ${String(host)} deploy that the build writes always deploys to production.`,
+    },
+    SETUP_DEPLOY_ORG_REQUIRED: {
+      fix: "Set DENO_DEPLOY_ORG to your Deno Deploy organization, or run `vitehub link --host deno --account <org>`.",
+      why: () => "The Deno Deploy organization is not known.",
+    },
+    SETUP_DEPLOY_BUILD_FAILED: {
+      fix: "Fix the build error above and run the command again, or pass --no-build to deploy the output that is there.",
+      why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => exitCode === undefined
+        ? `package.json has no \`build\` script, so \`${String(command)}\` cannot build the app.`
+        : `\`${String(command)}\` exited with code ${String(exitCode)}.`,
+    },
+    SETUP_DEPLOY_OUTPUT_MISSING: {
+      fix: "Build the app with vitehub() for this host, then run the command again without --no-build.",
+      why: ({ file }: { file?: unknown }) => `The build output has no ${String(file)}.`,
+    },
+    SETUP_DEPLOY_HOST_MISMATCH: {
+      fix: "Build again for the linked host, or run `vitehub unlink` and link the host that the build targets.",
+      why: ({ built, host }: { built?: unknown, host?: unknown }) => `The build output is for ${String(built)}, but the project deploys to ${String(host)}.`,
+    },
+    SETUP_DEPLOY_COMMAND_REJECTED: {
+      fix: "Build again with vitehub(). If you set the deploy command yourself, run it yourself.",
+      why: ({ command }: { command?: unknown }) => `The build output names a deploy command that ViteHub did not write, so it does not run it: ${String(command)}`,
+    },
+    SETUP_DEPLOY_FAILED: {
+      fix: "Read the host output above, fix the cause, and run the command again.",
+      why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
+    },
+    SETUP_DEPLOY_SECRET_UNVERIFIED: {
+      fix: "Check the project's environment variables on the host, then run the command again.",
+      why: ({ host, name }: { host?: unknown, name?: unknown }) => `${String(name)} was set on ${String(host)}, but the host does not list it. The app was not deployed with the Console link.`,
+    },
+    SETUP_DEPLOY_SECRET_UNSUPPORTED: {
+      fix: "Run the command on Linux or macOS, or set the variable in the host dashboard.",
+      why: ({ host, reason }: { host?: unknown, reason?: unknown }) => `ViteHub cannot set the Console secret on ${String(host)} without putting it in a command argument. ${String(reason)}`,
     },
     CLI_R0004: {
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",

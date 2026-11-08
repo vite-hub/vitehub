@@ -7,15 +7,15 @@ export const channelErrors = /*#__PURE__*/ defineErrors({
   codes: {
     CHANNEL_DEFINITION_FAILED: {
       why: ({ channel }: { channel: string }) => `The Channel Definition "${channel}" is missing or failed to load.`,
-      fix: "Add `server/channels/<name>.ts` with a default export from `defineOutboundChannel()`. Read `error.cause` for the load error.",
+      fix: "Add `server/channels/<name>.ts` with a default export from `defineChannel()`. Read `error.cause` for the load error.",
     },
     CHANNEL_INVALID_SEND: {
       why: ({ detail }: { detail: string }) => detail,
-      fix: "Pass non-empty text and select a connector that the Channel Definition declares, or set `defaultConnector`.",
+      fix: "Pass non-empty text and an options object. Send through a Channel whose adapter has `send`, such as `slack()` or `{ kind, send }`.",
     },
     CHANNEL_SEND_FAILED: {
-      why: ({ channel, connector }: { channel: string, connector: string }) => `Connector "${connector}" of Channel "${channel}" failed to send the message.`,
-      fix: "Read `error.cause` for the connector error. The message can still have reached the recipient, so check before you send it again.",
+      why: ({ channel, kind }: { channel: string, kind: string }) => `The "${kind}" adapter of Channel "${channel}" failed to send the message.`,
+      fix: "Read `error.cause` for the adapter error. The message can still have reached the recipient, so check before you send it again.",
     },
   },
 })
@@ -29,12 +29,12 @@ const dynamicError = {
 export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
+    CHANNELS_B0001: dynamicError,
     CHANNELS_C0001: dynamicError,
-    CHANNELS_C0002: dynamicError,
-    CHANNELS_C0003: dynamicError,
-    CHANNELS_C0004: dynamicError,
-    CHANNELS_C0005: dynamicError,
-    CHANNELS_C0006: dynamicError,
+    CHANNELS_C0007: dynamicError,
+    CHANNELS_C0008: dynamicError,
+    CHANNELS_C0009: dynamicError,
+    CHANNELS_C0010: dynamicError,
     CHANNELS_R0002: dynamicError,
     CHANNELS_R0003: dynamicError,
   },
