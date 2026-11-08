@@ -37,9 +37,10 @@ export default defineConfig({
 
 Did you choose Nuxt in Installation? Then set the same options in the `vite-hub/nuxt` module. For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.
 
-Add Wrangler, the Cloudflare CLI. You use it later to read the logs of the deployed app:
+Install the Queue package and Wrangler, the Cloudflare CLI. You use Wrangler later to read the logs of the deployed app:
 
 ```bash pm [commands/install]
+pnpm add @vite-hub/queue
 pnpm add -D wrangler
 ```
 

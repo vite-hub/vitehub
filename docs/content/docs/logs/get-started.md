@@ -1,8 +1,8 @@
 ---
-title: Get started
+title: Capture your first log event
 navigation.title: Get started
 navigation.order: 2
-description: Log one request with Evlog and read it in the ViteHub Console.
+description: "Install Evlog, turn on local capture in vitehub(), add fields to one request event, and inspect the event in the Console."
 layout: tutorial
 icon: i-lucide-logs
 ---

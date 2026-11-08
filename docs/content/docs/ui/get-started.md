@@ -18,21 +18,30 @@ In this tutorial, you show a short chat with one question and one reply. The mes
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install the UI package and the packages that it needs:
+Install the UI package, ViteHub, and the packages that they need:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
 ```
 
-Add the module to `nuxt.config.ts`. Keep the other modules of your app.
+Add the modules to `nuxt.config.ts`. Keep the other modules of your app.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ["@vite-hub/ui/nuxt"],
+  modules: ["@nuxt/ui", "vite-hub/nuxt"],
+  css: ["~/assets/css/main.css"],
 });
 ```
 
-The module loads the styles and imports the components for you. You do not need to register a Vue plugin.
+Load Tailwind CSS, Nuxt UI, and the package styles in this order:
+
+```css [assets/css/main.css]
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/ui/styles.css";
+```
+
+`vite-hub/nuxt` imports the components for you. You do not need to register a Vue plugin.
 ::
 
 ::tutorial-step{title="Render one message"}

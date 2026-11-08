@@ -21,7 +21,7 @@ In this tutorial, you connect a Google account and list its Gmail labels from an
 Add ViteHub and Nitro to your app. Connections stores its data with Database, so add `@vite-hub/database` and `drizzle-orm` too:
 
 ```bash pm [commands/install]
-pnpm add vite-hub nitro h3 @vite-hub/database drizzle-orm
+pnpm add vite-hub nitro h3 @vite-hub/connections @vite-hub/database drizzle-orm
 pnpm add -D vite
 ```
 
