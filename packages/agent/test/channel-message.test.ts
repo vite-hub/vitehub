@@ -3,7 +3,8 @@ import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { channelAdapter } from "../src/channels.ts"
-import { defineAgent, runAgent, runAgentTrigger } from "../src/index.ts"
+import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import type { AgentChannelMessage } from "../src/index.ts"
 import type { AgentRuntimeContext } from "../src/types.ts"
@@ -321,7 +322,7 @@ describe("Channel message handle", () => {
       },
     })
 
-    await runAgent(agent, runtimeContext(), { prompt: "hello" })
+    await runAgentWithContext(agent, runtimeContext(), { prompt: "hello" })
     expect(message).toBeUndefined()
   })
 
