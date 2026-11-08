@@ -32,7 +32,6 @@ const currentPanel = computed(() => {
 function target(entry: DocsRailEntry) {
   return docsRailTarget(entry.sections[0]!, currentPanel.value)
 }
-const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
@@ -79,19 +78,6 @@ onBeforeUnmount(() => {
 <template>
   <!-- The expanded rail shows each label, so the tooltips turn off while it is open. -->
   <PrimitiveRail ref="rail" :label="`${site.name} navigation`" class="vh-docs-rail" :class="{ 'vh-docs-rail-labeled': labeled }">
-    <!-- Docs pages have no site header, so the rail carries the brand. It opens the home page. -->
-    <template #header="{ expanded }">
-      <UTooltip :text="brand" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" :disabled="expanded || labeled">
-        <PrimitiveRailItem :as="NuxtLink" to="/" :label="brand" class="vh-docs-rail-brand">
-          <span v-if="site.logo" class="vh-docs-rail-brand-mark" :style="{ '--vh-docs-logo': `url(${site.logo})` }" />
-          <span v-else class="vh-docs-rail-brand-initial">{{ site.name.charAt(0) }}</span>
-          <template #label>
-            <span class="vh-docs-rail-brand-name">{{ site.name }}</span>
-            <span v-if="site.badge" class="vh-docs-rail-brand-badge">{{ site.badge.label }}</span>
-          </template>
-        </PrimitiveRailItem>
-      </UTooltip>
-    </template>
     <template #default="{ expanded }">
       <PrimitiveRailGroup v-for="(items, index) in groups" :key="index">
         <UTooltip
@@ -121,15 +107,17 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* The shared rail styles the current item by aria-current="page". The docs rail uses "true", so it repeats that style. */
+/* The shared rail styles the current item by aria-current="page". The docs rail uses "true", so it repeats that style:
+   the soft surface of the old comark-ui rail with a hairline ring. */
 .vh-docs-rail :deep(.vh-primitive-rail__item[aria-current="true"]) {
-  background: var(--vh-bg-accented);
-  color: var(--vh-highlighted);
+  background: var(--ui-bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+  color: var(--ui-text-highlighted);
 }
 
 @media (hover: hover) {
   .vh-docs-rail :deep(.vh-primitive-rail__item[aria-current="true"]:hover) {
-    background: var(--vh-bg-accented);
+    background: var(--ui-bg-elevated);
   }
 }
 
@@ -172,32 +160,5 @@ onBeforeUnmount(() => {
   padding-block: 0.25rem;
   white-space: normal;
   overflow-wrap: anywhere;
-}
-
-/* The mark is a mask filled with the text color, so it follows light and dark mode without a frame. */
-.vh-docs-rail-brand-mark {
-  display: block;
-  width: 1.125rem;
-  height: 1rem;
-  background-color: var(--ui-text-highlighted);
-  mask: var(--vh-docs-logo) center / contain no-repeat;
-}
-
-.vh-docs-rail-brand-initial {
-  color: var(--ui-text-highlighted);
-  font-weight: 650;
-}
-
-.vh-docs-rail-brand-name {
-  color: var(--ui-text-highlighted);
-  font-weight: 650;
-}
-
-.vh-docs-rail-brand-badge {
-  margin-inline-start: 0.375rem;
-  border-bottom: 1px dotted currentcolor;
-  color: var(--ui-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
 }
 </style>

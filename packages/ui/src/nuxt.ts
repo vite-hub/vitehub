@@ -2,6 +2,7 @@ import {
   addComponent,
   createResolver,
   defineNuxtModule,
+  runWithNuxtContext,
 } from "@nuxt/kit";
 import { icons as viteHubIcons } from "@vite-hub/icons";
 import type { ViteHubUIOptions } from "./config.ts";
@@ -40,24 +41,45 @@ export function addViteHubUIRuntime(nuxt: ViteHubUIRuntimeNuxt): void {
 
 export { viteHubUIIcons };
 
+const registeredComponentPrefixes = new WeakMap<object, Set<string>>();
+
+/**
+ * Auto-imports the public components in a Nuxt app, with an optional name prefix. The module calls it, and so does
+ * `vite-hub/nuxt` when the app installed this package and Nuxt UI. It registers each prefix once per Nuxt instance.
+ * Nuxt only bundles a component that a template uses, so an app that renders none pays nothing.
+ */
+export function addViteHubUIComponents(nuxt: object, prefix = ""): void {
+  const prefixes = registeredComponentPrefixes.get(nuxt) ?? new Set<string>();
+  if (prefixes.has(prefix)) return;
+  prefixes.add(prefix);
+  registeredComponentPrefixes.set(nuxt, prefixes);
+  const componentsFile = createResolver(import.meta.url).resolve("./index.js");
+  // SAFETY: Callers pass the Nuxt instance that runs their module; `addComponent` only reads its options and hooks.
+  runWithNuxtContext(nuxt as Parameters<typeof runWithNuxtContext>[0], () => {
+    for (const name of componentNames)
+      addComponent({ export: name, filePath: componentsFile, name: `${prefix}${name}` });
+  });
+}
+
+// Nuxt reads dependency defaults before module setup, including when vite-hub/nuxt installs the runtime alone.
+export const viteHubUIIconDependencies = {
+  "@nuxt/icon": { optional: true, defaults: { customCollections: [viteHubIcons] } },
+};
+
 const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUINuxtOptions>({
   meta: { configKey: "viteHubUI", name: "@vite-hub/ui" },
   defaults: {},
   moduleDependencies: {
     // A module dependency, not `installModule()`, so Nuxt also installs the dependencies of @nuxt/ui, such as @nuxt/icon.
     "@nuxt/ui": {},
-    // The `vitehub` Iconify collection, so `i-vitehub-kv` resolves in the app like the icons of an `@iconify-json/*` package.
-    // @nuxt/ui installs @nuxt/icon, so this only adds options and does not install it a second time.
-    "@nuxt/icon": { optional: true, defaults: { customCollections: [viteHubIcons] } },
+    ...viteHubUIIconDependencies,
   },
   async setup({ prefix = "", ...options }, nuxt) {
     const resolver = createResolver(import.meta.url);
     nuxt.options.css.push(resolver.resolve("./styles.css"));
     nuxt.options.runtimeConfig.public.viteHubUI = options;
     addViteHubUIRuntime(nuxt);
-    const componentsFile = resolver.resolve("./index.js");
-    for (const name of componentNames)
-      addComponent({ export: name, filePath: componentsFile, name: `${prefix}${name}` });
+    addViteHubUIComponents(nuxt, prefix);
   },
 });
 

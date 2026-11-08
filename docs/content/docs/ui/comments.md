@@ -1,5 +1,6 @@
 ---
 title: Comments
+seo.title: Comments UI components for Vue
 description: "Figma-style comments for your own running app: pins, threads, a composer, a side list, and a side panel."
 navigation.order: 34
 navigation.group: Collaboration
@@ -21,7 +22,7 @@ Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation), an
 pnpm add @vite-hub/comments
 ```
 
-The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/comments`:
+`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/comments`:
 
 ```ts
 import { CommentLayer } from "@vite-hub/ui/comments";

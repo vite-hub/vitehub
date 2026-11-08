@@ -429,7 +429,7 @@ describe("vitehub", () => {
       )
       expect(config.nitro).not.toMatchObject({
         handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+          expect.objectContaining({ route: "/_vitehub/api/definitions" }),
         ]),
       })
     }
@@ -473,7 +473,7 @@ describe("vitehub", () => {
         const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
         expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
-          handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+          handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/api/kv" })]),
         })
       }
 
@@ -509,7 +509,7 @@ describe("vitehub", () => {
       const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(disabledGenerated).not.toContain('"kv"')
       expect(config.nitro).not.toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/api/kv" })]),
       })
     }
     finally {
@@ -560,13 +560,13 @@ describe("vitehub", () => {
       nitro: {
         handlers: [{
           handler: "/app/server/api/custom-kv.ts",
-          route: "/api/_vitehub/console/kv",
+          route: "/_vitehub/api/kv",
         }],
       },
     }
     await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
     expect(config.nitro.handlers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ route: "/api/_vitehub/console/kv" }),
+      expect.objectContaining({ route: "/_vitehub/api/kv" }),
       expect.objectContaining({ route: "/_vitehub/rpc/**" }),
     ]))
   })
@@ -579,7 +579,7 @@ describe("vitehub", () => {
         access: {
           routes: [
             { authorize: true, route: "/_vitehub/**" },
-            { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
+            { authorize: true, method: "GET", route: "/_vitehub/api/**" },
           ],
         },
       })
@@ -623,7 +623,7 @@ describe("vitehub", () => {
     expect(pluginNames(plugins)).not.toContain("@vite-hub/auth/vite")
   })
 
-  it("rejects production Auth policy that does not protect Console status", async () => {
+  it("accepts production Auth policy whose /_vitehub/** rule covers the Console API", async () => {
     integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
       access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },
     })
@@ -632,8 +632,7 @@ describe("vitehub", () => {
       "vite-hub/console",
     )
 
-    await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
-      .rejects.toThrow("/api/_vitehub/console/status")
+    await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }])).resolves.not.toThrow()
   })
 
   it("rejects Auth-backed production Console when top-level Auth is disabled", async () => {
@@ -972,6 +971,13 @@ describe("vitehub", () => {
   it("checks the Database packages of Connections as the connections feature", () => {
     vitehub({ preset: "node", connections: true })
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"])
+  })
+
+  it("checks the MCP SDK only when the Console MCP client is on", () => {
+    vitehub({ preset: "node", console: { auth: false } })
+    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).not.toContain("console mcp-client")
+    vitehub({ preset: "node", console: { auth: false, mcpClient: true } })
+    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).toContain("console mcp-client")
   })
 
   it("requires the Agent package for observability without Agents", () => {

@@ -155,11 +155,6 @@
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"page-html\", input: { url: string; }): Promise<Response>', gave the following error.\n    Argument of type '{ url: string; } | undefined' is not assignable to parameter of type '{ url: string; }'.\n      Type 'undefined' is not assignable to type '{ url: string; }'.\n  Overload 2 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'."
   },
   {
-    "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
-    "label": "server/schedules/weekly-report.ts",
-    "error": "TS2307 Cannot find module '../agents/bot/agent' or its corresponding type declarations.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"teams\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"teams\"' is not assignable to parameter of type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, input: AgentRunInput<unknown, AgentRunInputContextValues, unknown>, options: RunAgentOptions<...> & { ...; }): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'.\n  Overload 2 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, input: AgentRunInput<unknown, AgentRunInputContextValues, unknown>, options: RunAgentOptions<...> & { ...; }): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'.\n  Overload 3 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, context: AgentRuntimeContextInput<AgentRuntimeConfig>, input: AgentRunInput<...>, options?: (Omit<...> & { ...; }) | undefined): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'."
-  },
-  {
     "id": "docs/content/docs/channels/agent-capability.md#0876e6e71790",
     "label": null,
     "error": "TS2304 Cannot find name 'channelDelivery'.\nTS2304 Cannot find name 'useChannel'.\nTS7006 Parameter 'context' implicitly has an 'any' type."
@@ -173,21 +168,6 @@
     "id": "docs/content/docs/channels/agent-capability.md#d71a3be85bbb",
     "label": null,
     "error": "TS2304 Cannot find name 'channelDelivery'.\nTS2304 Cannot find name 'useChannel'."
-  },
-  {
-    "id": "docs/content/docs/channels/index.md#7f237ef8efd9",
-    "label": "server/utils/slack.ts",
-    "error": "TS18046 'env.slack' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/channels/server-api.md#0a63e2ce13a7",
-    "label": "server/api/build-finished.post.ts",
-    "error": "TS2322 Type 'string' is not assignable to type 'never'.\nTS2322 Type 'string' is not assignable to type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"teams\"): ChannelClient<{ teams: ChatConnector; }, \"teams\">', gave the following error.\n    Argument of type '\"alerts\"' is not assignable to parameter of type '\"teams\"'.\n  Overload 2 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"alerts\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/channels/server-api.md#7904bd1bf174",
-    "label": null,
-    "error": "TS2304 Cannot find name 'useChannel'."
   },
   {
     "id": "docs/content/docs/cms/access.md#2b019396a64c",
@@ -508,11 +488,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#6e7ca644e272",
     "label": "server/api/warmup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#19125e85e0ab",
-    "label": "server/channels/alerts.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'url' does not exist in type 'ChannelConnector<never, object>'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",

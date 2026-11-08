@@ -223,7 +223,7 @@ describe("documentation snippet check", () => {
       `src/module.${kind}.mts`,
       `src/commonjs.${kind}.cts`,
       `src/unsupported.${kind}.tsx`,
-    ].map(label => ({ code: "export default { connectors: { log: { send: () => ({ id: 'sent' }) } } }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "definition-paths.md", pageRoot }))
+    ].map(label => ({ code: "export default { adapter: { kind: 'log', send: () => ({ id: 'sent' }) } }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "definition-paths.md", pageRoot }))
     const declarations = await generatedDeclarations(snippets)
     expect(declarations).toHaveLength(1)
     const serverNames = kind === "queue" ? [serverName, "server/queues/email"] : [serverName]
@@ -276,7 +276,7 @@ describe("documentation snippet check", () => {
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-page.md", pageRoot })
     const snippets = [
       snippet("server/channels/inbox.ts", "import { defineChannel } from 'vite-hub/agent/channels'\nexport default defineChannel('inbox', { messages: false, triggers: {} })"),
-      snippet("server/channels/alerts.ts", "import { defineOutboundChannel } from 'vite-hub/channels'\nexport default defineOutboundChannel({ connectors: { log: { send: (text: string) => ({ id: text }) } } })"),
+      snippet("server/channels/alerts.ts", "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"),
       snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('alerts')"),
       snippet("inbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),
     ]
@@ -289,7 +289,7 @@ describe("documentation snippet check", () => {
   it.each(["ts", "cts"])("excludes helpers inside indexed Channel folders with %s indexes", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/channel-folder-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-folder-page.md", pageRoot })
-    const channel = "import { defineOutboundChannel } from 'vite-hub/channels'\nexport default defineOutboundChannel({ connectors: { log: { send: (text: string) => ({ id: text }) } } })"
+    const channel = "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"
     const snippets = [
       snippet("server/channels/teams/config.ts", `import channel from './index.${extension}'\nexport default channel`),
       snippet("server/channels/teams/connectors.ts", channel),

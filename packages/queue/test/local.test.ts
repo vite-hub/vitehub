@@ -540,11 +540,9 @@ describe("local queue review regressions", () => {
 
     await engine.enqueue("welcome", Array.from({ length: localQueueDeadLimit + 5 }, (_, n) => ({ id: `job-${n}`, payload: n })))
 
-    await vi.waitFor(async () => {
-      expect((await engine.status()).queues.welcome).toEqual({ dead: localQueueDeadLimit, pending: 0, running: 0 })
-      // The in-memory count can settle before pruning has finished deleting the old files.
-      expect(await storedJobs()).toHaveLength(localQueueDeadLimit)
-    }, { timeout: 10_000 })
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: localQueueDeadLimit, pending: 0, running: 0 }), { timeout: 10_000 })
+    // Status counts change before pruning finishes deleting the old files.
+    await vi.waitFor(async () => expect((await storedJobs()).length).toBe(localQueueDeadLimit))
     engine.close()
 
     expect((await engineFor({}).status()).queues.welcome?.dead).toBe(localQueueDeadLimit)

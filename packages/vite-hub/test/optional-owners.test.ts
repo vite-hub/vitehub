@@ -25,3 +25,8 @@ it("keeps plain package names when vite-hub comes from npm", () => {
 it("tells a Connections app to install the Database packages", () => {
   expect(missingFeaturePackagesError(["connections"]).message).toContain("The connections feature needs @vite-hub/database, drizzle-orm.")
 })
+
+it("names the packages of the Console MCP client and of the Console components", () => {
+  expect(missingFeaturePackagesError(["console mcp-client"]).message).toContain("The console mcp-client feature needs @modelcontextprotocol/sdk.")
+  expect(missingFeaturePackagesError(["console ui"]).message).toContain("The console ui feature needs @vite-hub/ui, @json-render/core, @json-render/vue, @vueuse/core.")
+})
