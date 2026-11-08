@@ -33,7 +33,7 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 type AddResult = SetupAddPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string, snippet?: string }
 
 function add(args: string[], root: string, spawn?: ViteHubCliSpawn) {
-  return runSetup<AddResult>(["add", ...args, "--json"], root, {}, spawn)
+  return runSetup<AddResult>(["add", ...args, "--json"], root, {}, { spawn })
 }
 
 const fixtures: ReadonlyArray<readonly [string, DeploymentPreset, string]> = [
@@ -86,7 +86,7 @@ describe("vitehub add", () => {
     expect(result.json.missing).toEqual([{ field: "observability.service" }])
     expect(spawned).toBe(false)
     expect(await snapshot(root)).toEqual(before)
-    expect((await runSetup<AddResult>(result.json.rerun!.split(" ").slice(1), root, {}, async () => ({ exitCode: 0 }))).exitCode).toBe(0)
+    expect((await runSetup<AddResult>(result.json.rerun!.split(" ").slice(1), root, {}, { spawn: async () => ({ exitCode: 0 }) })).exitCode).toBe(0)
   })
 
   it.each([undefined, "", "   "])("requires a Logs source before writing (%s)", async (source) => {
@@ -882,6 +882,147 @@ describe("vitehub add", () => {
 
     expect(exitCode).toBe(1)
     expect(json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED", message: "`pnpm add @vite-hub/schedule` exited with code 1." })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each(["node", "deno"])("says that the default Workflow runs inline on %s, and not when a provider is set", async (host) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
+
+    const inline = await add(["workflow", "--dry-run"], root)
+    expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
+    expect(inline.json.install.packages).toEqual([])
+
+    const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
+    expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
+    expect(durable.json.install.packages).toEqual(["openworkflow"])
+  })
+
+  it.each([
+    "workflow.sqlite.runMigrations=true",
+    "workflow.postgres.schema=custom",
+    "workflow.sqlite.path=   ",
+    "workflow.postgres.url=",
+  ])("keeps the inline Workflow default with partial storage options (%s)", async (option) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const { exitCode, json } = await add(["workflow", "--option", option, "--dry-run"], root)
+
+    expect(exitCode).toBe(0)
+    expect(json.install.packages).toEqual([])
+    expect(json.nextSteps.join("\n")).toContain("inline in the request process")
+  })
+
+  it.each([
+    ["workflow.sqlite.path=.data/workflows.db"],
+    ["workflow.postgres.url=postgres://localhost/workflows"],
+    ["workflow.postgres.url.kind=env-variable", "workflow.postgres.url.source.kind=env", "workflow.postgres.url.source.name=DATABASE_URL"],
+  ])("installs OpenWorkflow when Node storage selects it (%s)", async (...options) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+
+    const { json } = await add(["workflow", ...options.flatMap(option => ["--option", option]), "--dry-run"], root)
+
+    expect(json.install.packages).toEqual(["openworkflow"])
+    expect(json.nextSteps.join("\n")).not.toContain("inline")
+  })
+
+  it("says that the Vercel Workspace keeps files in memory until a Blob token is set", async () => {
+    const root = await copyFixture("vercel")
+
+    const memory = await runSetup<AddResult>(["add", "workspace", "--dry-run", "--json"], root)
+    expect(memory.json.nextSteps).toContainEqual(expect.stringContaining("Workspace on vercel uses memory / Blob / GitHub by default. Process-local memory by default."))
+
+    const blob = await runSetup<AddResult>(["add", "workspace", "--dry-run", "--json"], root, { BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_test" })
+    expect(blob.json.nextSteps.join("\n")).not.toContain("memory")
+  })
+
+  it("points a Vercel Workflow starter to the durable native entry", async () => {
+    const root = await copyFixture("vercel")
+
+    const { json } = await add(["workflow", "--name", "onboard-user", "--dry-run"], root)
+
+    expect(json.nextSteps).toContainEqual(expect.stringContaining("server/workflows/onboard-user.ts has no `native` entry"))
+  })
+
+  it.each([
+    ["deno", "blob"],
+    ["node-self-hosted", "blob.stores.default"],
+  ])("installs the S3 SDK on %s for %s", async (fixture, option) => {
+    const root = await copyFixture(fixture)
+
+    const { exitCode, json } = await add(["blob", "--option", `${option}.driver=s3`, "--option", `${option}.bucket=app-assets`, "--dry-run"], root)
+
+    expect(exitCode).toBe(0)
+    expect(json.install.packages).toEqual(["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"])
+  })
+
+  it.each([
+    ["", "server", "queues/jobs.cts"],
+    ["", "server", "queues/jobs.cjs"],
+    ['serverDir: "backend",', "backend", "queues/jobs.mjs"],
+    ['rootDir: "app",', "app/server", "queues/jobs.cts"],
+    ['rootDir: "app", serverDir: "backend",', "app/backend", "queues/jobs.cjs"],
+    ['rootDir: "app", serverDir: "backend",', "app", "src/jobs.queue.mjs"],
+  ])("rejects equivalent Nuxt Definitions without writing: %s %s/%s", async (options, serverDir, definition) => {
+    const root = await createProject({
+      [`${serverDir}/${definition}`]: "export default {}\n",
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} vitehub: { preset: "node" } })`,
+      "package.json": pnpmManifest,
+    })
+    const before = await snapshot(root)
+    const { exitCode, json } = await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)
+    expect(exitCode).toBe(3)
+    expect(json.error?.code).toBe("SETUP_FILE_EXISTS")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each(["cts", "cjs"])("rejects Vite suffix Definitions with .%s extensions", async (extension) => {
+    const root = await createProject({
+      [`src/jobs.queue.${extension}`]: "export default {}\n",
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig('{ preset: "node" }'),
+    })
+    const before = await snapshot(root)
+    expect((await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)).exitCode).toBe(3)
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    ["vite", "", "server/databases/main/config.ts", "main"],
+    ["vite", "", "server/databases/team/main/config.cjs", "team/main"],
+    ["vite", "", "src/main.database.ts", "main"],
+    ["vite", "", "main.database.mts", "main"],
+    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/backend/databases/main/config.cts", "main"],
+    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/src/main.database.mjs", "main"],
+  ])("rejects a default Database beside a named Definition without writing: %s %s %s", async (framework, options, definition, name) => {
+    const root = await createProject({
+      [definition]: `export default { name: ${JSON.stringify(name)} }\n`,
+      "package.json": pnpmManifest,
+      ...(framework === "nuxt"
+        ? { "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} vitehub: { preset: "node" } })` }
+        : { "vite.config.ts": viteConfig('{ preset: "node" }') }),
+    })
+    const before = await snapshot(root)
+    const { exitCode, json } = await add(["database", "--name", "default", "--no-install", "--yes"], root)
+
+    expect(exitCode).toBe(3)
+    expect(json.error).toMatchObject({ code: "SETUP_FILE_EXISTS", message: expect.stringContaining(`${definition} already defines a Database Definition`) })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it("refuses a starter that would be a second Definition of the same name", async () => {
+    const root = await copyFixture("cloudflare")
+    await writeFile(join(root, "src/welcome-email.queue.ts"), "export default {}\n")
+    const before = await snapshot(root)
+
+    for (const [args, file, starter] of [
+      [["database", "--name", "default"], "src/database.ts", "server/databases/config.ts"],
+      // The owner rejects a Named Database next to the Default one.
+      [["database", "--name", "main"], "src/database.ts", "server/databases/main/config.ts"],
+      [["queue", "--name", "welcome-email"], "src/welcome-email.queue.ts", "server/queues/welcome-email.ts"],
+    ] as const) {
+      const { exitCode, json } = await add([...args, "--no-install", "--yes"], root)
+      expect(exitCode, args.join(" ")).toBe(3)
+      expect(json.error, args.join(" ")).toMatchObject({ code: "SETUP_FILE_EXISTS", message: `${file} already defines a ${args[0] === "queue" ? "Queue" : "Database"} Definition that conflicts with ${starter}, so the build would reject both.` })
+    }
     expect(await snapshot(root)).toEqual(before)
   })
 })

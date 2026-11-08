@@ -1,7 +1,7 @@
 import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
 import { defineErrors, type Result } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
-import { adminEmailsPluginId, adminEmailsVariable } from "./admin-emails.ts";
+import { adminsPluginId, adminsVariable } from "./admins.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
 import type { AuthEventCounts, AuthEventListInput, AuthEventStore } from "./events.ts";
@@ -300,14 +300,14 @@ export function describeAuthConsoleFields(
  * Writes require a real Better Auth session and pass through its plugin APIs. No adapter writes are used here.
  * Impersonation stays off unless `host.impersonation` is `true`.
  */
-/** The `VITEHUB_ADMIN_EMAILS` rule as an access note, so the Console shows why an account is an admin. */
-function adminEmailsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
-  const options: unknown = plugins?.find((plugin) => plugin.id === adminEmailsPluginId)?.options;
+/** The `VITEHUB_ADMINS` rule as an access note, so the Console shows why an account is an admin. */
+function adminsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
+  const options: unknown = plugins?.find((plugin) => plugin.id === adminsPluginId)?.options;
   if (!options || typeof options !== "object") return [];
-  const emails: unknown = Reflect.get(options, "emails");
+  const admins: unknown = Reflect.get(options, "admins");
   const role: unknown = Reflect.get(options, "role");
-  if (!Array.isArray(emails) || typeof role !== "string") return [];
-  return [`${adminEmailsVariable} gives the ${role} role to new accounts of ${emails.join(", ")}.`];
+  if (!Array.isArray(admins) || typeof role !== "string") return [];
+  return [`${adminsVariable} gives the ${role} role to ${admins.join(", ")} on sign-in.`];
 }
 
 export function createAuthConsole(
@@ -469,7 +469,7 @@ export function createAuthConsole(
       edit: field.edit.enabled && !actions.editField.enabled ? actions.editField : field.edit,
     }));
     return {
-      access: [...(policy.access ?? []), ...adminEmailsAccess(ctx.options.plugins)],
+      access: [...(policy.access ?? []), ...adminsAccess(ctx.options.plugins)],
       actions,
       fields,
       pages: [

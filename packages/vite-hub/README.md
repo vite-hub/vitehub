@@ -29,7 +29,9 @@ pnpm add vite-hub
 | `server/comments.ts` | `@vite-hub/comments` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
@@ -82,6 +84,8 @@ ViteHub derives one deployment identity from the nearest `package.json` name, fa
 Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: true,
   blob: true,
@@ -213,6 +217,8 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify preset and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: {
     invocations: {

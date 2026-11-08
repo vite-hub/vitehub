@@ -169,7 +169,9 @@ the Vite and the Nuxt path.
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
 | OAuth sign-in for a Console on another origin, with `consoleMcpOAuth()` | `@vite-hub/auth better-auth @better-auth/oauth-provider @better-auth/cimd` |
+| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 

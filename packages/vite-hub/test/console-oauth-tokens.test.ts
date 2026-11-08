@@ -20,6 +20,7 @@ import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import scheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
+import { requestEvent } from "./console-event.ts"
 
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
 
@@ -284,11 +285,11 @@ describe("OAuth Console tokens", () => {
   ] as const)("challenges a token without the %s scope on Auth management", async (kind, granted, body) => {
     installConsoleSections("console-oauth-auth-manage", ["auth"])
     const { access_token } = await consoleTokens({ scope: granted })
-    const response = await authManageHandler({ req: new Request(`${app}/_vitehub/auth/manage`, {
+    const response = await authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
       body: JSON.stringify(body),
       headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
       method: "POST",
-    }) })
+    })))
     expect(response.status).toBe(403)
     expect(response.headers.get("www-authenticate")).toContain(`error="insufficient_scope", scope="vitehub:${kind}"`)
     expect(response.headers.get("access-control-allow-origin")).toBe(local)
@@ -298,11 +299,11 @@ describe("OAuth Console tokens", () => {
     installConsoleSections("console-oauth-auth-manage", ["auth"])
     const { access_token } = await consoleTokens({ scope: "vitehub:read" })
     for (const body of [{ action: "ban" }, { operation: "unknown" }]) {
-      const response = await authManageHandler({ req: new Request(`${app}/_vitehub/auth/manage`, {
+      const response = await authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
         body: JSON.stringify(body),
         headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
         method: "POST",
-      }) })
+      })))
       expect(response.status).toBe(400)
       expect(response.headers.has("www-authenticate")).toBe(false)
       await expect(response.json()).resolves.toMatchObject({ message: "Invalid Auth Console request." })
@@ -315,11 +316,11 @@ describe("OAuth Console tokens", () => {
     database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
     const member = await signUp("member@example.com")
     const { access_token } = await consoleTokens({ cookie: administrator.cookie })
-    const manage = (body: Record<string, unknown>) => authManageHandler({ res: { headers: new Headers() }, req: new Request(`${app}/_vitehub/auth/manage`, {
+    const manage = (body: Record<string, unknown>) => authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
       body: JSON.stringify(body),
       headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
       method: "POST",
-    }) })
+    })))
     const description = await manage({ operation: "describe" })
     expect(description.status, await description.clone().text()).toBe(200)
     await expect(description.json()).resolves.toMatchObject({ actions: { ban: { enabled: true }, impersonate: { enabled: false } } })
@@ -347,11 +348,11 @@ describe("OAuth Console tokens", () => {
     const administrator = await signUp("admin@example.com")
     database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
     const { access_token } = await consoleTokens()
-    const response = await authManageHandler({ res: { headers: new Headers() }, req: new Request(`${app}/_vitehub/auth/manage`, {
+    const response = await authManageHandler(requestEvent(new Request(`${app}/_vitehub/auth/manage`, {
       body: JSON.stringify({ action: "ban", userId: administrator.id }),
       headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "cookie": administrator.cookie, "origin": local, "x-vitehub-console": "1" },
       method: "POST",
-    }) })
+    })))
     expect(response.status).toBe(403)
     expect(database.prepare('SELECT "banned" FROM "user" WHERE "id" = ?').get(administrator.id)?.banned).toBeFalsy()
   })

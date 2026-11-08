@@ -35,7 +35,7 @@ it.each(["//other.test/image", "javascript:alert(1)"])("rolls back an image with
   })
   await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ statusCode: 503 })
   const [failure, listing] = await blob.list()
-  expect(failure).toBeNull()
+  expect(failure).toBeUndefined()
   expect(listing?.blobs).toEqual([])
 })
 
@@ -71,7 +71,7 @@ it("reads attachments stored under the legacy prefix", async () => {
   installConsoleBlob(base, blob)
   const id = crypto.randomUUID()
   const [putError] = await blob.put(`vitehub-console-attachments/${id}`, Buffer.from(png, "base64"), { contentType: "image/png" })
-  expect(putError).toBeNull()
+  expect(putError).toBeUndefined()
   const message = await consoleInputMessage("", [{ id, name: "legacy.png" }])
   const part = message.parts[0]
   expect(part).toMatchObject({ type: "image", id, mediaType: "image/png", name: "legacy.png" })
@@ -93,7 +93,7 @@ it("removes a rejected upload when Blob serving is not configured", async () => 
 
   await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ statusCode: 503 })
   const [failure, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
-  expect(failure).toBeNull()
+  expect(failure).toBeUndefined()
   expect(result?.blobs).toEqual([])
 })
 
@@ -151,7 +151,7 @@ it("rolls back a partially written batch without deleting an earlier successful 
   })
   await expect(uploadBatch([{ url: `data:image/png;base64,${png}` }, { url: `data:image/png;base64,${png}` }])).rejects.toBe(failure)
   const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
-  expect(listError).toBeNull()
+  expect(listError).toBeUndefined()
   expect(result?.blobs.map(item => item.pathname)).toEqual([`_vitehub/console/attachments/${retained.id}`])
 })
 
@@ -224,7 +224,7 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
   else await expect(input).rejects.toBe(failure)
   expect(deletions).toBe(2)
   const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
-  expect(listError).toBeNull()
+  expect(listError).toBeUndefined()
   expect(result?.blobs).toHaveLength(failCleanup ? 2 : 1)
   expect(result?.blobs.map(item => item.pathname)).toContain(`_vitehub/console/attachments/${retained.id}`)
 })
@@ -240,7 +240,7 @@ it.each([false, true])("only rolls back startup failures before runtime handoff:
     throw failure
   })).rejects.toBe(failure)
   const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
-  expect(listError).toBeNull()
+  expect(listError).toBeUndefined()
   expect(result?.blobs).toHaveLength(handedOff ? 2 : 1)
   expect(result?.blobs.map(item => item.pathname)).toContain(`_vitehub/console/attachments/${retained.id}`)
 })

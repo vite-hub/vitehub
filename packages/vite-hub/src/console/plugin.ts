@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
@@ -35,6 +35,8 @@ let consoleRuntimeDigest: string | undefined
 /**
  * A digest of the packaged Console runtime, client, and assets.
  * The package does not change while the process runs, so read its files once, not on each file change.
+ * The Console client build puts a content hash in the name of each file in `public/console`, so the digest reads only
+ * those names. A cold dev start does not read the 20 MB client.
  */
 function readConsoleRuntimeDigest(): string {
   if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
@@ -48,7 +50,10 @@ function readConsoleRuntimeDigest(): string {
     }
   }
   if (existsSync(consoleRuntimeRoot)) visit(consoleRuntimeRoot)
-  for (const file of files.sort()) hash.update(file.slice(consoleRuntimeRoot.length)).update("\0").update(readFileSync(file)).update("\0")
+  for (const file of files.sort()) {
+    hash.update(file.slice(consoleRuntimeRoot.length)).update("\0")
+    if (!file.startsWith(consolePublicRoot + sep)) hash.update(readFileSync(file)).update("\0")
+  }
   consoleRuntimeDigest = hash.digest("hex")
   return consoleRuntimeDigest
 }

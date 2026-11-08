@@ -11,6 +11,7 @@ import { parseJSONC, parseTOML } from "confbox"
 import { transform } from "esbuild"
 import { findNearestFile } from "pkg-types"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -591,6 +592,15 @@ async function installConsole(
     rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
   }
   if (nuxt.options.dev && nuxt.hook) {
+    // Nuxt 4 and Nuxt 5 run Nitro's app in a worker that never sees the client's address. The Nuxt process signs
+    // loopback requests before Nitro forwards them.
+    Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: { options: { devHandlers: Array<{ handler?: unknown, route?: string }> } }) => {
+      addViteHubDevPeerDevHandler(nitro.options.devHandlers)
+    }])
+    // WebSocket upgrades, such as Realtime rooms of the Console, skip Nitro's dev handlers. Sign them on the listener.
+    Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer) => {
+      addViteHubDevPeerUpgradeSigner(server)
+    }])
     const tab = consoleNuxtDevToolsTab(nuxt.options.app?.baseURL)
     // Nuxt DevTools 3 and 4 read this hook. DevTools 4 shows the tab in its Devframe dock.
     Reflect.apply(nuxt.hook, nuxt, ["devtools:customTabs", (tabs: ConsoleNuxtDevToolsTab[]) => {

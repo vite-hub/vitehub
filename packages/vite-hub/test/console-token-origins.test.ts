@@ -7,6 +7,8 @@ import { installedOperationSectionResolver } from "@vite-hub/internal/operations
 import { defineHandler, H3 } from "h3"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { requestEvent } from "./console-event.ts"
+
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
@@ -222,11 +224,11 @@ describe("console.origins", () => {
   it("lets Channel replay take a token call from a listed origin", async () => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
-    const replay = (origin: string) => channelReplayHandler({ method: "POST", req: new Request(`${app}/_vitehub/channels/replay`, {
+    const replay = (origin: string) => channelReplayHandler(requestEvent(new Request(`${app}/_vitehub/channels/replay`, {
       body: JSON.stringify({}),
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin },
       method: "POST",
-    }) })
+    })))
     const listed = await replay(consoleOrigin)
     // The origin check passed: the route now asks for an Agent name.
     expect(listed.status).toBe(400)
@@ -299,9 +301,9 @@ describe("Console data route responses", () => {
   it("adds Origin to an existing Vary list and exposes the challenge", async () => {
     installConsoleOrigins([consoleOrigin])
     const route = withConsoleCors(async () => new Response("no", { headers: { vary: "Accept-Encoding, origin" }, status: 401 }))
-    const response = await route({ req: new Request(app, { headers: { origin: consoleOrigin } }) })
+    const response = await route(requestEvent(new Request(app, { headers: { origin: consoleOrigin } })))
     expect(response.headers.get("vary")).toBe("Accept-Encoding, origin")
-    const other = await withConsoleCors(async () => new Response("no", { headers: { vary: "Accept-Encoding" } }))({ req: new Request(app, { headers: { origin: consoleOrigin } }) })
+    const other = await withConsoleCors(async () => new Response("no", { headers: { vary: "Accept-Encoding" } }))(requestEvent(new Request(app, { headers: { origin: consoleOrigin } })))
     expect(other.headers.get("vary")).toBe("Accept-Encoding, Origin")
     expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
     expect(response.headers.get("www-authenticate")).toBe("Bearer realm=\"vitehub-console\"")
@@ -320,7 +322,7 @@ describe("Console data route responses", () => {
       }
     }
     globalThis.Response = SpreadResponse
-    const response = await withConsoleCors(async () => new native("no", { status: 401 }))({ req: new Request(app, { headers: { origin: consoleOrigin } }) })
+    const response = await withConsoleCors(async () => new native("no", { status: 401 }))(requestEvent(new Request(app, { headers: { origin: consoleOrigin } })))
     expect(response.status).toBe(401)
     expect(response.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
   })
@@ -408,6 +410,6 @@ describe("Console origin and token options", () => {
 })
 
 /** An H3 2 event of a Fetch request, as Nitro 3 gives a middleware. */
-function defineHandlerEvent(request: Request): { method: string, req: Request } {
-  return { method: request.method, req: request }
+function defineHandlerEvent(request: Request) {
+  return requestEvent(request)
 }

@@ -24,11 +24,11 @@ import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-n
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
-import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
+import { docsAppConfigUi, docsUi, type DocsThemeUi } from "./theme.ts"
 
 import type { DocsSource } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
@@ -83,7 +83,7 @@ export interface DocsModuleOptions {
    */
   groups?: DocsGroup[]
   start?: DocsStartOptions
-  /** Community links at the foot of the sidebar, such as a chat server. GitHub comes from `github`. */
+  /** Community links in the header on every page, such as a chat server. GitHub comes from `github`. */
   socials?: DocsLink[]
   /** One line above every docs page, such as a release status. */
   banner?: string
@@ -147,7 +147,8 @@ export interface DocsPublicConfig {
   socials: DocsLink[]
   banner: string | null
   sitemap: string[]
-  github: { repo: string, branch: string, dir: string, url: string } | false
+  /** `stars` is the repository's star count when the build could read it, else `null`. */
+  github: { repo: string, branch: string, dir: string, url: string, stars: number | null } | false
   icons: DocsIcons
   mcp: { name: string, url: string, guide: string | null } | false
   assistant: { agent: string } | false
@@ -258,6 +259,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const manifestOptions = { dir: contentDir, base: normalizeDocsBase(options.base ?? "/docs"), sources, sections: options.sections }
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
     const config = publicConfig(options, nuxt.options.app.baseURL)
+    if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
     setupDocsAssistant(nuxt, config)
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
@@ -285,12 +287,18 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
-      linkChecker.excludeLinks = [...linkChecker.excludeLinks ?? [], ...options.linkChecker?.excludeLinks ?? [], ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase))]
+      linkChecker.excludeLinks = [
+        ...linkChecker.excludeLinks ?? [],
+        ...options.linkChecker?.excludeLinks ?? [],
+        ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase)),
+        // A page with `seo.index: false` is not prerendered, but the manifest has it, so links to it are valid.
+        ...docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)),
+      ]
     }
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
-    moduleOptions.appConfig.ui = docsAppConfigUi(vercelTheme(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    moduleOptions.appConfig.ui = docsAppConfigUi(docsUi(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
 
     // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
     const head = nuxt.options.app.head
@@ -419,12 +427,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       filename: "docs/docs.css",
       write: true,
       getContents: () => [
+        // comark-ui's blocks style themselves in a `comark` layer. Naming the order first keeps Tailwind's base below it.
+        `@layer theme, base, comark, components, utilities;`,
         `@import "tailwindcss";`,
         `@import "@nuxt/ui";`,
         `@source "${join(runtime, "app")}";`,
         `@source "${resolver.resolve("./theme.js")}";`,
         ...contentDirsToWatch.map(dir => `@source "${dir}";`),
-        `@import "${join(runtime, "theme/vercel.css")}";`,
+        `@import "${join(runtime, "theme/design.css")}";`,
         "",
       ].join("\n"),
     }).dst)
@@ -503,7 +513,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
      */
     function prerenderRoutes(): string[] {
       return [
-        ...docsManifestPages(manifest).flatMap(page => [
+        ...docsIndexedPages(manifest).flatMap(page => [
           page.path,
           // Client navigation reads the parsed page, so static hosts serve it instead of parsing on each request.
           `/api/_docs/page${page.path === "/" ? "/index" : page.path}.json`,
@@ -562,6 +572,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
       nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
+      // A page with `seo.index: false` renders on request, so a site with thousands of them still builds fast. The
+      // crawler would otherwise follow the links to them.
+      const unindexed = new Set(docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).flatMap(page => [page.path, `/api/_docs/page${page.path}.json`]))
+      if (unindexed.size) {
+        const prefix = config.appBase.replace(/\/+$/, "")
+        nitro.prerender.ignore = [...nitro.prerender.ignore ?? [], (path: string) => {
+          const route = path.split(/[?#]/)[0]!
+          return unindexed.has(normalizeDocsPath(prefix && route.startsWith(`${prefix}/`) ? route.slice(prefix.length) : route))
+        }]
+      }
       // The MCP toolkit reads the current request through Nitro's async context.
       if (config.mcp) nitro.experimental = { ...nitro.experimental, asyncContext: true }
     }])
@@ -592,7 +612,7 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: strin
 
 /** Icons of the shell components and the theme. */
 const shellIcons = [
-  "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-copy", "i-lucide-file",
+  "i-lucide-arrow-left", "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-chevron-right", "i-lucide-copy", "i-lucide-file",
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
   "i-ph-github-logo-light", "i-ph-moon-light", "i-ph-sun-light", "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
@@ -634,11 +654,28 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     socials: options.socials ?? [],
     banner: options.banner ?? null,
     sitemap: options.sitemap ?? [],
-    github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}` } : false,
+    github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,
     icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", ...options.icons },
     mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },
+  }
+}
+
+// The header shows the star count next to the GitHub link. One request per build; a failure only drops the count.
+async function githubStars(repo: string): Promise<number | null> {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${repo}`, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) return null
+    const body: unknown = await response.json()
+    const stars = typeof body === "object" && body !== null && "stargazers_count" in body ? body.stargazers_count : null
+    return typeof stars === "number" ? stars : null
+  }
+  catch {
+    return null
   }
 }
 

@@ -2,7 +2,6 @@ import * as v from "valibot";
 import type { AuthConsoleErrorCode } from "@vite-hub/auth/console-runtime";
 import type { ResultError } from "@vite-hub/runtime";
 import { getAuthConsoleForRequest } from "@vite-hub/auth/server";
-import { installStandardContext } from "@vite-hub/runtime/h3";
 import {
   consoleAccessWrites,
   consoleImpersonation,
@@ -126,7 +125,6 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   if (!consoleScopesAllow(access, call))
     return consoleScopeRejection(call, call.kind === "read" ? "reading Auth data" : "changing Auth data");
   const impersonation = consoleImpersonation();
-  installStandardContext(event);
   const api = getAuthConsoleForRequest(request, event, {
     impersonation,
     ...(access.via === "oauth" && access.user ? { bearer: { user: access.user, sessionId: access.sessionId } } : {}),
