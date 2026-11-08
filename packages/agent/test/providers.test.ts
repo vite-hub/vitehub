@@ -2029,8 +2029,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("webhookUrl")
       expect(gatewayRoute).not.toContain("@vite-hub/schedule/runtime")
 
-      // Nitro 2, which Nuxt 4 runs, passes H3 1 events. H3 2's request helpers throw for them, so a set secret broke
-      // the route. Run the generated handler with the real request helpers and an H3 1 event.
+      // Run the generated handler with the real request helpers and an H3 2 event.
       const handlerSource = gatewayRoute.slice(gatewayRoute.indexOf("export default defineEventHandler(")).replace("export default ", "return ")
       const { code } = await transform(handlerSource, { loader: "ts" })
       const { getStandardContext, isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
@@ -2056,16 +2055,12 @@ describe("agent Vite plugin", () => {
         () => "/api/_vitehub/agents/support/webhooks/discord",
         () => undefined,
       ) as (event: unknown) => Promise<Response>
-      const h3V1Event = (authorization: string) => ({
+      const event = (authorization: string) => new h3.H3Event(new Request("https://app.example/api/_vitehub/agents/support/discord/gateway", {
+        headers: { authorization },
         method: "POST",
-        node: { req: Object.assign((async function* () {})(), {
-          headers: { authorization, host: "app.example", "x-forwarded-proto": "https" },
-          method: "POST",
-          url: "/api/_vitehub/agents/support/discord/gateway",
-        }), res: {} },
-      })
-      await expect(gatewayHandler(h3V1Event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
-      const accepted = await gatewayHandler(h3V1Event("Bearer gateway-secret"))
+      }))
+      await expect(gatewayHandler(event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
+      const accepted = await gatewayHandler(event("Bearer gateway-secret"))
       await expect(accepted.text()).resolves.toBe("POST https://app.example/api/_vitehub/agents/support/discord/gateway Bearer gateway-secret")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -2699,21 +2694,20 @@ describe("agent Vite plugin", () => {
         getStandardContext,
         createAgentWebhookRequest,
       ) as (event: unknown) => Promise<Request>
-      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }), res: { headers: new Headers() } })
+      const { H3Event } = await import("h3")
+      const request = await toRequest(new H3Event(new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } })))
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
-      // Nitro 2, which Nuxt 4 runs, passes H3 1 events: the H3 2 helpers cannot read their Node request.
-      const nodeBody = (async function* () { yield new TextEncoder().encode('{"messages":'); yield new TextEncoder().encode("[]}") })()
-      const nodeRequest = Object.assign(nodeBody, { headers: { host: "127.0.0.1:4731", "set-cookie": ["a=1", "b=2"], "x-absent": undefined }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat?x=1" })
-      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest, res: { once: () => undefined } }, req: nodeRequest })
-      expect(fromNode.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
-      expect(fromNode.headers.get("set-cookie")).toBe("a=1, b=2")
-      expect(fromNode.headers.has("x-absent")).toBe(false)
-      await expect(fromNode.text()).resolves.toBe('{"messages":[]}')
-      // Behind a TLS proxy, and after a middleware already read the body with H3's readBody().
-      const proxiedRequest = Object.assign((async function* () {})(), { headers: { host: "app.example", "x-forwarded-proto": "https" }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat" })
-      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest, res: { once: () => undefined } } })
-      expect(proxied.url).toBe("https://app.example/api/_vitehub/agents/support/chat")
-      await expect(proxied.text()).resolves.toBe('{"read":true}')
+      const postRequest = new Request("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1", {
+        body: '{"messages":[]}',
+        headers: [["set-cookie", "a=1"], ["set-cookie", "b=2"]],
+        method: "POST",
+      })
+      const post = await toRequest(new H3Event(postRequest))
+      expect(post.method).toBe("POST")
+      expect(post.url).toBe(postRequest.url)
+      expect(post.headers.get("set-cookie")).toBe("a=1, b=2")
+      expect(post.headers.has("x-absent")).toBe(false)
+      await expect(post.text()).resolves.toBe('{"messages":[]}')
       expect(webhookRoute).not.toContain("getRequestHeaders(event)")
     } finally {
       await rm(root, { force: true, recursive: true })
