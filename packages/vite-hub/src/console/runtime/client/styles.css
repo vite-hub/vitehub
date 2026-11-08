@@ -82,6 +82,8 @@
   --vitehub-console-info-text: var(--ui-color-info-700);
   --vitehub-console-success-text: var(--ui-color-success-700);
   --vitehub-console-warning-text: var(--ui-color-warning-800);
+  /* Focus rings are blue (sky), so they stand apart from the black and white buttons. 600 keeps 3:1 on white. */
+  --vitehub-console-focus: var(--ui-color-info-600);
   /* Popovers, menus, and tooltips use a translucent surface over the page. */
   --vitehub-console-floating: rgb(255 255 255 / 92%);
   --vitehub-console-scrollbar: oklch(0.87 0 0);
@@ -107,6 +109,7 @@
   --ui-text-dimmed: oklch(0.62 0 0);
   --ui-text-highlighted: oklch(0.985 0 0);
   --ui-primary: oklch(0.985 0 0);
+  --vitehub-console-focus: var(--ui-color-info-400);
   /* Dark floating surfaces sit one step above the page instead of matching it. */
   --vitehub-console-floating: rgb(23 23 23 / 92%);
   --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
@@ -183,11 +186,12 @@ a {
 }
 
 /*
- * Blue marks focus, links, and selection; buttons stay black and white. Unlayered, so it wins over the neutral outline
- * that Nuxt UI gives solid neutral buttons. The ring appears at once, without a transition.
+ * The focus color marks keyboard focus. Unlayered, so it wins over the neutral outline that Nuxt UI gives
+ * solid neutral buttons. The ring appears at once, without a transition. Fields, including the select button, show focus
+ * with their own ring instead (`app.config.ts`), so a field with an error keeps one red ring.
  */
-:focus-visible {
-  outline-color: var(--ui-primary);
+:focus-visible:not(input, textarea, select, [role="combobox"]) {
+  outline-color: var(--vitehub-console-focus);
 }
 
 ::selection {

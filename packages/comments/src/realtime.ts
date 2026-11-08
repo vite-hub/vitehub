@@ -3,7 +3,6 @@ import { commentRoom, normalizeCommentPage } from "./page.ts"
 import { resolveCommentsIdentity } from "./runtime/session.ts"
 
 import type { RealtimeDefinition, RealtimeUser } from "@vite-hub/realtime"
-import type { H3Event } from "h3"
 import type { Comments } from "./index.ts"
 import type { CommentsIdentity, CommentsSessionOptions } from "./runtime/session.ts"
 import type { CommentsUser } from "./types.ts"
@@ -27,7 +26,7 @@ function toRealtimeUser(user: CommentsUser): RealtimeUser {
  */
 export function commentsRealtime(comments: Comments, options: CommentsSessionOptions = {}): RealtimeDefinition {
   // Realtime drops policy fields such as role. Keep the whole identity for this request's page-aware check.
-  const readers = new WeakMap<H3Event, CommentsIdentity | false>()
+  const readers = new WeakMap<object, CommentsIdentity | false>()
   return {
     async identify({ event }) {
       const identity = await resolveCommentsIdentity(comments, event, options)

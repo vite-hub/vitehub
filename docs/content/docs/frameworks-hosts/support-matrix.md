@@ -54,7 +54,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Channels | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
 | Comments | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
 | Connections | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
-| Console | Nitro | Nitro | Nitro + libSQL / D1 | Nitro + libSQL | Nitro + libSQL | Nitro routes | Nitro |
+| Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
 | Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
 | Logs | Nitro | Nitro | Nitro | Nitro | Nitro | Host source | Nitro |
 | MCP server | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro route | Nitro |

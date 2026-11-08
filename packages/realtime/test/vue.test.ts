@@ -242,7 +242,7 @@ describe("useRealtimeTiptap", () => {
 
     await expect(realtime.history.checkpoint()).resolves.toMatchObject([{
       code: "REALTIME_INVALID_RESPONSE",
-      docs: "https://vitehub.dev/docs/realtime/limits-and-errors#realtime_invalid_response",
+      docs: "https://vitehub.dev/docs/realtime/diagnostics/realtime_invalid_response",
     }, undefined])
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
