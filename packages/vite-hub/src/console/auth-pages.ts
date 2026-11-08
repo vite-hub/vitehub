@@ -228,6 +228,8 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   const development = isConsoleDevelopmentBuild()
   const signOutPath = authBasePath === consoleAuthBasePath ? consoleAuthPath(mountBaseURL, `${authBasePath}/sign-out`) : `${authBasePath}/sign-out`
   const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
+  const claimPath = authBasePath === consoleAuthBasePath ? consoleAuthPath(mountBaseURL, `${authBasePath}/vitehub/admin-claim`) : `${authBasePath}/vitehub/admin-claim`
+  const claimLiteral = JSON.stringify(claimPath).replaceAll("<", "\\u003c")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
   const signedOutLiteral = JSON.stringify(signedOutPath).replaceAll("<", "\\u003c")
   const nonce = crypto.randomUUID()
@@ -251,6 +253,34 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
         button.disabled = false;
       }
     });
+    // An app with VITEHUB_ADMIN_CLAIM answers this route. Without it, the form stays hidden.
+    const claim = document.getElementById("claim");
+    const claimError = document.getElementById("claim-error");
+    fetch(${claimLiteral} + "/status", { credentials: "same-origin" })
+      .then(response => response.ok ? response.json() : undefined)
+      .then(status => { if (status && status.available === true) claim.hidden = false; })
+      .catch(() => {});
+    claim.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = claim.querySelector("button");
+      submit.disabled = true;
+      claimError.hidden = true;
+      try {
+        const response = await fetch(${claimLiteral}, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code: claim.elements.code.value }),
+        });
+        if (response.ok) return window.location.reload();
+        const body = await response.json().catch(() => undefined);
+        claimError.textContent = body && typeof body.message === "string" ? body.message : "Could not use the code. Try again.";
+      } catch {
+        claimError.textContent = "Could not use the code. Try again.";
+      }
+      claimError.hidden = false;
+      submit.disabled = false;
+    });
   `
   const page = `<!doctype html>
 <html lang="en">
@@ -267,15 +297,28 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
       p { color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
       button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font: inherit; font-weight: 500; cursor: pointer; }
       button:disabled { opacity: .6; cursor: wait; }
-      button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      button:focus-visible, input:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      form { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid light-dark(#e5e5e5, #262626); }
+      label { display: block; margin-bottom: .5rem; font-weight: 500; }
+      .field { display: flex; gap: .5rem; }
+      input { flex: 1; min-width: 0; min-height: 2.5rem; padding: 0 .75rem; border: 1px solid light-dark(#d4d4d4, #404040); border-radius: .5rem; background: transparent; color: inherit; font: inherit; font-size: 16px; letter-spacing: .05em; text-transform: uppercase; }
     </style>
   </head>
   <body>
     <main>
       <h1>Access denied</h1>
       <p>This account cannot access the ViteHub Console.</p>
-      <button type="button">Switch account</button>
-      <p role="alert" hidden>Could not sign out. Try again.</p>
+      <button type="button" id="switch">Switch account</button>
+      <p role="alert" id="switch-error" hidden>Could not sign out. Try again.</p>
+      <form id="claim" hidden>
+        <label for="claim-code">Claim code</label>
+        <p>If you ran <code>vitehub auth claim</code>, enter its code to get the admin role.</p>
+        <div class="field">
+          <input id="claim-code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="XXXX-XXXX-XXXX-XXXX">
+          <button type="submit">Claim</button>
+        </div>
+        <p role="alert" id="claim-error" hidden></p>
+      </form>
     </main>
     <script nonce="${nonce}">${script}</script>
   </body>
