@@ -68,7 +68,8 @@ Comark Content owns parsed document cache entries. ViteHub routes each cache cal
 
 `vite dev` types the `data` of `content.get()`, `content.list()`, and `content.query()` for you. When the server starts, and again after Content changes, ViteHub writes `.vitehub/types/content.d.ts` from the schema of each Source and collection. A collection uses its fields. Comark infers the schema of a Source from its documents.
 
-```ts [server/api/about.get.ts]
+```ts [server/api/about.get.ts] fragment
+import { defineEventHandler } from 'h3'
 import { content } from '../content'
 
 export default defineEventHandler(async () => {
