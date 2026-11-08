@@ -533,6 +533,7 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
   }))
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  if (id === "observability" && options?.posthog) selected.push("posthog-node")
   return [...new Set([...definition.packages, ...selected])]
 }
 

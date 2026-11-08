@@ -512,8 +512,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
   const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host))
-  const observability = valueFor("observability")
-  if (packageFeatures.includes("observability") && isRecord(observability) && observability.posthog) packages.push("posthog-node")
   if (enabled.has("console")) packages.push(...setupConsolePackages(valueFor("console"), enabled))
   const install: SetupAddPlanned["install"] = {
     dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),

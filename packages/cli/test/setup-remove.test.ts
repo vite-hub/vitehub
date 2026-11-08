@@ -65,6 +65,47 @@ describe("vitehub remove", () => {
     expect(await snapshot(root)).toEqual(original)
   })
 
+  it.each(["observability.posthog=true", "observability.posthog.apiKey=key"])("round-trips Observability with %s", async (option) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+    const added = await add(["observability", "--option", "observability.service=api", "--option", option], root, pm.spawn)
+    expect(added.exitCode, JSON.stringify(added.json.error)).toBe(0)
+    expect(added.json.install.packages).toContain("posthog-node")
+
+    const { exitCode, json } = await remove(["observability", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.uninstall.packages).toContain("posthog-node")
+    expect(pm.calls.at(-1)).toEqual(["pnpm", "remove", ...json.uninstall.packages])
+    expect(await snapshot(root)).toEqual(original)
+  })
+
+  it("keeps PostHog installed when retained source imports it", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const pm = fakePackageManager(root)
+    expect((await add(["observability", "--option", "observability.service=api", "--option", "observability.posthog.apiKey=key"], root, pm.spawn)).exitCode).toBe(0)
+    const source = 'import { PostHog } from "posthog-node"\nexport const client = new PostHog("key")\n'
+    await writeFile(join(root, "posthog.ts"), source)
+    const original = await snapshot(root)
+    const callsBefore = pm.calls.length
+
+    const refused = await remove(["observability", "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IN_USE")
+    expect(refused.json.references).toContainEqual({ feature: "observability", file: "posthog.ts", line: 1, module: "posthog-node" })
+    expect(await snapshot(root)).toEqual(original)
+    expect(pm.calls).toHaveLength(callsBefore)
+
+    const forced = await remove(["observability", "--force", "--yes"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall.packages).not.toContain("posthog-node")
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "posthog-node": "1.0.0" } })
+    expect(await readFile(join(root, "posthog.ts"), "utf8")).toBe(source)
+  })
+
   it.each([
     { layout: 'serverDir: "backend"', directory: "backend" },
     { layout: 'rootDir: "app"', directory: "app/server" },
