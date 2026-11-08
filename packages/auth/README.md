@@ -77,7 +77,7 @@ The owned core tables have fixed columns. `authDatabase()` rejects `additionalFi
 
 ## First admin
 
-`VITEHUB_ADMIN_EMAILS` is a comma-separated list of emails. A new account with one of them, from an email and password sign-up or a first social sign-in, gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default). Existing accounts keep their role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. This bootstrap rule does not prove email ownership: restrict access until you create the admin account, then unset the variable before opening public sign-up. Email verification alone cannot protect an account someone else registered with their own password.
+`VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
 ## Sessions without a database
 
@@ -162,15 +162,13 @@ Each Auth request or route guard resolves its Definition and `runtime` callbacks
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   access: {
     routes: [
       {
         route: "/_vitehub/**",
-        authorize: ({ user }) => user.isAdmin === true,
-      },
-      {
-        route: "/api/_vitehub/console/**",
         authorize: ({ user }) => user.isAdmin === true,
       },
     ],
@@ -184,7 +182,7 @@ ViteHub runs `authorize` only after authentication. Return `true` to allow the r
 
 Guard your own server handlers with `withAuth(handler, definition?)` or `withAuthorization(authorize, handler, definition?)` from `@vite-hub/auth/server`. The guard returns a new handler. That handler checks the request first and calls your handler only when the check passes. Your handler receives the input and a frozen `authorization` with the checked `request`, `session`, and `user`. Otherwise the guard returns the rejection `Response`, so a missed `if` cannot run the protected action.
 
-```ts
+```ts fragment
 import { withAuth, withAuthorization } from "@vite-hub/auth/server";
 import type { H3Event } from "h3";
 
@@ -201,7 +199,9 @@ Annotate the input type when the host does not infer it, for example inside `def
 `withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
 `withAnonymousAuthorization(authorize, handler, definition?)` also runs the callback for a signed-out caller, with `session` and `user` set to `null`. `false` returns `401` for that caller and `403` for a signed-in one. Blob serve routes use it with `serve.anonymous: true`.
 
-To check inside a handler, call `requireAuth(event)` or `requireAuthorization(event, authorize)`. Each returns the frozen `authorization` or throws an H3 `HTTPError`, so the rest of the handler runs only after the check passes. The errors match the guards above: `requireAuth()` throws `401` or the `access.signIn` redirect, and `requireAuthorization()` throws `401`, `403`, or the status, headers, and text of the callback's `Response`.
+To check inside a handler, call `requireAuth(event)` or `requireAuthorization(event, authorize)`. Each returns the frozen `authorization` or throws an H3 `HTTPError`, so the rest of the handler runs only after the check passes. The errors match the guards above: `requireAuth()` throws `401` or the `access.signIn` redirect, and `requireAuthorization()` throws `401`, `403`, or an HTTP error from the callback's `Response`.
+
+The inline guards use H3's JSON error format. They keep the response status and headers, except `content-length`, which changes with the body. JSON object fields stay at the top level, and other JSON values become `data`. JSON media types, such as `application/problem+json`, stay unchanged. Text becomes `message` with a JSON content type. Use `withAuthorization()` when the response body must stay unchanged.
 
 ```ts
 import { requireAuth, requireAuthorization } from "@vite-hub/auth/server";
@@ -237,7 +237,7 @@ export default defineHandler(async (event) => {
 
 Better Auth extends a stored session when the session passes `session.updateAge`. Use `session.onRefresh` to check the user again at that time, for example against a ban list.
 
-```ts
+```ts fragment
 export default defineAuth({
   session: {
     updateAge: 60 * 60,
@@ -267,6 +267,8 @@ Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when
 Set `route: false` only when a host integration mounts Auth itself.
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   route: false,
 });
@@ -285,6 +287,8 @@ Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `dat
 `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   basePath: "/auth",
   database: { name: "auth", dedicated: true },
@@ -293,6 +297,20 @@ export default defineAuth({
 ```
 
 `database: true`, `database: { name }`, and `secondaryStorage` are placement metadata. ViteHub removes metadata-shaped values before calling `betterAuth()`, so they do not create Database or KV adapters. Use `authDatabase()` for the app Database, or return another Better Auth `database` or `secondaryStorage` adapter from the Definition callback or `runtime`.
+
+## Nuxt
+
+Enable Auth in a Nuxt app through `vite-hub/nuxt`:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { auth: true },
+})
+```
+
+`@vite-hub/auth/nuxt` is internal. `vite-hub/nuxt` loads it, and it can change in any release. Do not add it to Nuxt `modules`.
 
 ## Client-side Auth
 
@@ -331,7 +349,7 @@ The exported `createAuthClient` keeps Better Auth's option and plugin inference 
 
 The client loads `better-auth/vue` the first time you use it, not when you create it. An app can create its client in a plugin, and only the pages that sign in or read the session download Better Auth. Calls such as `signIn.social()` wait for the load. `useSession()` and `useUserSession()` return their refs at once: they are pending until the client loads in the browser, and stay pending during server rendering. For a member that is not a call or a hook, such as `$store`, get Better Auth's own client with `loadAuthClient()`:
 
-```ts
+```ts fragment
 import { loadAuthClient } from "@vite-hub/auth/vue";
 import { authClient } from "./auth-client";
 
@@ -345,7 +363,7 @@ Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-starte
 
 `isGitHubOrgMember(accessToken, org, { cacheMs, timeoutMs })` from `@vite-hub/auth` returns `true` only for an active membership. The token needs `read:org`. A pending invitation, a non-2xx response, a network error, or a timeout (default 5 seconds) returns `false`. There is no cache by default. With `cacheMs`, a successful check is kept in memory for that time per token and organization, under a SHA-256 key.
 
-```ts
+```ts fragment
 import { isGitHubOrgMember } from "@vite-hub/auth";
 
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });

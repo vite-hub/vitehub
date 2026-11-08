@@ -31,7 +31,7 @@ describe("Console access types", () => {
     // @ts-expect-error Every guarded route declares its Console section.
     withConsoleAccess((_event: ConsoleRequestEvent) => "data")
 
-    withConsoleAccess((_event: ConsoleRequestEvent) => "data", { section: event => event.method })
+    withConsoleAccess((_event: ConsoleRequestEvent) => "data", { section: event => event["~standard"].req.method })
     withConsoleAccess((_event: ConsoleRequestEvent) => "data", { anySection: true })
     // @ts-expect-error A route serves one section or every section, not both.
     withConsoleAccess((_event: ConsoleRequestEvent) => "data", { anySection: false })

@@ -67,12 +67,15 @@ export default defineHandler(async (event) => {
 To protect a route, wrap its handler. The guard checks the request first. Your handler runs only when the check passes, and it receives the checked `authorization`. You do not branch on the check result yourself, so a missing `if` cannot run the protected action.
 
 ```ts [server/api/profile.get.ts]
+import { defineEventHandler } from 'h3'
 import { withAuth } from '@vite-hub/auth/server'
 
 export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id })))
 ```
 
-To check inside the handler, call `requireAuth(event)`. It returns the checked `authorization`, or throws an H3 `HTTPError` that rejects like `withAuth()`: `401`, or the `access.signIn` redirect for an HTML request. `requireAuthorization(event, authorize)` rejects like `withAuthorization()`: `401` without a session, `403` when `authorize` returns `false`, or the status, headers, and text of the callback's `Response`. The rest of the handler runs only after the check passes.
+To check inside the handler, call `requireAuth(event)`. It returns the checked `authorization`, or throws an H3 `HTTPError` that rejects like `withAuth()`: `401`, or the `access.signIn` redirect for an HTML request. `requireAuthorization(event, authorize)` rejects like `withAuthorization()`: `401` without a session, `403` when `authorize` returns `false`, or an HTTP error from the callback's `Response`. The rest of the handler runs only after the check passes.
+
+The inline guards use H3's JSON error format. They keep the response status and headers, except `content-length`, which changes with the body. JSON object fields stay at the top level, and other JSON values become `data`. JSON media types, such as `application/problem+json`, stay unchanged. Text becomes `message` with a JSON content type. Use `withAuthorization()` when the response body must stay unchanged.
 
 ```ts [server/api/me.get.ts]
 import { requireAuth } from '@vite-hub/auth/server'
@@ -141,10 +144,6 @@ export default defineAuth({
     routes: [
       {
         route: '/_vitehub/**',
-        authorize: ({ user }) => user.isAdmin === true,
-      },
-      {
-        route: '/api/_vitehub/console/**',
         authorize: ({ user }) => user.isAdmin === true,
       },
     ],

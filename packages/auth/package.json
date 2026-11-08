@@ -158,7 +158,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "@better-auth/oauth-provider": {

@@ -156,6 +156,35 @@ describe("Auth inline guards", () => {
       expect(deleted).not.toHaveBeenCalled()
     })
 
+    it.each([
+      { message: "Plan required", plan: "pro" },
+      { error: "Plan required", details: { plan: "pro" } },
+    ])("preserves custom JSON rejection fields and headers: %j", async (body) => {
+      const { app, deleted } = authorizedApp(() => Response.json(body, {
+        headers: { "content-type": "application/problem+json", "x-reason": "plan" },
+        status: 402,
+      }))
+      providerMocks.getSession.mockResolvedValue(signedIn)
+
+      const response = await app.fetch(new Request("https://example.com/photos/1"))
+
+      expect(response.status).toBe(402)
+      expect(response.headers.get("content-type")).toBe("application/problem+json")
+      expect(response.headers.get("x-reason")).toBe("plan")
+      expect(await response.json()).toMatchObject({ ...body, message: "Plan required" })
+      expect(deleted).not.toHaveBeenCalled()
+    })
+
+    it.each([{ body: ["Plan required"] }, { body: "Plan required" }, { body: 402 }, { body: false }, { body: null }])("keeps other JSON rejection values as error data: %j", async ({ body }) => {
+      const { app } = authorizedApp(() => Response.json(body, { status: 402 }))
+      providerMocks.getSession.mockResolvedValue(signedIn)
+
+      const response = await app.fetch(new Request("https://example.com/photos/1"))
+
+      expect(response.status).toBe(402)
+      expect(await response.json()).toMatchObject({ data: body })
+    })
+
     it("throws 401 without a session and never redirects to sign-in", async () => {
       const { app } = authorizedApp(true, signInDefinition)
       providerMocks.getSession.mockResolvedValue(null)

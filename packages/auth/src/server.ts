@@ -751,18 +751,31 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
 
 /**
  * The `HTTPError` that an inline guard throws for a rejection `Response`. It keeps the status and headers, such as
- * `location` and `set-cookie` of a sign-in redirect, and the message of the JSON or text body.
+ * `location` and `set-cookie` of a sign-in redirect. JSON object fields stay in the error body; other JSON values
+ * become `data`. Text becomes the error message, with H3's JSON content type.
  */
 async function rejectionError(response: Response): Promise<HTTPError> {
   const headers = new Headers(response.headers)
   headers.delete("content-length")
   const isJson = headers.get("content-type")?.includes("json") === true
-  headers.delete("content-type")
-  const body: unknown = isJson ? await response.json().catch(() => undefined) : await response.text()
-  const message = typeof body === "string"
-    ? body
-    : body !== null && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : undefined
+  if (!isJson) headers.delete("content-type")
+  const text = await response.text()
+  let body: unknown
+  if (isJson) {
+    try {
+      body = JSON.parse(text)
+    }
+    catch { /* Keep a malformed JSON response as the error message. */ }
+  }
+  const jsonBody = body !== null && typeof body === "object" && !Array.isArray(body) ? { ...body } : undefined
+  let message = typeof body === "string" ? body : body === undefined ? text : undefined
+  if (body !== null && typeof body === "object") {
+    if ("error" in body && typeof body.error === "string") message = body.error
+    else if ("message" in body && typeof body.message === "string") message = body.message
+  }
   return new HTTPError({
+    body: jsonBody,
+    data: jsonBody === undefined ? body : undefined,
     headers,
     message: message || undefined,
     status: response.status,
