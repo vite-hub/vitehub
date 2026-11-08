@@ -23,6 +23,16 @@ describe("shell command parsing", () => {
       .toEqual(["cmd", "premiddleend"])
   })
 
+  it("keeps compound statements visible as a command word", () => {
+    expect(parseShellCommand("if true; then rm README.md; fi"))
+      .toEqual(["if"])
+  })
+
+  it("does not treat a leading comment as a trailing comment", () => {
+    expect(parseShellCommand("# note\nrm README.md"))
+      .toEqual(["rm", "README.md"])
+  })
+
   it("uses the parsed shell AST for assignments and substitutions", () => {
     expect(parseShellCommand("FOO=bar echo $(pwd) 'x'"))
       .toEqual(["FOO=bar", "echo", "$(pwd)", "x"])

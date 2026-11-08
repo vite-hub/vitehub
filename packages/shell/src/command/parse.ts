@@ -52,10 +52,13 @@ export function parseShellCommand(command: string, mode: "execution" | "inspecti
   }
 
   const stmt = file.stmts[0]
-  const call = stmt?.cmd
-  if (call?.type !== "CallExpr") return []
-
   const toIndex = createSourceIndex(command)
+  const call = stmt?.cmd
+  if (call?.type !== "CallExpr") {
+    const firstToken = command.slice(toIndex(stmt?.start ?? 0), toIndex(stmt?.end ?? 0)).trim().match(/^\S+/)
+    return firstToken ? [firstToken[0]] : []
+  }
+
   return [
     ...call.assigns.map(assign => command.slice(toIndex(assign.start), toIndex(assign.end))),
     ...call.args.map(arg => wordText(arg, command, toIndex)),
@@ -94,7 +97,8 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   let cursor = 0
   let followsPipe = false
   for (const { stmt, separator } of leaves) {
-    const rawEnd = separator?.offset ?? (stmt.comments[0] ? toIndex(stmt.comments[0].start) : toIndex(stmt.end))
+    const trailingComment = stmt.comments.find(comment => comment.start >= stmt.end)
+    const rawEnd = separator?.offset ?? (trailingComment ? toIndex(trailingComment.start) : toIndex(stmt.end))
     const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd)))
     segments.push({
       command: raw,
