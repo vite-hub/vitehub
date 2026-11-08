@@ -23,7 +23,7 @@ const valueFlags = new Set(["dir", "message", "ref", "theirs", "timeout", "url"]
 /** The flags of each command. Any other flag fails before a call, so `push --dry-run` cannot commit. */
 const commandFlags = {
   pull: new Set(["dir", "dry-run", "help", "json", "ref", "theirs", "timeout", "url"]),
-  push: new Set(["help", "json", "message", "timeout", "url"]),
+  push: new Set(["help", "json", "message", "override-lease", "timeout", "url"]),
   resolve: new Set(["help", "json"]),
 }
 
@@ -90,7 +90,7 @@ function formatPush(result: WorkspacePushResult): string {
 
 const usage = {
   pull: "vitehub pull [workspace] [--dir <folder>] [--ref <ref>] [--url <origin>] [--theirs <path>] [--dry-run] [--json]",
-  push: "vitehub push [workspace] [--message <text>] [--url <origin>] [--json]",
+  push: "vitehub push [workspace] [--message <text>] [--url <origin>] [--override-lease] [--json]",
   resolve: "vitehub resolve <workspace> [path...] [--json]",
 }
 
@@ -113,6 +113,10 @@ command uses \`remote\` of ${workspaceLockFile}, else the dev server of the proj
 Pull, then commit the local changes of each checkout folder to its ref in one revision. It writes the ref only: it
 never publishes or deploys. The push refuses while a file has conflict markers or a binary conflict is open. When
 another push lands first, it pulls and tries again.
+
+Someone who edits a file, such as a Content document open in the Console, can hold an edit lease on it. One held lease
+fails the whole push and saves nothing; the error names who edits which documents. Wait for them to finish, or pass
+--override-lease to write anyway. The revision then records \`lease: "override"\` in its metadata.
 `,
   resolve: `Usage: ${usage.resolve}
 
@@ -155,7 +159,7 @@ async function run(command: keyof typeof usage, args: readonly string[], context
     }
     if (command === "push") {
       const message = one(parsed, "message")
-      const results = await pushWorkspaces(checkout, { ...(workspace ? { workspace } : {}), ...(message ? { message } : {}) })
+      const results = await pushWorkspaces(checkout, { ...(workspace ? { workspace } : {}), ...(message ? { message } : {}), ...(parsed.flags.has("override-lease") ? { overrideLease: true } : {}) })
       write(results, results.map(formatPush).join(""))
       return 0
     }
