@@ -360,6 +360,7 @@ describe("framework package contract", () => {
       "./console/documents",
       "./console/env",
       "./console/mcp-client",
+      "./console/operations",
       "./console/sections",
       "./console/server",
       "./console/ui",
@@ -374,7 +375,6 @@ describe("framework package contract", () => {
       "./skills",
       "./source/vite",
       "./task",
-      "./ui/nuxt",
       "./ui/vite",
     ]);
 

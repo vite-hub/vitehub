@@ -83,16 +83,36 @@ function format(name: string, value: unknown): string {
 }
 
 describe("workspace operations", { timeout: 30_000 }, () => {
-  it("is the vitehub workspace history, refs, show, changes, and commit commands over the workspaces section", () => {
+  it("is the vitehub workspace history, refs, show, changes, commit, and stale commands over the workspaces section", () => {
     expect(workspaceOperations.map(operation => [operation.name, operation.kind, operation.section, operationCliPath(operation)])).toEqual([
       ["workspace.history", "read", "workspaces", { command: "history", namespace: "workspace" }],
       ["workspace.refs", "read", "workspaces", { command: "refs", namespace: "workspace" }],
       ["workspace.show", "read", "workspaces", { command: "show", namespace: "workspace" }],
       ["workspace.changes", "read", "workspaces", { command: "changes", namespace: "workspace" }],
       ["workspace.commit", "write", "workspaces", { command: "commit", namespace: "workspace" }],
+      ["workspace.stale", "read", "workspaces", { command: "stale", namespace: "workspace" }],
     ])
     // The Console looks up the signed-in user only for the commit, which records it as the author.
     expect(workspaceOperations.filter(operation => operation.user !== false).map(operation => operation.name)).toEqual(["workspace.commit"])
+  })
+
+  it("prints the source digest of each stale file, which the translator writes back as derivedFrom.digest", () => {
+    const text = format("stale", {
+      head: { id: "rev-1" },
+      ref: "draft",
+      stale: [
+        { derivedFrom: { digest: "sha256-old", path: "docs/en/guide.md" }, path: "docs/es/guide.md", reason: "changed", sourceDigest: "sha256-new" },
+        { derivedFrom: { digest: "sha256-old", path: "docs/en/old.md" }, path: "docs/es/old.md", reason: "missing" },
+      ],
+      workspace: "content",
+    })
+    const lines = text.trimEnd().split("\n")
+    expect(lines[0]).toMatch(/^PATH\s+SOURCE\s+REASON\s+SOURCE DIGEST$/)
+    expect(lines.slice(1, 3).map(line => line.split(/\s{2,}/))).toEqual([
+      ["docs/es/guide.md", "docs/en/guide.md", "changed", "sha256-new"],
+      ["docs/es/old.md", "docs/en/old.md", "missing", "-"],
+    ])
+    expect(lines[3]).toBe("Write SOURCE DIGEST as derivedFrom.digest after you update a file.")
   })
 
   it("lists revisions across refs, newest first, with ref, author, message, and ISO time", async () => {

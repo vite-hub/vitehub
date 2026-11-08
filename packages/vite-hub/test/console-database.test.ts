@@ -16,6 +16,7 @@ import {
 import consoleDatabaseHandlerRoute from "../src/console/runtime/server/database.get.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
 import { allowed } from "./support/console-access.ts";
+import { consoleEvent } from "./console-event.ts";
 
 const consoleDatabaseHandler = allowed(consoleDatabaseHandlerRoute);
 
@@ -35,7 +36,7 @@ const schema = { posts, users };
 const clients: Array<ReturnType<typeof createClient>> = [];
 
 function event(query = "", method = "GET") {
-  return { method, req: { url: `http://localhost/api/_vitehub/console/database${query}` } };
+  return consoleEvent({ method, url: `http://localhost/api/_vitehub/console/database${query}` });
 }
 
 async function database(name = "default") {

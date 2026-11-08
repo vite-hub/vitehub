@@ -55,10 +55,12 @@
     "@vite-hub/runtime": "workspace:*",
     "diff": "catalog:runtime",
     "nostics": "catalog:runtime",
-    "pathe": "catalog:unjs"
+    "pathe": "catalog:unjs",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@types/semver": "^7.8.0",
     "@vite-hub/internal": "workspace:*",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
