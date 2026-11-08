@@ -109,9 +109,9 @@ describe("Auth below an application base path", () => {
   it("keeps a base path that already includes the application base path", () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
     // Console Auth mounts its Definition below the app base path itself.
-    const definition = defineAuth({ appName: "Console", basePath: "/app/api/_vitehub/console/auth" })
+    const definition = defineAuth({ appName: "Console", basePath: "/app/_vitehub/api/auth" })
 
-    expect(resolveAuthOptions(definition).providerOptions.basePath).toBe("/app/api/_vitehub/console/auth")
+    expect(resolveAuthOptions(definition).providerOptions.basePath).toBe("/app/_vitehub/api/auth")
   })
 
   it("keeps root paths when no application base path is configured", () => {

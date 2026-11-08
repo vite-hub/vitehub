@@ -265,8 +265,13 @@ function isWorkspaceAgentDefinition(source: string, file: string): boolean {
   return inspectAgentModule(source, file, new Set([file])).agentOwnsWorkspace()
 }
 
+/** Options of calls to the Agent factory, using the same binding rules as Workspace discovery. */
+export function discoverAgentOptionsStarts(source: string, file: string): Set<number> {
+  return inspectAgentModule(source, file, new Set([file])).agentOptionsStarts()
+}
+
 function inspectAgentModule(source: string, file: string, modules: Set<string>) {
-  const { tokens, lineBreaks } = tokenizeAgentSource(source, file)
+  const { tokens, lineBreaks, starts } = moduleTokens(scanModule(source, file))
   function declarationKeyword(index: number): boolean {
     if (["const", "let", "var"].includes(tokens[index])) return true
     // `using` is contextual; calls and properties with this name are not declarations.
@@ -3170,6 +3175,15 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   }
 
   return {
+    agentOptionsStarts(): Set<number> {
+      const options = new Set<number>()
+      for (let index = 0; index < tokens.length; index++) {
+        if (!isIdentifier(tokens[index]) || tokens[index - 1] === "." || isFunctionParameter(index)) continue
+        const call = factoryCall(index)
+        if (call !== undefined) options.add(starts[resolveReference(call + 1)])
+      }
+      return options
+    },
     agentOwnsWorkspace(): boolean {
       // The default export owns the folder; helper definitions and unselected presets do not.
       if (exported !== undefined) return ownsWorkspace(exported)

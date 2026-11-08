@@ -1,5 +1,6 @@
 ---
 title: MCP
+seo.title: "MCP capability: tools from MCP servers"
 description: Connect an Agent to tools from external MCP servers, authenticate through a Connection, and pin the tool definitions.
 navigation.title: MCP
 navigation.order: 220
@@ -20,7 +21,7 @@ part of that contract with `toolOverrides`. Overrides are keyed by the configure
 server name and the original MCP tool name. They change the Agent-facing
 description or schema; the arguments sent to the remote server remain unchanged.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: { support: supportMcpServer },
   toolOverrides: {
@@ -50,7 +51,7 @@ Pass a server map.
 Each entry can be a static direct MCP client borrowed from the application, or a client config or resolver whose resolved client is owned by the Agent Invocation.
 Use `false`, `null`, or `undefined` when a server is not configured for the current deployment or invocation.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import { docsMcpServer } from '../mcp/docs'
@@ -99,7 +100,7 @@ export default defineAgent({
 
 In an Agent that [`extends`](/docs/agents/agent-presets#extend-an-agent) another, a child `mcp()` extends the parent's `mcp()` Capability. `servers`, `integrity`, and `toolOverrides` merge by server name, and the child's entry for a server wins as a whole. Per-server options such as `optional` stay with their entry. Options that the child leaves unset, such as `unavailableNotice`, are inherited.
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 export default defineAgent({
   extends: bot,
   capabilities: [mcp({ servers: { portal: { connection: 'portal' }, drop: false } })],
@@ -109,6 +110,8 @@ export default defineAgent({
 `drop: false` removes the inherited `drop` server. Set `inherit: false` to replace the parent's `mcp()` Capability:
 
 ```ts
+import { mcp } from 'vite-hub/agent/capabilities'
+
 capabilities: [mcp({ servers: {}, inherit: false })]
 ```
 
@@ -116,7 +119,7 @@ capabilities: [mcp({ servers: {}, inherit: false })]
 
 Set `connection` on a client config to use a [Connection](/docs/connections) as the server credential. The Connection sends the `Authorization` header, refreshes the token, checks access for each request, and records activity. The Agent and the MCP client never see the token.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     docs: {
@@ -131,7 +134,7 @@ mcp({
 
 When the Connection provider declares an [`mcp` endpoint](/docs/connections/configure#mcp-endpoint), omit `transport`. ViteHub connects to that endpoint over HTTP. `transport` can still set `type` or `headers`. Without `transport.url` and without a provider `mcp` endpoint, resolution fails with an error that names the Connection.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     crm: { connection: 'crm', optional: true, tools: ['search', 'get_record'] },
@@ -144,6 +147,7 @@ mcp({
 Outside an Agent, `callMcpTool()` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It returns a `Result` from `vite-hub/runtime`, `[error, undefined]` or `[undefined, value]`, and does not reject for a failed call. `value` is the tool's `structuredContent`, or its text content parsed as JSON when possible.
 
 ```ts [server/api/crm/search.get.ts]
+import { createError, defineEventHandler, getQuery } from 'h3'
 import { callMcpTool } from 'vite-hub/agent/mcp'
 
 export default defineEventHandler(async (event) => {
@@ -165,7 +169,7 @@ Each request maps to a Connection Operation id:
 
 The MCP transport uses the native Connection `fetch` client. GET and HEAD requests are reads. POST requests, including tool calls and protocol messages, are writes. Without a matching `fetch` rule, writes are denied, so the Agent rule in the Connection must allow the transport:
 
-```ts [server/connections/docs.ts]
+```ts [server/connections/docs.ts] fragment
 access: {
   'agent:support': { read: true, write: ['fetch'], approve: false },
 },
@@ -189,7 +193,7 @@ The files exist only for that Invocation. They are not written to the Workspace 
 
 A Skills failure never removes the server's tools. A server without the resources capability has no Skills. Set `skills: false` on a server entry to turn this off:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     drop: { skills: false, transport: { type: 'http', url: 'https://drop.example.com/mcp' } },
@@ -203,7 +207,7 @@ Use `mcp()` to connect an [Executor](https://executor.sh/) tool catalog. Executo
 
 With an OAuth 2 Connection named `executor`:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     executor: {
@@ -218,7 +222,7 @@ Allow the transport in the Connection with `access: { 'agent:support': { read: t
 
 Without Connections, you can also send an Executor API key from Server Env in a resolver. Use a personal API key: Executor rejects organization keys for MCP sessions.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 mcp({
   servers: {
     executor: () => {
@@ -253,7 +257,7 @@ The Capability redacts secret-shaped metadata keys before exposing MCP metadata.
 An MCP Server can return a different tool description, title, or input schema after its tools were reviewed.
 Use `fingerprintTools()` during a trusted review step, persist the approved result in application code or configuration, then pass it to `integrity` under the matching server name.
 
-```ts [scripts/review-docs-mcp.ts]
+```ts [scripts/review-docs-mcp.ts] fragment
 import { fingerprintTools } from 'ai'
 
 const approved = await fingerprintTools(await client.tools())
@@ -262,7 +266,7 @@ console.log(JSON.stringify(approved, null, 2))
 
 Review that output before saving it. Do not generate the baseline during normal application startup, because that would trust whichever definitions the server returns first.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import { docsMcpServer } from '../mcp/docs'
@@ -373,4 +377,4 @@ Open an Invocation's **Capabilities** tab and select **MCP**. Each configured se
 
 The snapshot distinguishes resolved servers, skipped optional servers, and resolution or discovery failures. Resolved servers can have no tools. These are observations from the selected Invocation, not current connection health. Opening the view does not reconnect or call tools. MCP resources mounted through Sources are outside this Capability's inventory.
 
-Enable `configuration: 'content'` on the Invocation journal to retain the custom view and tool contracts. Missing schemas are shown as not recorded. The built-in Console journal enables configuration capture.
+Enable `configuration: 'content'` on the Invocation journal to retain the custom view and tool contracts. Missing schemas are shown as not recorded. The default Agent journal enables configuration capture.

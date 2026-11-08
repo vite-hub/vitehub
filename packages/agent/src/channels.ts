@@ -1,4 +1,6 @@
+import "./channel-extensions.ts"
 import { formatChannelCitationStream, formatChannelCitationText } from "./internal/channel-citations.ts"
+import { createSimulatedChatAdapter, isChannelSimulated } from "./internal/channel-simulation.ts"
 import { createForgeChannelSyncProvider } from "./internal/forge-channel-sync.ts"
 import { forgeIngest, forgeWebhookInput, forgeChannelMetadata, forgeChannelPullRequest, forgeActivityComment } from "./internal/forge-events.ts"
 import { messageChannelReplyBody, setMessageChannelDeliveredReplyBody } from "./internal/message-channel-delivery-body.ts"
@@ -72,6 +74,7 @@ import type {
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import { defineMessageChannelInstructions } from "./internal/channels.ts"
+import { withChannelWebhookEvent } from "./internal/channel-webhook-events.ts"
 import { forgeAccessKey, type ForgeAccess } from "./internal/forge-access.ts"
 import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKey, clearChatFinalReplyText, setChatFinalReplyText, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
@@ -3172,18 +3175,20 @@ const telegramConnectorPlatform: ChatConnectorPlatform = {
 
 /** Sends Markdown to Telegram. It builds one adapter from `env.server.telegram`. Receipts live in KV under `telegram:`. */
 function telegramConnector(options: TelegramConnectorOptions = {}): ChatConnector {
-  return chatConnector(telegramConnectorPlatform, connectorAdapter(options.adapter, async (input = {}) => {
-    const context = {}
-    const { createTelegramAdapter } = await import("@chat-adapter/telegram")
-    const adapterOptions: Parameters<typeof createTelegramAdapter>[0] = {}
-    const apiBaseUrl = cleanSecret(input.apiBaseUrl ?? await channelEnvValue("telegram", "apiBaseUrl", context))
-    const botToken = cleanSecret(input.botToken ?? await channelEnvValue("telegram", "botToken", context))
-    if (apiBaseUrl) adapterOptions.apiBaseUrl = apiBaseUrl
-    if (input.apiUrl) adapterOptions.apiUrl = input.apiUrl
-    if (botToken) adapterOptions.botToken = botToken
-    if (input.userName) adapterOptions.userName = input.userName
-    return createTelegramAdapter(adapterOptions)
-  }))
+  return chatConnector(telegramConnectorPlatform, connectorAdapter(options.adapter, createTelegramConnectorAdapterFromEnv))
+}
+
+async function createTelegramConnectorAdapterFromEnv(input: TelegramConnectorAdapterOptions = {}): Promise<Adapter> {
+  const context = {}
+  const { createTelegramAdapter } = await import("@chat-adapter/telegram")
+  const adapterOptions: Parameters<typeof createTelegramAdapter>[0] = {}
+  const apiBaseUrl = cleanSecret(input.apiBaseUrl ?? await channelEnvValue("telegram", "apiBaseUrl", context))
+  const botToken = cleanSecret(input.botToken ?? await channelEnvValue("telegram", "botToken", context))
+  if (apiBaseUrl) adapterOptions.apiBaseUrl = apiBaseUrl
+  if (input.apiUrl) adapterOptions.apiUrl = input.apiUrl
+  if (botToken) adapterOptions.botToken = botToken
+  if (input.userName) adapterOptions.userName = input.userName
+  return createTelegramAdapter(adapterOptions)
 }
 
 const discordApiBaseUrl = "https://discord.com/api/v10"
@@ -3706,11 +3711,12 @@ export function channelAdapter<
   THistoryItem = unknown,
 >(
   kind: TKind,
-  options: AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {},
+  definitionOptions: AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {},
 ): AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods> {
   if (!hasRuntimeType(kind, "string") || !kind.trim()) {
     throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] channelAdapter() requires a non-empty Channel kind." })
   }
+  const options = isChannelSimulated(kind) ? simulatedChannelOptions(kind, definitionOptions) : definitionOptions
   if (options.instructions !== undefined && (!hasRuntimeType(options.instructions, "string") || !options.instructions.trim())) {
     throw agentDiagnostics.AGENT_R0557({ message: `[vitehub] Channel "${kind}" instructions must be a non-empty string.` })
   }
@@ -3731,6 +3737,29 @@ export function channelAdapter<
   if (options[channelDeliveryHandlers]?.title || options.message?.methods?.title) customTitleEffectChannels.add(channel)
   // SAFETY: channelAdapter constructs the validated definition while preserving the generic method type.
   return channel as AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods>
+}
+
+/**
+ * A simulated chat Channel keeps its kind, instructions, and message settings, and swaps its provider for the
+ * simulated chat: no credentials, no webhook verification, no polling or Gateway listener.
+ */
+function simulatedChannelOptions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  TData,
+  TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData>,
+  THistoryItem,
+>(
+  kind: string,
+  options: AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem>,
+): AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem> {
+  const { listener: _listener, webhooks, ...rest } = options
+  return {
+    ...rest,
+    adapter: () => createSimulatedChatAdapter(kind),
+    webhooks: Array.isArray(webhooks)
+      ? webhooks.map(registration => ({ ...registration, secretToken: false }))
+      : webhooks && hasRuntimeType(webhooks, "object") ? { ...webhooks, secretToken: false } : true,
+  }
 }
 
 /** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
@@ -3854,6 +3883,13 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
   const triggers: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>> = {}
   for (const [name, target] of Object.entries(on)) {
     if (hasRuntimeType(target, "function")) handlers[name] = target as ChannelHandler
+    else if (isWebhookAdapter(adapter) && (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks === undefined) {
+      // Event names can contain dots and other characters that Agent trigger IDs cannot use.
+      let key = /^[a-z][a-z0-9-_]*$/i.test(name) ? name : `on-${Buffer.from(name).toString("hex")}`
+      while (key !== name && (Object.hasOwn(on, key) || Object.hasOwn(triggers, key))) key += "-"
+      const trigger = target as AgentChannelTriggerDefinition<TRuntimeConfig>
+      triggers[key] = withChannelWebhookEvent({ ...trigger }, { name, webhook: adapter.webhook })
+    }
     else triggers[name] = target as AgentChannelTriggerDefinition<TRuntimeConfig, any, any>
   }
   const base: AgentChannelDefinition<TRuntimeConfig> = isWebhookAdapter(adapter)
@@ -4570,11 +4606,16 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   }), "Write the final response for Telegram. Match the language of the user's latest message. Prefer short paragraphs or bullets and keep the answer concise. Do not use Markdown tables; express rows as bullets because Telegram fallback delivery exposes table syntax. Avoid decorative emoji, redundant restatement, and generic follow-up questions. Follow the Agent's own instructions when they require a different format."), () => telegramConnector({
     adapter: options.adapter
       ? chatSendAdapterInput<TelegramConnectorOptions["adapter"]>(options.adapter)
-      : {
-          ...(typeof options.apiBaseUrl === "string" ? { apiBaseUrl: options.apiBaseUrl } : {}),
-          ...(typeof options.apiUrl === "string" ? { apiUrl: options.apiUrl } : {}),
-          ...(typeof options.botToken === "string" || isRecord(options.botToken) ? { botToken: options.botToken as TelegramConnectorAdapterOptions["botToken"] } : {}),
-          ...(typeof options.userName === "string" ? { userName: options.userName } : {}),
+      : async () => {
+          // Outbound sends have no Agent Invocation context, as for adapter resolvers.
+          const context = {} as AgentCallbackContext<TRuntimeConfig>
+          const [apiBaseUrl, apiUrl, botToken, userName] = await Promise.all([
+            resolveRuntimeValue(options.apiBaseUrl, context),
+            resolveRuntimeValue(options.apiUrl, context),
+            resolveRuntimeValue(options.botToken, context),
+            resolveRuntimeValue(options.userName, context),
+          ])
+          return createTelegramConnectorAdapterFromEnv({ apiBaseUrl, apiUrl, botToken, userName })
         },
   }))
   const historyChannel = withAgentChannelHistoryDefinition<TRuntimeConfig, typeof channel>(channel, {

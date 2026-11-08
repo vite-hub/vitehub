@@ -135,13 +135,26 @@ async function callResolvedMcpTool(client: McpClient, name: string, args: Record
       const requestOptions = { signal, timeout: options.timeout }
       if ("callTool" in client && hasRuntimeType(client.callTool, "function")) {
         // Discovery prepares the SDK's HTTP parameter-header bindings.
+        let found = false
         if ("listTools" in client && hasRuntimeType(client.listTools, "function")) {
-          await client.listTools({ options: requestOptions })
+          let cursor: string | undefined
+          do {
+            const listing: unknown = await client.listTools({ options: requestOptions, params: cursor === undefined ? undefined : { cursor } })
+            signal.throwIfAborted()
+            if (!isRuntimeRecord(listing) || !Array.isArray(listing.tools)) {
+              throw new TypeError("[vitehub] MCP tools/list must return a tools array.")
+            }
+            found = listing.tools.some((tool: unknown) => isRuntimeRecord(tool) && tool.name === name)
+            cursor = hasRuntimeType(listing.nextCursor, "string") ? listing.nextCursor : undefined
+          } while (!found && cursor !== undefined)
         }
         else {
-          await client.tools()
+          found = Object.hasOwn(await client.tools(), name)
         }
         signal.throwIfAborted()
+        if (!found) {
+          throw new ViteHubError("MCP_TOOL_NOT_FOUND", `[vitehub] MCP tool "${name}" is not available.`, { details: { tool: name } })
+        }
         return await client.callTool({ name, arguments: args, options: requestOptions })
       }
       const tool = (await client.tools())[name]

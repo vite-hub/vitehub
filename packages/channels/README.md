@@ -100,7 +100,7 @@ Include the generated declarations in the application's TypeScript configuration
 
 Server code can then send through the discovered Channel. The options are typed from its adapter:
 
-```ts
+```ts fragment
 import { useChannel } from "@vite-hub/channels/server";
 
 const [error, receipt] = await useChannel("alerts").send("Build finished.", { label: "release" });

@@ -53,7 +53,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       `export { installChannelsConsoleHost } from ${JSON.stringify(join(import.meta.dirname, "../src/channels-console-host.ts"))}`,
       `export { markDiscoveredAgentName, resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
       `export { namedChannelHosts } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/named-channels.ts"))}`,
-      `export { toEventRequest } from ${JSON.stringify(join(import.meta.dirname, "../../internal/src/runtime/h3-v1-request.ts"))}`,
+      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/h3.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",
@@ -317,6 +317,7 @@ async function createDeploymentRuntimeFixture(
         method,
         params: { agent, ...(webhook ? { webhook } : {}) },
         req,
+        res: { headers: new Headers() },
         url,
       })
     },

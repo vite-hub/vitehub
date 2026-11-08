@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
-import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { discoverChannelDefinitions } from "@vite-hub/channels/vite"
-import { discoverServerChannelModules } from "@vite-hub/internal/definition-catalog"
+import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { discoverServerChannelModules, mergeDefinitions } from "@vite-hub/internal/definition-catalog"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -18,9 +19,9 @@ export interface StandaloneChannel {
   handler: string
   /** Whether the adapter receives webhooks without an Agent, as `webhook()` and `stripe()` do. */
   inbound: boolean
-  /** The Channel name, from its path below `server/channels`. */
+  /** The Channel name from the shared discovery catalog. */
   name: string
-  /** `/api/_vitehub/channels/<name>`, then the adapter's `path` and `aliases`. */
+  /** `/api/_vitehub/channels/<name>`, then the adapter's declared paths and aliases. */
   paths: string[]
 }
 
@@ -48,7 +49,8 @@ function standaloneChannelError(file: string, message: string): Error {
 /**
  * Reads the webhook routes of a Channel module without running it. A `defineChannel({ adapter })` from
  * `vite-hub/channels` gets `/api/_vitehub/channels/<name>`. With a `webhook()` or `stripe()` adapter it receives
- * webhooks without an Agent, also at the adapter's `path` and `aliases`. Returns undefined for other modules.
+ * webhooks without an Agent. Routes include the adapter's `path` and `aliases`, or its Agent `webhooks`
+ * registrations, whether one object or an array. Returns undefined for other modules.
  */
 function readStandaloneChannelPaths(file: string, name: string): { inbound: boolean, paths: string[] } | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
@@ -147,9 +149,21 @@ function readStandaloneChannelPaths(file: string, name: string): { inbound: bool
   if (isCall(callee, channelFactories, channelNamespaces, new Set(["defineChannel"]))) {
     const adapter = resolveValue(property(argumentExpression(definition.arguments[0]), "adapter"))
     const inbound = adapter?.type === "CallExpression" && isCall(unwrapExpression(adapter.callee), adapterFactories, channelNamespaces, webhookAdapterFactories)
-    if (!inbound) return { inbound: false, paths: [channelWebhookRoute(name)] }
-    const { aliases, path } = readPaths(argumentExpression(adapter.arguments[0]), "the adapter ")
-    return { inbound: true, paths: [...new Set([channelWebhookRoute(name), ...(path === undefined ? [] : [path]), ...aliases])] }
+    // Hosting ownership and route extraction are separate: every adapter can declare registrations.
+    // All adapter factories take options last, including channelAdapter(kind, options).
+    const options = adapter?.type === "CallExpression" ? argumentExpression(adapter.arguments.at(-1)) : adapter
+    const webhooks = property(options, "webhooks")
+    const registrations = inbound
+      ? [options]
+      : webhooks?.type === "ArrayExpression"
+        ? webhooks.elements.flatMap(element => element && element.type !== "SpreadElement" ? [unwrapExpression(element)] : [])
+        : [webhooks]
+    const paths = [channelWebhookRoute(name)]
+    for (const registration of registrations) {
+      const { aliases, path } = readPaths(registration, inbound ? "the adapter " : "webhooks.")
+      paths.push(...(path === undefined ? [] : [path]), ...aliases)
+    }
+    return { inbound, paths: [...new Set(paths)] }
   }
 }
 
@@ -158,8 +172,9 @@ function readStandaloneChannelPaths(file: string, name: string): { inbound: bool
  * An inbound Channel that no Agent lists gets its routes without an Agent Definition. A folder with an `index` module
  * is one Channel named after the folder, and its other files are helpers.
  */
-export function discoverStandaloneChannels(serverDirs: string[]): StandaloneChannel[] {
-  return discoverServerChannelModules(serverDirs).flatMap((module) => {
+export function discoverStandaloneChannels(rootDir: string, serverDirs = [resolve(rootDir, "server")]): StandaloneChannel[] {
+  const modules = mergeDefinitions("channel", discoverServerChannelModules(serverDirs), discoverChannelDefinitions({ rootDir, serverDirs }))
+  return modules.flatMap((module) => {
     const read = readStandaloneChannelPaths(module.handler, module.name)
     return read ? [{ agent: `channel-${module.name}`, handler: module.handler, inbound: read.inbound, name: module.name, paths: read.paths }] : []
   })

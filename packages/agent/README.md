@@ -212,7 +212,7 @@ The `output` token limit is passed to AI SDK model calls as `maxOutputTokens` wh
 
 Set `driver.capacity` when one Agent Definition must bound concurrent Driver work inside a process:
 
-```ts
+```ts fragment
 export default defineAgent({
   driver: {
     capacity: {
@@ -245,7 +245,7 @@ Import the same `agentCapacity` object into each Agent Definition that should sh
 
 Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
-```ts
+```ts fragment
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
   await runAgent({ cwd: path, env, signal })
   await push()
@@ -408,6 +408,8 @@ Chat History and the Concurrent Invocation Guard need an Agent State Provider wh
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite"
+
 export default defineConfig({
   agent: {
     providers: {
@@ -446,6 +448,7 @@ A queued delivery gets three execution attempts. When the queue stops retrying i
 You can also wire the adapter manually when `chat({ state })` should own the state provider:
 
 ```ts
+import { chat } from "@vite-hub/agent/capabilities"
 import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite";
 
 chat({
@@ -486,6 +489,12 @@ For GitHub Channels, `activity: true` links pull request webhook activity to its
 
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
 
+## Default invocation journal
+
+`@vite-hub/agent/invocations/default` exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
+
+A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an override through `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`. Set a remote libSQL URL, or remove the file URL to use the host default journal.
+
 ## D1 invocation storage
 
 `@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.
@@ -503,7 +512,7 @@ See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for bindi
 
 Use `extends` to make one Agent Definition the default for another:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import bot from '../bot/agent'
 
@@ -522,7 +531,7 @@ Child configuration overrides parent defaults. Channels, Sources, and Skills mer
 
 Three options compose with the parent, so the child does not restate it:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import bot from '../bot/agent'
@@ -564,7 +573,7 @@ Each key is a Skill name, and each value is its `SKILL.md` content. The result k
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
 
-```ts
+```ts fragment
 import { defineAgent } from "@vite-hub/agent"
 import { notetaker } from "@example/agents"
 
@@ -583,6 +592,8 @@ Preset packages must declare `@vite-hub/agent` as a peer dependency so their def
 A preset can expose typed options with the same `defineAgent()` function:
 
 ```ts
+import { codexDriver, defineAgent } from "@vite-hub/agent"
+
 export const notetaker = defineAgent({
   options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
   configure: ({ format }) => defineAgent({
@@ -593,7 +604,7 @@ export const notetaker = defineAgent({
 
 Consumers select the definition and override only the options they need:
 
-```ts
+```ts fragment
 const notes = defineAgent({
   preset: "notetaker",
   presets: { notetaker },
@@ -635,7 +646,7 @@ from `@vite-hub/agent/runtime/process` combines capacity, invocation storage and
 recovery, provider-session storage, and a draining reconciler. Its data directory
 must belong exclusively to this host. It is not a distributed lease.
 
-```ts
+```ts fragment
 export default await createProcessAgentHost({
   name: 'reviewer',
   dataDir: '.vitehub',
@@ -657,6 +668,8 @@ The host can also live beside an Agent Definition as a named export. Keep the
 Agent Definition as the module's default export and select the host in Vite:
 
 ```ts
+import { processAgentHost } from "@vite-hub/agent/vite"
+
 processAgentHost({ entry: './server/agents/babysitter/agent.ts', exportName: 'host' })
 ```
 
@@ -709,6 +722,8 @@ Keep host inspection configuration beside an Agent Definition. `agentHostRoutes`
 from `vite-hub/agent/vite` generates GET/HEAD routes from named function exports:
 
 ```ts
+import { agentHostRoutes } from "@vite-hub/agent/vite"
+
 agentHostRoutes({
   entry: './server/agents/support/agent.ts',
   health: 'health',
@@ -717,7 +732,7 @@ agentHostRoutes({
 ```
 
 The defaults are `/api/health` and
-`/api/_vitehub/console/invocations/:id/workspace`. Each option also accepts
+`/_vitehub/api/invocations/:id/workspace`. Each option also accepts
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
 `(invocationId, path?)` and return a Response; for GitHub checkouts, use
 `createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.
@@ -750,7 +765,7 @@ The generated host code creates the Chat and webhook route handlers when the ser
 
 For a Nitro host, set `agent.preparation` in `vitehub()` to start Workspace preparation with the server and stop it on shutdown:
 
-```ts
+```ts fragment
 agent: {
   preparation: {
     workspace: "support",
@@ -780,6 +795,8 @@ Webhook `secretToken` accepts a string, `false`, `undefined`, a callback, or an 
 For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:
 
 ```ts
+import { hubAgent } from "@vite-hub/agent/vite"
+
 hubAgent({
   routes: {
     aliases: {
@@ -810,6 +827,8 @@ An Agent can reserve one place for extending instructions. Define a template in
 `driver.instructions` with exactly one `{{{ instructions }}}` marker outside code:
 
 ```ts
+import { codexDriver, defineAgent } from "@vite-hub/agent"
+
 const base = defineAgent({
   driver: codexDriver({
     instructions: {

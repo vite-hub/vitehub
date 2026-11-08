@@ -3,7 +3,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentChannelDefinition, AgentChannels, AgentRuntimeConfig } from "../types.ts"
 
 const definitionsKey = Symbol.for("vitehub.agent.channelDefinitions")
-// An enumerable symbol, so the names survive when Agent layers copy the Channel record.
+// Copied with Channel records; layer merges combine names for the surviving entries.
 const channelNamesKey = Symbol.for("vitehub.agent.channelNames")
 
 type DefinitionsHolder = typeof globalThis & { [definitionsKey]?: Map<string, unknown> }
@@ -30,7 +30,7 @@ export function namedAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   resolve: (value: unknown, name: string) => AgentChannelDefinition<TRuntimeConfig>,
 ): AgentChannels<TRuntimeConfig> {
   const registry = channelDefinitions()
-  const record: AgentChannels<TRuntimeConfig> = {}
+  const record: AgentChannels<TRuntimeConfig> = Object.create(null)
   for (const name of names) {
     if (typeof name !== "string" || !name.trim()) {
       throw agentDiagnostics.AGENT_R0425({ message: "[vitehub] defineAgent({ channels }) lists Channel names, such as ['slack'], from server/channels." })
@@ -54,9 +54,19 @@ export function agentChannelNames(channels: unknown): readonly string[] | undefi
   return Array.isArray(names) ? names as readonly string[] : undefined
 }
 
+/** Merge Channel definitions and their named ownership with the same per-key replacement rule. */
+export function mergeAgentChannels(parent: Record<string, unknown>, child: Record<string, unknown>): Record<string, unknown> {
+  const channels = { ...parent, ...child }
+  const inherited = agentChannelNames(parent)?.filter(name => !Object.hasOwn(child, name)) ?? []
+  const names = [...new Set([...inherited, ...(agentChannelNames(child) ?? [])])]
+  if (names.length) Object.defineProperty(channels, channelNamesKey, { enumerable: true, value: names })
+  else Reflect.deleteProperty(channels, channelNamesKey)
+  return channels
+}
+
 /** The Agent that lists each Channel by name. Two Agents cannot answer the same Channel. */
 export function namedChannelHosts(agents: Record<string, unknown>): Record<string, string> {
-  const hosts: Record<string, string> = {}
+  const hosts: Record<string, string> = Object.create(null)
   for (const [agentName, agent] of Object.entries(agents)) {
     const options = agent !== null && typeof agent === "object"
       ? agent as { channels?: unknown, __vitehubWorkspaceAgentOptions?: { channels?: unknown } }

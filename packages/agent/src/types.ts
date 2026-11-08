@@ -2393,9 +2393,19 @@ export interface AgentShutdownOptions {
   drainMs?: number
 }
 
+export interface AgentChannelsOptions {
+  /**
+   * In `vite dev`, run the Slack, Discord, Teams, and Telegram Channels on a simulated chat with no provider
+   * credentials. Each Channel's webhook route then accepts AI SDK chat requests and streams the reply.
+   * The plugin sets `VITEHUB_CHANNELS=simulate` in `vite dev` only; the runtime ignores it when `NODE_ENV` is `production`.
+   */
+  simulate?: boolean
+}
+
 export interface AgentModuleOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
+  channels?: AgentChannelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
@@ -3288,15 +3298,3 @@ export type AgentAdapterFactory<
   TOptions = unknown,
   Name extends WorkspaceName = WorkspaceName,
 > = (context: ResolvedAgentRuntimeContext<TRuntimeConfig>) => MaybePromise<AgentAdapter<TOptions, TRuntimeConfig, Name>>
-
-declare module "@vite-hub/channels" {
-  /** The Channel options that an Agent reads when it lists the Channel. */
-  interface ChannelExtensionOptions {
-    /** Trusted Markdown that ViteHub adds to the Agent instructions for each Invocation that this Channel starts. */
-    instructions?: string
-    /** Capabilities that the Agent gets only for Invocations that this Channel starts. */
-    capabilities?: readonly AgentCapabilityDefinition[]
-    /** Past messages that `replayChannel()` sends through a trigger. */
-    history?: AgentChannelHistory
-  }
-}

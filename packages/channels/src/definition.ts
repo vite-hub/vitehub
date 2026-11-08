@@ -16,7 +16,7 @@ export function isWebhookChannelAdapter(adapter: unknown): adapter is ChannelAda
   return isObject(adapter) && isObject(adapter.webhook)
 }
 
-function validateChannelDefinition(value: unknown): asserts value is ChannelDefinitionOptions {
+export function validateChannelDefinition(value: unknown): asserts value is ChannelDefinitionOptions {
   if (!isObject(value)) {
     throw channelsErrorDiagnostics.CHANNELS_C0001({ message: "`defineChannel()` expects an object with an `adapter`." })
   }

@@ -74,14 +74,26 @@ describe("hubChannels", () => {
     await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(addedDefinition))
   })
 
-  it("fails when a Channel receives webhooks and the Agent plugin is off", async () => {
+  it.each([
+    ["server/channels/payments.ts", "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })"],
+    ["src/payments.channel.ts", "import * as channels from 'vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.stripe() })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.webhook() })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels['webhook']() })"],
+  ])("requires the Agent plugin for inbound Channels in %s: %s", async (path, source) => {
     const root = await createTempProject()
-    await mkdir(join(root, "server/channels"), { recursive: true })
-    await writeFile(join(root, "server/channels/payments.ts"), "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })\n")
+    await mkdir(dirname(join(root, path)), { recursive: true })
+    await writeFile(join(root, path), source)
     const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
 
     await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_B0001", message: expect.stringContaining('The Channel "payments" receives webhooks') })
     await expect(configure([{ name: "@vite-hub/agent/vite" }])).resolves.toBeUndefined()
+  })
+
+  it("allows an outbound-only namespace import without the Agent plugin", async () => {
+    const root = await createTempProject()
+    const file = await writeChannel(root, "server/channels/alerts.ts")
+    await writeFile(file, "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: { kind: 'log', send: () => ({}) } })\n")
+    await expect(resolvePlugin(hubChannels(), root)).resolves.toBeUndefined()
   })
 
   it("serves a discovered registry through a stable virtual module", async () => {
