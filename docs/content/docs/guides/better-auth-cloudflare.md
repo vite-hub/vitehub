@@ -130,13 +130,13 @@ Auth reads `VITEHUB_SECRET` from the Cloudflare bindings of each request. A conf
 
 ### Get the first admin
 
-Store the email of the first admin as `VITEHUB_ADMIN_EMAILS`. The account that signs up with it gets the `admin` role of `admin()`:
+Store the admin's GitHub account as `VITEHUB_ADMINS`, such as `github:22072217`. Find the numeric id with `gh api users/<login> --jq .id`. When that account signs in, it gets the `admin` role of `admin()`:
 
 ```bash [Terminal]
-pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS --config .output/server/wrangler.json
+pnpm exec wrangler secret put VITEHUB_ADMINS --config .output/server/wrangler.json
 ```
 
-Restrict access to the Worker while bootstrapping. Then open `/_vitehub/sign-in` on the Worker URL and select **Create one**, or send the same sign-up request to the Worker URL. After creating the admin account, unset `VITEHUB_ADMIN_EMAILS` before opening public sign-up. The first account with that email gets the role; email verification alone does not prevent someone else from registering it with their own password. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
+Then open `/_vitehub/sign-in` on the Worker URL and sign in with GitHub. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
 
 ## Use cookie sessions without D1
 

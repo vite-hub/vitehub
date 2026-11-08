@@ -130,6 +130,19 @@ describe("database provision step", () => {
     })
   })
 
+  it("describes the D1 ids it records without network access", async () => {
+    const rootDir = await createApp()
+
+    const recorded = createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "d1", nuxtHostResource: true }).recordedState?.({ env: {} }) ?? []
+
+    expect(recorded.map(({ category, declared }) => ({ category, declared }))).toEqual([
+      { category: "d1", declared: ["primary"] },
+      { category: "d1Nuxt", declared: ["app-db"] },
+    ])
+    expect(recorded[1]?.deleteHint({ id: "uuid-old", key: getDatabaseNuxtProvisionStateKey("old-db") })).toBe("run `wrangler d1 delete old-db`")
+    expect(recorded[1]?.deleteHint({ id: "uuid-old", key: getDatabaseNuxtProvisionStateKey("$(touch /tmp/x)") })).toBe("delete the D1 database in the Cloudflare dashboard")
+  })
+
   it("plans no change for an existing D1 database that already replicates", async () => {
     const rootDir = await createApp()
     await writeReplicatedDefinition(rootDir)

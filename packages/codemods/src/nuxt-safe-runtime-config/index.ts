@@ -204,7 +204,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (runtimeProperty && !runtime.object) {
       planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
     }
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: runtime.values })
+    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema, cwd), issues: schemaIssues(schema), runtimeConfig: runtime.values })
     fields = plan.fields
     unmigrated = plan.unmigrated
     planned.push(...plan.followUps)
@@ -276,9 +276,18 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
 }
 
-/** The module has no schema, so it validates nothing. Remove it unless code still calls its composable. */
+/** Remove a schema-free module only when no layer can supply options or composable calls. */
 async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safeProperty: ObjectProperty | undefined): Promise<CodemodResult> {
-  const sources = await glob(["**/*.{ts,mts,js,mjs,vue}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", config.fileName] })
+  const editor = new ConfigEditor(config)
+  removeModuleEntry(editor, config, moduleName)
+  const layers = await glob(["layers/*"], { cwd, onlyDirectories: true })
+  const inheritsConfig = config.root.properties.some(property => property.type === "SpreadElement"
+    || (keyName(property.key, property.computed) === "extends"
+      && !(property.type === "ObjectProperty" && property.value.type === "ArrayExpression" && property.value.elements.length === 0)))
+  if (inheritsConfig || layers.length) {
+    throw new CodemodError(`${config.fileName} uses layers or a root spread. Schema-free removal cannot verify inherited schemas or useSafeRuntimeConfig() calls. Review the layer options and calls, then remove ${moduleName} by hand or declare the schema in the app config and run the codemod again.`)
+  }
+  const sources = await glob(["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", config.fileName] })
   for (const file of sources.sort()) {
     const lines = (await readFile(join(cwd, file), "utf8")).split("\n")
     const index = lines.findIndex(text => text.includes("useSafeRuntimeConfig"))
@@ -286,8 +295,6 @@ async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safePrope
       throw new CodemodError(`safeRuntimeConfig has no envSchema and no $schema, but ${file}:${index + 1} calls useSafeRuntimeConfig(). Add the schema, then run the codemod again, or replace the call with useRuntimeConfig() and remove the module by hand.`)
     }
   }
-  const editor = new ConfigEditor(config)
-  removeModuleEntry(editor, config, moduleName)
   if (safeProperty) editor.removeItem(safeProperty)
   editor.removeUnusedBindings()
   const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: [] })

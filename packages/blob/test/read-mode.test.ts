@@ -24,11 +24,11 @@ afterEach(async () => {
 describe("blob.store(name, { mode: \"read\" })", () => {
   it("reads objects of the selected store", async () => {
     const [writeError] = await blob.store("reports").put("q1.txt", "revenue")
-    expect(writeError).toBeNull()
+    expect(writeError).toBeUndefined()
 
     const reader = blob.store("reports", { mode: "read" })
     const [getError, object] = await reader.get("q1.txt")
-    expect(getError).toBeNull()
+    expect(getError).toBeUndefined()
     expect(await object?.text()).toBe("revenue")
     expect((await reader.head("q1.txt"))[1]).toMatchObject({ pathname: "q1.txt", size: 7 })
     expect((await reader.list())[1]?.blobs.map(item => item.pathname)).toEqual(["q1.txt"])

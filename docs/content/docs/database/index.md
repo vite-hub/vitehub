@@ -8,7 +8,7 @@ icon: i-lucide-database
 ---
 
 ::product-hero{tagline="Define SQL tables in TypeScript and query them from your routes, with typed rows." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::product-files{feature="database"}
   ```ts [src/database.ts]
   import { defineDatabase } from 'vite-hub/database'
   import {
@@ -35,8 +35,11 @@ icon: i-lucide-database
 
   export default defineConfig({
     plugins: [
-      // Local SQLite while you develop
-      vitehub({ preset: 'node', database: true }),
+      vitehub({
+        preset: 'node',
+        // On Node, tables are saved in local SQLite
+        database: true,
+      }),
       nitro(),
     ],
   })

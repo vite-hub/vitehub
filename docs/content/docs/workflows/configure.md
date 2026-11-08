@@ -40,7 +40,7 @@ When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting
 
 Create a Workflow Definition for named long-running work.
 
-```ts [server/workflows/onboard-user.ts]
+```ts [server/workflows/onboard-user.ts] fragment
 import { defineWorkflow } from '@vite-hub/workflow'
 
 export default defineWorkflow<{ email: string }>(async ({ payload }) => {
@@ -75,7 +75,7 @@ when the run needs Vercel's durable execution:
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
-```ts [server/workflows/onboard-user.ts]
+```ts [server/workflows/onboard-user.ts] fragment
 import {
   defineWorkflow,
   type WorkflowExecutionContext,

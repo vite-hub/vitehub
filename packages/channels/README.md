@@ -5,7 +5,7 @@
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
-`@vite-hub/channels` gives server code a named destination for outbound messages. An application supplies one or more connectors, then Channels selects a connector and returns the same normalized delivery result to every caller.
+`@vite-hub/channels` defines Channels: one connection to a platform, such as Slack, Teams, Stripe, or your own API, for messages in both directions. A Channel sends through its adapter, and a Channel with an HTTP sender adapter receives webhooks and sends each event to a target.
 
 Most ViteHub applications should install the `vite-hub` framework distribution and use its `vite-hub/channels` imports. Install this owner package directly when you are building a library, a custom framework integration, or another focused composition.
 
@@ -15,60 +15,53 @@ Most ViteHub applications should install the `vite-hub` framework distribution a
 pnpm add @vite-hub/channels
 ```
 
-The package requires Node.js 22.18 or newer. Vite is an optional peer and is needed only for Channel Definition discovery.
+The package requires Node.js 22.18 or newer. Vite is an optional peer and is needed only for Channel discovery.
 
 ## Send through an explicit Channel
 
-Use `createChannel()` when application code already has the connector and does not need file discovery.
+Use `createChannel()` when application code already has the Channel and does not need file discovery.
 
 ```ts
-import { createChannel, defineOutboundChannel } from "@vite-hub/channels";
+import { createChannel, defineChannel } from "@vite-hub/channels";
 
 const delivered: string[] = [];
 
 const alerts = createChannel(
   "alerts",
-  defineOutboundChannel({
-    connectors: {
-      log: {
-        send(text: string, options: { label: string }) {
-          delivered.push(`[${options.label}] ${text}`);
-          return { id: "message-1" };
-        },
+  defineChannel({
+    adapter: {
+      kind: "log",
+      send(text: string, options: { label: string }) {
+        delivered.push(`[${options.label}] ${text}`);
+        return { id: "message-1" };
       },
     },
   }),
 );
 
-const [error, receipt] = await alerts.send("Build finished.", {
-  connector: "log",
-  label: "release",
-});
+const [error, receipt] = await alerts.send("Build finished.", { label: "release" });
 if (error) throw error;
 ```
 
-The connector receives `Build finished.` and the original options object, including `connector: "log"` and `label: "release"`. Channels preserves object identity, methods, and private state. The call adds the Channel name, selected connector, and a new delivery ID to the connector result:
+The adapter receives `Build finished.` and the original options object. Channels keeps object identity, methods, and private state. The call adds the Channel name and a new delivery ID to the adapter result:
 
 ```json
 {
   "channel": "alerts",
-  "connector": "log",
   "deliveryId": "9ece8118-5937-42f3-90a2-379e39ee151e",
   "id": "message-1"
 }
 ```
 
-`deliveryId` is a new UUID for every send. It identifies the attempt in logs and results; it does not provide deduplication or idempotency.
+`deliveryId` is a new UUID for every send. It identifies the attempt in logs and results; it does not deduplicate sends.
 
-## Discover named Channel Definitions
+## Discover named Channels
 
 Install Vite before enabling discovery:
 
 ```sh
 pnpm add -D vite
 ```
-
-Use the Vite integration when several call sites should load the same named Channel Definition.
 
 ```ts
 // vite.config.ts
@@ -80,19 +73,18 @@ export default defineConfig({
 });
 ```
 
-ViteHub discovers files below `server/channels` and files named `*.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder; the other files in that folder are helpers, not Channels. Discovery reads each module without running it and skips modules that cannot be outbound Channels: a default export that is a function, a class, a primitive value, an array, a call to the Agent `defineChannel()`, or a statically known object literal without `connectors`, and modules with neither a default nor a `connectors` export. Agent Channels can live in `server/channels` next to outbound Channels. With `@vite-hub/agent`, an Agent `defineChannel()` there with a `webhooks.path` serves its own webhook route under the same name. The file below defines the `alerts` Channel:
+ViteHub discovers files below `server/channels` and files named `*.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder; the other files in that folder are helpers. Discovery reads each module without running it and skips modules whose default export cannot be a Channel: a function, a class, a primitive value, an array, or an object literal without `adapter`.
 
 ```ts
 // server/channels/alerts.ts
-import { defineOutboundChannel } from "@vite-hub/channels";
+import { defineChannel } from "@vite-hub/channels";
 
-export default defineOutboundChannel({
-  connectors: {
-    log: {
-      send(text: string, options: { label: string }) {
-        console.log(`[${options.label}] ${text}`);
-        return { id: "message-1" };
-      },
+export default defineChannel({
+  adapter: {
+    kind: "log",
+    send(text: string, options: { label: string }) {
+      console.log(`[${options.label}] ${text}`);
+      return { id: "message-1" };
     },
   },
 });
@@ -106,32 +98,43 @@ Include the generated declarations in the application's TypeScript configuration
 }
 ```
 
-Server code can then send through the discovered definition:
+Server code can then send through the discovered Channel. The options are typed from its adapter:
 
-```ts
+```ts fragment
 import { useChannel } from "@vite-hub/channels/server";
 
-const [error, receipt] = await useChannel("alerts").send("Build finished.", {
-  connector: "log",
-  label: "release",
-});
+const [error, receipt] = await useChannel("alerts").send("Build finished.", { label: "release" });
 if (error) throw error;
 ```
 
-The integration writes Channel registry types to `.vitehub/types/channels.d.ts` and aliases the generated registry into Nitro builds. It does not generate provider bindings or webhook routes.
+The integration writes Channel registry types to `.vitehub/types/channels.d.ts` and aliases the generated registry into Nitro builds.
+
+## Receive webhooks
+
+`webhook()` and `stripe()` are adapters for HTTP senders. They are plain data: `@vite-hub/agent` serves their webhooks on its Agent webhook route, which checks the signature, stores the delivery, drops repeats by delivery ID, and retries the target. The Vite plugin fails the build when a Channel imports `webhook()` or `stripe()` and the Agent Vite plugin is off.
+
+```ts
+// server/channels/stripe.ts
+import { defineChannel, stripe } from "@vite-hub/channels";
+
+export default defineChannel({
+  adapter: stripe(),
+  on: {
+    "checkout.session.completed": event => console.log(event.id, event.data.data.object),
+  },
+});
+```
+
+`on` maps event names to targets: a handler, or a trigger from `defineChannelTrigger()` in `@vite-hub/agent/channels`. A handler that throws or returns a failed `Result` runs again. Chat adapters, such as `slack()` and `teams()`, come from `@vite-hub/agent/channels` because they need the Chat SDK.
 
 ## Understand delivery and security limits
 
-Channels is an outbound delivery interface. It does not include Slack, Telegram, or other provider adapters. Write each connector in the application or in a separate provider package.
+`send()` waits for the adapter and returns a `Result` from `@vite-hub/runtime`: `[undefined, receipt]` or `[error, undefined]`. `error.code` is `CHANNEL_INVALID_SEND` for invalid input or an adapter without `send`, `CHANNEL_DEFINITION_FAILED` when the Channel is missing or fails to load, and `CHANNEL_SEND_FAILED` when the adapter fails. `error.cause` keeps the adapter error. Check the error before using the receipt. Outbound sends are not persisted or retried, and they have no timeout. Add those behaviors before `send()` or inside the adapter when the delivery contract requires them.
 
-`send()` waits for the selected connector and returns `[null, receipt]` or `[error, null]`. Invalid input, discovery failures, and connector failures return an `Error` in the first slot. Check it before using the receipt. Channels does not persist messages, retry delivery, impose a timeout, deduplicate sends, or recover work after the process exits. Add those behaviors before `send()` or inside the connector when the delivery contract requires them.
+Named clients share one definition load for the active registry. A failed definition load can be retried by a later `send()` call. Replacing the runtime registry invalidates that load for existing clients.
 
-Only connectors declared as own properties of the definition can receive messages. An omitted `connector` uses `defaultConnector`; an empty or invalid selector returns an error. Named clients share one definition load for the active registry. A failed definition load can be retried by a later `send()` call. Replacing the runtime registry invalidates that load for existing clients.
+For each send, Channels tries to write `outbound.started` and either `outbound.completed` or `outbound.failed` JSON metadata under the `vitehub.channel.send` scope. Input validation and definition-loading failures return before delivery logging starts. ViteHub leaves out message text and options. Failed events include up to 2,000 characters of the thrown error message, so adapters must not put credentials or message content in errors. Adapter code can still read, transmit, or log every value it receives; keep credentials in server-only configuration and redact provider failures before throwing them.
 
-For each connector delivery, Channels attempts to write `outbound.started` and either `outbound.completed` or `outbound.failed` JSON metadata under the `vitehub.channel.send` scope. Input validation and definition-loading failures return before delivery logging starts. ViteHub omits message text and connector options from those events. Failed events include up to 2,000 characters of the thrown error message, so connectors must not put credentials or message content in errors. Connector code can still read, transmit, or log every value it receives; keep credentials in server-only configuration and redact provider failures before throwing them.
+Delivery logging is best effort. A logging failure does not change the result of a send. An inaccessible or non-string optional message `id` is left out of the receipt and log without changing delivery success.
 
-Delivery logging is best effort. A logging failure does not change the result of a send. An inaccessible or non-string optional message `id` is omitted from the receipt and log without changing delivery success.
-
-This package is separate from Agent Channels. `@vite-hub/channels` sends ordinary application messages with `defineOutboundChannel()`. `defineChannel()` from `@vite-hub/agent/channels` defines an Agent Channel Kind. [`@vite-hub/agent/channels`](https://vitehub.dev/docs/agents/channels) describes where Agent Invocations come from, inbound delivery, threads, and Agent reply policy.
-
-Read the [Channels guide](https://vitehub.dev/docs/channels) for Server Env credentials, H3 and Nitro handlers, multiple connectors, generated types, and delivery logs. Use the [public import reference](https://vitehub.dev/docs/reference/import-paths) when composing the owner package directly.
+Read the [Channels guide](https://vitehub.dev/docs/channels) for Server Env credentials, H3 and Nitro handlers, webhook targets, generated types, and delivery logs. Use the [public import reference](https://vitehub.dev/docs/reference/import-paths) when composing the owner package directly.
