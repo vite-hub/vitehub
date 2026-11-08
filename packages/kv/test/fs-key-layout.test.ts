@@ -1,6 +1,8 @@
-import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -72,6 +74,55 @@ it("keeps application keys separate from all migration and temporary names", () 
   finally {
     await cleared.dispose()
   }
+}))
+
+it.skipIf(process.platform !== "linux")("preserves keys when copying a store with GNU cp -a", () => withStore(async (storage, base) => {
+  const values = { "a:b": "colon", "a%3Ab": "percent", ".unstorage-tmp-vitehub-layout-v1": "legacy record", signups: 2, "signups:reset-at": 100 }
+  for (const [key, value] of Object.entries(values)) await storage.setItem(key, value)
+  await storage.dispose()
+  const destination = await mkdtemp(join(tmpdir(), "vitehub-kv-copy-"))
+  const copiedBase = join(destination, "store")
+  try {
+    const exec = promisify(execFile)
+    async function verifyCopy() {
+      const records = (await readdir(copiedBase)).filter(name => /^\.unstorage-tmp-vitehub-layout-v1(?:-\d+)?$/.test(name))
+      expect(records).toEqual([".unstorage-tmp-vitehub-layout-v1-1"])
+      for (const record of records) {
+        const workspace = await readFile(join(copiedBase, record), "utf8")
+        await exec("test", [join(copiedBase, record), "-ef", join(copiedBase, workspace, ".unstorage-tmp-vitehub-record")])
+      }
+    }
+    await exec("cp", ["-R", "--", base, copiedBase])
+    await expect(verifyCopy()).rejects.toThrow()
+    await rm(copiedBase, { force: true, recursive: true })
+    await exec("cp", ["-a", "--", base, copiedBase])
+    await verifyCopy()
+    const copied = createHostedKVStorage({ store: { base: copiedBase, driver: "fs-lite" } })
+    try {
+      expect((await copied.getKeys()).sort()).toEqual(Object.keys(values).sort())
+      for (const [key, value] of Object.entries(values)) await expect(copied.getItem(key)).resolves.toBe(value)
+      await expect(copied.setIfAbsentItem?.("signups", 3)).resolves.toBe(false)
+    }
+    finally {
+      await copied.dispose()
+    }
+    const reopened = createHostedKVStorage({ store: { base: copiedBase, driver: "fs-lite" } })
+    try {
+      for (const [key, value] of Object.entries(values)) await expect(reopened.getItem(key)).resolves.toBe(value)
+    }
+    finally {
+      await reopened.dispose()
+    }
+  }
+  finally {
+    await rm(destination, { recursive: true, force: true })
+  }
+}, async (base) => {
+  // Force a suffixed record and migrate both nested and literal-percent legacy keys before copying.
+  await writeFile(join(base, ".unstorage-tmp-vitehub-layout-v1"), "legacy record")
+  await mkdir(join(base, "a"))
+  await writeFile(join(base, "a", "b"), "colon")
+  await writeFile(join(base, "a%3Ab"), "percent")
 }))
 
 it.skipIf(process.platform === "win32")("opens a writable store under a read-only parent", async () => {
