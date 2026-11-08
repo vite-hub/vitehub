@@ -30,9 +30,10 @@ Keep reusable behavior in Definitions and task data in invocation input. Runtime
 A [Fetchable](https://fetchable.org) handler is a module that exports
 `fetch(request)` and returns a `Response`. Nitro, Vite deployment plugins, and
 most server runtimes call this shape. Pass its `Request` to `getRuntimeContext()`
-from `vite-hub/runtime`:
+from `vite-hub/runtime`. This example uses the app's `server/agents/support.ts`
+Agent Definition:
 
-```ts [server/routes/api/support.post.ts]
+```ts [server/routes/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../../agents/support'
@@ -127,6 +128,8 @@ first time you read `req`. H3 sends the value that the handler returns as the bo
 setting `res.body` throws `RUNTIME_R0016`.
 
 ```ts [server/api/whoami.get.ts]
+import { defineEventHandler } from 'h3'
+
 export default defineEventHandler((event) => {
   const { req, runtime } = event['~standard']
   return { path: new URL(req.url).pathname, client: runtime?.clientAddress }

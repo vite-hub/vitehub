@@ -1,9 +1,8 @@
 import {
-  createConsoleFixtureInvocations,
   getConsoleInvocations,
-  installConsoleFixtureInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
+import { createConsoleFixtureInvocations, installConsoleFixtureInvocations } from "./runtime/server/invocations-fixture.ts"
 import { encodeAgentRouteParam } from "./runtime/console-route.ts"
 import {
   getConsoleAgents,

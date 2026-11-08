@@ -182,7 +182,7 @@ describe("KV in vite dev", () => {
   })
 
   it.each([undefined, false])("applies the remote opt-in to an existing Wrangler binding with remote %s", async (remote) => {
-    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote }
+    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote, experimental_remote: false }
     const manual = { binding: "MANUAL", id: "manual-id" }
     const { nitro } = await resolvePlugin("serve", { remote: true }, "cloudflare-module", {
       cloudflare: { wrangler: { kv_namespaces: [namespace, manual] } },
@@ -193,8 +193,12 @@ describe("KV in vite dev", () => {
     ])
   })
 
-  it.each([undefined, false])("resets an existing remote Wrangler binding for a local store with remote %s", async (remote) => {
-    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true }
+  it.each([undefined, false].flatMap(remote => [
+    { remote, flags: { remote: true } },
+    { remote, flags: { experimental_remote: true } },
+    { remote, flags: { remote: true, experimental_remote: true } },
+  ]))("resets all Wrangler remote flags for a local store: %j", async ({ remote, flags }) => {
+    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", ...flags }
     const manual = { binding: "MANUAL", id: "manual-id", remote: true }
     const { kv: config, nitro } = await resolvePlugin("serve", { remote }, "cloudflare-module", {
       cloudflare: { wrangler: { kv_namespaces: [namespace, manual] } },
@@ -296,11 +300,11 @@ describe("KV in a Vite dev server", () => {
 
 describe("KV in a build", () => {
   it.each([undefined, true, false])("preserves an existing Wrangler remote flag when the store has remote %s", async (remote) => {
-    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true }
+    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true, experimental_remote: true }
     const { nitro } = await resolvePlugin("build", { remote }, "cloudflare-module", {
       cloudflare: { wrangler: { kv_namespaces: [namespace] } },
     })
-    expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([{ binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true }])
+    expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([{ binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true, experimental_remote: true }])
   })
 
   it.each(["fs-lite", "deno-kv", "upstash", "cloudflare-kv-binding"] as const)("ignores boolean remote flags for explicit %s stores", (driver) => {

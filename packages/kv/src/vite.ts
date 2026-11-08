@@ -1,8 +1,6 @@
 import { fileURLToPath } from "node:url"
 import { resolve } from "node:path"
 
-import { loadEnv } from "vite"
-
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
 import {
@@ -25,7 +23,7 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
-import { inspectKVStores } from "./inspect.ts"
+import { inspectKVResources, inspectKVStores } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
 
@@ -320,7 +318,10 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
         const dev = resolveKVViteConfig(configuredOptions, { dev: true, env: viteEnv, hosting: input.hosting }).kv
         if (!build || !dev) return
         const file = resolved?.configFile ? relativeDefinitionFile(projectRoot, resolved.configFile) : "vite.config.ts"
-        return { definitions: [{ kind: "kv", label: "KV stores", list: () => inspectKVStores(build, dev, file) }] }
+        return {
+          definitions: [{ kind: "kv", label: "KV stores", list: () => inspectKVStores(build, dev, file) }],
+          resources: () => inspectKVResources(configuredOptions, projectRoot),
+        }
       },
       // The Console, `vitehub kv`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "kvOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).kvOperations, module: "@vite-hub/kv/operations" }],
@@ -334,27 +335,27 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
     },
     config: {
       order: "pre",
-      handler(config, env) {
+      async handler(config, env) {
         command = env?.command ?? "build"
         mode = env?.mode ?? config.mode ?? (command === "serve" ? "development" : "production")
         runtimeConfig = undefined
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
-        viteEnv = loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
+        viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
         nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, readProvisionStateSync(projectRoot))
         return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/kv/operations")
       },
     },
     configResolved: {
       order: "pre",
-      handler(config) {
+      async handler(config) {
         resolved = config
         // The Nuxt replay passes a Vite config without `command`; the `config` hook already set it.
         if (config.command) command = config.command
         mode = config.mode ?? mode
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
-        viteEnv = loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
+        viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
         providerOutput = useProviderOutputCatalog(config)
         runtimeConfig = resolveKVViteConfig(config.kv ?? options, resolutionInput())
         const provisionState = readProvisionStateSync(projectRoot)

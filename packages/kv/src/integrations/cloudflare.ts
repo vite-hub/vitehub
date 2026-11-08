@@ -6,7 +6,7 @@ import type { ResolvedKVModuleOptions } from "../types.ts"
 interface CloudflareKVTarget {
   cloudflare?: {
     wrangler?: {
-      kv_namespaces?: Array<{ binding: string, id?: string, remote?: boolean }>
+      kv_namespaces?: Array<{ binding: string, id?: string, remote?: boolean, experimental_remote?: boolean }>
     }
   }
 }
@@ -34,9 +34,12 @@ export function configureCloudflareKV(
     const namespaces = target.cloudflare.wrangler.kv_namespaces
     const existing = namespaces.find(entry => entry.binding === binding)
     if (existing) {
-      if (store.remote) existing.remote = true
-      // localBase marks local development; builds preserve the project's binding mode.
-      else if (store.localBase) delete existing.remote
+      // Reconcile both Wrangler spellings as one development policy; builds preserve user fields.
+      if (store.remote || store.localBase) {
+        delete existing.experimental_remote
+        if (store.remote) existing.remote = true
+        else delete existing.remote
+      }
     }
     else {
       namespaces.push({ binding, ...(namespaceId ? { id: namespaceId } : {}), ...(store.remote ? { remote: true } : {}) })

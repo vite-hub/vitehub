@@ -8,6 +8,7 @@ import { hubBlob } from "@vite-hub/blob/vite"
 import { hubEmail } from "@vite-hub/email/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { findViteHubNitroDevEnvironment } from "@vite-hub/internal/dev-endpoint"
+import { viteHubDevPeerHeader } from "@vite-hub/internal/dev-peer"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 import type { PluginOption } from "vite"
 
@@ -30,18 +31,42 @@ describe("standalone primitive operation transport", () => {
       server = await createServer({
         configFile: false, root,
         plugins: selected,
-        server: { middlewareMode: true, hmr: false, watch: null },
+        server: { host: "127.0.0.1", port: 0, hmr: false, watch: null },
       })
+      await server.listen()
       const environment = findViteHubNitroDevEnvironment(server)
       expect(environment).toBeDefined()
+      const env = { VITEHUB_DEV_SERVER_URL: `${new URL(server.resolvedUrls!.local[0]!).origin}${baseURL}` }
+      // HTTP must pass through the front dev handler so it can sign the real loopback socket.
       const call = (operation: string, input: unknown) => callOperationFromCli({
-        rootDir: root, env: { VITEHUB_DEV_SERVER_URL: `http://localhost${baseURL}` },
-        fetch: (url, init) => environment!.dispatchFetch(new Request(url, init)),
+        rootDir: root, env,
       }, operation, input)
       if (enabled("kv")) {
         const written = await call("kv.set", { key: "hello", value: "from Nitro" })
         expect(written.ok, JSON.stringify(written)).toBe(true)
         expect(await call("kv.get", { key: "hello" })).toMatchObject({ ok: true, value: { value: "from Nitro" } })
+      }
+      if (selection === "kv") {
+        for (const evidence of [undefined, "v1.forged"]) {
+          const denied = await callOperationFromCli({
+            rootDir: root, env,
+            fetch: (url, init) => {
+              const request = new Request(url, init)
+              if (evidence) request.headers.set(viteHubDevPeerHeader, evidence)
+              return environment!.dispatchFetch(request)
+            },
+          }, "kv.set", { key: "unsigned", value: "refused" })
+          expect(denied).toMatchObject({ ok: false, code: "OPERATION_DEV_REQUEST", status: 403 })
+        }
+        const replaced = await callOperationFromCli({
+          rootDir: root, env,
+          fetch: (url, init) => {
+            const request = new Request(url, init)
+            request.headers.set(viteHubDevPeerHeader, "v1.forged")
+            return fetch(request)
+          },
+        }, "kv.get", { key: "hello" })
+        expect(replaced).toMatchObject({ ok: true, value: { value: "from Nitro" } })
       }
       if (enabled("blob")) expect(await call("blob.list", {})).toMatchObject({ ok: true })
       if (enabled("email")) expect(await call("email.outbox-list", {})).toMatchObject({ ok: true })

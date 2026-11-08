@@ -32,6 +32,8 @@ Workspace definition, Source Binding, rule, hook, store, sync, facade, and sessi
 For read-only inspection of an existing Workspace, pass `refresh: false`:
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('docs', { refresh: false })
 ```
 
@@ -88,6 +90,8 @@ Each materialized Source reports its provider, cache disposition, revision, dura
 Use retained history to publish a complete folder and read earlier versions. It is available when the Store implements `history`, including the [Blob + Database Store](/docs/workspace/configure#blob-database-store).
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('drop', { mode: 'write' })
 const base = await workspace.history.head()
 const revision = await workspace.history.commit({
@@ -120,7 +124,7 @@ A Workspace history has named refs. Each ref has its own head and timeline. Revi
 
 Drafts are the usual reason to add a ref. Save each edit to `draft`, then commit the chosen files to `published`:
 
-```ts
+```ts fragment
 const draft = await workspace.history.head({ ref: 'draft' })
 const saved = await workspace.history.commit({
   ref: 'draft',
@@ -189,6 +193,8 @@ The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `ma
 - **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
 - **Status.** `vitehub status` lists the added, modified, deleted, and conflicting files of each checkout folder, without calling the app. `vitehub pull --dry-run` also lists what changed on the ref since the last pull, and writes nothing.
 
+`pnpm vitehub hooks install` adds two Git hooks. Before a commit, `vitehub hooks pre-commit` fails while a checkout folder has conflicts; it works offline. Before a push, `vitehub hooks pre-push` runs `vitehub push` when the Git push updates the default branch (`origin/HEAD`, else `init.defaultBranch`, else `main`), and fails the Git push when the Workspace push fails. When the Workspace push changes `vitehub.lock` or pulls files into a checkout folder, the hook also fails the Git push, because the commits that Git pushes do not contain those changes: commit them, then run `git push` again. The second push has nothing for the Workspace, so it goes through. Other branches push nothing. Without `vitehub.lock`, both hooks do nothing. When Husky, lefthook, pre-commit, simple-git-hooks, or `core.hooksPath` runs the hooks of the repository, `install` writes no file and prints the two commands to add there. It never replaces or removes a hook that differs from the one it writes, so commands that you add to a hook stay. `vitehub hooks uninstall` removes its hooks.
+
 The commands call two operations of the app, which the Console section `workspaces` grants:
 
 | Operation | Kind | Result |
@@ -212,6 +218,18 @@ Commands reject existing symbolic links in the checkout folder and its ancestors
 
 A push sends whole files, is limited to 4 MiB, and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
 
+#### On the GitHub Store
+
+The commands work the same on the GitHub Store, with these differences:
+
+- A revision id is a commit sha, and the digest of a file is its Git blob sha. `vitehub.lock` still records SHA-256.
+- Each instance of the app keeps the head of a ref for up to 5 seconds. A pull right after a commit on GitHub, or through another instance, can report the older head. A push still checks the real head before it commits, so it cannot overwrite that commit. If your push reaches an instance with an older head, the push can first undo the newer commit in your folder and then pull it again. A line that you also changed then gets conflict markers.
+- The media type of a file comes from its name. A push keeps the Git mode of an executable file or a symbolic link (`gitMode` metadata). The Store keeps no other file metadata.
+- GitHub records the account of the token as the author of each commit, and the revision `author` is that account. The signed-in user is in the `Vitehub-Metadata` trailer of the commit message. Anyone with write access to the repository can write that trailer, so the Store does not report it as the author.
+- The first push to a ref that does not exist creates a branch from the published branch when the Store sets `refs.published`, else from the default branch. The push then pulls the files that the new branch has from that branch.
+- A pull reads up to two blobs for each changed file: the head version and the version at the last pull. The first pull reads one blob for each file. GitHub allows 5,000 API requests per hour for most tokens, so the first pull of a large Workspace can use a large part of that limit. `vitehub status` and `vitehub pull --dry-run` read no file content.
+- A force push can remove the revision that `vitehub.lock` records. A pull then fails with `WORKSPACE_NOT_FOUND`. Move the folder away, remove its entry from `vitehub.lock`, pull again, and copy your changes back.
+
 ### Derived files
 
 A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown (`.md`, `.markdown`, `.mdx`), at the top of a YAML file (`.yaml`, `.yml`), or as a top-level key of a JSON file (`.json`). Other files have no lineage:
@@ -233,9 +251,9 @@ pnpm vitehub workspace stale site --ref draft
 
 Each changed entry has `sourceDigest`, the digest of the source now. The command prints it in the `SOURCE DIGEST` column. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
 
-To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`:
+To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`. This excerpt uses the app's `translate` Queue Definition:
 
-```ts [server/plugins/translate.ts]
+```ts [server/plugins/translate.ts] fragment
 import { registerWorkspacePlugin } from 'vite-hub/workspace'
 import { runQueue } from 'vite-hub/queue'
 
@@ -255,7 +273,7 @@ The `translate` Queue job reads `workspace.stale`, translates each stale file wi
 
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
 
-```ts
+```ts fragment
 import { registerWorkspacePlugin } from '@vite-hub/workspace'
 
 registerWorkspacePlugin('content', {

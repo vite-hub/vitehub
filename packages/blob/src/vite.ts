@@ -15,6 +15,7 @@ import { dirname, relative, resolve } from "pathe"
 
 import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
+import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -448,6 +449,7 @@ function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCl
 export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
   const importBase = internalOptions.importBase ?? blobPackageName
   let blob: BlobModuleOptions | undefined = options
+  let nitroCloudflare = false
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   // Nuxt replays `config` with the host command, but its replayed resolved config has no `command`.
@@ -480,6 +482,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
             resolved?.configFile ? relative(rootDir, resolved.configFile) : "vite.config",
           ),
         }],
+        resources: () => inspectBlobResources(blob, { hosting: nitroCloudflare ? "cloudflare" : undefined }),
       }),
     },
     config: {
@@ -507,6 +510,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
+      nitroCloudflare = cloudflare
       const development = (config.command ?? command) === "serve"
       // In `vite dev`, a store stays local unless it sets `remote: true`.
       const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), hosting: development ? devServerHost(config) : cloudflare ? "cloudflare" : undefined })
