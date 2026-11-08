@@ -7,7 +7,7 @@ navigation.group: Server work
 icon: i-simple-icons-cloudflare
 ---
 
-To use Cloudflare Queues from a Vite app, set `preset: 'cloudflare'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `runQueue()` to send a job. The build writes the producer binding and the consumer for each queue into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
+To use Cloudflare Queues from a Vite app, set `preset: 'cloudflare'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job. The build writes the producer binding and the consumer for each queue into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
 
 ## What Cloudflare Queues is
 
@@ -52,7 +52,7 @@ Cloudflare can deliver the same message two times. A handler that sends mail or 
 
 ```ts [server/api/signup.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
@@ -60,7 +60,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
   }
 
-  const [error, result] = await runQueue('welcome-email', { email: body.email.trim() }, {
+  const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {
     delaySeconds: 60,
   })
   if (error) throw error
@@ -68,9 +68,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`runQueue()` returns `[error, result]`. When Cloudflare accepts the job, `result` is `{ status: 'queued', messageId }`. On Cloudflare, `messageId` is the ViteHub message id. Cloudflare does not receive it, and the handler gets a different Cloudflare message id. The result does not contain the handler result.
+`sendQueue()` returns `[error, result]`. When Cloudflare accepts the job, `result` is `{ status: 'queued', messageId }`. On Cloudflare, `messageId` is the ViteHub message id. Cloudflare does not receive it, and the handler gets a different Cloudflare message id. The result does not contain the handler result.
 
-Cloudflare accepts `delaySeconds` and `contentType` (`'bytes'`, `'json'`, `'text'`, or `'v8'`). To send many jobs in one call, use `sendBatch()` on the client from `getQueue('welcome-email')`. See [Queue server API](/docs/queue/server-api#queue-enqueue-options).
+Cloudflare accepts `delaySeconds` and `contentType` (`'bytes'`, `'json'`, `'text'`, or `'v8'`). To send many jobs in one call, use `sendBatch()` on the client from `useQueue('welcome-email')`. See [Queue server API](/docs/queue/server-api#queue-enqueue-options).
 
 ## What the build generates
 
@@ -82,7 +82,7 @@ ViteHub derives the Cloudflare names from the queue name and the application nam
 | Queue name | `my-app-queue--77656c636f6d652d656d61696c` |
 | Consumer | One `queues.consumers` entry for that queue |
 
-The binding and the queue name hold the queue name in hexadecimal. A Cloudflare queue name longer than 63 characters becomes a readable prefix and a digest. Do not use these names in application code. Use the queue name with `runQueue()`. Read [Cloudflare names](/docs/queue/configure#cloudflare-names).
+The binding and the queue name hold the queue name in hexadecimal. A Cloudflare queue name longer than 63 characters becomes a readable prefix and a digest. Do not use these names in application code. Use the queue name with `sendQueue()`. Read [Cloudflare names](/docs/queue/configure#cloudflare-names).
 
 Nitro's `cloudflare:queue` hook runs the consumer in the same Worker as your routes.
 
@@ -192,7 +192,7 @@ The queue file and the route stay the same. To move to Vercel Queues:
 
 1. Change `preset: 'cloudflare'` to `preset: 'vercel'`.
 2. Install `@vercel/queue`.
-3. Remove `contentType` from `runQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
+3. Remove `contentType` from `sendQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
 4. Replace `onError` with `callbackOptions.retry`, which returns `{ acknowledge: true }`, `{ afterSeconds }`, or `undefined`. `concurrency` applies only to Cloudflare.
 
 Read [Vercel Queues](/docs/guides/vercel-queues) for the full steps. On self-hosted Node, Queue uses the local provider. ViteHub has no Queue Provider for Deno. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).

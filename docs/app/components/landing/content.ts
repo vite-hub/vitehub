@@ -381,11 +381,11 @@ export const portabilityExamples = [
     path: "server/api/welcome.post.ts",
     code: [
       'import { defineEventHandler, readBody } from "h3"',
-      'import { runQueue } from "vite-hub/queue"',
+      'import { sendQueue } from "vite-hub/queue"',
       "",
       "export default defineEventHandler(async (event) => {",
       "  const payload = await readBody<{ email: string }>(event)",
-      '  const [error, result] = await runQueue("welcome-email", payload)',
+      '  const [error, result] = await sendQueue("welcome-email", payload)',
       "  if (error) throw error",
       "  return result",
       "})",
@@ -403,11 +403,11 @@ export const portabilityExamples = [
     path: "server/api/onboard.post.ts",
     code: [
       'import { defineEventHandler, readBody } from "h3"',
-      'import { runWorkflow } from "vite-hub/workflow"',
+      'import { startWorkflow } from "vite-hub/workflow"',
       "",
       "export default defineEventHandler(async (event) => {",
       "  const { email } = await readBody<{ email: string }>(event)",
-      '  return runWorkflow("onboard-user", { email })',
+      '  return startWorkflow("onboard-user", { email })',
       "})",
     ],
     hosts: [

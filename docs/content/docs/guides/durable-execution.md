@@ -147,12 +147,12 @@ Start the run with an id that comes from the order:
 
 ```ts [server/api/checkout.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from '@vite-hub/workflow'
+import { startWorkflow } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
   if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
-  return runWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
+  return startWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
 })
 ```
 
@@ -160,7 +160,7 @@ ViteHub gives the id to the provider. Cloudflare uses it as the instance id, and
 
 ## Inspect the run
 
-The response of `runWorkflow()` has the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
+The response of `startWorkflow()` has the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
 
 ```bash [Terminal]
 pnpm vitehub workflow start checkout --payload '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
@@ -168,7 +168,7 @@ pnpm vitehub workflow get <runId>
 pnpm vitehub inspect definitions --kind workflow
 ```
 
-The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `runWorkflow()` only puts the run in storage. A long-lived worker process executes it, and the run stays `queued` until a worker takes it. The [Workflow package README](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) shows the worker. To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
+The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `startWorkflow()` only puts the run in storage. A long-lived worker process executes it, and the run stays `queued` until a worker takes it. The [Workflow package README](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) shows the worker. To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
 
 ## Durable steps on Vercel
 

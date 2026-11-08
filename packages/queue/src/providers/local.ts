@@ -100,7 +100,7 @@ export interface LocalQueueJob {
   expiresAt?: string
   /** When the job became dead. */
   failedAt?: string
-  /** The message ID that `runQueue()` returned. */
+  /** The message ID that `sendQueue()` returned. */
   id: string
   queue: string
   state: "dead" | "pending" | "running"

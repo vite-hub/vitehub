@@ -80,7 +80,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
 
 it("uses provider IDs with the real native Vercel adapter and omits caller IDs for primary and recovery starts", async () => {
   const test = fixture()
-  await expect(createWorkflow(test.name).run({}, { id: "logical-id" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
+  await expect(createWorkflow(test.name).start({}, { id: "logical-id" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
   expect(test.start).not.toHaveBeenCalled()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1, failed: 0 })
   expect(test.primaryStarts()).toHaveLength(1)

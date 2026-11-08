@@ -62,11 +62,11 @@ This handler only logs a message. Providers can deliver a job more than once, so
 ::tutorial-step{title="Enqueue from a route"}
 ## Enqueue from a route
 
-Create `server/api/welcome.post.ts`. Nitro serves it at `POST /api/welcome`. `runQueue()` takes the Definition name and payload as separate arguments.
+Create `server/api/welcome.post.ts`. Nitro serves it at `POST /api/welcome`. `sendQueue()` takes the Definition name and payload as separate arguments.
 
 ```ts [server/api/welcome.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
@@ -74,13 +74,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
   }
 
-  const [error, result] = await runQueue('welcome-email', { email: body.email.trim() })
+  const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() })
   if (error) throw error
   return result
 })
 ```
 
-`runQueue()` returns `[error, result]`. Check `error` before using the result. Configuration errors, such as a missing Cloudflare binding, throw. See [Queue limits and errors](/docs/queue/limits-and-errors).
+`sendQueue()` returns `[error, result]`. Check `error` before using the result. Configuration errors, such as a missing Cloudflare binding, throw. See [Queue limits and errors](/docs/queue/limits-and-errors).
 
 ::
 

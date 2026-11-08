@@ -9,8 +9,8 @@ const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 const workflowMock = vi.hoisted(() => {
-  const run = vi.fn((_payload?: unknown, _options?: unknown) => "workflow")
-  return { create: vi.fn(() => ({ run })), run }
+  const start = vi.fn((_payload?: unknown, _options?: unknown) => "workflow")
+  return { create: vi.fn(() => ({ start })), start }
 })
 
 vi.mock("@vite-hub/workflow", () => ({
@@ -68,7 +68,7 @@ describe("agent test runner", () => {
     list.mockResolvedValue([])
     readFile.mockReset()
     workflowMock.create.mockClear()
-    workflowMock.run.mockClear()
+    workflowMock.start.mockClear()
   })
 
   it("creates reusable runtime contexts with a default memo cache", async () => {
@@ -126,7 +126,7 @@ describe("agent test runner", () => {
       waitUntil: vi.fn(),
     }, { prompt: "hello" })
 
-    const payload = workflowMock.run.mock.calls.at(-1)?.[0]
+    const payload = workflowMock.start.mock.calls.at(-1)?.[0]
     expect(payload).toEqual({
       callerAbortSignal: false,
       input: { context: {}, prompt: "hello" },
@@ -334,7 +334,7 @@ describe("agent test runner", () => {
       runtimeConfig: {},
     }).run({ prompt: "hello" })).resolves.toMatchObject({ text: "inline" })
     expect(workflowMock.create).not.toHaveBeenCalled()
-    expect(workflowMock.run).not.toHaveBeenCalled()
+    expect(workflowMock.start).not.toHaveBeenCalled()
 
     await expect(runAgent(agent, createAgentRuntimeContext({
       runtime: "unknown",
@@ -342,7 +342,7 @@ describe("agent test runner", () => {
       waitUntil: vi.fn(),
     }), { prompt: "hello" })).resolves.toBe("workflow")
     expect(workflowMock.create).toHaveBeenCalledOnce()
-    expect(workflowMock.run).toHaveBeenCalledOnce()
+    expect(workflowMock.start).toHaveBeenCalledOnce()
   })
 
   it("stops test runs after repeated workspace inspection guardrails", async () => {

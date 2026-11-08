@@ -7,7 +7,7 @@ import type { ChannelWebhookSecret, WebhookAdapterOptions, WebhookChannelAdapter
  * @example
  * export default defineChannel({
  *   adapter: webhook({ signature: 'bearer', secret: () => useServerEnv().prefect.webhookSecret }),
- *   on: { webhook: event => runQueue('triage', event.data) },
+ *   on: { webhook: event => sendQueue('triage', event.data) },
  * })
  */
 export function webhook<TData = unknown>(options: WebhookAdapterOptions<TData> = {}): WebhookChannelAdapter<TData> {
@@ -50,7 +50,7 @@ function stripeWebhookSecret(): string | undefined {
  * @example
  * export default defineChannel({
  *   adapter: stripe(),
- *   on: { 'checkout.session.completed': event => runQueue('fulfil', event.data) },
+ *   on: { 'checkout.session.completed': event => sendQueue('fulfil', event.data) },
  * })
  */
 export function stripe(options: StripeAdapterOptions = {}): WebhookChannelAdapter<StripeEvent> {

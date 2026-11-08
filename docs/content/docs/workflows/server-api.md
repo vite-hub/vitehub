@@ -11,7 +11,7 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineWorkflow` from `@vite-hub/workflow` | Declare a Workflow Definition. |
-| `runWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflowSignal` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume Workflow Runs. |
+| `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume Workflow Runs. |
 | `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle for app-owned code. |
 | `normalizeWorkflowOptions` from `@vite-hub/workflow` | Resolve Integration Options to a concrete Workflow Provider. |
 | `ViteHubError` from `@vite-hub/runtime` | Throw application-owned Workflow failures with stable codes. |
@@ -22,16 +22,16 @@ Workflow Provider, Definition, Run, Step, Start Options, and Integration Options
 
 ## Start a run
 
-Use `runWorkflow()` from server code.
+Use `startWorkflow()` from server code.
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from '@vite-hub/workflow'
+import { startWorkflow } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
 
-  return runWorkflow('onboard-user', body)
+  return startWorkflow('onboard-user', body)
 })
 ```
 
@@ -44,12 +44,12 @@ DevKit assign it as shown in [Add a durable Vercel entry](/docs/workflows/config
 
 | Helper | Description |
 | --- | --- |
-| `runWorkflow(name, payload?, options?)` | Starts a Workflow Run immediately. |
-| `deferWorkflow(name, payload?, options?)` | Starts a run through the deferred provider path when available. |
+| `startWorkflow(name, payload?, options?)` | Starts a Workflow Run immediately. |
+| `deferWorkflow(name, payload?, options?)` | Starts a run after the response, through `waitUntil`. Returns nothing. A failure goes to the log. |
 | `getWorkflowRun(name, id)` | Reads the current run state. |
 | `cancelWorkflow(name, id)` | Cancels a native Vercel run or a pending or running OpenWorkflow run. |
-| `resumeWorkflowSignal(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
-| `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, `getRun`, and `cancel`. |
+| `resumeWorkflow(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
+| `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. |
 
 `WorkflowStartOptions` currently accepts `id`.
 
@@ -77,7 +77,7 @@ of another Workflow reports `unknown`. Cloudflare and inline Vercel runs report
 Signal resumption requires the Vercel provider, the Workflow DevKit runtime,
 and a registered hook token. The application can choose a deterministic opaque
 token; it becomes resumable when a native workflow registers the hook and
-suspends while waiting for it. Pass that token to `resumeWorkflowSignal()`.
+suspends while waiting for it. Pass that token to `resumeWorkflow()`.
 It identifies the hook, not a Workflow Run. Cloudflare and OpenWorkflow report
 signals as unsupported.
 
@@ -107,14 +107,14 @@ export default defineEventHandler((event) => {
 
 ## Required handle input
 
-A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
+A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
 const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
-await welcome.run({ email: "ada@example.com" })
-// welcome.run() is a type error.
+await welcome.start({ email: "ada@example.com" })
+// welcome.start() is a type error.
 ```
 
 This is a breaking type correction. Supply the required payload at each handle call. Named operational functions do not infer a handler from a string, and persisted run results remain unknown.

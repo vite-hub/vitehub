@@ -154,13 +154,13 @@ const { appName } = usePublicEnv()
 
 **Read `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
 
-Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that drops the tuple, or uses it as the value, loses the error. A statement such as `await runQueue('sync', input)` turns a failed send into silence. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass.
+Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that drops the tuple, or uses it as the value, loses the error. A statement such as `await sendQueue('sync', input)` turns a failed send into silence. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass.
 
 The rule checks these calls:
 
 - every async method of the `kv` and `blob` Runtime Helpers, of stores from `.store(name)`, and of `blob.media`
 - `email.send()` from `vite-hub/email/server`
-- `runQueue()`, `dynamicQueue.run()`, and `send()` and `sendBatch()` of a client from `getQueue()`
+- `sendQueue()`, `dynamicQueue.send()`, and `send()` and `sendBatch()` of a client from `useQueue()`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
@@ -200,20 +200,20 @@ export default defineEventHandler(async () => {
 These excerpts use the app's `sync` Queue Definition.
 
 ```ts [server/utils/dispatch.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export async function dispatchSync(connectionId: string) {
   // Invalid: a failed send is silent.
-  await runQueue('sync', { connectionId })
+  await sendQueue('sync', { connectionId })
 }
 ```
 
 ```ts [server/utils/dispatch.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export async function dispatchSync(connectionId: string) {
   // Valid
-  const [error] = await runQueue('sync', { connectionId })
+  const [error] = await sendQueue('sync', { connectionId })
   if (error) throw error
 }
 ```
@@ -500,18 +500,18 @@ Read [Blob server API](/docs/blob/server-api#use-with-other-schema-libraries).
 
 A Runtime Helper gets a literal name that matches no Definition that ViteHub discovers. The call fails only when it runs, for example with `QUEUE_DEFINITION_NOT_FOUND`.
 
-The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` is always accepted. The rule does not check `runSchedule(name, { registry })`, which reads its own registry, and it does not see Workflows that another file registers with `createWorkflow()`.
+The rule checks the first argument of `sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` is always accepted. The rule does not check `runSchedule(name, { registry })`, which reads its own registry, and it does not see Workflows that another file registers with `createWorkflow()`.
 
 This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
 
 ```ts [server/api/signup.post.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Invalid: the file is server/queues/welcome-email.ts
-const [typoError] = await runQueue('welcom-email', { email })
+const [typoError] = await sendQueue('welcom-email', { email })
 
 // Valid
-const [error] = await runQueue('welcome-email', { email })
+const [error] = await sendQueue('welcome-email', { email })
 ```
 
 Doctor runs the discovery of each owner package. It does not check a kind that has no Definition files, because plugins can contribute Definitions that Doctor cannot see. It does not check names that are not string literals.
@@ -566,18 +566,18 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 **Pass Queue options as the third argument.** Rule `vitehub/queue-payload-options`.
 
-`runQueue()`, `deferQueue()`, `dynamicQueue.run()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. ViteHub does not read enqueue options from the payload. A call that wraps the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType` sends the whole object as the payload, and the options have no effect.
+`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. ViteHub does not read enqueue options from the payload. A call that wraps the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType` sends the whole object as the payload, and the options have no effect.
 
 This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
 
 ```ts [server/api/signup.post.ts] fragment
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Invalid
-const [wrappedError] = await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+const [wrappedError] = await sendQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
 
 // Valid
-const [error] = await runQueue('welcome-email', { email }, { delaySeconds: 60 })
+const [error] = await sendQueue('welcome-email', { email }, { delaySeconds: 60 })
 ```
 
 The rule accepts a payload with a `payload` field and no option keys, because that is application data.
@@ -586,21 +586,21 @@ The rule accepts a payload with a `payload` field and no option keys, because th
 
 **Dispatch jobs inside a request.** Rule `vitehub/no-module-scope-dispatch`.
 
-`runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, and `runBrowser()` run at module scope. The call runs once when the module loads, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so the call can fail or the job can be dropped on Cloudflare and Vercel.
+`sendQueue()`, `deferQueue()`, `useQueue()`, `startWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, and `runBrowser()` run at module scope. The call runs once when the module loads, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so the call can fail or the job can be dropped on Cloudflare and Vercel.
 
 ```ts [server/plugins/warmup.ts]
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Invalid
-await runQueue('warmup', {})
+await sendQueue('warmup', {})
 ```
 
 ```ts [server/api/warmup.post.ts]
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 // Valid
 export default defineEventHandler(async () => {
-  const [error] = await runQueue('warmup', {})
+  const [error] = await sendQueue('warmup', {})
   if (error) throw error
 })
 ```
@@ -611,16 +611,16 @@ The rule does not check test files.
 
 **Do not destructure results that are not tuples.** Rule `vitehub/no-destructure-non-tuples`.
 
-Code destructures `[error, value]` from an API that does not return a tuple. These APIs return their value and throw on failure: `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflowSignal()`, and `getQueue()`. `runSchedule()` returns a Schedule Run record: a failed handler resolves with `status: "failed"`. `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
+Code destructures `[error, value]` from an API that does not return a tuple. These APIs return their value and throw on failure: `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `useQueue()`. `runSchedule()` returns a Schedule Run record: a failed handler resolves with `status: "failed"`. `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
 ```ts [server/api/onboard.post.ts] fragment
-import { runWorkflow } from 'vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 // Invalid
-const [error, run] = await runWorkflow('onboard-user', body)
+const [error, run] = await startWorkflow('onboard-user', body)
 
 // Valid
-const run = await runWorkflow('onboard-user', body)
+const run = await startWorkflow('onboard-user', body)
 ```
 
 The rule does not check `runAgent()`. Its tuple forms are tuples, and `runAgent(agent, context, input)` returns the Agent's output, which can be an array.

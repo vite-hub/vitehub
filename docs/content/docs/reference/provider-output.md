@@ -69,7 +69,7 @@ Nuxt keeps generated Agent source artifacts under `<buildDir>/vitehub/agent` (no
 
 | Do | Avoid |
 | --- | --- |
-| Call `runQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
+| Call `sendQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
 | Import `useServerEnv()` from `#vitehub/env/server`. | Import `.vitehub/env/server.mjs` directly. |
 | Inspect `.vercel/output` during deployment debugging. | Treat `.vercel/output` files as source files to edit. |
 

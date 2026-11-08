@@ -7,13 +7,13 @@ navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---
 
-A Queue separates accepting work from running the handler. `runQueue()` sends
+A Queue separates accepting work from running the handler. `sendQueue()` sends
 a typed payload to the configured provider and returns when the provider accepts
 the message. The handler runs later, often in another process or region.
 
 ## Acceptance is not completion
 
-The result from `runQueue()` tells you whether the provider accepted the job.
+The result from `sendQueue()` tells you whether the provider accepted the job.
 It does not contain the handler result. Give the job an id or an application
 key when you need to show progress, then store the final state in a durable
 primitive such as [KV](/docs/kv) or [Database](/docs/database).

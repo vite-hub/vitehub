@@ -20,7 +20,7 @@ Cloudflare Queues and deploy the generated Worker with its bindings.
 Follow https://vitehub.dev/docs/frameworks-hosts/cloudflare for credentials,
 provisioning, and deployment. A build alone does not deliver jobs.
 
-Use runQueue("welcome-email", { email: "ada@example.com" }) from vite-hub/queue
+Use sendQueue("welcome-email", { email: "ada@example.com" }) from vite-hub/queue
 inside a deployed server request to enqueue a job. It returns [error, result]:
 check error first. Successful enqueue means provider acceptance, not
 completion. Providers can retry a delivery.`,

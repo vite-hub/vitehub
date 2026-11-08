@@ -15,7 +15,7 @@ Application code imports from `vite-hub/queue` after enabling `queue: true` in t
 | Import | Use |
 | --- | --- |
 | `defineQueue` from `vite-hub/queue` | Declare a Queue Definition. |
-| `runQueue`, `deferQueue`, `getQueue` from `vite-hub/queue` | Enqueue jobs and access discovered QueueClients with typed names and payloads. |
+| `sendQueue`, `deferQueue`, `useQueue` from `vite-hub/queue` | Enqueue jobs and access discovered QueueClients with typed names and payloads. |
 | `dynamicQueue` from `vite-hub/queue` | Enqueue jobs or get clients for names read from external input. |
 | `createQueueClient` from `vite-hub/queue` | Create a direct provider QueueClient. |
 | `createQueueMessageId` from `vite-hub/queue` | Generate a ViteHub message id with an optional prefix. |
@@ -38,7 +38,7 @@ The handler receives a normalized Queue Job.
 | `attempts` | `number` | Delivery attempt count. |
 | `metadata` | `unknown` | Provider delivery metadata when the Queue Provider supplies it. |
 
-Handler return values belong to Queue Delivery. `runQueue()` does not return the handler result.
+Handler return values belong to Queue Delivery. `sendQueue()` does not return the handler result.
 
 ### Handle failures
 
@@ -91,11 +91,11 @@ Application error codes and details are public. Keep credentials, provider respo
 
 ## Enqueue work
 
-Use `runQueue()` from server code. Pass the payload and the enqueue options as separate arguments. This example delays delivery by 60 seconds on either provider.
+Use `sendQueue()` from server code. Pass the payload and the enqueue options as separate arguments. This example delays delivery by 60 seconds on either provider.
 
 ```ts [server/api/signup.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
@@ -103,7 +103,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
   }
 
-  const [error, result] = await runQueue('welcome-email', { email: body.email.trim() }, {
+  const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {
     delaySeconds: 60,
   })
   if (error) throw error
@@ -145,10 +145,10 @@ Use these options only with the Vercel provider. The app needs `preset: 'vercel'
 Pass a stable application key when repeated enqueue attempts should share a key:
 
 ```ts [server/utils/enqueue-welcome.ts]
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export async function enqueueWelcome(email: string) {
-  const [error, result] = await runQueue('welcome-email', { email }, {
+  const [error, result] = await sendQueue('welcome-email', { email }, {
     idempotencyKey: `welcome:${email}`,
   })
   if (error) throw error
@@ -156,20 +156,20 @@ export async function enqueueWelcome(email: string) {
 }
 ```
 
-The local provider also accepts `idempotencyKey`: while a pending or running job has the same key, `runQueue()` returns that job's message ID and stores nothing. A dead job does not hold its key. It rejects `region` and `retentionSeconds`.
+The local provider also accepts `idempotencyKey`: while a pending or running job has the same key, `sendQueue()` returns that job's message ID and stores nothing. A dead job does not hold its key. It rejects `region` and `retentionSeconds`.
 
 Cloudflare rejects `idempotencyKey`, `region`, and `retentionSeconds`. Vercel enqueue deduplication still does not guarantee that a handler runs exactly once. Keep handlers safe to retry.
 
 ## Runtime helpers
 
-### `runQueue(name, payload, options?)`
+### `sendQueue(name, payload, options?)`
 
 Enqueues one Queue Job and returns `[error, result]`.
 
-```ts [examples/run-queue.ts]
-import { runQueue } from 'vite-hub/queue'
+```ts [examples/send-queue.ts]
+import { sendQueue } from 'vite-hub/queue'
 
-const [error, result] = await runQueue('welcome-email', { email: 'ava@example.com' }, { delaySeconds: 60 })
+const [error, result] = await sendQueue('welcome-email', { email: 'ava@example.com' }, { delaySeconds: 60 })
 if (error) {
   error.code // 'QUEUE_PROVIDER_FAILED' | 'QUEUE_PROVIDER_INVALID_RESPONSE' | 'QUEUE_UNSUPPORTED_OPTION'
 }
@@ -200,14 +200,14 @@ deferQueue('welcome-email', { email: 'ava@example.com' })
 
 Use this in a request whose host provides `waitUntil`, when the response must not wait for provider acceptance. Returning from `deferQueue()` does not confirm that the provider accepted the job. ViteHub logs dispatch failures and passes them to `onDispatchError` when the Queue Definition provides one.
 
-### `getQueue(name)`
+### `useQueue(name)`
 
 Returns the provider-specific QueueClient for a discovered Queue Definition. It throws configuration errors. `send()` and `sendBatch()` return `[error, result]`.
 
-```ts [examples/get-queue.ts]
-import { getQueue } from 'vite-hub/queue'
+```ts [examples/use-queue.ts]
+import { useQueue } from 'vite-hub/queue'
 
-const queue = await getQueue('welcome-email')
+const queue = await useQueue('welcome-email')
 const [error] = await queue.send({ email: 'ava@example.com' })
 if (error) throw error
 ```
@@ -223,11 +223,11 @@ For Vercel batch retries, supply the same caller-provided `idempotencyKey` on ev
 
 ### `dynamicQueue`
 
-Use `dynamicQueue.run(name, payload, options?)`, `dynamicQueue.defer()`, or `dynamicQueue.get()` for names read from external input. These methods check at runtime that the Definition exists. They do not validate the payload shape, so validate external data in your application.
+Use `dynamicQueue.send(name, payload, options?)`, `dynamicQueue.defer()`, or `dynamicQueue.use()` for names read from external input. These methods check at runtime that the Definition exists. They do not validate the payload shape, so validate external data in your application.
 
 ### `createQueueClient(options)`
 
-Creates a direct provider QueueClient. Most application code can use `runQueue()` or `getQueue()` and let ViteHub handle discovery and provider configuration. Direct clients accept unknown payloads because they have no Queue Definition.
+Creates a direct provider QueueClient. Most application code can use `sendQueue()` or `useQueue()` and let ViteHub handle discovery and provider configuration. Direct clients accept unknown payloads because they have no Queue Definition.
 
 Cloudflare direct clients require a concrete binding object, supplied here as `binding` by the Worker host.
 
@@ -257,11 +257,11 @@ await createQueueClient({
 The Vite Integration writes `.vitehub/queue.d.ts`. The `vite-hub/tsconfig` setup in [Installation](/docs/getting-started/installation) loads the generated declarations. If you manage TypeScript configuration yourself, include this file. The Nuxt Integration adds it to the generated type context. Names and payloads then come from the discovered Queue Definitions:
 
 ```ts [examples/typed-dispatch.ts]
-import { getQueue, runQueue } from 'vite-hub/queue'
+import { sendQueue, useQueue } from 'vite-hub/queue'
 
-const [error] = await runQueue('welcome-email', { email: 'ada@example.com' }, { delaySeconds: 60 })
+const [error] = await sendQueue('welcome-email', { email: 'ada@example.com' }, { delaySeconds: 60 })
 if (error) throw error
-const queue = await getQueue('welcome-email')
+const queue = await useQueue('welcome-email')
 const [sendError] = await queue.send({ email: 'ada@example.com' })
 if (sendError) throw sendError
 ```
@@ -269,5 +269,5 @@ if (sendError) throw sendError
 `QueueRegistry` is the generated Definition map. `QueuePayload<'welcome-email'>` extracts a payload type. A missing name or wrong payload is a type error. Run Vite configuration or the Nuxt prepare step after you add a Definition. For a standalone TypeScript host, you can extend `QueueRegistry` with `typeof import('./welcome.queue').default`.
 
 ::note
-Earlier versions accepted an envelope: `runQueue(name, { payload, ...options })` and `client.send({ payload, ...options })`. Replace them with `runQueue(name, payload, options)` and `client.send(payload, options)`. There is no envelope detection. Existing envelope objects are delivered whole as payloads.
+Earlier versions accepted an envelope: `sendQueue(name, { payload, ...options })` and `client.send({ payload, ...options })`. Replace them with `sendQueue(name, payload, options)` and `client.send(payload, options)`. There is no envelope detection. Existing envelope objects are delivered whole as payloads.
 ::

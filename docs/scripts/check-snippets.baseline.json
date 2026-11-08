@@ -752,7 +752,7 @@
   {
     "id": "packages/queue/README.md#47047c3584ed",
     "label": null,
-    "error": "TS2304 Cannot find name 'getQueue'.\nTS2304 Cannot find name 'runQueue'."
+    "error": "TS2304 Cannot find name 'useQueue'.\nTS2304 Cannot find name 'sendQueue'."
   },
   {
     "id": "packages/runtime/README.md#d203a0063da4",

@@ -86,12 +86,12 @@ export default defineQueue<StripeEvent>(async ({ payload }) => {
 
 ```ts [server/channels/stripe.ts] fragment
 import { defineChannel, stripe } from 'vite-hub/channels'
-import { runQueue } from 'vite-hub/queue'
+import { sendQueue } from 'vite-hub/queue'
 
 export default defineChannel({
   adapter: stripe(),
   on: {
-    'checkout.session.completed': event => runQueue('fulfil', event.data),
+    'checkout.session.completed': event => sendQueue('fulfil', event.data),
   },
 })
 ```

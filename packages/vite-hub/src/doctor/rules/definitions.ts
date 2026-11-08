@@ -11,8 +11,8 @@ type NamedCall = { modules: readonly string[], names: readonly string[], kind: D
 
 /** Runtime Helpers that take a Definition name as their first argument. */
 const namedCalls: readonly NamedCall[] = [
-  { modules: ["queue"], names: ["runQueue", "deferQueue", "getQueue"], kind: "queue", label: "Queue" },
-  { modules: ["workflow"], names: ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow"], kind: "workflow", label: "Workflow" },
+  { modules: ["queue"], names: ["sendQueue", "deferQueue", "useQueue"], kind: "queue", label: "Queue" },
+  { modules: ["workflow"], names: ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow"], kind: "workflow", label: "Workflow" },
   { modules: ["database/drizzle"], names: ["useDatabase"], kind: "database", label: "Database" },
   { modules: ["channels", "channels/server"], names: ["useChannel"], kind: "channel", label: "Channel" },
   { modules: ["browser"], names: ["runBrowser"], kind: "browser", label: "Browser" },
@@ -167,8 +167,8 @@ export const definitionLocation: DoctorRule = createRule({
 const queueOptionKeys = new Set(["delaySeconds", "idempotencyKey", "retentionSeconds", "contentType"])
 
 function isQueueEnqueue(reference: ViteHubReference | undefined): boolean {
-  if (isExport(reference, ["queue"], ["runQueue", "deferQueue"])) return true
-  return reference?.module === "queue" && reference.name === "dynamicQueue" && reference.path.length === 1 && ["run", "defer"].includes(reference.path[0] ?? "")
+  if (isExport(reference, ["queue"], ["sendQueue", "deferQueue"])) return true
+  return reference?.module === "queue" && reference.name === "dynamicQueue" && reference.path.length === 1 && ["send", "defer"].includes(reference.path[0] ?? "")
 }
 
 export const queuePayloadOptions: DoctorRule = createRule({
@@ -190,7 +190,7 @@ export const queuePayloadOptions: DoctorRule = createRule({
         if (!options.length) return
         ctx.report(diagnostics.VHUB0016({
           why: `This call sends \`{ payload, ${options.join(", ")} }\` as the job payload. ViteHub does not read enqueue options from the payload, so \`${options.join("`, `")}\` has no effect.`,
-          fix: "Pass the payload and the options as separate arguments: `runQueue(name, payload, { delaySeconds })`.",
+          fix: "Pass the payload and the options as separate arguments: `sendQueue(name, payload, { delaySeconds })`.",
         }), { range: ctx.range(args[1]) })
       },
     }
@@ -198,8 +198,8 @@ export const queuePayloadOptions: DoctorRule = createRule({
 })
 
 const dispatchCalls: readonly { modules: readonly string[], names: readonly string[] }[] = [
-  { modules: ["queue"], names: ["runQueue", "deferQueue", "getQueue"] },
-  { modules: ["workflow"], names: ["runWorkflow", "deferWorkflow"] },
+  { modules: ["queue"], names: ["sendQueue", "deferQueue", "useQueue"] },
+  { modules: ["workflow"], names: ["startWorkflow", "deferWorkflow"] },
   { modules: ["sandbox/task"], names: ["runSandboxTask"] },
   { modules: ["browser"], names: ["runBrowser"] },
 ]
@@ -234,8 +234,8 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   const reference = r.callee(call)
   if (!reference) return
   if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
-  if (isExport(reference, ["workflow"], ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflowSignal"])
-    || isExport(reference, ["queue"], "getQueue")
+  if (isExport(reference, ["workflow"], ["startWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
+    || isExport(reference, ["queue"], "useQueue")
     || isExport(reference, ["schedule/runtime"], "runSchedule")) return { name: reference.name, kind: "value" }
   // `runAgent(agent, context, input)` returns the Agent's output, which can be an array, so it is not checked.
 }

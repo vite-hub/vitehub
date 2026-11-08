@@ -58,13 +58,13 @@ ViteHub has no Queue Provider for Deno. The local provider keeps the jobs on one
 
 ### Cloudflare names
 
-Without `binding`, ViteHub derives a binding from the Queue Definition name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are generated as `<namePrefix>queue--<hex-name>`. A name longer than 63 characters becomes a readable prefix plus a digest. Application code must not depend on these names. Use `runQueue()` with the Queue Definition name.
+Without `binding`, ViteHub derives a binding from the Queue Definition name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are generated as `<namePrefix>queue--<hex-name>`. A name longer than 63 characters becomes a readable prefix plus a digest. Application code must not depend on these names. Use `sendQueue()` with the Queue Definition name.
 
 ### Vercel region and topics
 
 If you omit `region`, ViteHub checks `QUEUE_REGION`, then `VERCEL_REGION`, then request headers in a Vercel request context.
 
-Vercel topic names are generated as `topic--<hex-name>`. Application code must not depend on that topic. Use `runQueue()` with the Queue Definition name.
+Vercel topic names are generated as `topic--<hex-name>`. Application code must not depend on that topic. Use `sendQueue()` with the Queue Definition name.
 
 ## Define a queue
 
