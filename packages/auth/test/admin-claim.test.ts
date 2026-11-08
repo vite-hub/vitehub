@@ -311,6 +311,16 @@ describe("VITEHUB_ADMIN_CLAIM", () => {
     vi.stubEnv("VITEHUB_ADMIN_CLAIM", await adminClaimHash(createAdminClaimCode()))
     expect(() => createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true } }), new Request(origin))).toThrow(/AUTH_C0051|admin\(\)/)
   })
+
+  it.each([false, true])("ignores the host claim value when disabled in a callback=%s Definition", async (callback) => {
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", "not-a-hash")
+    const options = { adminClaim: false as const, emailAndPassword: { enabled: true } }
+    const definition = callback ? defineAuth(() => options) : defineAuth(options)
+    const auth = createAuthForRequest(definition, new Request(origin))
+    const cookie = await signUp(auth, "other@example.com")
+    expect((await auth.handler(new Request(`${origin}/api/auth/vitehub/admin-claim/status`, { headers: { cookie } }))).status).toBe(404)
+    expect((await claim(auth, cookie, createAdminClaimCode())).status).toBe(404)
+  })
 })
 
 describe("vitehub auth claim", () => {

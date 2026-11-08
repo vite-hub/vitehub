@@ -116,6 +116,7 @@ function stripViteHubOptions(
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
+    adminClaim: adminClaimEnabled,
     console: _console,
     database,
     events,
@@ -143,7 +144,7 @@ function stripViteHubOptions(
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
   const admins = readAdmins(event)
   const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
-  const adminClaim = readAdminClaim(event)
+  const adminClaim = adminClaimEnabled === false ? undefined : readAdminClaim(event)
   const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
   const plugins = [
     ...declaredPlugins,

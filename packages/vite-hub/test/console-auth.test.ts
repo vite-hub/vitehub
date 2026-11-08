@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { admin } from "better-auth/plugins"
 import { defineAuth } from "@vite-hub/auth"
 import type { AuthRuntimeContext } from "@vite-hub/auth"
-import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { createAuthForRequest, handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
 import { hubEnv } from "@vite-hub/env/vite"
 import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { describe, expect, it, vi } from "vitest"
@@ -16,7 +16,7 @@ import { build } from "esbuild"
 import { resolveConfig } from "vite"
 import type { PluginOption } from "vite"
 
-import { consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
+import { consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, createConsoleAppAuthPages, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { createInlineConsoleAuth } from "../src/console/auth-inline.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
@@ -26,6 +26,51 @@ import { installConsoleProjectNameScope, installConsoleSectionScope, resolveCons
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
+  it.each([false, true])("ignores the Primary Auth claim code with an independent admin plugin=%s", async (withAdmin) => {
+    const code = "0000-1111-2222-3333"
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", `sha256:${createHash("sha256").update("0000111122223333").digest("hex")}`)
+    const database = new DatabaseSync(":memory:")
+    try {
+      const input = defineConsoleAuth({
+        auth: defineAuth(() => ({
+          database,
+          emailAndPassword: { enabled: true },
+          plugins: withAdmin ? [admin()] : [],
+          secret: "test-secret-at-least-32-bytes-long",
+        })),
+        authorize: () => true,
+        signIn: { provider: "github" },
+      })
+      const definition = createConsoleAuthDefinition(input, "/portal/")
+      const authPath = "https://example.com/portal/_vitehub/api/auth"
+      const request = new Request(`${authPath}/sign-up/email`, {
+        body: JSON.stringify({ email: "console@example.com", name: "Console", password: "passwordpassword" }),
+        headers: { "content-type": "application/json", origin: "https://example.com" },
+        method: "POST",
+      })
+      await prepareConsoleAuth(input, definition, request)
+      const response = await handleAuthRequest(definition, request)
+      expect(response.status).toBe(200)
+      const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      const auth = createAuthForRequest(definition, new Request(authPath))
+      for (const [path, method] of [["", "POST"], ["/status", "GET"]]) {
+        const claim = await auth.handler(new Request(`${authPath}/vitehub/admin-claim${path}`, {
+          ...(method === "POST" ? { body: JSON.stringify({ code }) } : {}),
+          headers: { "content-type": "application/json", cookie, origin: "https://example.com" },
+          method,
+        }))
+        expect(claim.status).toBe(404)
+      }
+      const session = await auth.api.getSession({ headers: new Headers({ cookie }) })
+      expect(session?.user.email).toBe("console@example.com")
+      expect(session && Reflect.get(session.user, "role")).not.toBe("admin")
+    }
+    finally {
+      database.close()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([false, true])("uses build-time development=%s for auth page framing and keeps OAuth outside the frame", async (development) => {
     installConsoleDevelopment("/tmp/vitehub-console-auth", development)
     vi.stubEnv("NODE_ENV", development ? "production" : "development")
@@ -349,31 +394,28 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("lets a denied signed-in account claim the admin role with a claim code", async () => {
+  it("lets a denied signed-in account claim the admin role through Primary Auth", async () => {
     const code = "0000-1111-2222-3333"
     vi.stubEnv("VITEHUB_ADMIN_CLAIM", `sha256:${createHash("sha256").update("0000111122223333").digest("hex")}`)
     const database = new DatabaseSync(":memory:")
     try {
-      const input = defineConsoleAuth({
-        auth: defineAuth(() => ({
-          baseURL: "https://example.com",
-          database,
-          emailAndPassword: { enabled: true },
-          plugins: [admin()],
-          secret: "test-secret-at-least-32-bytes-long",
-          socialProviders: { github: { clientId: "test-client", clientSecret: "test-secret" } },
-        })),
-        authorize: ({ user }) => Reflect.get(user, "role") === "admin",
-        signIn: { provider: "github" },
-      })
-      const definition = createConsoleAuthDefinition(input, "/portal/")
-      const authPath = "https://example.com/portal/_vitehub/api/auth"
+      const definition = defineAuth(() => ({
+        access: { routes: [{ route: "/portal/_vitehub/**", authorize: ({ user }) => Reflect.get(user, "role") === "admin" }] },
+        basePath: "/portal/api/auth",
+        baseURL: "https://example.com",
+        database,
+        emailAndPassword: { enabled: true },
+        plugins: [admin()],
+        secret: "test-secret-at-least-32-bytes-long",
+      }))
+      const pages = createConsoleAppAuthPages((request, options, event) => createAuthForRequest(definition, request, options, event))
+      const authPath = "https://example.com/portal/api/auth"
       const signUp = new Request(`${authPath}/sign-up/email`, {
         body: JSON.stringify({ email: "owner@example.com", name: "Owner", password: "passwordpassword" }),
         headers: { "content-type": "application/json", origin: "https://example.com" },
         method: "POST",
       })
-      await prepareConsoleAuth(input, definition, signUp)
+      await (await createAuthForRequest(definition, signUp).$context).runMigrations()
       const signUpResponse = await handleAuthRequest(definition, signUp)
       expect(signUpResponse.status).toBe(200)
       const cookie = signUpResponse.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
@@ -381,9 +423,9 @@ describe("independent Console Auth", () => {
       const pageRequest = () => new Request("https://example.com/portal/_vitehub", { headers: { accept: "text/html", cookie } })
       const denied = await requireAuthAccessRoutes(pageRequest(), [0], definition, [0])
       expect(denied?.status).toBe(403)
-      const html = await consoleAuthPageResponse(pageRequest(), denied, "/portal/")?.text()
+      const html = await (await pages.signIn(pageRequest(), denied)).text()
       expect(html).toContain('<form id="claim" hidden>')
-      expect(html).toContain('fetch("/portal/_vitehub/api/auth/vitehub/admin-claim" + "/status"')
+      expect(html).toContain('fetch("/portal/api/auth/vitehub/admin-claim" + "/status"')
 
       const status = await handleAuthRequest(definition, new Request(`${authPath}/vitehub/admin-claim/status`, { headers: { cookie } }))
       expect(await status.json()).toEqual({ available: true })
@@ -713,6 +755,7 @@ describe("independent Console Auth", () => {
     vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
     vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-at-least-32-bytes-long")
     vi.stubEnv("CONSOLE_AUTH_BASE_URL", environment ?? "")
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", `sha256:${"a".repeat(64)}`)
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", publicUrl)
     let database: DatabaseSync | undefined
     try {
