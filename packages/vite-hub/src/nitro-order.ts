@@ -1,6 +1,8 @@
 import { mergeConfig } from "vite"
+import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
+import type { WorkflowVitePlugin } from "@vite-hub/workflow/vite"
 
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -82,6 +84,21 @@ export function nitroOrderPlugins(): Plugin[] {
           let delta: UserConfig = {}
           let current = config
           try {
+            // Finalize Workflow bindings after application config hooks and before Nitro reads its config once.
+            if (env.command === "build" && pending.some(entry => entry.selected && entry.plugin.name === "nitro:init")) {
+              const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
+              for (const plugin of await flatten(config.plugins)) {
+                // SAFETY: Workflow plugins expose this optional package-owned Nitro configuration hook.
+                const createNitroConfig = (plugin as WorkflowVitePlugin).vitehub?.workflow?.createNitroConfig
+                if (!createNitroConfig) continue
+                Reflect.set(config, "nitro", await createNitroConfig({
+                  nitro: { ...Reflect.get(config, "nitro") },
+                  projectRoot: resolveViteHubProjectRoot(config.root || process.cwd(), { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined }),
+                  serverDirs: Reflect.get(config, VITEHUB_SERVER_DIRS),
+                  viteConfig: config,
+                }))
+              }
+            }
             for (const { handler, selected } of pending) {
               if (!selected) continue
               if (!handler) throw unsupportedHook()

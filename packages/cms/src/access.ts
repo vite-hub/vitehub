@@ -1,15 +1,21 @@
-import { createAccessControl } from "better-auth/plugins/access"
-import { adminAc, defaultStatements, userAc } from "better-auth/plugins/admin/access"
+import * as betterAuthAccess from "better-auth/plugins/access"
+import * as betterAuthAdminAccess from "better-auth/plugins/admin/access"
 
 import type { CommentsAuthorizeContext } from "@vite-hub/comments"
 import type { ContentAuthorize } from "@vite-hub/content"
 import type { AccessControl, Role, RoleAuthorizeRequest, Statements } from "better-auth/plugins/access"
 
+// `better-auth` is an optional peer, and `index.ts` imports this file for `access: "roles"`. Without `better-auth`, Vite
+// puts a stub with no exports in its place, and a named import from the stub fails the app build. Namespace imports
+// build, and only `access: "roles"` loads this file.
+const { createAccessControl } = betterAuthAccess
+const { adminAc, defaultStatements, userAc } = betterAuthAdminAccess
+
 /**
  * The permissions of the Better Auth `admin` plugin, `user` and `session`, plus the CMS resources: `content` for the
  * actions of `content.can()`, and `comment` for Comments. `comment:delete` removes threads of other people.
  */
-export type CmsStatements = typeof defaultStatements & {
+export type CmsStatements = typeof betterAuthAdminAccess.defaultStatements & {
   readonly content: readonly ["read", "write", "publish"]
   readonly comment: readonly ["read", "create", "resolve", "delete"]
 }

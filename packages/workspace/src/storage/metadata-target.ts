@@ -5,7 +5,7 @@ export const workspaceInternalMetadataCapability: unique symbol = Symbol("vitehu
 import { forwardWorkspaceStoreTarget } from "./target.ts"
 import type { ListOptions, MkdirOptions, RmOptions, Workspace, WorkspaceEntry, WorkspaceFile } from "../core/types.ts"
 
-import type { ReadonlyWorkspaceFacade, ReadonlyWorkspaceFs, WritableWorkspaceFacade, WritableWorkspaceFs } from "../core/use.ts"
+import type { ReadonlyWorkspaceFiles, ReadonlyWorkspaceFs, WritableWorkspaceFiles, WritableWorkspaceFs } from "../core/use.ts"
 
 export interface WorkspaceMetadataTarget {
   workspaceName?: string
@@ -18,7 +18,7 @@ export interface WorkspaceMetadataTarget {
 }
 
 /** An object that can carry a metadata target: a Workspace, a Workspace facade, or the `fs` of a facade. */
-export type WorkspaceMetadataCarrier = Workspace | ReadonlyWorkspaceFacade | WritableWorkspaceFacade | ReadonlyWorkspaceFs | WritableWorkspaceFs
+export type WorkspaceMetadataCarrier = Workspace | ReadonlyWorkspaceFiles | WritableWorkspaceFiles | ReadonlyWorkspaceFs | WritableWorkspaceFs
 
 type WorkspaceMetadataTargetResolver = () => Promise<WorkspaceMetadataTarget | undefined> | WorkspaceMetadataTarget | undefined
 

@@ -140,7 +140,7 @@ describe("operations that run app code", () => {
     const { scheduleOperations } = await import("@vite-hub/schedule/operations")
     const { taskOperations } = await import("../src/task/operations.ts")
     const invoking = [...workflowOperations, ...queueOperations, ...scheduleOperations, ...taskOperations].filter(operation => operation.invoke).map(operation => operation.name).sort()
-    expect(invoking).toEqual(["queue.send", "schedule.run", "task.run", "workflow.resume", "workflow.start"])
+    expect(invoking).toEqual(["queue.jobs-retry", "queue.send", "schedule.run", "task.run", "workflow.resume", "workflow.start"])
   })
 })
 
