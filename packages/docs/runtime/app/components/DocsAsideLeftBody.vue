@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DocsSidebarGroup } from "@vite-hub/docs"
 
-import { docsCatalog, docsHasRail, docsRelatedSections, docsSectionHome, docsSidebarGroup, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
+import { docsCatalog, docsHasRail, docsPanelOf, docsPanelSidebarGroups, docsRelatedSections, docsSectionHome, docsSectionPanels, docsSidebarGroup, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const manifest = useDocsManifest()
@@ -27,19 +27,88 @@ const groupStartLinks = computed(() => start && group.value?.sections.some(candi
 // Nuxt serializes a `null` runtime config value as "", so `start` can be a string here.
 const siteLinks = computed(() => rail ? groupStartLinks.value : start?.links ?? [])
 
+// A folder with `navigation.panel: true` replaces the section sidebar while the reader is inside it. The section sidebar
+// links to each panel once.
+const panel = computed(() => {
+  const page = section.value?.pages.find(candidate => candidate.path === currentPath.value)
+  return section.value && page ? docsPanelOf(section.value, page) : null
+})
+const panels = computed(() => section.value ? docsSectionPanels(section.value) : [])
+// The site search finds a page of a long panel, so the panel has no filter of its own.
+const panelGroups = computed(() => panel.value && section.value ? docsPanelSidebarGroups(section.value, panel.value) : [])
+
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path)
 }
 
 // A folded group opens itself on its own pages, so the current page stays in view.
 // Key the active disclosure by its page so navigation also reopens a group the reader closed.
+// Panels often list codes such as `QUEUE_BINDING_NOT_FOUND`. A code reads as code on one line, and the tooltip holds a
+// code that the sidebar cuts.
+function isCode(title: string) {
+  return /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(title)
+}
+
 function holdsCurrent(pageGroup: DocsSidebarGroup) {
   return pageGroup.pages.some(page => isActive(page.path))
 }
 </script>
 
 <template>
-  <nav v-if="sectionBlocks" class="vh-docs-sidebar-nav" :aria-label="rail ? `${group?.title} pages` : 'Docs pages'">
+  <nav v-if="panel && section" class="vh-docs-sidebar-nav" :aria-label="`${panel.title} pages`">
+    <section class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" :aria-label="`${panel.title} overview`">
+      <NuxtLink :to="docsSectionHome(section)" class="vh-docs-sidebar-link vh-docs-sidebar-back">
+        <UIcon name="i-lucide-arrow-left" class="size-4 shrink-0" />
+        <span class="min-w-0">{{ section.title }}</span>
+      </NuxtLink>
+      <NuxtLink
+        :to="panel.path"
+        :class="['vh-docs-sidebar-link', { 'is-active': isActive(panel.path) }]"
+        :aria-current="isActive(panel.path) ? 'page' : undefined"
+      >
+        <UIcon :name="icons.page(panel)" class="size-4 shrink-0" />
+        <span class="min-w-0">{{ panel.title }}</span>
+      </NuxtLink>
+    </section>
+
+    <template v-for="pageGroup in panelGroups" :key="pageGroup.label || 'pages'">
+      <details
+        v-if="pageGroup.fold"
+        :key="holdsCurrent(pageGroup) ? currentPath : undefined"
+        class="vh-docs-sidebar-page-group vh-docs-sidebar-fold"
+        :open="holdsCurrent(pageGroup)"
+      >
+        <summary class="vh-docs-sidebar-page-group-heading">
+          <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
+          {{ pageGroup.label }}
+          <span class="vh-docs-sidebar-count">{{ pageGroup.pages.length }}</span>
+        </summary>
+        <NuxtLink
+          v-for="page in pageGroup.pages"
+          :key="page.path"
+          :to="page.path"
+          :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+          :aria-current="isActive(page.path) ? 'page' : undefined"
+        >
+          <span :class="['min-w-0', { 'vh-docs-sidebar-code': isCode(page.title) }]" :title="isCode(page.title) ? page.title : undefined">{{ page.title }}</span>
+        </NuxtLink>
+      </details>
+      <section v-else class="vh-docs-sidebar-page-group">
+        <h2 v-if="pageGroup.label" class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
+        <NuxtLink
+          v-for="page in pageGroup.pages"
+          :key="page.path"
+          :to="page.path"
+          :class="['vh-docs-sidebar-link', { 'is-grouped': pageGroup.label, 'is-active': isActive(page.path) }]"
+          :aria-current="isActive(page.path) ? 'page' : undefined"
+        >
+          <span :class="['min-w-0', { 'vh-docs-sidebar-code': isCode(page.title) }]" :title="isCode(page.title) ? page.title : undefined">{{ page.title }}</span>
+        </NuxtLink>
+      </section>
+    </template>
+  </nav>
+
+  <nav v-else-if="sectionBlocks" class="vh-docs-sidebar-nav" :aria-label="rail ? `${group?.title} pages` : 'Docs pages'">
     <section v-if="siteLinks.length" class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" aria-label="Site areas">
       <NuxtLink
         v-for="link in siteLinks"
@@ -108,6 +177,16 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
             </NuxtLink>
           </template>
         </template>
+        <NuxtLink
+          v-for="entryPanel in docsSectionPanels(entry.section)"
+          :key="entryPanel.page.path"
+          :to="entryPanel.page.path"
+          class="vh-docs-sidebar-link vh-docs-sidebar-panel-link is-nested"
+        >
+          <span class="min-w-0">{{ entryPanel.page.title }}</span>
+          <span class="vh-docs-sidebar-count">{{ entryPanel.count }}</span>
+          <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0" />
+        </NuxtLink>
       </template>
     </section>
 
@@ -154,7 +233,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
-          :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+          :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
           <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
@@ -168,7 +247,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
-          :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+          :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
           <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
@@ -189,6 +268,19 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         </NuxtLink>
       </template>
     </template>
+
+    <!-- A panel is one more row of the page list, with its page count and a chevron for the sidebar it opens. -->
+    <NuxtLink
+      v-for="entry in panels"
+      :key="entry.page.path"
+      :to="entry.page.path"
+      class="vh-docs-sidebar-link vh-docs-sidebar-panel-link"
+    >
+      <UIcon :name="icons.page(entry.page)" class="size-4 shrink-0" />
+      <span class="min-w-0">{{ entry.page.title }}</span>
+      <span class="vh-docs-sidebar-count">{{ entry.count }}</span>
+      <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0" />
+    </NuxtLink>
 
     <section v-if="related.length" class="vh-docs-sidebar-related" aria-label="Related products">
       <h2 class="vh-docs-sidebar-heading">Related</h2>
@@ -272,13 +364,14 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   text-transform: uppercase;
 }
 
-/* A long title wraps instead of being cut off. The icon stays on its first line. */
+/* A long title wraps instead of being cut off. The icon stays on its first line.
+   The padding takes out the 2px rule, so the icons line up with the group headings at 1.25rem. */
 .vh-docs-sidebar-link {
   display: flex;
   align-items: flex-start;
   gap: 0.625rem;
   border-left: 2px solid transparent;
-  padding: 0.25rem 1.25rem;
+  padding: 0.25rem 1.25rem 0.25rem calc(1.25rem - 2px);
   color: var(--ui-text-muted);
   font-size: 0.875rem;
   line-height: 1.25rem;
@@ -311,14 +404,13 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   }
 }
 
-.vh-docs-sidebar-link.is-grouped {
-  padding-left: 2rem;
-}
-
 /* In a list of sections, the pages of a section line up with its title: the row padding, the icon, and the gap. */
-.vh-docs-sidebar-link.is-nested,
 .vh-docs-sidebar-page-group-heading.is-nested {
   padding-left: 2.875rem;
+}
+
+.vh-docs-sidebar-link.is-nested {
+  padding-left: calc(2.875rem - 2px);
 }
 
 /* A folded group: the summary is its heading, and its chevron points right while the group is shut. */
@@ -397,5 +489,36 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 .vh-docs-sidebar-related {
   margin-top: auto;
   padding-top: 0.75rem;
+}
+
+.vh-docs-sidebar-panel-link {
+  align-items: center;
+}
+
+.vh-docs-sidebar-panel-link > .iconify {
+  margin-top: 0;
+}
+
+.vh-docs-sidebar-count {
+  margin-inline-start: auto;
+  color: var(--ui-text-dimmed);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.vh-docs-sidebar-back {
+  color: var(--ui-text-dimmed);
+}
+
+.vh-docs-sidebar-code {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

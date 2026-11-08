@@ -35,9 +35,10 @@ vi.mock("../src/console/runtime/server/attachments.ts", () => ({
 }))
 
 import handlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const files = [{ url: "data:image/png;base64,YQ==", filename: "test.png" }]
-const invoke = (body: unknown, request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { method: "POST" })) => handler({ method: "POST", context: { params: { agent: "bot" } }, req: { headers: request.headers, json: async () => body, method: request.method, url: request.url } })
+const invoke = (body: unknown, request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { method: "POST" })) => handler(consoleEvent({ body, context: { params: { agent: "bot" } }, headers: request.headers, method: request.method, url: request.url }))
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.store.mockImplementation(async (_prompt, _body, consume) => consume({ role: "user", parts: [{ type: "image", id: "image-id" }] }, () => {}))
