@@ -979,9 +979,10 @@ export interface AgentTriggerTask<
 > {
   /**
    * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * A resolver can return an Agent or its default-export module, such as `() => import('./agent')`, to avoid an import cycle.
    * An unset `run.origin` of the Invocation defaults to the task key.
    */
-  agent?: AgentInput
+  agent?: AgentInput | (() => MaybePromise<AgentInput | { default: AgentInput }>)
   /**
    * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
    * The trigger's `failed` stays the fallback for tasks without one.

@@ -176,7 +176,7 @@ it.each(['review', '__proto__'])('bundles the published runtime lookup for %s wi
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
   await writeFile(entry, `import { getAgentFromRegistry } from '@vite-hub/agent'
-import registry, { metadata } from '#vitehub/agent/registry'
+import registry, { loadAgentHost, metadata } from '#vitehub/agent/registry'
 import { agents } from ${JSON.stringify(join(root, '.vitehub/agent/registry-agents.mjs'))}
 export async function inspect() {
   const agent = await getAgentFromRegistry(${JSON.stringify(name)})
@@ -184,6 +184,7 @@ export async function inspect() {
     instructions: agent.__vitehubAgentSettings.driver.instructions,
     registryNames: Object.keys(registry),
     metadataNames: Object.keys(metadata),
+    hostLoaderType: typeof loadAgentHost,
     identity: metadata[${JSON.stringify(name)}],
     catalogNames: Object.keys(agents),
   }
@@ -209,6 +210,7 @@ export async function inspect() {
       instructions: { template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' },
       registryNames: [name],
       metadataNames: [name],
+      hostLoaderType: 'function',
       identity: { name },
       catalogNames: [name],
     })

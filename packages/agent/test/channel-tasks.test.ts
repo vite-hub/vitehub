@@ -29,6 +29,7 @@ function ticketsAgent(options: {
   delayMs?: number
   /** Answer without the webhook queue. */
   inline?: boolean
+  lazyTarget?: "definition" | "module"
   failed?: (event: AgentTriggerFailedEvent) => void
   taskFailed?: (event: AgentTriggerFailedEvent) => void
   hostThrows?: boolean
@@ -53,7 +54,8 @@ function ticketsAgent(options: {
             ...(options.failed ? { failed: options.failed } : {}),
             tasks: {
               triage: {
-                agent: triageAgent,
+                agent: options.lazyTarget === "module" ? async () => ({ default: triageAgent })
+                  : options.lazyTarget === "definition" ? () => triageAgent : triageAgent,
                 ...(options.taskFailed ? { failed: options.taskFailed } : {}),
                 prepare: options.taskPrepare
                   ? (_context, invocation) => options.taskPrepare!(invocation.input, invocation) as undefined
@@ -112,7 +114,7 @@ function serve(agent: ReturnType<typeof ticketsAgent>["agent"], state: Awaited<R
 }
 
 describe("Channel trigger tasks", () => {
-  it("stores the task, its Agent and the accepted input before prepare runs", async () => {
+  it.each([undefined, "module"] as const)("stores the task, its Agent and the accepted input before prepare runs (lazy: %s)", async (lazyTarget) => {
     const state = await stateFile()
     let release!: () => void
     const released = new Promise<void>(resolve => (release = resolve))
@@ -122,7 +124,7 @@ describe("Channel trigger tasks", () => {
       stored.push(...(await state.webhookDeliveries(scope ?? "")).map(delivery => delivery.invocation))
       await released
     })
-    const { agent, host, triage } = ticketsAgent({ taskPrepare })
+    const { agent, host, triage } = ticketsAgent({ taskPrepare, lazyTarget })
     const { send } = serve(agent, state)
 
     const response = await send({ id: "1", kind: "triage" })
@@ -305,8 +307,8 @@ describe("Channel trigger tasks", () => {
     expect(triage).not.toHaveBeenCalled()
   })
 
-  it("runs the selected task when a trigger runs directly", async () => {
-    const { agent, host, triage } = ticketsAgent()
+  it.each([undefined, "definition", "module"] as const)("runs the selected task when a trigger runs directly (lazy: %s)", async (lazyTarget) => {
+    const { agent, host, triage } = ticketsAgent({ lazyTarget })
     const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() }), capabilities: {} }
 
     await runAgentTrigger(agent, runtime, "tickets.opened", { payload: { id: "7", kind: "triage" } })

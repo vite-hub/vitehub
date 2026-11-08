@@ -1497,7 +1497,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   return plugins as PluginOption[]
 }
 
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
   return withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved))
 }
 

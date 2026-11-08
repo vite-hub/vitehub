@@ -362,6 +362,15 @@ When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteH
 `operations` can also be a record of names to `operationId`s, such as `{ "invoice": "billing_get_invoice_invoices__id__get" }`. Each name becomes the tool name and the CLI command name. ViteHub reads only the selected operations, so other operations in the spec can have any `operationId`.
 Capability `cli` can be a static command tree or an invocation resolver that returns `undefined` when the CLI should not be available. Generated command trees stay behind adapter-owned options such as `openapi({ cli })`, whose resolver may return `false` or `undefined` for the current invocation.
 
+## Channel task Agents
+
+A trigger task can use an Agent Definition or a resolver such as
+`agent: () => import('../agents/triage')`. The resolver returns the definition or
+its default-export module. ViteHub resolves it before binding task callbacks and
+stores the resolved Agent name in queued deliveries. Use a lazy import when the
+target Agent lists the Channel. Keep static imports of the owning Agent out of
+the Channel and its helpers. ViteHub reports cycles through local imports at build time.
+
 ## Channel Env
 
 Built-in Channels read credentials from `env.server.<channel>.<field>`. They read the host variable names only when Server Env does not declare the field. `discoverAgentChannelEnv({ rootDir, serverDirs })` from `@vite-hub/agent/vite` finds built-in Channel factory calls in Agent files and returns the fields to declare, with their host names, `secret` flag, and `required` flag. `vitehub({ agent })` passes the result to Server Env before `hubEnv()` builds the registry; application declarations win field by field. Explicit Channel options always win over Env.
