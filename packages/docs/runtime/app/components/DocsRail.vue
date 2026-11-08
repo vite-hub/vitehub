@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
-import { docsRailEntries, docsSectionHome } from "#docs/navigation"
+import { docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
 import type { DocsRailEntry, DocsSection } from "@vite-hub/docs"
@@ -20,8 +20,18 @@ const icons = useDocsIcons()
 // hover. Any other Iconify icon renders through UIcon.
 const groups = docsRailEntries(useDocsManifest(), { categories, railExclude, groups: docsGroups }).map(entries => entries.map((entry) => {
   const icon = entry.icon ?? icons.rail(entry.sections[0]!)
-  return { entry, to: docsSectionHome(entry.sections[0]!), icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
+  return { entry, icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
 }))
+const route = useRoute()
+// Inside a panel, such as the diagnostics of one section, each rail item opens the same panel of its own section.
+const currentPanel = computed(() => {
+  const section = currentSection.value
+  const page = section?.pages.find(candidate => candidate.path === normalizeDocsPath(route.path))
+  return section && page ? docsPanelOf(section, page) : null
+})
+function target(entry: DocsRailEntry) {
+  return docsRailTarget(entry.sections[0]!, currentPanel.value)
+}
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
@@ -71,7 +81,7 @@ onBeforeUnmount(() => {
     <template #default="{ expanded }">
       <PrimitiveRailGroup v-for="(items, index) in groups" :key="index">
         <UTooltip
-          v-for="{ entry, to, icon, railIcon } in items"
+          v-for="{ entry, icon, railIcon } in items"
           :key="entry.sections[0]!.id"
           :text="entry.title"
           :content="{ side: 'right', sideOffset: 6 }"
@@ -81,13 +91,13 @@ onBeforeUnmount(() => {
           <PrimitiveRailItem
             v-if="railIcon"
             :as="NuxtLink"
-            :to="to"
+            :to="target(entry)"
             :current="isCurrentEntry(entry)"
             :aria-current="ariaCurrent(entry)"
             :icon="railIcon"
             :label="entry.title"
           />
-          <PrimitiveRailItem v-else :as="NuxtLink" :to="to" :current="isCurrentEntry(entry)" :aria-current="ariaCurrent(entry)" :label="entry.title">
+          <PrimitiveRailItem v-else :as="NuxtLink" :to="target(entry)" :current="isCurrentEntry(entry)" :aria-current="ariaCurrent(entry)" :label="entry.title">
             <UIcon :name="icon" class="size-4" />
           </PrimitiveRailItem>
         </UTooltip>

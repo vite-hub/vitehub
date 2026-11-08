@@ -50,6 +50,7 @@ catalogs:
     playwright-core: ^1.63.0
   chat:
     "@chat-adapter/discord": 4.44.0
+    "@chat-adapter/slack": 4.44.0
     "@chat-adapter/teams": 4.44.0
     "@chat-adapter/telegram": 4.44.0
     chat: 4.44.0
@@ -189,6 +190,8 @@ catalogs:
     vite: ^8.2.2
   vite-compat:
     vite: ">=8.0.0"
+  vue-compat:
+    vue: ^3.5.0
   workflow:
     "@workflow/builders": 5.0.6
     cron-schedule: ^6.0.0

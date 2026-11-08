@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
               <button
                 v-for="{ data: entry } in visibleEntries"
                 :key="entry.id"
-                class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-primary"
+                class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-(--vitehub-console-focus)"
                 :class="[{ 'bg-elevated': selected?.id === entry.id }, mode]"
                 :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"

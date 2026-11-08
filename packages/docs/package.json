@@ -66,7 +66,7 @@
   "dependencies": {
     "@comark/vue": "0.8.1",
     "@nuxt/kit": "4.6.2",
-    "@nuxtjs/mcp-toolkit": "^0.22.0",
+    "@nuxtjs/mcp-toolkit": "^0.24.3",
     "@takumi-rs/core": "catalog:nuxt",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -111,7 +111,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "nuxt": "catalog:nuxt-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/agent": {
