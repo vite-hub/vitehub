@@ -54,7 +54,7 @@ ViteHub renamed the Queue and Workflow verbs so that each one says what it does.
 
 `deferWorkflow()` and the `defer()` method of a Workflow handle now return nothing, like `deferQueue()`. Where the code reads the result, for example to store the run id, the codemod calls `startWorkflow()` or `.start()` instead, which return the run as `deferWorkflow()` did. Where the code only awaits the call as a statement, it removes the `await`.
 
-The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their `@vite-hub/*` forms, also namespace imports, re-exports, and `<script>` blocks of `.vue` files. Re-exports keep their local public names as aliases so consumers of an application's barrel keep working. The report lists what it cannot rename: object keys and strings with an old name, for example in a `vi.mock()` factory, and Workflow handles that a file exports, because other files call their methods.
+The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their `@vite-hub/*` forms, also namespace imports, re-exports, and `<script>` blocks of `.vue` files. Named re-exports keep their local public names as aliases so consumers of an application's barrel keep working. Star and namespace re-exports need manual changes in their consumers, which the report lists. The report also lists object keys and strings with an old name, for example in a `vi.mock()` factory, and Workflow handles that a file exports, because other files call their methods. Detection includes migrations that only need manual follow-up.
 
 ```sh
 npx @vite-hub/codemods queue-workflow-verbs [dir] [--dry-run]

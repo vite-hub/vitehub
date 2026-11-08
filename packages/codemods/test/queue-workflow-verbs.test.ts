@@ -101,6 +101,40 @@ describe("queue-workflow-verbs", () => {
     await expect(codemod.detect({ cwd })).resolves.toBeUndefined()
   })
 
+  it("detects an exported Workflow handle that needs a manual consumer migration", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
+    directories.push(cwd)
+    await writeFile(join(cwd, "workflow.ts"), 'import { createWorkflow } from "vite-hub/workflow"; export const handle = createWorkflow("welcome")')
+    await writeFile(join(cwd, "consumer.ts"), 'import { handle } from "./workflow"; await handle.run()')
+    const { result } = await runCodemod("queue-workflow-verbs", { cwd, dryRun: true })
+    expect(result.edits).toEqual([])
+    expect(result.followUps).toEqual([expect.objectContaining({ file: "workflow.ts", message: expect.stringContaining("where other files call it") })])
+    const codemod = codemods.find(entry => entry.name === "queue-workflow-verbs")!
+    await expect(codemod.detect({ cwd })).resolves.toEqual({ reason: "workflow.ts needs a manual Queue or Workflow migration" })
+  })
+
+  it.each(["vite-hub/queue", "@vite-hub/queue", "vite-hub/workflow", "@vite-hub/workflow"])("reports indirect re-exports from %s and detects their consumers' migration", async (module) => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
+    directories.push(cwd)
+    const queue = module.endsWith("/queue")
+    const oldName = queue ? "runQueue" : "runWorkflow"
+    const newName = queue ? "sendQueue" : "startWorkflow"
+    const barrel = `export * from "${module}"\nexport * as primitive from "${module}"\n`
+    const consumer = `import { ${oldName}, primitive } from "./barrel"; ${oldName}("welcome"); primitive.${oldName}("welcome")`
+    await writeFile(join(cwd, "barrel.ts"), barrel)
+    await writeFile(join(cwd, "consumer.ts"), consumer)
+    const { result } = await runCodemod("queue-workflow-verbs", { cwd, dryRun: true })
+    expect(result.edits).toEqual([])
+    expect(result.followUps).toEqual([1, 2].map(line => expect.objectContaining({
+      file: "barrel.ts", line, message: expect.stringContaining("barrel's consumers"),
+    })))
+    for (const followUp of result.followUps) expect(followUp.message).toContain(newName)
+    expect(await readFile(join(cwd, "barrel.ts"), "utf8")).toBe(barrel)
+    expect(await readFile(join(cwd, "consumer.ts"), "utf8")).toBe(consumer)
+    const codemod = codemods.find(entry => entry.name === "queue-workflow-verbs")!
+    await expect(codemod.detect({ cwd })).resolves.toEqual({ reason: "barrel.ts needs a manual Queue or Workflow migration" })
+  })
+
   it("changes nothing on a second run", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-verbs-"))
     directories.push(cwd)

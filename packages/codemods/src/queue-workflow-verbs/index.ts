@@ -257,9 +257,15 @@ function rewriteImports(context: FileContext): Bindings {
 
   // Keep the barrel's public names so local consumers can keep importing them.
   for (const statement of program.program.body) {
-    if (statement.type !== "ExportNamedDeclaration" || !statement.source) continue
+    if ((statement.type !== "ExportNamedDeclaration" && statement.type !== "ExportAllDeclaration") || !statement.source) continue
     const primitive = primitiveModules.get(statement.source.value)
     if (!primitive) continue
+    if (statement.type === "ExportAllDeclaration" || statement.specifiers.some(specifier => specifier.type === "ExportNamespaceSpecifier")) {
+      followUp(context, statement, primitive === "queue"
+        ? "This re-exports the Queue module. Update this barrel's consumers to use `sendQueue`, `useQueue`, `dynamicQueue.send()`, and `dynamicQueue.use()` by hand."
+        : "This re-exports the Workflow module. Update this barrel's consumers to use `startWorkflow`, `resumeWorkflow`, `WorkflowStartOptions`, and Workflow handle `.start()`. Use `startWorkflow()` or `.start()` when reading a deferred run.")
+    }
+    if (statement.type === "ExportAllDeclaration") continue
     for (const specifier of statement.specifiers) {
       if (specifier.type !== "ExportSpecifier") continue
       const name = keyName(specifier.local)
@@ -501,7 +507,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     ...(readDefers ? [`${readDefers} \`deferWorkflow()\` call(s) read the run, so they now call \`startWorkflow()\`, which returns it.`] : []),
   ]
   return {
-    summary: edits.length ? `renamed the Queue and Workflow verbs in ${edits.length} file(s)` : "found no Queue or Workflow verb to rename",
+    summary: edits.length ? `renamed the Queue and Workflow verbs in ${edits.length} file(s)` : followUps.length ? "found Queue or Workflow migrations that need manual follow-up" : "found no Queue or Workflow verb to rename",
     edits,
     followUps,
     notes: edits.length ? notes : [],
@@ -520,8 +526,11 @@ async function detect({ cwd }: CodemodContext): Promise<Detection | undefined> {
     if (name) return { reason: `${file} uses \`${name}\`` }
   }
   // Unchanged import names can still need a call-site migration, such as a consumed deferred run.
-  const edit = (await migrate({ cwd })).edits[0]
+  const result = await migrate({ cwd })
+  const edit = result.edits[0]
   if (edit) return { reason: `${edit.path} uses the old Queue or Workflow contract` }
+  const followUp = result.followUps[0]
+  if (followUp) return { reason: `${followUp.file ?? "The application"} needs a manual Queue or Workflow migration` }
   return undefined
 }
 
