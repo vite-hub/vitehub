@@ -77,11 +77,11 @@ describe("Console RPC", () => {
     })
 
     for (let attempt = 0; attempt < 4; attempt++) {
-      await expect(requestConsole("/api/_vitehub/console/sections"))
+      await expect(requestConsole("/_vitehub/api/sections"))
         .resolves.toEqual({ projectName: "Stateless Console", sections: ["agents", "usage"] })
     }
     expect(next).toBe(4)
-    await expect(requestConsole("/api/_vitehub/console/definitions"))
+    await expect(requestConsole("/_vitehub/api/definitions"))
       .rejects.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("section"), name: "ConsoleRequestError", status: 400 })
   })
 

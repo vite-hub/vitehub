@@ -42,7 +42,7 @@ type ConsoleOperationContext = Omit<OperationContext, "access"> & { access: Cons
 
 function legacyEvent(route: string, method: "GET" | "POST", request: LegacyRequest, context: ConsoleOperationContext): ConsoleRequestEvent {
   const id = request.id ? `/${encodeURIComponent(request.id)}` : ""
-  const url = new URL(`/api/_vitehub/console/${route}${id}`, "http://vitehub.local")
+  const url = new URL(`/_vitehub/api/${route}${id}`, "http://vitehub.local")
   for (const [key, value] of Object.entries(request.query ?? {})) {
     if (value === undefined) continue
     if (Array.isArray(value)) value.forEach(entry => url.searchParams.append(key, entry))
@@ -298,6 +298,16 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
+const projectGet = defineConsoleOperation({
+  cli: { command: "info", namespace: "project" },
+  description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "project.get",
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  section: false,
+})
+
 const searchQuery = defineConsoleOperation({
   cli: { namespace: "search", command: "query", positional: ["search"] },
   description: "Search the Agent Invocations of the Console.",
@@ -386,6 +396,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  projectGet,
   searchQuery,
   sectionsList,
   skillsInspect,

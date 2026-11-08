@@ -31,7 +31,7 @@ class H3V1Event {
   }
 }
 
-const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }, { authorize: false, index: 1, method: "GET", route: "/api/_vitehub/console/**" }]
+const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }, { authorize: false, index: 1, method: "GET", route: "/_vitehub/api/status" }]
 
 function appAccess() {
   const requireAuthAccessRoutes = vi.fn(async () => undefined)
@@ -53,11 +53,12 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     expect("url" in rpc).toBe(false)
     await access.check(rpc)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(rpc, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
-    await access.check(new H3V1Event("/api/_vitehub/console/status"))
-    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [1], undefined, [], { redirectToSignIn: false, reuse: true })
-    // A route with a method matches only that method; any other Console path needs a session.
-    await access.check(new H3V1Event("/api/_vitehub/console/status", { method: "POST" }))
-    expect(requireSession).toHaveBeenCalledTimes(1)
+    await access.check(new H3V1Event("/_vitehub/api/status"))
+    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [0, 1], undefined, [0], { redirectToSignIn: false, reuse: true })
+    // A route with a method matches only that method.
+    await access.check(new H3V1Event("/_vitehub/api/status", { method: "POST" }))
+    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [0], undefined, [0], { redirectToSignIn: false, reuse: true })
+    expect(requireSession).not.toHaveBeenCalled()
   })
 
   it("reads the Console user from the headers of the Node request", async () => {
@@ -83,16 +84,16 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     expect(verify).not.toHaveBeenCalled()
     expect((await handleCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub/rpc/__call", { method: "POST" }), settings, "/", verify))?.status).toBe(401)
     expect(await handleCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub", { headers }), settings, "/", verify)).toBeUndefined()
-    const identity = await handleCloudflareAccessConsoleRequest(new H3V1Event("/portal/api/_vitehub/console/auth/identity", { headers }), settings, "/portal/", verify)
+    const identity = await handleCloudflareAccessConsoleRequest(new H3V1Event("/portal/_vitehub/api/auth/identity", { headers }), settings, "/portal/", verify)
     expect(await identity?.json()).toMatchObject({ email: "maintainer@example.com" })
-    expect(await verifyCloudflareAccessConsoleRequest(new H3V1Event("/api/_vitehub/console/status"), settings, verify)).toMatchObject({ status: 401 })
+    expect(await verifyCloudflareAccessConsoleRequest(new H3V1Event("/_vitehub/api/status"), settings, verify)).toMatchObject({ status: 401 })
   })
 
   it("generates a Console plugin that does not read event.url", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-nuxt4-"))
     try {
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth" })
+      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, { check: { appRoutes: routes }, mode: "auth" })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("vitehubCreateConsoleAppAuthAccess({ routes:")
       expect(generated).not.toContain("event.url")

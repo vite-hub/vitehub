@@ -31,20 +31,20 @@ describe("Console status", () => {
     installConsoleAgentDefinitions([{ definition, fallbackName: "bot" }], { invocations })
 
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
-    expect(await statusHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/status?agent=bot" }))).toEqual({ agents: [ready], observability: null })
+    expect(await statusHandler(consoleEvent({ url: "http://localhost/_vitehub/api/status?agent=bot" }))).toEqual({ agents: [ready], observability: null })
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
-    await expect(agentInvocationsHandler(consoleEvent({ context: { params: { agent: "bot" } }, body: {}, url: "http://localhost/api/_vitehub/console/agents/bot/invocations" }))).rejects.toMatchObject({ statusCode: 404 })
+    await expect(agentInvocationsHandler(consoleEvent({ context: { params: { agent: "bot" } }, body: {}, url: "http://localhost/_vitehub/api/agents/bot/invocations" }))).rejects.toMatchObject({ statusCode: 404 })
     expect(definition.resolve).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
   })
 
   it("includes HTTP status messages for invalid and unavailable status requests", async () => {
     const invalid = "a".repeat(513)
-    await expect(statusHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/status?agent=${invalid}` }))).rejects.toMatchObject({
+    await expect(statusHandler(consoleEvent({ url: `http://localhost/_vitehub/api/status?agent=${invalid}` }))).rejects.toMatchObject({
       statusCode: 400,
       statusMessage: "Invalid Agent name.",
     })
-    await expect(statusHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/status?agent=missing" }))).rejects.toMatchObject({
+    await expect(statusHandler(consoleEvent({ url: "http://localhost/_vitehub/api/status?agent=missing" }))).rejects.toMatchObject({
       statusCode: 404,
       statusMessage: "Agent status is unavailable.",
     })
@@ -53,11 +53,11 @@ describe("Console status", () => {
     const nitroRoot = dirname(require.resolve("nitro/package.json"))
     const { default: onError }: { default: NonNullable<H3Config["onError"]> } = await import(pathToFileURL(join(nitroRoot, "dist/runtime/internal/error/prod.mjs")).href)
     // The Fetchable route answers with its own Response, so Nitro's production error serializer does not run.
-    const app = new H3({ onError }).get("/api/_vitehub/console/status", statusRoute)
-    const invalidResponse = await app.request(`/api/_vitehub/console/status?agent=${invalid}`)
+    const app = new H3({ onError }).get("/_vitehub/api/status", statusRoute)
+    const invalidResponse = await app.request(`/_vitehub/api/status?agent=${invalid}`)
     expect(invalidResponse.status).toBe(400)
     await expect(invalidResponse.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", ok: false, status: 400, message: "Invalid Agent name." })
-    const unavailableResponse = await app.request("/api/_vitehub/console/status?agent=missing")
+    const unavailableResponse = await app.request("/_vitehub/api/status?agent=missing")
     expect(unavailableResponse.status).toBe(404)
     await expect(unavailableResponse.json()).resolves.toMatchObject({ code: "CONSOLE_NOT_FOUND", ok: false, status: 404, message: "Agent status is unavailable." })
   })
@@ -68,7 +68,7 @@ describe("Console status", () => {
     Object.assign(globalThis, { [slot]: { capability: { id: "observability" }, status: () => status } })
     try {
       installConsoleAgentDefinitions([{ definition: agent(vi.fn(async () => ready)), fallbackName: "bot" }], { invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }) })
-      expect(await statusHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/status?agent=bot" }))).toEqual({ agents: [ready], observability: status })
+      expect(await statusHandler(consoleEvent({ url: "http://localhost/_vitehub/api/status?agent=bot" }))).toEqual({ agents: [ready], observability: status })
     }
     finally {
       Reflect.deleteProperty(globalThis, slot)

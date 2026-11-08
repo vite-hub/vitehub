@@ -1,8 +1,6 @@
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { join } from "node:path"
 
 import { H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -43,7 +41,7 @@ describe("Blob response transforms", () => {
   it("serves normal objects with private cache headers and their stored content type", async () => {
     const request = event()
     const [error, body] = await storage.serve(request, "private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public:private-camera-data")
     expect(request.res.headers.get("content-type")).toBe("text/plain")
     expect(request.res.headers.get("cache-control")).toBe("private, no-cache")
@@ -52,7 +50,7 @@ describe("Blob response transforms", () => {
   it("sets the headers option and removes it when the object is not served", async () => {
     const served = event()
     const [error] = await storage.serve(served, "private/original", { headers: { "X-Frame-Options": "DENY" } })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(served.res.headers.get("x-frame-options")).toBe("DENY")
 
     const missing = event()
@@ -61,19 +59,13 @@ describe("Blob response transforms", () => {
     expect(missing.res.headers.has("x-frame-options")).toBe(false)
   })
 
-  it("serves Nuxt H3 v1 requests with cache validators, HEAD, and byte ranges", async () => {
-    const h3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
-    const { createApp, toWebHandler } = await import(pathToFileURL(h3).href) as {
-      createApp: () => { use: (path: string, handler: (event: Parameters<BlobStorage["serve"]>[0]) => unknown) => void }
-      toWebHandler: (app: unknown) => (request: Request) => Promise<Response>
-    }
-    const app = createApp()
-    app.use("/photo", async (event) => {
+  it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
+    const app = new H3().all("/photo", async (event) => {
       const [error, body] = await storage.serve(event, "private/original")
       if (error) throw error
-      return body
+      return body ?? new Response(null, { status: 304 })
     })
-    const fetch = toWebHandler(app)
+    const fetch = (request: Request) => app.fetch(request)
     const response = await fetch(new Request("https://example.test/photo"))
     expect(response.status).toBe(200)
     expect(await response.text()).toBe("public:private-camera-data")
@@ -133,7 +125,7 @@ describe("Blob response transforms", () => {
     const host = (req: Request) => ({ "~standard": { vendor: "host", req, res: { headers: new Headers(), status: 200 } } })
     const request = host(new Request("https://example.test/photo"))
     const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     const conditional = host(new Request("https://example.test/photo", { headers: { "if-none-match": request["~standard"].res.headers.get("etag")! } }))
     const [, response] = await storage.serve(conditional, "private/original", options)
@@ -168,7 +160,7 @@ describe("Blob response transforms", () => {
     const get = vi.spyOn(driver, "get")
     const request = event(undefined, "HEAD")
     const [error, body] = await storage.serve(request, "private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     await body?.cancel()
     expect(request.res.headers.get("content-length")).toBe("26")
     expect(request.res.headers.get("content-type")).toBe("text/plain")
@@ -178,7 +170,7 @@ describe("Blob response transforms", () => {
   it("uses the derived size and type for transformed HEAD responses", async () => {
     const request = event(undefined, "HEAD")
     const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     await body?.cancel()
     expect(request.res.headers.get("content-length")).toBe("6")
     expect(request.res.headers.get("content-type")).toBe("text/plain")
@@ -220,7 +212,7 @@ describe("Blob response transforms", () => {
     for (let count = 0; count < 2; count++) {
       const request = event()
       const [error, body] = await storage.serve(request, "private/original", options)
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await new Response(body).text()).toBe("public")
       expect(request.res.headers.get("content-length")).toBe("6")
       expect(request.res.headers.get("content-type")).toBe("text/plain")
@@ -251,7 +243,7 @@ describe("Blob response transforms", () => {
     }
     expect.soft(run).toHaveBeenCalledOnce()
     const [error, variants] = await storage.media.variants("private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(variants).toHaveLength(1)
     expect(variants?.[0]).toMatchObject({ contentType: "text/plain", key, size: 6 })
   })
@@ -265,7 +257,7 @@ describe("Blob response transforms", () => {
     const [, variants] = await storage.media.variants("private/original")
     expect(variants?.[0]?.size).toBe(new TextEncoder().encode(damaged).length)
     const [error, body] = await storage.serve(event(), "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(2)
   })
@@ -359,7 +351,7 @@ describe("Blob response transforms", () => {
     for (const method of ["GET", "HEAD"]) {
       const request = event({ "if-none-match": `"other", W/${etag}` }, method)
       const [error, body] = await storage.serve(request, "private/original", options)
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(body).toBeNull()
       expect(request.res.status).toBe(304)
     }
@@ -423,7 +415,7 @@ describe("Blob response transforms", () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     for (let count = 0; count < 2; count++) {
       const [error, body] = await storage.serve(event(), "private/original", options)
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await new Response(body).text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(2)
@@ -539,7 +531,7 @@ describe("Blob response transforms", () => {
   it("shares an in-flight transformation between concurrent requests", async () => {
     const results = await Promise.all(Array.from({ length: 4 }, () => storage.serve(event(), "private/original", options)))
     for (const [error, body] of results) {
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await new Response(body).text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(1)
@@ -601,7 +593,7 @@ describe("Blob response transforms", () => {
       cacheControl: "public, max-age=300",
       transform: { key: "failing", run() { throw new Error("private transform detail") } },
     })
-    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", details: { operation: "serve" } })
+    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", why: expect.stringMatching(/^The Blob serve operation failed on the ".+" store\.$/) })
     expect(error?.message).not.toContain("private transform detail")
     expect(request.res.headers.get("cache-control")).toBeNull()
     expect(request.res.headers.get("etag")).toBeNull()
@@ -641,7 +633,7 @@ describe("Blob response transforms", () => {
 
     const request = event()
     const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(1)
     expect(request.res.headers.get("cache-control")).toBe(options.cacheControl)
@@ -652,7 +644,7 @@ describe("Blob response transforms", () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "put").mockRejectedValue(new Error("storage unavailable"))
     const [error, body] = await storage.serve(event(), "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     expect(warning).toHaveBeenCalledOnce()
   })
@@ -662,7 +654,7 @@ describe("Blob response transforms", () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "list").mockRejectedValue(new Error("cache listing unavailable"))
     const [error] = await storage.del("private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await driver.head("private/original")).toBeNull()
     expect(warning).toHaveBeenCalledOnce()
   })
@@ -680,7 +672,7 @@ describe("Blob byte ranges", () => {
   async function serve(headers?: Record<string, string>, method?: string, options?: Parameters<BlobStorage["serve"]>[2]) {
     const request = event(headers, method)
     const [error, body] = await storage.serve(request, "media/video.mp4", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     return { request, text: await new Response(body).text() }
   }
 
@@ -849,7 +841,7 @@ describe("Blob streams on an R2 binding", () => {
     const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }))
     const event = new H3Event(new Request("https://example.test/video", { headers }))
     const [error, body] = await storage.serve(event, "media/video.mp4")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     return { event, text: await new Response(body).text() }
   }
 

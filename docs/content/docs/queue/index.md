@@ -8,7 +8,7 @@ icon: i-lucide-list-ordered
 ---
 
 ::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Cloudflare, Vercel"}
-  :::product-files
+  :::product-files{feature="queue"}
   ```ts [server/api/signup.post.ts]
   import { defineEventHandler, readBody } from 'h3'
   import { runQueue } from 'vite-hub/queue'
@@ -55,8 +55,11 @@ icon: i-lucide-list-ordered
 
   export default defineConfig({
     plugins: [
-      // Jobs go to Cloudflare Queues
-      vitehub({ preset: 'cloudflare', queue: true }),
+      vitehub({
+        preset: 'cloudflare',
+        // On Cloudflare, jobs go to Cloudflare Queues
+        queue: true,
+      }),
       nitro(),
     ],
   })

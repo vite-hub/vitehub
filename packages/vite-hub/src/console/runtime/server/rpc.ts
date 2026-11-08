@@ -4,8 +4,9 @@ import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { assertLoopbackWithoutSignIn } from "./loopback.ts"
-import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
+import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { consoleOperationRegistry } from "./operation-contributions.ts"
+import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 import { uploadConsoleMedia } from "./media.ts"
 import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
@@ -34,8 +35,6 @@ interface ConsoleRpcContext {
   env?: Record<string, unknown>
   /** The server event of the request, for operations that read the app's own session. */
   event?: unknown
-  /** The address of the peer, when the host exposes it. */
-  remoteAddress?: string
   waitUntil?: (task: Promise<unknown>) => void
 }
 
@@ -136,8 +135,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
-  assertLoopbackWithoutSignIn(request, url, context)
+  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginBearerCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
@@ -202,9 +200,9 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
 }
 
 /** `<base>/_vitehub/rpc/**`: one Console operation for each request. Each operation checks its own section. */
-const consoleRpcRoute: ConsoleRoute = consoleRoute(withConsoleAccess((event, access) => {
+const consoleRpcRoute: ConsoleRoute = consoleRoute(withConsoleCors(withConsoleAccess((event, access) => {
   const { req, runtime, waitUntil } = getStandardContext(event)
-  return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, remoteAddress: runtime?.clientAddress, waitUntil })
-}, { anySection: true }))
+  return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, waitUntil })
+}, { anySection: true })))
 
 export default consoleRpcRoute

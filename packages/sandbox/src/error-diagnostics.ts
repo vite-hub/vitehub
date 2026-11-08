@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/sandbox/diagnostics",
   codes: {
     // Retired: SANDBOX_R0001 to SANDBOX_R0019 belonged to the removed ascii and cloudflare-computer Sandbox runtimes. Do not reuse these codes.
     SANDBOX_R0001: dynamicError,
@@ -97,7 +97,11 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_R0085: dynamicError,
     SANDBOX_R0086: dynamicError,
     SANDBOX_R0087: dynamicError,
-    SANDBOX_R0088: dynamicError,
+    SANDBOX_R0088: {
+      why: ({ message }: { message: string; retryable: boolean | undefined }) => message,
+      // The Cloudflare host flag. ViteHub does not retry a request that can run twice, so the caller decides.
+      data: ({ retryable }: { message: string; retryable: boolean | undefined }) => ({ retryable }),
+    },
     SANDBOX_R0089: dynamicError,
     SANDBOX_R0090: dynamicError,
     SANDBOX_R0091: dynamicError,

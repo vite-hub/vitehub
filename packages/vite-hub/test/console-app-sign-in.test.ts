@@ -31,7 +31,7 @@ afterEach(() => {
 async function setup(mount = "", providers = true, access: { authorize?: () => boolean, consoleAuthorize?: ConsoleAuthorize, password?: false, signUp?: false } = {}) {
   const database = new DatabaseSync(":memory:")
   databases.push(database)
-  const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
+  const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/_vitehub/api/**`, authorize: true }]
   const definition = defineAuth(() => ({
     baseURL: origin,
     basePath: `${mount}/api/auth`,

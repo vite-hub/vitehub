@@ -19,7 +19,7 @@ Just Bash starts in `/workspace` when you omit `cwd`. A provider `cwd` sets the 
 
 `executionLimits` and `executionLimitProfile` pass through to the Just Bash interpreter. They bound interpreter work that a timeout alone can't stop cheaply: loop iterations, command count, call depth, jq/awk/sed iterations, file traversal, and retained bytes. `executionLimitProfile: "hardened"` selects Just Bash's stricter preset, and `executionLimits` values override it. Resource-limit failures exit with code 126 and name the limit in stderr; execution deadlines exit with code 124. The provider copies both options at creation.
 
-```ts
+```ts fragment
 const provider = createJustBashProvider({
   fs,
   executionLimitProfile: "hardened",

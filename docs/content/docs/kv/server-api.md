@@ -22,6 +22,7 @@ All KV driver, store, module, and storage types are exported from `@vite-hub/kv`
 Use the `kv` Runtime Helper from server code.
 
 ```ts [server/api/settings.put.ts]
+import { defineEventHandler, readBody } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
@@ -32,6 +33,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/settings.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
@@ -54,9 +56,31 @@ export async function savePreferences(tenantId: string, value: unknown) {
 }
 ```
 
+### Read-only handles
+
+Pass `{ mode: 'read' }` to `kv.store()` when code only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. It has no `set()`, `setIfAbsent()`, `del()`, `clear()`, `increment()`, or `getAndDelete()`, so calling them is a type error, and they are absent at runtime. The Default KV Store is `kv.store('default', { mode: 'read' })`.
+
+```ts [server/api/flags.get.ts]
+import { defineEventHandler } from 'h3'
+import { kv } from '@vite-hub/kv'
+
+const flags = kv.store('default', { mode: 'read' })
+
+export default defineEventHandler(async () => {
+  const [error, value] = await flags.get('flags')
+  if (error) throw error
+  // flags.set() is a type error.
+  return value
+})
+```
+
+`mode` defaults to `'write'`. Another value throws [`KV_INVALID_STORE_MODE`](/docs/kv/limits-and-errors#kv_invalid_store_mode).
+
+The mode limits this API, not the host. The Cloudflare KV binding, the Upstash token, and the files of `fs-lite` keep full access, and the full `kv` export stays importable. It is not a security boundary against code that reads the binding or imports `kv` directly. Use it to show intent and to keep write calls out of code that only reads.
+
 Upstash provides atomic single-use reads and counters:
 
-```ts [server/verification.ts]
+```ts [server/verification.ts] fragment
 const [consumeError, token] = await kv.getAndDelete('verification:token')
 if (consumeError) throw consumeError
 
@@ -66,7 +90,7 @@ if (incrementError) throw incrementError
 
 Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes, and nonces. It writes the value only when the key has no value, in one atomic step, and returns `true` to the one call that wrote it:
 
-```ts [server/api/uploads/[ticket].put.ts]
+```ts [server/api/uploads/[ticket].put.ts] fragment
 const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
 if (claimError) throw claimError
 if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket already used' })
@@ -99,17 +123,17 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |
-| `kv.store(name)` | Selects a named KV Store. |
+| `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Every async method returns `[error, value]`. The type of `error.code` lists the codes that the method can return, and `error.why`, `error.fix`, and `error.docs` explain each failure. A provider failure has the code `KV_OPERATION_FAILED` and keeps the provider error in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Configuration errors, for example an unknown named store, throw. See [Limits and errors](/docs/kv/limits-and-errors) for each code.
 
-Keys are strings such as `users:alice` or `users/alice`, where `/` and `:` both separate segments. A key must have at least one segment and no `.` or `..` segment: `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`.
+Keys are strings such as `users:alice` or `users/alice`, where `/` and `:` both separate segments. A key must have at least one segment and no `.` or `..` segment: `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`. On Cloudflare KV, a key above 512 bytes in UTF-8 returns `KV_KEY_TOO_LONG`. See [Limits](/docs/kv/limits-and-errors#limits).
 
 ## Typed reads
 
 `kv.get()` parses a stored string as JSON by default, so a value written as the string `'123'` reads back as the number `123`, and `'true'` as `true`. Pass `type` when you need the value in a fixed form:
 
-```ts [server/invite.ts]
+```ts [server/invite.ts] fragment
 const [error, code] = await kv.get('invite:alice', { type: 'text' })
 // code is the string '123456', not the number 123456
 ```
@@ -130,7 +154,7 @@ After stopping new application work, call `disposeKVStores()` from your shutdown
 
 For Nitro, register the hook in a server plugin:
 
-```ts [server/plugins/kv-cleanup.ts]
+```ts [server/plugins/kv-cleanup.ts] fragment
 import { disposeKVStores } from '@vite-hub/kv'
 
 export default defineNitroPlugin((nitroApp) => {

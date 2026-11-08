@@ -123,6 +123,7 @@ export interface OperationDefinition<Input, Output> {
   cli?: {
     /** Defaults: namespace = section, command = verb. */
     namespace?: string
+    /** A space groups commands: `jobs list` and `jobs show` run as `vitehub <namespace> jobs list` and `jobs show`. */
     command?: string
     /** Input keys read from positional arguments, in order. */
     positional?: string[]
@@ -213,8 +214,11 @@ function checkDefinition(definition: unknown): void {
 
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
+/** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
+export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "check", "plan", "apply", "host", "explain", "link", "unlink", "deploy", "deployments"]
+
 /** CLI namespaces owned by built-in commands. */
-export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision"]
+export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", ...setupCommandNames]
 
 /** Input keys that the generated CLI commands read themselves. */
 export const reservedOperationFlags: readonly string[] = ["input", "json", "timeout", "url", "yes"]
@@ -383,28 +387,6 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
   return { get: name => byName.get(name)?.operation, list: () => [...operations] }
 }
 
-/** Where a registry is installed for code that has no import path to it, such as agent capabilities. */
-const registryKey: unique symbol = Symbol.for("vitehub.operations.registry")
-const registryLoaderKey: unique symbol = Symbol.for("vitehub.operations.registry-loader")
-const scope = globalThis as typeof globalThis & { [registryKey]?: OperationRegistry, [registryLoaderKey]?: () => Promise<void> }
-
-export function installOperationRegistry(registry: OperationRegistry): void {
-  scope[registryKey] = registry
-}
-
-/**
- * Install the function that installs the registry on first use. The Console installs its operations only when the
- * first Console request or agent tool needs them, so the app does not load every primitive's operations at start.
- */
-export function installOperationRegistryLoader(load: (() => Promise<void>) | undefined): void {
-  scope[registryLoaderKey] = load
-}
-
-export async function installedOperationRegistry(): Promise<OperationRegistry | undefined> {
-  await scope[registryLoaderKey]?.()
-  return scope[registryKey]
-}
-
 /**
  * What `console.authorize` allows for a person. Agents and MCP have no browser request, so the Console installs this
  * resolver, and it calls `authorize` with a request that carries no headers. Without `console.authorize` it returns
@@ -412,16 +394,7 @@ export async function installedOperationRegistry(): Promise<OperationRegistry | 
  */
 export type OperationSectionResolver = (call: { actor?: OperationActor, user: OperationUser | null }) => Promise<"all" | readonly string[]>
 
-const sectionResolverKey: unique symbol = Symbol.for("vitehub.operations.section-resolver")
-const resolverScope = globalThis as typeof globalThis & { [sectionResolverKey]?: OperationSectionResolver }
-
-export function installOperationSectionResolver(resolver: OperationSectionResolver | undefined): void {
-  resolverScope[sectionResolverKey] = resolver
-}
-
-export function installedOperationSectionResolver(): OperationSectionResolver | undefined {
-  return resolverScope[sectionResolverKey]
-}
+export { installOperationRegistry, installOperationRegistryLoader, installOperationSectionResolver, installedOperationRegistry, installedOperationSectionResolver } from "./operation-registry.ts"
 
 /** JSON Schema of the input, for CLI flags and MCP tool schemas. Falls back to an open object. */
 export function operationInputJsonSchema(operation: AnyOperation): Record<string, unknown> {

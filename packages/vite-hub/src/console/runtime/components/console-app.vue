@@ -51,6 +51,7 @@ import type { ConsoleSessionRerun } from "./console-session-actions.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
+import { formatConsoleUsageCost } from "./console-usage-model";
 import { refreshCapabilityFilteredInvocations, useConsoleSessionBootstrap } from "./console-session-bootstrap";
 import "./console-session.css";
 import "./invocation/invocation.css";
@@ -63,7 +64,6 @@ const props = defineProps<{
   capabilitiesBase: string;
   definitionsBase: string;
   kvBase: string;
-  hostBase: string;
   searchBase: string;
   sectionsBase: string;
   usageBase: string;
@@ -286,7 +286,7 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     agent: invocation.agentName,
     channel: invocation.channelId ? invocation.origin || invocation.channelId : undefined,
     context:
-      [invocationCostDisplay(invocation), agentInvocationContext(invocation)]
+      [invocationCostDisplay(invocation), invocationListContext(invocation)]
         .filter((value): value is string => Boolean(value))
         .join(" · ") || undefined,
     id: invocation.id,
@@ -562,9 +562,16 @@ function invocationUsage(value: unknown): Record<string, unknown> | undefined {
   return record(record(value)?.usage);
 }
 
+// A channel thread ID such as `teams:19:…` repeats what the channel icon shows, so the row leaves it out.
+function invocationListContext(invocation: Parameters<typeof agentInvocationContext>[0]): string | undefined {
+  const context = agentInvocationContext(invocation);
+  return invocation.channelId && context === invocation.threadId ? undefined : context;
+}
+
 function invocationCostDisplay(value: unknown): string | undefined {
   const cost = record(invocationUsage(value)?.cost);
-  return stringValue(cost?.display);
+  const usd = stringValue(cost?.usd);
+  return usd ? formatConsoleUsageCost(usd, cost?.estimated === true) : stringValue(cost?.display);
 }
 
 function invocationTokenDisplay(value: unknown): string | undefined {
@@ -994,7 +1001,7 @@ watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
   selectedDetailStatus.value = undefined;
   const identity = selectedInvocationId.value
-    ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
+    ? `${props.apiBase}/${selectedInvocationId.value}`
     : undefined;
   if (identity !== inspectorWorkspaceIdentity.value) {
     // A new session's URL omits the file. Back and Forward can restore one from the destination session.
@@ -1356,7 +1363,7 @@ onBeforeUnmount(() => {
             class="h-full min-h-0 overflow-hidden"
           >
             <ConsoleSessionInspector
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
+                :workspace-base="apiBase"
               v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
@@ -1456,7 +1463,7 @@ onBeforeUnmount(() => {
             </template>
             <template #details>
               <ConsoleSessionInspector
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
+                :workspace-base="apiBase"
                 v-if="invocationView"
                 :invocation="invocationView"
                 v-model:tab="inspectorTab"
@@ -1573,7 +1580,7 @@ onBeforeUnmount(() => {
             >
               <template #content>
                 <ConsoleSessionInspector
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
+                :workspace-base="apiBase"
                   :invocation="invocationView"
                   :maximizable="false"
                   v-model:tab="inspectorTab"

@@ -12,6 +12,7 @@ import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
+import { eventClientAddress, setRequestClientAddress, withClientAddress } from "./client-address.ts"
 import { createAuthAccessRouteMatcher } from "./runtime/server.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
@@ -209,6 +210,9 @@ function isAbortSignalLike(value: unknown): value is AbortSignal {
 
 type HeadersInput = ConstructorParameters<typeof Headers>[0]
 
+/** Where Better Auth returns after one sign-in that a guard starts. */
+type AuthSignInURLs = Pick<AuthSignInConfiguration, "callbackURL" | "errorCallbackURL">
+
 /**
  * The Headers init of a host request. A Headers-like object without `Symbol.iterator`, from another
  * Fetch implementation, gives its fields through `entries()`, not through its own properties.
@@ -266,7 +270,7 @@ export function createBetterAuthOptions(
 function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthBetterAuthRuntimeOptions): TAuth {
   try {
     // SAFETY: callers pass the options of the Auth Definition that TAuth is inferred from.
-    return withSessionMarker(betterAuth(options)) as TAuth
+    return withSessionMarker(withClientAddress(betterAuth(options))) as TAuth
   }
   catch (cause) {
     throwAuthenticationProviderError(cause, "get-auth-for-request")
@@ -277,7 +281,7 @@ export function createAuth(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth {
-  return withSessionMarker(betterAuth(createBetterAuthOptions(definition, runtimeOptions))) as ViteHubAuth
+  return withSessionMarker(withClientAddress(betterAuth(createBetterAuthOptions(definition, runtimeOptions)))) as ViteHubAuth
 }
 
 export function createAuthForRequest(
@@ -288,7 +292,7 @@ export function createAuthForRequest(
 ): ViteHubAuth {
 
 
-  return withSessionMarker(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)) as ViteHubAuth}
+  return withSessionMarker(withClientAddress(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions))) as ViteHubAuth}
 
 export function handleAuthRequest(
   definition: AuthDefinition,
@@ -297,7 +301,9 @@ export function handleAuthRequest(
   event: ViteHubContext | undefined = authRequestEvent(input),
 ): Promise<Response> {
   const request = unwrapAuthRequest(input)
-  return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+  // Better Auth limits requests per client IP. It gets the address that the host reports for the event.
+  const address = eventClientAddress(event)
+  return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
 }
 
 /** Return a Web Request itself, or the request in the Standard Context of a request event. */
@@ -305,11 +311,14 @@ export function toAuthRequest(input: AuthRequestInput): AuthRequest {
   return unwrapAuthRequest(input)
 }
 
+/** Create a handler whose optional host context supplies the peer address, never a client-sent header. */
 export function createAuthHandler(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth["handler"] {
-  return createAuth(definition, runtimeOptions).handler
+) {
+  const auth = createAuth(definition, runtimeOptions)
+  return (request: Request, host?: { clientAddress?: string }): Promise<Response> =>
+    auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
 export function getAuthForDefinition<TDefinition extends AuthDefinition>(
@@ -676,6 +685,7 @@ async function checkAuthRequest(
   requiredAuthorizeRouteIndexes: number[] = [],
   redirectToSignIn = true,
   resolveIdentity?: AuthAccessIdentityResolver,
+  signInURLs?: AuthSignInURLs,
 ): Promise<AuthCheck> {
   const { auth, options, request, session } = await readRequestSession(input, definition)
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
@@ -719,7 +729,7 @@ async function checkAuthRequest(
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   return reject(signIn
-    ? await createSignInResponse(auth, options, signIn)
+    ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs })
     : Response.json({ error: "Unauthorized." }, { status: 401 }))
 }
 
@@ -864,7 +874,7 @@ async function checkAuthAccessRequest(
   definition: AuthDefinition,
   routeIndexes: number[],
   requiredAuthorizeRouteIndexes: number[],
-  options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean } = {},
+  options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean, signIn?: AuthSignInURLs } = {},
 ): Promise<Response | undefined> {
   const key = JSON.stringify([routeIndexes, requiredAuthorizeRouteIndexes])
   const request = unwrapAuthRequest(input)
@@ -872,7 +882,7 @@ async function checkAuthAccessRequest(
   let accepted = definitions?.get(definition)
   const reusable = accepted?.get(key)
   if (reusable === true || (options.reuse && reusable === false)) return
-  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(request.url).pathname))
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(request.url).pathname), options.signIn)
   if (!response && (options.reuse || options.remember)) {
     if (!definitions) reusableAccessChecks.set(request, definitions = new WeakMap())
     if (!accepted) definitions.set(definition, accepted = new Map())
@@ -909,6 +919,8 @@ export async function requireAuthAccessRoutes(
   requiredAuthorizeRouteIndexes: number[] = [],
   options: {
     redirectToSignIn?: boolean
+    /** Where Better Auth returns after this sign-in, replacing `access.signIn.callbackURL` and `errorCallbackURL`. */
+    signIn?: AuthSignInURLs
     /** Reuse successful checks of these exact rules and Definition on this request, including in app Auth middleware. */
     reuse?: boolean
   } = {},

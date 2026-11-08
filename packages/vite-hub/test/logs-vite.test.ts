@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, utimes } from "node:fs/promises";
 import { resolve } from "node:path";
 import { mergeConfig, resolveConfig } from "vite";
 import type { ConfigEnv, InlineConfig } from "vite";
@@ -57,6 +57,20 @@ describe("Logs host integration", () => {
       const plugin = await readFile(config.nitro.plugins[0]!, "utf8");
       expect(plugin).toContain('app.hooks.hook("evlog:drain", buffer.drain)');
       expect(plugin).not.toContain("initLogger");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("keeps the plugin file untouched when a CLI command loads the same config", async () => {
+    const root = await mkdtemp(resolve(".logs-vite-test-"));
+    try {
+      // The dev server writes the plugin first. A `vitehub` command then loads the same project while the server watches it.
+      const config = await configure(root, true, "serve");
+      const plugin = config.nitro.plugins[0]!;
+      const written = new Date("2020-01-01T00:00:00Z");
+      await utimes(plugin, written, written);
+      await configure(root, true, "serve");
+      expect((await stat(plugin)).mtime).toEqual(written);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

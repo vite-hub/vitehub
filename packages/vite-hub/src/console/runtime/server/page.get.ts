@@ -28,7 +28,7 @@ const page = `<!doctype html>
   </head>
   <body>
     <div id="app"><div class="vitehub-console-boot"><div class="vh-primitive-rail"><div class="vh-primitive-rail__surface"><div class="vh-primitive-rail__header"><span class="vh-primitive-rail__item"><span class="vh-primitive-rail__icon">${consoleMarkSvg}</span></span></div></div></div><div class="vitehub-console-boot__panel"><div class="vitehub-console-boot__header"></div><p role="status" class="vitehub-console-opening">${consoleSpinnerSvg}Opening Console…</p><noscript class="vitehub-console-opening">Enable JavaScript to use the Console.</noscript></div></div></div>
-    <script type="module" src="/api/_vitehub/console/client.js"></script>
+    <script type="module" src="/_vitehub/api/client.js"></script>
     <script type="module" src="/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"></script>
   </body>
 </html>`;
@@ -101,7 +101,7 @@ async function consolePageHandler(event: ConsoleRequestEvent): Promise<Response>
   const mountedPage = page
     .replace('<meta name="robots" content="noindex, nofollow">', robots => `${robots}${signInMeta}${authMeta}`)
     .replaceAll('href="/_vitehub/assets/', `href="${mountBase}/_vitehub/assets/`)
-    .replaceAll('src="/api/_vitehub/console/client.js"', `src="${mountBase}/api/_vitehub/console/client.js"`)
+    .replaceAll('src="/_vitehub/api/client.js"', `src="${mountBase}/_vitehub/api/client.js"`)
     .replaceAll('src="/_vitehub/assets/', `src="${mountBase}/_vitehub/assets/`)
   // On a development server, Nuxt DevTools and Vite DevTools show the Console in a frame of the same origin. The
   // document editor shows pages of this origin in a frame, and its draft view posts a form to them.

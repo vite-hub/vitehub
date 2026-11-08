@@ -1,0 +1,92 @@
+<claude-code-hint v="1" type="plugin" value="vercel@claude-plugins-official" />
+Vercel CLI 65.11.0
+▲ vercel deploy [project-path] [options]
+Deploy your project to Vercel. Use `--temporary` to create a temporary
+deployment without logging in. The `deploy` command is the default command for
+the Vercel CLI, and can be omitted (`vc deploy my-app` equals `vc my-app`). Use
+`--dry` to inspect the detected framework preset and source files without
+deploying.
+
+Options:
+  --archive <FORMAT>           Compress the deployment code into an archive
+                               before uploading it
+  --build-env <KEY=VALUE>      Specify environment variables during build-time
+                               (e.g. `--build-env KEY1=value1 --build-env
+                               KEY2=value2`)
+  --create-if-missing          Create the --project if it doesn't exist yet.
+                               Needed only when --project names a new project
+                               with --yes or in non-interactive mode. Can't be
+                               used with --dry
+  --dry                        Inspect the detected framework preset and source
+                               files without uploading or creating a deployment.
+                               Non-TTY output includes every file as JSON
+  --env <KEY=VALUE>            Specify environment variables during run-time
+                               (e.g. `--env KEY1=value1 --env KEY2=value2`)
+  --environment <ENVIRONMENT>  Environment to deploy to: production, preview, or
+                               a custom environment
+  --force                      Force a new deployment even if nothing has
+                               changed
+  --guidance                   Receive command suggestions once deployment is
+                               complete
+  --json                       Output as JSON
+  --logs                       Print the build logs
+  --meta <KEY=VALUE>           Specify metadata for the deployment (e.g. `--meta
+                               KEY1=value1 --meta KEY2=value2`)
+  --no-wait                    Don't wait for the deployment to finish
+  --prebuilt                   Use in combination with `vc build`. Deploy an
+                               existing build
+  --prod                       Create a production deployment (shorthand for
+                               `--environment production`)
+  -p, --project <NAME_OR_ID>   Project name or ID to deploy to, without linking
+                               this directory (default: linked project). A
+                               missing name is created; with --yes or in
+                               non-interactive mode, add --create-if-missing
+  --regions <REGION>           Set default regions to enable the deployment on
+  --skip-domain                Disable the automatic promotion (aliasing) of the
+                               relevant domains to a new production deployment.
+                               You can use `vc promote` to complete the
+                               domain-assignment process later
+  --temporary                  Create a temporary deployment without logging in
+  --turbo                      Use a Turbo build machine for this deployment
+  --verify                     Load the deployment URL once it is ready and
+                               report the status code, size, and page title,
+                               even with Deployment Protection on (creates the
+                               project's Protection Bypass for Automation secret
+                               if missing). Exits 1 if the load fails. Can't be
+                               used with --no-wait or --dry
+  --with-cache                 Retain build cache when using "--force"
+  -y, --yes                    Use default options to skip all prompts
+
+Global Options: See `vercel --help`
+
+Examples:
+  Deploy the current directory
+    vercel
+
+  Deploy a single HTML file
+    vercel ./index.html
+
+  Deploy a custom path
+    vercel /usr/src/project
+
+  Deploy to production and check that the URL loads
+    vercel deploy --prod --verify
+
+  Deploy with run-time Environment Variables
+    vercel --env NODE_ENV=production
+
+  Deploy with prebuilt outputs
+    vercel build
+    vercel deploy --prebuilt
+
+  Deploy using a Turbo build machine
+    vercel deploy --turbo
+
+  Inspect deployment inputs without deploying
+    vercel deploy --dry
+
+  Get every deployment file as JSON
+    vercel deploy --dry --json
+
+  Write Deployment URL to a file
+    vercel > deployment-url.txt

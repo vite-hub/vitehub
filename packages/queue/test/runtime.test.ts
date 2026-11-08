@@ -40,7 +40,7 @@ const vercelFunctionsMock = vi.hoisted(() => ({
 it("identifies a missing generated Queue Definition", () => {
   expect(missingQueueDefinitionError("welcome")).toMatchObject({
     code: "QUEUE_DEFINITION_NOT_FOUND",
-    docs: "https://vitehub.dev/docs/queue/limits-and-errors#queue_definition_not_found",
+    docs: "https://vitehub.dev/docs/queue/diagnostics/queue_definition_not_found",
     why: "No Queue Definition has the name \"welcome\".",
   })
 })
@@ -534,7 +534,7 @@ describe("cloudflare queue runtime", () => {
     const binding = getCloudflareQueueBindingName("welcome")
     await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
       code: "QUEUE_BINDING_NOT_FOUND",
-      fix: expect.stringContaining("wrangler dev"),
+      fix: expect.stringContaining("generated binding"),
       why: `The Cloudflare queue binding "${binding}" is not in the Worker env.`,
     })
   })

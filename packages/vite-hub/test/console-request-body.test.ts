@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { installStandardContext } from "../src/runtime/h3.ts"
 import { consoleRequestJSON } from "../src/console/runtime/server/request.ts"
-import { nodeResponse } from "./console-event.ts"
+import { nodeResponse, requestEvent } from "./console-event.ts"
 
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -59,6 +59,20 @@ const adapters = {
 }
 
 describe("Console request bodies", () => {
+  it.each([null, { collection: "posts" }])("reads an action body from Standard Context: %j", async (body) => {
+    const req = new Request("http://vitehub.local/_vitehub/api/documents", {
+      method: "POST",
+      body: JSON.stringify(body),
+    })
+
+    await expect(consoleRequestJSON(requestEvent(req))).resolves.toEqual(body)
+  })
+
+  it("rejects a request with no JSON body", async () => {
+    const req = new Request("http://vitehub.local/_vitehub/api/documents", { method: "POST" })
+    await expect(consoleRequestJSON(requestEvent(req))).rejects.toBeInstanceOf(SyntaxError)
+  })
+
   for (const [name, adapter] of Object.entries(adapters)) {
     it(`counts UTF-8 bytes at the exact limit through the ${name} adapter`, async () => {
       const body = JSON.stringify({ text: "café 🌍" })

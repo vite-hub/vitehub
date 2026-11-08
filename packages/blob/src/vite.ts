@@ -9,10 +9,13 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { findExportNames, hasCJSSyntax } from "mlly"
 import { transform } from "esbuild"
+import { normalizeRoute } from "h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
+import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
+import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -21,8 +24,9 @@ import {
 } from "./vite-config.ts"
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
-import type { BlobModuleOptions, BlobServeConfig, ResolvedBlobModuleOptions } from "./types.ts"
+import type { BlobModuleOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ViteHubDefinitionSummary, ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { findMissingFilesSdkPeers } from "./internal/files-sdk-peers.ts"
@@ -47,6 +51,7 @@ export interface BlobVitePluginAPI {
 interface BlobProvisionContributingPlugin {
   vitehub?: {
     cli?: () => Promise<ViteHubCliContributor>
+    inspect?: () => ViteHubInspectionContributor
   }
 }
 
@@ -54,9 +59,31 @@ export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: B
 
 interface InternalBlobModuleOptions {
   importBase?: string
+  /** Whether the effective options still use a preset driver after application config hooks. */
+  presetDriver?: boolean | ((options: BlobModuleOptions | undefined) => boolean)
 }
 
 const mergeNoExternal = createNoExternalAddition(blobPackageName)
+
+function describeDevelopmentStore(store: ResolvedBlobStoreConfig): string {
+  if (store.remote) return "Remote. `vite dev` uses the real store, so writes change real data."
+  if (store.driver === "fs") return `Local. \`vite dev\` uses the \`fs\` driver in ${store.base}.`
+  if (store.driver === "cloudflare-r2" && store.localFallback) {
+    return `Local. \`vite dev\` uses the R2 binding of the dev runner, or the \`fs\` driver in ${store.localFallback.base} when the runner has none.`
+  }
+  return `\`vite dev\` uses the configured \`${store.driver}\` driver.`
+}
+
+/** Lists the Blob stores with what `vite dev` uses for each, for `vitehub inspect definitions --kind blob`. */
+function inspectBlobStores(blob: BlobViteRuntimeConfig["blob"], file: string): ViteHubDefinitionSummary[] {
+  if (!blob) return []
+  return Object.entries(blob.stores ?? { default: blob.store }).map(([name, store]) => ({
+    fields: [{ label: "Development", value: describeDevelopmentStore(store) }],
+    file,
+    name,
+    source: "blob config",
+  }))
+}
 
 function serializeVirtualConfig(config: BlobViteRuntimeConfig): string {
   return [
@@ -171,9 +198,9 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  * `workersModule` is false in `vite dev`. The Nitro dev runner can be Node (`node-worker`), where `cloudflare:workers`
  * does not exist. The workerd runner gives each request its bindings, so dev code reads them from the event.
  */
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, imageModule?: ImageModule): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, imageModule?: ImageModule, requestBodyLimit?: number): string {
   const cloudflareGlobals = cloudflare && workersModule
-  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined]
+  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined, requestBodyLimit === undefined ? undefined : "setBlobRequestBodyLimit"]
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
@@ -189,12 +216,20 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
     imageModule === "photon" ? "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
+    requestBodyLimit === undefined ? undefined : `  setBlobRequestBodyLimit(${requestBodyLimit})`,
     "}",
     "",
   ].filter(line => typeof line === "string").join("\n")
 }
 
 type ImageModule = "photon" | "sharp"
+
+// Under `vitehub()`, the dev server config names the deployment preset in `vitehub.preset`, and Nitro has none.
+function devServerHost(config: ResolvedConfig) {
+  const vitehub: unknown = Reflect.get(config, "vitehub")
+  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "preset") : undefined
+  return getHostingProvider(resolveHost({ hosting, nitro: Reflect.get(config, "nitro") }))
+}
 
 // Keep sharp's existing node_modules-based auto detection independent of NODE_PATH, which pnpm scripts set.
 function isPackageInstalled(root: string, name: string): boolean {
@@ -256,48 +291,66 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   // Authorized objects belong to one user, so shared caches must not store them unless the app sets its own policy.
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
+  // A `:name` segment matches any one segment, like the Nitro route.
+  const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
-    // Nuxt 4 runs H3 1 events and Nitro 3 runs H3 2 events, but an `h3` import from `.vitehub` can resolve the other
-    // major version. Only use what both event shapes have; `serve()` reads the request through Standard Context.
     `import { blob, parseImageVariant } from '${importBase}'`,
     `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
-    "type ServeEvent = Parameters<BlobStorage['serve']>[0]",
-    "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, path: string }",
+    "type ServeContext = Exclude<Parameters<BlobStorage['serve']>[0], Request>",
+    "type RouteRequest = Request & { context?: { params?: { _?: string } } }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
+    `const routeSegments: string[] = ${JSON.stringify(routeSegments)}`,
     "",
-    "async function serveBlob(event: RouteEvent) {",
-    "  const pathname = event.context.params?._ || ''",
+    "// Nitro exposes its exact raw catch-all on the Request, including for root routes and a baseURL.",
+    "// A direct Fetchable call has no router context and matches the configured route at the URL root.",
+    "function blobPathname(request: RouteRequest, url: URL): string {",
+    "  if (request.context?.params) return request.context.params._ ?? ''",
+    "  const segments = url.pathname.split('/').slice(1)",
+    "  if (routeSegments.every((segment, index) => segment.startsWith(':') ? Boolean(segments[index]) : segment === segments[index])) {",
+    "    return segments.slice(routeSegments.length).join('/')",
+    "  }",
+    "  return ''",
+    "}",
+    "",
+    "async function serveBlob(request: Request): Promise<Response> {",
+    "  const url = new URL(request.url)",
+    "  const pathname = blobPathname(request, url)",
     "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string, headers?: Record<string, string> } = { cacheControl: ${JSON.stringify(cacheControl)}${headers ? `, headers: ${JSON.stringify(headers)}` : ""} }`,
     "  try {",
-    "    const variant = parseImageVariant(new URL(event.path, 'http://localhost').searchParams)",
+    "    const variant = parseImageVariant(url.searchParams)",
     "    if (variant) options.variant = variant",
     "  }",
     "  catch (error) {",
     "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
     "  }",
     // `serve()` sets the configured headers and removes them again when it does not serve the object.
-    "  const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
-    // `serve()` keeps the Cache-Control policy on the event, because H3 2 merges event headers over returned values.
-    // It returns null only for a 304. H3 2 adds Content-Length: 0 to a null value, which is incorrect for an unchanged object.
-    "  if (!error) return stream ?? new Response(null, { status: 304 })",
-    "  if (error.code !== 'BLOB_NOT_FOUND') throw error",
-    "  return Response.json({ error: 'Blob not found.' }, { status: 404 })",
+    "  const [error, body] = await blob.store(storeName).serve(request, pathname, options)",
+    "  if (error) {",
+    "    if (error.code !== 'BLOB_NOT_FOUND') throw error",
+    "    return Response.json({ error: 'Blob not found.' }, { status: 404 })",
+    "  }",
+    "  // `serve()` writes the status and the headers to the Standard Context of the request. Move them to the Response,",
+    "  // so the host does not add them a second time. `body` is null only for a 304.",
+    "  const { res } = (request as Request & ServeContext)['~standard']",
+    "  const responseHeaders = new Headers(res.headers)",
+    "  for (const name of Array.from(responseHeaders.keys())) res.headers?.delete(name)",
+    "  return new Response(body, { headers: responseHeaders, status: body ? res.status ?? 200 : 304 })",
     "}",
     "",
     ...(serve.authorize
       ? [
           "// Authorize before the store read and before conditional request handling.",
           serve.anonymous
-            ? "export default withAnonymousAuthorization(authorize, (event: RouteEvent) => serveBlob(event))"
-            : `export default withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: RouteEvent) => serveBlob(event))`,
+            ? "export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }"
+            : `export default { fetch: withAuthorization(${authorizeModule ? "authorize" : "true"}, (request: Request) => serveBlob(request)) }`,
         ]
-      : ["export default serveBlob"]),
+      : ["export default { fetch: serveBlob }"]),
     "",
   ].join("\n")
 }
@@ -359,12 +412,12 @@ function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[
   })
 }
 
-async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false): Promise<void> {
+async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false, requestBodyLimit?: number): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   const imageModule = await resolveImageModule(config, root, blob, cloudflare, provider)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, imageModule)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, imageModule, requestBodyLimit)),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined
@@ -396,12 +449,14 @@ function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCl
 export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
   const importBase = internalOptions.importBase ?? blobPackageName
   let blob: BlobModuleOptions | undefined = options
+  let nitroCloudflare = false
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   // Nuxt replays `config` with the host command, but its replayed resolved config has no `command`.
   let command: string | undefined
   let resolved: ResolvedConfig | undefined
   let siblingRuntime: BlobRuntimeContribution | undefined
+  const presetDriver = () => typeof internalOptions.presetDriver === "function" ? internalOptions.presetDriver(blob) : internalOptions.presetDriver
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
@@ -418,6 +473,17 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
           provision: [createBlobCloudflareProvisionStep(() => blob), createBlobVercelProvisionStep(() => blob)],
         }
       },
+      inspect: () => ({
+        definitions: [{
+          kind: "blob",
+          label: "Blob stores",
+          list: () => inspectBlobStores(
+            resolveBlobViteConfig(blob, { dev: true, presetDriver: presetDriver(), hosting: resolved ? devServerHost(resolved) : undefined }).blob,
+            resolved?.configFile ? relative(rootDir, resolved.configFile) : "vite.config",
+          ),
+        }],
+        resources: () => inspectBlobResources(blob, { hosting: nitroCloudflare ? "cloudflare" : undefined }),
+      }),
     },
     config: {
       order: "pre",
@@ -444,7 +510,10 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
-      const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
+      nitroCloudflare = cloudflare
+      const development = (config.command ?? command) === "serve"
+      // In `vite dev`, a store stays local unless it sets `remote: true`.
+      const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), hosting: development ? devServerHost(config) : cloudflare ? "cloudflare" : undefined })
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
@@ -470,7 +539,8 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         importBase,
         provider,
         await resolveBlobServeAuthorizeModule(config, rootDir, runtimeConfig.blob ? runtimeConfig.blob.serve : undefined),
-        (config.command ?? command) === "serve",
+        development,
+        development && devServerHost(config) === "vercel" ? vercelFunctionRequestBodyBytes : undefined,
       )
     },
     configureServer(server) {

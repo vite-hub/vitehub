@@ -14,7 +14,7 @@ Use this guide after you can [define](/docs/agents/agent-definitions) and [run](
 
 Use `extends` to make one Agent Definition the default for another:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import bot from '../bot/agent'
 
@@ -33,7 +33,8 @@ Child configuration overrides parent defaults:
 
 | Setting | Composition |
 | --- | --- |
-| Channels, Sources, Skills, and hooks | Merge by key. The child replaces each matching definition or callback as a whole. |
+| Channels, Sources, and Skills | Merge by key. The child replaces each matching definition as a whole. |
+| Hooks | Merge by name. When both layers define a hook, the parent's hook runs first, then the child's. Outcome hooks return the delivery effects of both. Hook observers of every layer stay registered. |
 | Static Capabilities | Merge by `id`. The child replaces a matching Capability and appends new ones. An `extend(inherited)` hook can combine matching Capabilities instead. |
 | Capability resolver | Replaces the inherited list or resolver. |
 | Other arrays | Replace the parent array. |
@@ -42,7 +43,7 @@ Child configuration overrides parent defaults:
 
 Some settings let the child extend inherited values:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import bot from '../bot/agent'
@@ -87,7 +88,7 @@ Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and foll
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
 
-```ts
+```ts fragment
 import { defineAgent } from "vite-hub/agent"
 import { notetaker } from "@example/agents"
 
@@ -108,6 +109,8 @@ Preset packages must declare `@vite-hub/agent` as a peer dependency so their def
 A preset can expose typed options with the same `defineAgent()` function:
 
 ```ts
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
 export const notetaker = defineAgent({
   options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
   configure: ({ format }) => defineAgent({
@@ -118,7 +121,7 @@ export const notetaker = defineAgent({
 
 Consumers select the definition and override only the options they need:
 
-```ts
+```ts fragment
 const notes = defineAgent({
   preset: "notetaker",
   presets: { notetaker },
@@ -134,6 +137,8 @@ notes.options.format // "concise" | "detailed"
 Configured presets can declare a `configKey` to expose a module-style configuration block. The block keeps the preset's option names visible at the call site:
 
 ```ts
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
 const notes = defineAgent({
   configKey: 'notetaker',
   options: { format: 'concise' as 'concise' | 'detailed' },
@@ -192,7 +197,7 @@ It also follows a Channel imported from a relative module, such as `import porta
 
 Discovery rejects Channel option bindings that are mutated or passed to opaque calls, including local callbacks and built-in mutators such as `Object.assign`. It does not execute those calls to inspect their effects. Use unmodified local options, or add `workspace: {}` when the Channel owns a Workspace.
 
-Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
+Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook, so an extension cannot remove the preset's behavior by adding its own `agent:finish`. Option callbacks are values and are also replaced, never invoked by merging.
 
 Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
 

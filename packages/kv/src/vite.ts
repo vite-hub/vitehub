@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url"
+
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
 import {
@@ -19,12 +21,14 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
+import { inspectKVResources } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -36,6 +40,8 @@ const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
 const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = import.meta.url.endsWith(".ts")
   ? "@vite-hub/kv/runtime/cloudflare-kv"
   : new URL("./runtime/cloudflare-kv.js", import.meta.url).href
+// Nitro registers middleware by file path. The file is in `dist` after a build and in `src` in this repository.
+const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runtime/cloudflare-request-env.ts" : "./runtime/cloudflare-request-env.js", import.meta.url))
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
@@ -52,7 +58,7 @@ export type KVVitePlugin = Plugin & {
     name: string
     setup: (nitro: { options: NitroCloudflareKVTarget }) => void
   }
-  vitehub: ViteHubCliPluginMetadata & { operations: readonly OperationContributionEntry[] }
+  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
 
 export function hubKvOptionalPeerResolver(): Plugin {
@@ -78,6 +84,21 @@ function isCloudflareKVConfig(kv: KVViteRuntimeConfig["kv"]): kv is ResolvedKVMo
   if (!kv) return false
   return Object.values(kv.stores || { default: kv.store })
     .every(store => store.driver === "cloudflare-kv-binding")
+}
+
+function hasCloudflareKVStore(kv: KVViteRuntimeConfig["kv"]): boolean {
+  if (!kv) return false
+  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "cloudflare-kv-binding")
+}
+
+/** Registers the middleware that installs the request's Cloudflare env, or removes it when no store uses a binding. */
+function configureNitroCloudflareRequestEnv(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
+  const handlers: unknown[] = Array.isArray(nitro.handlers)
+    ? nitro.handlers.filter(handler => !(isPlainObject(handler) && handler.handler === KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE))
+    : []
+  // First, so that other middleware can use KV.
+  if (hasCloudflareKVStore(kv)) handlers.unshift({ handler: KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE, middleware: true })
+  if (handlers.length || Array.isArray(nitro.handlers)) nitro.handlers = handlers
 }
 
 function hasUpstashStore(kv: KVViteRuntimeConfig["kv"]): boolean {
@@ -111,7 +132,7 @@ function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"], provisi
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
     `import { createCloudflareKVStorage } from ${JSON.stringify(CLOUDFLARE_KV_RUNTIME_IMPORT_ID)};`,
-    `import { kvInvalidLimitError, kvResult, kvStoreNotFoundError, kvUnsupportedOperationError } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
+    `import { kvInvalidLimitError, kvKeyLimitCodes, kvResult, kvStoreNotFoundError, kvStoreWithMode, kvUnsupportedOperationError, kvWriteLimitCodes } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     "const storages = new Map();",
@@ -142,16 +163,16 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "function createKVStorage(name = \"default\") {",
     "  return {",
     "    async clear(base, options) { return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(base, options); }); },",
-    "    async del(key, options) { return kvResult(\"del\", name, async () => { await resolveStorage(name).removeItem(key, options); }); },",
-    "    async get(key, options) { return kvResult(\"get\", name, () => resolveStorage(name).getItem(key, options)); },",
+    "    async del(key, options) { return kvResult(\"del\", name, async () => { await resolveStorage(name).removeItem(key, options); }, kvKeyLimitCodes); },",
+    "    async get(key, options) { return kvResult(\"get\", name, () => resolveStorage(name).getItem(key, options), kvKeyLimitCodes); },",
     "    async getAndDelete() { return unsupported(\"getAndDelete\", name); },",
-    "    async has(key, options) { return kvResult(\"has\", name, () => resolveStorage(name).hasItem(key, options)); },",
+    "    async has(key, options) { return kvResult(\"has\", name, () => resolveStorage(name).hasItem(key, options), kvKeyLimitCodes); },",
     "    async increment() { return unsupported(\"increment\", name); },",
     "    async keys(base, options) { return kvResult(\"keys\", name, () => resolveStorage(name).getKeys(base, options)); },",
     "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => resolveStorage(name).listKeys(options), [\"KV_INVALID_CURSOR\"]); },",
-    "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }); },",
+    "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }, kvWriteLimitCodes); },",
     "    async setIfAbsent() { return unsupported(\"setIfAbsent\", name); },",
-    "    store(storeName) { return createKVStorage(storeName); },",
+    "    store(storeName, options) { return kvStoreWithMode(createKVStorage(storeName), options); },",
     "  };",
     "}",
     "",
@@ -161,6 +182,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
 }
 
 interface NitroCloudflareKVTarget {
+  handlers?: unknown[]
   cloudflare?: {
     wrangler?: {
       kv_namespaces?: Array<{ binding: string, id?: string }>
@@ -207,6 +229,7 @@ function reconcileNitroCloudflareKV(
   ownedNamespaces: Set<{ binding: string, id?: string }>,
   provisionState: ReturnType<typeof readProvisionStateSync>,
 ): void {
+  configureNitroCloudflareRequestEnv(target, kv)
   const namespaces = target.cloudflare?.wrangler?.kv_namespaces
   if (namespaces?.length && ownedNamespaces.size) {
     for (const owned of ownedNamespaces) {
@@ -235,6 +258,7 @@ function configureNitroCloudflareKV(
   ownedNamespaces.clear()
 
   const kv = resolveKVViteConfig(config.kv ?? options).kv
+  configureNitroCloudflareRequestEnv(target, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
     configureCloudflareKV(target, kv, provisionState)
@@ -271,6 +295,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     vitehub: {
       // The Console, `vitehub kv`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "kvOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).kvOperations, module: "@vite-hub/kv/operations" }],
+      inspect: () => ({ resources: () => inspectKVResources(configuredOptions, projectRoot) }),
       cli: async () => {
         const { createKVCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         return {

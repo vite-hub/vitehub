@@ -55,7 +55,7 @@ describe("Console sign-in before app Auth", () => {
   it.each(["", "/portal"])("redirects a signed-out page below %s while Auth still protects data", async (mount) => {
     const database = new DatabaseSync(":memory:")
     try {
-      const routes = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }] as const
+      const routes = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/_vitehub/api/**`, authorize: true }] as const
       const definition = defineAuth(() => ({
         access: { routes: routes.map(route => ({ route: route.route, authorize: () => true })) },
         baseURL: origin,
@@ -79,7 +79,7 @@ describe("Console sign-in before app Auth", () => {
       const response = await app.fetch(request)
       expect(response.status).toBe(302)
       expect(response.headers.get("location")).toBe(`${mount}/sign-in?redirect=${encodeURIComponent(`${mount}/_vitehub/auth`)}`)
-      for (const [path, method] of [["/_vitehub/rpc/__call", "POST"], ["/api/_vitehub/console/status", "GET"]]) {
+      for (const [path, method] of [["/_vitehub/rpc/__call", "POST"], ["/_vitehub/api/status", "GET"]]) {
         const data = await app.fetch(new Request(`${origin}${mount}${path}`, { method, headers: { accept: "application/json" } }))
         expect(data.status).toBe(401)
         expect(data.headers.get("location")).toBeNull()

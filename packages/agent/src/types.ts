@@ -1,3 +1,4 @@
+import type { ChannelDefinition } from "@vite-hub/channels"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
@@ -89,7 +90,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
   runtime: AgentRuntimeName
 }
 
-/** Runtime Context that a caller passes to `runAgent()`. ViteHub creates a fresh memo cache when `memo` is absent. */
+/**
+ * Runtime Context that a caller passes to `runAgent()`, `streamAgent()`, and `startAgentInvocation()`.
+ * ViteHub creates a fresh memo cache for the Invocation when `memo` is absent.
+ */
 export type AgentRuntimeContextInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & Partial<Pick<AgentRuntimeContext<TRuntimeConfig>, "memo">>
 
@@ -2385,9 +2389,19 @@ export interface AgentShutdownOptions {
   drainMs?: number
 }
 
+export interface AgentChannelsOptions {
+  /**
+   * In `vite dev`, run the Slack, Discord, Teams, and Telegram Channels on a simulated chat with no provider
+   * credentials. Each Channel's webhook route then accepts AI SDK chat requests and streams the reply.
+   * The plugin sets `VITEHUB_CHANNELS=simulate` in `vite dev` only; the runtime ignores it when `NODE_ENV` is `production`.
+   */
+  simulate?: boolean
+}
+
 export interface AgentModuleOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
+  channels?: AgentChannelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
@@ -2906,8 +2920,9 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   () => AgentChannelDefinition<TRuntimeConfig>
 
+/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/agent/channels`. */
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig>
+  AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig> | ChannelDefinition
 
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelInput<TRuntimeConfig>>

@@ -145,7 +145,7 @@ describe("MCP endpoint", () => {
     installConsoleAccess({ authorize: () => ({ sections: ["other"] }), mode: "open" })
     const second = await read<{ result: { tools: Array<{ name: string }> } }>(await post(rpc(2, "tools/list")))
     // Operations for any Console user stay, such as the section list.
-    expect(second.result.tools.map(tool => tool.name)).toEqual(["definitions_list", "other_greet", "sections_list"])
+    expect(second.result.tools.map(tool => tool.name)).toEqual(["definitions_list", "other_greet", "project_get", "sections_list"])
   })
 
   it("limits read-only section grants to read tools", async () => {
@@ -172,7 +172,7 @@ describe("MCP endpoint", () => {
   it("uses the local developer for operations without sign-in only in development", async () => {
     install()
     const user = async () => {
-      const response = await post(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" }), {}, "http://localhost:5173/_vitehub/mcp")
+      const response = await post(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" }), {}, "http://localhost:5173/_vitehub/mcp", "127.0.0.1")
       expect(response.status).toBe(200)
       const answer = await read<{ result: { structuredContent: { user: string | null } } }>(response)
       return answer.result.structuredContent.user
@@ -251,8 +251,10 @@ describe("MCP endpoint", () => {
     vi.stubEnv("NODE_ENV", "development")
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
-      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp")).status).toBe(200)
-      const lan = await post(rpc(1, "tools/list"), {}, "http://192.168.1.20:5173/_vitehub/mcp")
+      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp", "127.0.0.1")).status).toBe(200)
+      // A dev worker behind a proxy sees no peer address. Without the front process's evidence, it refuses.
+      expect((await post(rpc(1, "tools/list"), { "x-forwarded-for": "127.0.0.1" }, "http://localhost:5173/_vitehub/mcp")).status).toBe(403)
+      const lan = await post(rpc(1, "tools/list"), {}, "http://192.168.1.20:5173/_vitehub/mcp", "127.0.0.1")
       expect(lan.status).toBe(403)
       await expect(lan.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", fix: expect.stringContaining("console.auth") })
       // A remote client can send `Host: localhost`. The peer address that the host adapter reports decides.

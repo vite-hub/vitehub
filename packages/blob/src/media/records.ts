@@ -14,6 +14,8 @@ import { isMediaCropName, isMediaFocalPoint, parseAspectRatio, resolveImageGeome
 import type { ResolvedBlobImages } from "./transformers.ts"
 import type { MediaCrop, MediaCropReplacement, MediaRecord, MediaUpdate, MediaVariantEntry } from "./types.ts"
 import type { BlobImageVariant, MediaFocalPoint } from "./variant.ts"
+import type { Result, ResultError } from "@vite-hub/runtime"
+
 import type {
   BlobDriverAdapter,
   BlobErrorCode,
@@ -22,7 +24,6 @@ import type {
   BlobMediaPutOptions,
   BlobObject,
   BlobPutBody,
-  BlobResult,
   BlobServeResponseOptions,
   BlobStorage,
 } from "../types.ts"
@@ -61,7 +62,7 @@ export interface InternalBlobMedia extends BlobMedia {
 }
 
 class MediaFailure extends Error {
-  constructor(readonly code: BlobErrorCode, message: string, readonly result?: BlobResult<unknown>[0]) {
+  constructor(readonly code: BlobErrorCode, message: string, readonly result?: ResultError<BlobErrorCode>) {
     super(message)
   }
 }
@@ -249,20 +250,20 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
   const recordPath = (pathname: string) => `${mediaRecordsPrefix}${canonical(pathname)}.json`
   const hashPath = (hash: string) => `${mediaHashesPrefix}${hash}.json`
 
-  async function run<TResult>(operation: () => Promise<TResult>): Promise<BlobResult<TResult>> {
+  async function run<TResult>(operation: () => Promise<TResult>): Promise<Result<TResult, BlobErrorCode>> {
     try {
-      return [null, await operation()]
+      return [undefined, await operation()]
     }
     catch (cause) {
       if (cause instanceof MediaFailure) {
-        return [cause.result ?? blobError(cause.code, "media", store, new Error(cause.message)), undefined]
+        return [cause.result ?? blobError(cause.code, "media", store, { detail: cause.message }), undefined]
       }
       if (cause instanceof Error && "code" in cause && /^BLOB_R00(?:33|35)$/.test(String(cause.code))) throw cause
-      return [blobError("BLOB_OPERATION_FAILED", "media", store, cause), undefined]
+      return [blobError("BLOB_OPERATION_FAILED", "media", store, { cause }), undefined]
     }
   }
 
-  function unwrap<TResult>(result: BlobResult<TResult>): TResult {
+  function unwrap<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
     const [error, value] = result
     if (error) throw new MediaFailure(error.code, error.message, error)
     return value
@@ -294,7 +295,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       if (!await driver.head(pathname)) throw error
       const status = isRecord(error) ? error.status : undefined
       const code = isRecord(error) ? error.code : undefined
-      // Vercel Blob reports a refused overwrite only in its message.
+      // provider-message-match: Vercel Blob reports a refused overwrite as a plain BlobError with only a message.
       const exists = error instanceof Error && /already exists/i.test(error.message)
       if (!exists && status !== 409 && status !== 412 && code !== "BLOB_CONFLICT" && code !== "PRECONDITION_FAILED" && code !== "CONFLICT") throw error
       await driver.delete([pathname])
