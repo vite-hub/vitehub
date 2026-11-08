@@ -95,7 +95,7 @@ The mode limits this API, not the host. The R2 binding, the Vercel token, and ot
 
 `blob` implements `BlobStorage`.
 
-Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefined]` on failure, `[undefined, value]` on success. Expected provider and storage failures are errors with a `BLOB_*` code, `why`, `fix`, and `docs`, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Read [Blob limits and errors](/docs/blob/limits-and-errors) for each code. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()` and pass its error to H3.
+Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefined]` on failure, `[undefined, value]` on success. Expected provider and storage failures are errors with a `BLOB_*` code, `why`, `fix`, and `docs`, so application code can apply HTTP, retry, logging, or best-effort policy without `try/catch`. Read [Blob limits and errors](/docs/blob/limits-and-errors) for each code. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they indicate API or configuration misuse. Generated serving routes unwrap `blob.serve()`, answer `BLOB_NOT_FOUND` with `404`, and throw other errors to the host.
 
 | Method | Description |
 | --- | --- |
@@ -105,7 +105,7 @@ Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefine
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
-| `blob.serve(event, pathname, options?)` | Serves an object stream through a request event, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
+| `blob.serve(event, pathname, options?)` | Serves an object stream through a request event or a Fetchable `Request`, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
@@ -122,7 +122,7 @@ With a partial prefix such as `docs/re`, a native page can be empty while `hasMo
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub app. It reads the request from `event['~standard'].req`, writes the status and content headers to `event['~standard'].res`, and handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` sets more response headers. When it does not serve the object, `serve()` removes these headers and restores any values the response had before the call.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub app, and the `Request` of a Fetchable route. It reads the request from `event['~standard'].req`, writes the status and content headers to `event['~standard'].res`, and handles conditional GET and HEAD requests. A Fetchable route must move that status and those headers to the `Response` that it returns: copy them, then delete them from `res.headers`, so Nitro does not add them a second time. The generated serve route does this for you. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` sets more response headers. When it does not serve the object, `serve()` removes these headers and restores any values the response had before the call.
 
 `blob.serve()` also answers byte-range requests, so a `<video>` or `<audio>` element can seek, and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`. A GET or HEAD request with one `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` gets `206` with `Content-Range` and only those bytes. A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body. Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file. Transformed responses ignore `Range`.
 

@@ -74,6 +74,21 @@ The answer types come from the questions:
 
 `gateway.ask(state, questions, { signal, onUsage })` sends the questions in sequential bounded requests. The shared state plus each question must fit below 30,000 bytes. It retries up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. `onUsage` receives the `model`, `provider`, and token `usage` of each request.
 
+### Ask with any model
+
+`askWithModel(model)` answers the same questions with any [AI SDK](https://ai-sdk.dev) model, in one structured output request. Use it where a gateway with `ask()` goes. It needs the `ai` package:
+
+```ts [label.ts]
+import { ask, askWithModel } from '@vite-hub/gateways'
+import { openai } from '@ai-sdk/openai'
+
+const answers = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+```
+
+A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
+
 ## Presets
 
 | Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |
@@ -207,3 +222,5 @@ Every error has a `code`, a `why`, and a `fix`. Errors from `ask()` keep the pro
 | `GATEWAYS_R0008` | The provider rejected the key with 401 or 403. `status` is 503, and the error has `providerStatus` and `requestId`. The `fix` names the variable to rotate. |
 | `GATEWAYS_R0009` | The provider still failed after three attempts. `status` is 502, and the error has `providerStatus` and `requestId`. |
 | `GATEWAYS_R0010` | `languageModel()` without the AI SDK provider package of its model API. The message names the package to install. |
+| `GATEWAYS_R0011` | `askWithModel()` without the `ai` package. Install it with `pnpm add ai`. |
+| `GATEWAYS_R0012` | The model of `askWithModel()` answered a question with a value that is not one of its options. |
