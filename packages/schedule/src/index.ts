@@ -1,4 +1,6 @@
 export { defineSchedule } from "./definition.ts"
+export { cancelSchedule, getSchedule, listSchedules, startSchedule } from "./started.ts"
+export type { StartedScheduleErrorCode } from "./started-errors.ts"
 
 export type {
   ScheduleErrorCode,
@@ -29,4 +31,8 @@ export type {
   ScheduleRunStatus,
   ScheduleRunListOptions,
   ScheduleRunStore,
+  StartedSchedule,
+  StartedScheduleStore,
+  StartScheduleOptions,
+  StartScheduleTiming,
 } from "./types.ts"
