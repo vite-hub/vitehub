@@ -11,7 +11,7 @@ import type { AuthPageMeta } from "../src/nuxt-types.ts"
 
 type Route = { fullPath: string, meta: { auth?: AuthPageMeta } }
 type Middleware = (route: Route) => unknown
-type PublicConfig = { vitehubAuth?: { basePath?: string, redirects?: { login: string, guest: string } } }
+type PublicConfig = { vitehubAuth?: false | { basePath?: string, redirects?: { login: string, guest: string } } }
 
 const mocks = vi.hoisted(() => ({
   config: {} as { public?: PublicConfig },
@@ -80,6 +80,18 @@ async function configure(basePath?: string, appBaseURL = "/") {
 const userPage: Route = { fullPath: "/private", meta: { auth: "user" } }
 
 describe("Nuxt session and page guard", () => {
+  it.each(["server", "browser"])("skips session requests and middleware when Auth is disabled in the %s", async (host) => {
+    mocks.config = { public: { vitehubAuth: false } }
+    if (host === "browser") vi.stubGlobal("window", {})
+
+    await plugin.setup({ payload: mocks.payload })
+
+    expect(mocks.middleware).toBeUndefined()
+    expect(mocks.requestFetch).not.toHaveBeenCalled()
+    expect(mocks.createAuthClient).not.toHaveBeenCalled()
+    expect(mocks.state.value).toBeUndefined()
+  })
+
   it.each([
     [undefined, "/", "/api/auth"],
     ["/auth", "/", "/auth"],

@@ -55,6 +55,22 @@ describe("Auth Nuxt integration", () => {
     expect(declarations.join("\n")).toContain('auth?: import("@vite-hub/auth/nuxt").AuthPageMeta')
   })
 
+  it.each([false, { redirects: { login: "/ignored", guest: "/ignored" } }] as const)("uses Vite Auth redirects ahead of module options %j", (auth) => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { auth: { redirects: { login: "/sign-in", guest: "/home" } } }, runtimeConfig: {} } }
+
+    hubAuthNuxt({ env: false, auth }, nuxt)
+
+    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: { basePath: "/api/auth", redirects: { login: "/sign-in", guest: "/home" } } } })
+  })
+
+  it.each(["module", "vite"])("disables the session bridge and guard through %s Auth options", (source) => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { auth: source === "vite" ? false as const : undefined }, runtimeConfig: {} } }
+
+    hubAuthNuxt({ env: false, auth: source === "module" ? false : { redirects: { login: "/sign-in" } } }, nuxt)
+
+    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: false } })
+  })
+
   it("registers the Env resolver for the generated Auth Definition", async () => {
     const runtime = await readFile(new URL("../src/runtime/nuxt.ts", import.meta.url), "utf8")
 

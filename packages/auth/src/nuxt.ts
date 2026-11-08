@@ -87,10 +87,11 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   const authPlugin = vitePlugins.find(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME) || hubAuth(options.auth)
   if (!vitePlugins.some(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME)) nuxt.options.vite.plugins.push(authPlugin)
 
+  const resolveAuthOptions = () => nuxt.options.vite?.auth ?? options.auth
   const resolveAuthConfig = () => {
     const configRoot = resolve(viteRoot)
     const serverDirs = resolveNuxtServerDirs(nuxt.options)
-    const authOptions = nuxt.options.vite?.auth ?? options.auth
+    const authOptions = resolveAuthOptions()
     return resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
       ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
   }
@@ -127,10 +128,11 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   }
 
   // The session bridge and page guard share the discovered Auth path and redirects.
-  const redirects = options.auth ? options.auth.redirects : undefined
+  const authOptions = resolveAuthOptions()
+  const redirects = authOptions ? authOptions.redirects : undefined
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
-  nuxt.options.runtimeConfig.public.vitehubAuth = {
+  nuxt.options.runtimeConfig.public.vitehubAuth = authOptions === false ? false : {
     basePath: resolveAuthConfig()?.basePath ?? "/api/auth",
     redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
   }

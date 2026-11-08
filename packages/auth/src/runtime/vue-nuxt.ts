@@ -79,7 +79,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
   enforce: "pre",
   async setup(nuxtApp: NuxtApp) {
     setNuxtAppResolver(() => tryUseNuxtApp() as NuxtApp | undefined)
-    const config = useRuntimeConfig().public?.vitehubAuth as { basePath?: string, redirects?: AuthRedirects } | undefined
+    const config = useRuntimeConfig().public?.vitehubAuth as false | { basePath?: string, redirects?: AuthRedirects } | undefined
+    if (config === false) return
     const basePath = resolveAuthMountPath(config?.basePath ?? "/api/auth")
     const client = createAuthClient({ basePath })
     const redirects = config?.redirects ?? {}
