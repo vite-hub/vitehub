@@ -14,7 +14,7 @@ import { loadConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleBuiltinSectionIds } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
-import { consoleEvent } from "./console-event.ts"
+import { consoleEvent, routeRequest } from "./console-event.ts"
 
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -128,8 +128,8 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
       for (const entry of guarded) {
         const label = `${entry.route} (${sourceFile(entry.handler)}), key ${peer.key}, address ${peer.remoteAddress}`
         const route: unknown = (await import(new URL(sourceFile(entry.handler), serverRoot).href)).default
-        if (!(route instanceof Function)) throw new TypeError(`${label} must default-export a route handler.`)
-        const response: unknown = await route(remoteRequest(entry, peer.remoteAddress))
+        if (!(route instanceof Object) || !("fetch" in route) || !(route.fetch instanceof Function)) throw new TypeError(`${label} must default-export a Fetchable route.`)
+        const response: unknown = await route.fetch(routeRequest(remoteRequest(entry, peer.remoteAddress)))
         if (!(response instanceof Response)) throw new TypeError(`${label} must answer with a Response.`)
         expect(response.status, label).toBe(403)
         await expect(codeOf(response), label).resolves.toBe("CONSOLE_LOOPBACK_ONLY")
@@ -152,9 +152,9 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
       standard.req.headers.set("x-vitehub-dev-peer", node.headers["x-vitehub-dev-peer"]!)
       standard.req.headers.delete("x-forwarded-host")
       const route: unknown = (await import(new URL(sourceFile(entry.handler), serverRoot).href)).default
-      if (!(route instanceof Function)) throw new TypeError(`${entry.route} must default-export a route handler.`)
+      if (!(route instanceof Object) || !("fetch" in route) || !(route.fetch instanceof Function)) throw new TypeError(`${entry.route} must default-export a Fetchable route.`)
       // Past access, a route can still fail on state that this test does not install. That failure is not a refusal.
-      const response: unknown = await Promise.resolve(route(request)).catch((error: unknown) => error)
+      const response: unknown = await Promise.resolve(route.fetch(routeRequest(request))).catch((error: unknown) => error)
       const code = response instanceof Response ? await codeOf(response) : undefined
       expect(code, `${entry.route} (${sourceFile(entry.handler)})`).not.toBe("CONSOLE_LOOPBACK_ONLY")
     }

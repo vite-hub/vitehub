@@ -100,11 +100,12 @@ describe("MCP endpoint", () => {
     install()
     installConsoleDevelopment("/tmp/console-mcp", true)
     const app = new H3().all("/_vitehub/mcp", consoleMcpHandler)
-    const response = await app.fetch(new Request("http://localhost/_vitehub/mcp", {
+    const request = Object.assign(new Request("http://localhost/_vitehub/mcp", {
       body: JSON.stringify(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" })),
       headers: { "content-type": "application/json" },
       method: "POST",
-    }))
+    }), { context: { clientAddress: "127.0.0.1" } })
+    const response = await app.fetch(request)
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
       id: 1,

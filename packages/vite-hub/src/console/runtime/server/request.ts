@@ -148,7 +148,8 @@ export function consoleRoute(handler: (event: ConsoleRequestEvent) => unknown): 
       // Outside a ViteHub app, such as in a test, the Request gets a `fetch` Standard Context.
       installRequestStandardContext(request)
       try {
-        const result = await handler(request)
+        // SAFETY: the runtime adapter installed this Request's Standard Context before the handler runs.
+        const result = await handler(request as Request & ConsoleRequestEvent)
         return isRuntimeResponse(result) ? result : Response.json(result, { headers: consoleResponseHeaders })
       }
       catch (error) {
