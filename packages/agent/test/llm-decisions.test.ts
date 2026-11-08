@@ -15,9 +15,11 @@ const runtime = () => ({
 /** An AI SDK model that answers the Decisions question `g0` with `choice`. */
 function decisionModel(choice: string, confidence = 0.8) {
   const prompts: string[] = []
+  const signals: (AbortSignal | undefined)[] = []
   const model = new MockLanguageModelV3({
     doGenerate: async (options) => {
       prompts.push(JSON.stringify(options.prompt))
+      signals.push(options.abortSignal)
       return {
         content: [{ text: JSON.stringify({ g0: { choice, confidence } }), type: "text" }],
         finishReason: { raw: "stop", unified: "stop" },
@@ -26,7 +28,7 @@ function decisionModel(choice: string, confidence = 0.8) {
       }
     },
   })
-  return { model, prompts }
+  return { model, prompts, signals }
 }
 
 describe("LLM decision capabilities", () => {
@@ -117,12 +119,30 @@ describe("LLM decision capabilities", () => {
     await expect(runAgent(agent, runtime(), { prompt: "Buy now" })).rejects.toMatchObject({ code: "DECISIONS_R0005" })
   })
 
+  it.each(["route", "gate"] as const)("passes the Invocation signal to the %s model request", async (kind) => {
+    const { model, signals } = decisionModel("support")
+    let invocationSignal: AbortSignal | undefined
+    const agent = defineAgent({
+      capabilities: [kind === "route"
+        ? llmRoute({ choices: { support: "Safe support.", unsafe: "Unsafe request." }, model })
+        : llmGate({ allow: { support: "Safe support." }, reject: { unsafe: "Unsafe request." }, model })],
+      driver: { run(context) {
+        invocationSignal = context.input.abortSignal
+        return "ok"
+      } },
+    })
+
+    await runAgent(agent, runtime(), { abortSignal: new AbortController().signal, prompt: "Help with billing" })
+    expect(invocationSignal).toBeInstanceOf(AbortSignal)
+    expect(signals).toEqual([invocationSignal])
+  })
+
   it("records a single choice without a model", async () => {
     const agent = defineAgent({
       capabilities: [llmRoute({ choices: { support: "General customer support." }, id: "route" })],
       driver: { async run(context) { return context.context.get("route") } },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "Hi" })).resolves.toEqual({ choice: "support", confidence: 1, probabilities: { support: 1 } })
+    await expect(runAgent(agent, runtime(), {})).resolves.toEqual({ choice: "support", confidence: 1, probabilities: { support: 1 } })
   })
 })

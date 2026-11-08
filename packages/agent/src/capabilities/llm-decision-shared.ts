@@ -2,7 +2,7 @@ import { defineChoices } from "@vite-hub/decisions"
 import { getMessageText } from "../messages.ts"
 import { askJev } from "../internal/ask-runtime.ts"
 
-import type { AiGateway, AiGatewayAsk, askWithModel } from "@vite-hub/gateways"
+import type { AiGateway, AiGatewayAsk, AskModel } from "@vite-hub/gateways"
 import type { Message } from "../messages.ts"
 import type { AgentCapabilityRuntimeContext, AgentModelResolver } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -69,7 +69,7 @@ export interface LlmDecision {
   probabilities: Record<string, number>
 }
 
-/** Most UTF-8 bytes of JSON-encoded request text in one decision. A Jev request must stay below 30,000 bytes. */
+/** Maximum UTF-8 bytes of JSON-encoded request text, reduced for Jev's state and question envelope. */
 const textLimit = 16_000
 
 const utf8 = new TextEncoder()
@@ -111,12 +111,12 @@ export async function decide(
   const [only] = decision.choices
   if (only && decision.choices.length === 1) return { choice: only.key, confidence: 1, probabilities: { [only.key]: 1 } }
   const jev = options.model === undefined && (options.gateway !== undefined || context.driver?.kind === "ask")
-  const request = { abortSignal: context.abortSignal, event: { context }, ...(options.gateway ? { gateway: options.gateway } : {}) }
+  const request = { abortSignal: context.abortSignal, ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}), ...(options.gateway ? { gateway: options.gateway } : {}) }
   const ask: AiGatewayAsk = async (state, questions) => await askJev(request, state, questions)
   const answerer = jev
     ? { gateway: { ask } }
     // SAFETY: `context.model.resolve()` returns the AI SDK model of the Capability or the Agent.
-    : { model: await context.model.resolve(options.model, { abortSignal: context.abortSignal }) as Parameters<typeof askWithModel>[0] }
+    : { model: await context.model.resolve(options.model, { abortSignal: context.abortSignal }) as AskModel }
   const choices = defineChoices({
     ...answerer,
     groups: {
@@ -133,7 +133,18 @@ export async function decide(
     // A route or gate always records its most likely choice.
     thresholds: { option: 0 },
   })
-  const [error, selection] = await choices.resolve(lastBytes(decisionText(context, options.history), textLimit))
+  let limit = textLimit
+  if (jev) {
+    const [error, plan] = await choices.inspect("x")
+    if (error) throw error
+    const size = (value: unknown) => utf8.encode(JSON.stringify(value)).byteLength
+    const stateSize = size({ ...plan.state, query: "" })
+    const questionSize = Math.max(...Object.entries(plan.questions).map(([name, question]) => size({ [name]: question })))
+    // Jev reserves 2,048 bytes for framing and 128 for each question. Leave room for both envelopes.
+    limit = Math.min(limit, 29_999 - 2048 - 128 - stateSize - questionSize)
+    if (limit < 1) throw agentDiagnostics.AGENT_R0108({ message: "[vitehub] The decision choices exceed the Jev input budget. Use fewer or shorter choices, or set model." })
+  }
+  const [error, selection] = await choices.resolve(lastBytes(decisionText(context, options.history), limit), { signal: context.abortSignal })
   if (error) throw error
   const { confidence, ranked } = selection.decision
   const [best] = ranked

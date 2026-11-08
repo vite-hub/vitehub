@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       preset: 'netlify',
-      agent: true,
+      agent: { invocations: false },
       blob: true,
     }),
     hubSchedule({ providerOutput: 'standalone' }),

@@ -17,7 +17,7 @@ const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQue
   Object.fromEntries(Object.entries(questions).map(([name, question]) => {
     const labels = Object.keys(question.criteria ?? {})
     if (question.type === "choice") {
-      return [name, { choice: labels[0], confidence: 0.8, probabilities: Object.fromEntries(labels.map((label, index) => [label, index ? 0.1 : 0.9])), type: "choice" }]
+      return [name, { choice: labels[0], confidence: 0.8, probabilities: Object.fromEntries(labels.map((label, index) => [label, index ? 0.1 / (labels.length - 1) : 0.9])), type: "choice" }]
     }
     return [name, { noul: 0.7, type: "noul" }]
   }))))
@@ -363,6 +363,33 @@ describe("Jev decisions", () => {
     expect(new TextEncoder().encode(JSON.stringify(query)).byteLength).toBeLessThanOrEqual(16_002)
     expect(query.endsWith("😀end")).toBe(true)
     expect(query).not.toMatch(/^[\uDC00-\uDFFF]/)
+  })
+
+  it.each(["a", "😀"])("fits 255 choices and a long %s query in the Jev budget", async (point) => {
+    const choices = Object.fromEntries(Array.from({ length: 255 }, (_, index) => [`route${String(index).padStart(11, "0")}`, `Category ${index}.`]))
+    const agent = defineAgent({
+      capabilities: [llmRoute({ choices, gateway: typesafe(), id: "route" })],
+      driver: { run: context => context.context.get("route") },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: `${point.repeat(16_000)}end` })).resolves.toMatchObject({ choice: Object.keys(choices)[0] })
+    const [state, questions] = askJev.mock.calls[0]!
+    const query = (state as { query: string }).query
+    expect(query.endsWith(`${point}end`)).toBe(true)
+    expect(query).not.toMatch(/^[\uDC00-\uDFFF]/)
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+    expect(bytes(state) + bytes({ g0: questions.g0 }) + 2048 + 128).toBeLessThanOrEqual(30_000)
+  })
+
+  it("rejects choices whose envelope alone exceeds the Jev budget before dispatch", async () => {
+    const choices = Object.fromEntries(Array.from({ length: 255 }, (_, index) => [`route${String(index).padStart(67, "0")}`, "A category."]))
+    const agent = defineAgent({
+      capabilities: [llmRoute({ choices, gateway: typesafe() })],
+      driver: { run: () => "should not run" },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "Help" })).rejects.toThrow(/choices.*Jev.*budget/)
+    expect(askJev).not.toHaveBeenCalled()
   })
 
   it("splits large question sets into bounded requests and preserves key order", async () => {

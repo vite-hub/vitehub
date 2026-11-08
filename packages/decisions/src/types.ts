@@ -1,4 +1,4 @@
-import type { AiGatewayAsk, askWithModel } from "@vite-hub/gateways"
+import type { AiGatewayAsk, AskModel } from "@vite-hub/gateways"
 import type { Diagnostic } from "nostics"
 
 /** The value that you map back to your data. It must be unique within its group. */
@@ -64,7 +64,7 @@ export interface ChoicesDefinition<TGroups extends ChoiceGroups> {
   hints?: string
   limits?: Partial<ChoicesLimits>
   /** Asks any AI SDK model instead of Jev, such as `openai("gpt-5.1-mini")`. It needs the `ai` package. Set `gateway` or `model`. */
-  model?: Parameters<typeof askWithModel>[0]
+  model?: AskModel
   /** A label for logs and the CLI. It never connects anything. */
   name?: string
   thresholds?: ChoicesThresholds

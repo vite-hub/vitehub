@@ -16,7 +16,7 @@ The decision is one [Decisions](/docs/decisions) group with `infer: true`. The A
 Define stable choice keys with short descriptions.
 Later code reads the recorded value and decides how to use the route.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { llmRoute } from 'vite-hub/agent/capabilities'
 
@@ -51,7 +51,7 @@ A second writer for the same context value fails early.
 The choices become the options of one Decisions group with `multiple: false` and `infer: true`: the key is the label and the choice text is the description. The text does not have to name a choice. The model infers it.
 
 With a single choice, the Capability records it locally with confidence `1` and probability `1`, and sends no request.
-With 2 to 255 choices, it sends one request. The text is the Invocation `data` as JSON when a caller sets it. Otherwise it is the latest user text, after the recent history when `history` is set. The decision reads the last 16,000 bytes.
+With 2 to 255 choices, it sends one request. The text is the Invocation `data` as JSON when a caller sets it. Otherwise it is the latest user text, after the recent history when `history` is set. The decision reads up to the last 16,000 bytes of JSON-encoded UTF-8 text, on a code point boundary. Jev leaves room for the choices and question within its 30,000-byte input budget. If these alone cannot fit, use fewer or shorter choices, or set `model`.
 
 Who answers:
 

@@ -28,7 +28,7 @@ A **group** is one decision, such as "which supplier" or "which chart". Each gro
 
 An **option** is one thing the person can pick. It has a `value` (your id), a `label` (what people call it), optional `aliases` (codes, short names, other languages), and an optional `description` (what the option is about).
 
-```ts
+```ts fragment
 { value: "nord", label: "Nord Parts", aliases: ["nord"] }
 ```
 
@@ -38,13 +38,13 @@ The **selection** is the answer. It has one entry for each group. The shape depe
 
 A group with `multiple: true` (the default) can have many options. The text can include some and exclude others:
 
-```ts
+```ts fragment
 selection.supplier // { include: ["nord"], exclude: ["vak"] }
 ```
 
 A group with `multiple: false` has at most one option. You get the best value, how sure the model is, and every option ranked:
 
-```ts
+```ts fragment
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, { value: "line", probability: 0.1 }] }
 ```
 
@@ -57,6 +57,9 @@ By default, a group takes only the options that the text names. "Nord parts" pic
 Some decisions are never named in the text. A bug report does not say which project it belongs to, and a support email does not say which team should answer it. Set `infer: true` on a group with `multiple: false`. The model then chooses the option that fits the text best, from what the text is about and from each option's `description`:
 
 ```ts
+import { defineChoices } from 'vite-hub/decisions'
+import { vercel } from 'vite-hub/gateways'
+
 const inbox = defineChoices({
   gateway: vercel(),
   groups: {
@@ -80,7 +83,7 @@ selection?.project // { value: "console", confidence: 0.9, ranked: [...] }
 
 An `infer` group has no "none" answer, so add an option such as "Other" when nothing may fit. `value` is still `null` below the `option` threshold, and `ranked` keeps every option. The `supported` check covers only the groups that do not infer. When every group infers, it is not asked. A group with one option returns that option without a request.
 
-[`llmRoute()`](/docs/agents/capabilities/llm-route) and [`llmGate()`](/docs/agents/capabilities/llm-gate) use an `infer` group for their Jev decisions.
+[`llmRoute()`](/docs/agents/capabilities/llm-route) and [`llmGate()`](/docs/agents/capabilities/llm-gate) use an `infer` group for their decisions.
 
 ## Thresholds
 

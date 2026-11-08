@@ -15,7 +15,7 @@ The decision is one [Decisions](/docs/decisions) group with `infer: true`. The A
 
 Define allow and reject categories with stable keys and short descriptions.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { llmGate } from 'vite-hub/agent/capabilities'
 
@@ -37,6 +37,8 @@ export default defineAgent({
 Set `message` to change the error message that server code receives on rejection:
 
 ```ts
+import { llmGate } from 'vite-hub/agent/capabilities'
+
 llmGate({
   allow: { support: 'Support request the Agent can answer.' },
   reject: { unrelated: 'Request unrelated to support.' },
@@ -67,7 +69,7 @@ HTTP and Invocation clients receive a public error instead. The HTTP status is `
 ## Decisions
 
 Every category becomes an option of one Decisions group with `multiple: false` and `infer: true`, with 2 to 255 categories.
-The text is the Invocation `data` as JSON when a caller sets it. Otherwise it is the latest user text, after the recent history when `history` is set. The decision reads the last 16,000 bytes.
+The text is the Invocation `data` as JSON when a caller sets it. Otherwise it is the latest user text, after the recent history when `history` is set. The decision reads up to the last 16,000 bytes of JSON-encoded UTF-8 text, on a code point boundary. Jev leaves room for the choices and question within its 30,000-byte input budget. If these alone cannot fit, use fewer or shorter choices, or set `model`.
 
 Who answers:
 

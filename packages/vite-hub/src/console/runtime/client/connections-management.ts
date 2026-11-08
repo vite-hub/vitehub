@@ -2,7 +2,7 @@ import type { ConnectionApproval, ConnectionInspection } from "@vite-hub/connect
 import type { EnvActivity } from "@vite-hub/env/bridge"
 import * as v from "valibot"
 import { envActorSchema } from "./env-management"
-import { projectFetch, projectUrl } from "./project"
+import { isRemoteProject, projectConsoleUrl, projectFetch, projectUrl } from "./project"
 import { ConsoleNetworkError, ConsoleRequestError, consoleResponseError } from "./request"
 
 /** An approval as the Console shows it. The Console never reads call inputs. */
@@ -75,6 +75,32 @@ export function connectionNextStep(connection: Pick<ConnectionInspection, "crede
     : { kind: "connect", label: fresh ? "Connect" : "Reconnect" }
 }
 
+/** What needs attention on a Connection besides its status: pending approvals and missing scopes. */
+export interface ConnectionNotices {
+  /** The number of pending approvals plus missing scopes. */
+  readonly count: number
+  /** One line for each fact, such as `2 pending approvals`. The tooltip lists them. */
+  readonly items: readonly string[]
+  /** The count in words, such as `3 notices`, for the short accessible name of the count button. */
+  readonly summary: string
+  /** The details tab that shows the first fact. */
+  readonly tab: "approvals" | "details"
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
+/** The notices of a Connection, or `undefined` when nothing needs attention. */
+export function connectionNotices(connection: Pick<ConnectionInspection, "scopes">, pendingApprovals = 0): ConnectionNotices | undefined {
+  const missing = connection.scopes.missing.length
+  const items = [
+    ...pendingApprovals > 0 ? [plural(pendingApprovals, "pending approval")] : [],
+    ...missing > 0 ? [plural(missing, "missing scope")] : [],
+  ]
+  if (!items.length) return undefined
+  const count = pendingApprovals + missing
+  return { count, items, summary: plural(count, "notice"), tab: pendingApprovals > 0 ? "approvals" : "details" }
+}
+
 /** A short label for a Connection activity action. Connection tokens are stored as Env credentials. */
 export function connectionActivityLabel(action: EnvActivity["action"]): string {
   return { grant: "Grant", inspect: "Inspect", preview: "Preview", replace: "Store token", resolve: "Retrieve token", revoke: "Revoke", use: "Call" }[action]
@@ -85,6 +111,8 @@ export function connectionActivityLabel(action: EnvActivity["action"]): string {
  * path such as the Console page, the result page of the flow returns there.
  */
 export function connectionConnectURL(endpoint: string, name: string, returnTo?: string): string {
+  // The flow runs on the app origin with the app session. A Console on another origin opens the app's own Console.
+  if (isRemoteProject()) return projectConsoleUrl("/connections")
   const url = projectUrl(`${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`)
   return returnTo ? `${url}?return=${encodeURIComponent(returnTo)}` : url
 }
