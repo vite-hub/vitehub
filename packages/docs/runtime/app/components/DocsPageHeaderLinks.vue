@@ -88,7 +88,7 @@ const items = computed(() => {
         size="sm"
         :items="items"
         :content="{ align: 'end', side: 'bottom', sideOffset: 8 }"
-        :ui="{ item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' }"
+        :ui="withDocsTheme('dropdownMenu', { item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' })"
       >
         <UButton
           icon="i-lucide-chevron-down"

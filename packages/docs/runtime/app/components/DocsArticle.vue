@@ -54,8 +54,8 @@ const mobileTocUi = {
 
 <template>
   <article class="vh-docs-article" :class="{ 'has-code-panel': hasCodePanel }" :data-path="page.path">
-    <UPage :ui="pageUi">
-      <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined" :ui="headerUi">
+    <UPage :ui="withDocsTheme('page', pageUi)">
+      <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined" :ui="withDocsTheme('pageHeader', headerUi)">
         <template #links>
           <DocsPageHeaderLinks />
         </template>
@@ -67,7 +67,7 @@ const mobileTocUi = {
         title="On this page"
         :highlight="false"
         :links="tocLinks"
-        :ui="mobileTocUi"
+        :ui="withDocsTheme('contentToc', mobileTocUi)"
       />
 
       <UPageBody
@@ -91,7 +91,7 @@ const mobileTocUi = {
 
       <template v-else-if="tocLinks.length" #right>
         <aside class="vh-article-outline" aria-label="Page outline">
-          <UContentToc title="On this page" :highlight="false" :links="tocLinks" :ui="outlineUi" />
+          <UContentToc title="On this page" :highlight="false" :links="tocLinks" :ui="withDocsTheme('contentToc', outlineUi)" />
         </aside>
       </template>
     </UPage>
