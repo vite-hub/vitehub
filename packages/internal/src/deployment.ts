@@ -1,6 +1,8 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 /** The host that ViteHub builds for: the `host` option of `vitehub()` and the value of `VITEHUB_HOST`. */
 export type ViteHubHost = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
+/** @deprecated Use ViteHubHost. Retained for internal consumers while the host rename lands. */
+export type DeploymentPreset = ViteHubHost
 export type DeploymentRuntime = "deno" | "node" | "workerd"
 export type DeploymentService = "blob" | "browser" | "queue" | "rateLimit" | "realtime" | "sandbox"
 
