@@ -311,7 +311,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
         body: JSON.stringify({ input: { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }, operation: "comments.create" }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
-      }))
+      }), { remoteAddress: "127.0.0.1" })
       const body = await response.json() as { ok: boolean, value: CommentThread }
       expect(body.ok).toBe(true)
       expect(body.value.author).toEqual({ id: "local", name: "You" })

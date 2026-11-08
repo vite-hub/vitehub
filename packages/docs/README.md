@@ -89,8 +89,8 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `toc` | `true`, `false` on `landing` | `false` hides the "On this page" outline. |
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
-| `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind }`. |
-| `seo` | None | `{ title, description, image }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. |
+| `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind, panel }`. See [Panels](#panels). |
+| `seo` | None | `{ title, description, image, index }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. `index: false` asks search engines not to index the page. See [Pages that search engines skip](#pages-that-search-engines-skip). |
 
 Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DocsContentError`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
 
@@ -105,6 +105,27 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 | `group` | Title of the group of the section. See `groups`. |
 | `fold` | `true` folds each page group of the sidebar. The group of the current page opens itself. |
 | `related` | Section ids listed under Related in the sidebar. |
+
+### Panels
+
+A long list of pages, such as one page for each error code, would bury the other pages of a section. Set `navigation.panel: true` on the `index.md` of a folder inside the section, and the folder becomes a panel:
+
+- The section sidebar shows one link to the panel, with the number of its pages, after the section pages.
+- On a page of the panel, the sidebar lists only the panel: a link back to the section, the panel Overview, and its pages by `navigation.group`. Each group folds. A page title that is a code, such as `QUEUE_DISABLED`, shows in monospace on one line. Search finds the panel pages by title, so the panel has no filter of its own.
+- The rail keeps the reader in the panel. On `/docs/queue/diagnostics/queue_disabled`, the KV item opens `/docs/kv/diagnostics` when that folder is a panel too, and `/docs/kv` when it is not.
+- Previous and next stay inside the panel.
+
+```md [content/docs/queue/diagnostics/index.md]
+---
+title: Queue diagnostics
+navigation.title: Diagnostics
+navigation.panel: true
+---
+```
+
+### Pages that search engines skip
+
+`seo.index: false` adds `<meta name="robots" content="noindex, follow">` and leaves the page out of `sitemap.xml`, llms.txt, `llms-full.txt`, and the share images. The site search lists it by its title and description only. The build does not prerender the page: the server renders it on request, so a site with thousands of generated pages builds as fast as before. Links to the page stay valid for the link checker, and its raw Markdown copy stays at `/raw/...`. Use it for long tails of thin pages, such as one page for each error code, and keep the page that lists them indexed.
 
 ## Layouts and rails
 
@@ -200,10 +221,6 @@ The design follows the comark-ui site: Geist, neutral grays, hairline rings, sma
 
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
-
-The build also checks cross-page fragments in the final HTML output. Routes excluded by `routeRules` with `prerender: false` or `nitro.prerender.ignore`, including the enabled ViteHub Console, do not need output files: the server can answer them at request time. Files that do exist still have their fragments checked. More specific `prerender: true` rules remain checked.
-
-`docs.linkChecker` accepts `excludeLinks` for intentionally unchecked URLs, `excludePages` for embedded documents, `ignoreFragments` for pages that use the hash as application state, and `redirect(url)` for application redirects. Lists accept exact public paths, globs such as `/blog/**`, or regular expressions; include `app.baseURL` when it is not `/`. The app's `linkChecker.excludeLinks` and `docs.linkChecker.excludeLinks` are combined. `linkChecker: false` disables both checks. For a standalone output check, use `checkDocsLinks({ dir, siteUrl, appBase?, excludeLinks?, excludePages?, ignoreFragments?, redirect?, isRuntimePath? })` from `@vite-hub/docs/server`; `isRuntimePath(pathname)` identifies server routes whose output files may be absent.
 
 The build also checks cross-page fragments in the final HTML output. Routes excluded by `routeRules` with `prerender: false` or `nitro.prerender.ignore`, including the enabled ViteHub Console, do not need output files: the server can answer them at request time. Files that do exist still have their fragments checked. More specific `prerender: true` rules remain checked.
 
