@@ -32,6 +32,64 @@ function manifestOf(files: Record<string, string>, base = "/docs"): DocsManifest
 }
 
 describe("createDocsManifest", () => {
+  it("mounts independent sources, excludes partials, adapts metadata and preserves physical file paths", () => {
+    withContent(
+      {
+        "pages/index.md": "---\ntitle: Home\n---\n",
+        "pages/guide/install.md": "---\ntitle: Install\n---\n",
+        "package/index.md": "---\ntitle: Zoom\ncredits: Built on Vue\nkeywords: [image]\n---\n",
+        "package/partials/example.md": "---\ntitle: Partial\n---\n",
+        "package/usage.md": "---\ntitle: Usage\n---\n",
+      },
+      (dir) => {
+        const manifest = createDocsManifest({
+          dir,
+          base: "/",
+          sources: [
+            { dir: join(dir, "pages") },
+            {
+              dir: join(dir, "package"),
+              mount: "/zoom",
+              exclude: ["partials/**"],
+              frontmatter: (data, page) => ({
+                ...data,
+                title: page.file === "usage.md" ? "Mapped usage" : data.title,
+              }),
+            },
+          ],
+          sections: { zoom: { category: "Blocks", order: -1 } },
+        });
+        expect(manifest.root).toMatchObject({ path: "/", source: "docs-0", file: "index.md" });
+        expect(manifest.sections[0]).toMatchObject({ id: "zoom", category: "Blocks" });
+        expect(findDocsPage(manifest, "/zoom")?.page).toMatchObject({
+          file: "index.md",
+          source: "docs-1",
+          credits: "Built on Vue",
+          keywords: ["image"],
+        });
+        expect(findDocsPage(manifest, "/zoom/usage")?.page.title).toBe("Mapped usage");
+        expect(docsManifestPages(manifest).map((page) => page.path)).not.toContain(
+          "/zoom/partials/example",
+        );
+      },
+    );
+  });
+
+  it("rejects routes produced by different source files", () => {
+    withContent(
+      { "first/zoom.md": "---\ntitle: First\n---", "second/index.md": "---\ntitle: Second\n---" },
+      (dir) => {
+        expect(() =>
+          createDocsManifest({
+            dir,
+            base: "/",
+            sources: [{ dir: join(dir, "first") }, { dir: join(dir, "second"), mount: "/zoom" }],
+          }),
+        ).toThrow(/also produced/);
+      },
+    );
+  });
+
   it.each([
     ["docs/start/guide.md", "docs/start/guide/index.md"],
     ["docs/start.md", "docs/start/index.md"],

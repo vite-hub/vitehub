@@ -502,12 +502,12 @@ function databaseInspection(url: URL): Record<string, unknown> {
 /**
  * Fails chosen Console routes, so a contributor can see each error state. Set the `playground-fail` cookie to
  * `<route>=<status>` pairs, such as `agents=401,invocations=401` or `sections=503`. A route matches the path after
- * `/api/_vitehub/console/`, so `agents` also fails `agents/<name>/invocations`.
+ * `/_vitehub/api/`, so `agents` also fails `agents/<name>/invocations`.
  */
 function playgroundFailure(request: IncomingMessage, path: string): number | undefined {
   const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-fail="))
   if (!cookie) return undefined
-  const route = path.slice("/api/_vitehub/console/".length)
+  const route = path.slice("/_vitehub/api/".length)
   for (const pair of decodeURIComponent(cookie.slice("playground-fail=".length)).split(",")) {
     const [name, status] = pair.split("=")
     if (name && (route === name || route.startsWith(`${name}/`)) && Number(status) >= 400) return Number(status)
@@ -524,7 +524,7 @@ const playgroundFailureMessages: Record<number, string> = {
 
 async function handleAPI(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   const path = url.pathname
-  if (!path.startsWith("/api/_vitehub/console/")) return false
+  if (!path.startsWith("/_vitehub/api/")) return false
 
   const failure = playgroundFailure(request, path)
   if (failure) {
@@ -534,7 +534,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/env") {
+  if (path === "/_vitehub/api/env") {
     // Grouped by namespace like a real app: providers, nested literals, top-level values, and undisclosed names.
     const envEntries = [
       { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
@@ -569,18 +569,18 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     })) : undefined })
     return true
   }
-  if (path === "/api/_vitehub/console/logs") {
+  if (path === "/_vitehub/api/logs") {
     const page = await logs.source.query({ text: url.searchParams.get("text") ?? undefined, level: (await import("../../packages/vite-hub/src/logs/source.ts")).parseLogQuery({ level: url.searchParams.get("level") ?? undefined }).level, cursor: url.searchParams.get("cursor") ?? undefined })
     json(response, { source: logs.source.info, page })
     return true
   }
-  if (path === "/api/_vitehub/console/sections") {
+  if (path === "/_vitehub/api/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
     json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection], projectName: manifest.name, sections })
     return true
   }
 
-  if (path === "/api/_vitehub/console/skills") {
+  if (path === "/_vitehub/api/skills") {
     const agent = url.searchParams.get("agent") ?? "interface-engineer"
     const files = agent === "interface-engineer" ? playgroundSkillFiles : {}
     const filePath = url.searchParams.get("path")
@@ -604,7 +604,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/agents") {
+  if (path === "/_vitehub/api/agents") {
     json(response, {
       agents,
       invocationAgents,
@@ -616,7 +616,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  const newInvocation = /^\/api\/_vitehub\/console\/agents\/([^/]+)\/invocations$/.exec(path)
+  const newInvocation = /^\/_vitehub\/api\/agents\/([^/]+)\/invocations$/.exec(path)
   if (newInvocation && request.method === "POST") {
     const agentName = decodeURIComponent(newInvocation[1]!)
     if (!agents.includes(agentName)) {
@@ -695,7 +695,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/invocation-capabilities") {
+  if (path === "/_vitehub/api/invocation-capabilities") {
     const agentName = url.searchParams.get("agent") || undefined
     const [capabilities, triggeredBy] = await Promise.all([
       invocations.listCapabilityIds(agentName),
@@ -705,7 +705,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/status") {
+  if (path === "/_vitehub/api/status") {
     json(response, { agents: [...new Set(fixture.invocations.map(record => record.agentName).filter(Boolean))].map(agent => ({
       agent,
       checkedAt: "2026-08-30T18:00:00.000Z",
@@ -716,7 +716,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/invocations") {
+  if (path === "/_vitehub/api/invocations") {
     const ids = url.searchParams.getAll("id")
     if (ids.length) {
       const records = await Promise.all(ids.map(id => invocations.get(id)))
@@ -741,8 +741,8 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path.startsWith("/api/_vitehub/console/invocations/")) {
-    const id = decodeURIComponent(path.slice("/api/_vitehub/console/invocations/".length))
+  if (path.startsWith("/_vitehub/api/invocations/")) {
+    const id = decodeURIComponent(path.slice("/_vitehub/api/invocations/".length))
     if (request.method === "POST") {
       let input: unknown
       try {
@@ -795,7 +795,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/usage") {
+  if (path === "/_vitehub/api/usage") {
     const requestedWindow = url.searchParams.get("window") || "30d"
     const window = parseConsoleUsageWindow(requestedWindow)
     if (!window) {
@@ -813,12 +813,12 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/database") {
+  if (path === "/_vitehub/api/database") {
     json(response, databaseInspection(url))
     return true
   }
 
-  if (path === "/api/_vitehub/console/search") {
+  if (path === "/_vitehub/api/search") {
     const search = url.searchParams.get("search")?.trim() || undefined
     const page = await invocations.list({
       cursor: url.searchParams.get("cursor") || undefined,
@@ -840,7 +840,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/definitions") {
+  if (path === "/_vitehub/api/definitions") {
     const section = url.searchParams.get("section")
     if (section === "email") {
       emailOutbox ??= captureEmailOutbox()
@@ -877,7 +877,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/schedule-run" && request.method === "POST") {
+  if (path === "/_vitehub/api/schedule-run" && request.method === "POST") {
     // SAFETY: The playground validates the name immediately after decoding this local JSON request.
     const input: unknown = await body(request)
     const requestedName = input instanceof Object && "name" in input ? input.name : undefined
@@ -903,7 +903,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/rate-limit" && request.method === "POST") {
+  if (path === "/_vitehub/api/rate-limit" && request.method === "POST") {
     // SAFETY: The playground checks every field right after it decodes this local JSON request.
     const input = await body(request) as { action?: unknown, key?: unknown, name?: unknown }
     const policy = definitions["rate-limits"].find(definition => definition.name === input.name)
@@ -929,7 +929,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/blob" && request.method === "POST") {
+  if (path === "/_vitehub/api/blob" && request.method === "POST") {
     // SAFETY: The playground checks every field right after it decodes this local JSON request.
     const input = await body(request) as { action?: unknown, contentType?: unknown, data?: unknown, overwrite?: unknown, pathname?: unknown, store?: unknown }
     const requested = typeof input.store === "string" ? input.store : "default"
@@ -970,7 +970,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/blob") {
+  if (path === "/_vitehub/api/blob") {
     const requested = url.searchParams.get("store") || "default"
     const store = requested === "default" || requested === "uploads" ? requested : undefined
     if (!store) {
@@ -989,7 +989,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/api/_vitehub/console/kv") {
+  if (path === "/_vitehub/api/kv") {
     if (request.method === "POST") {
       // SAFETY: The playground handler validates both fields immediately after decoding this local JSON request.
       const input = await body(request) as { action?: unknown, key?: unknown, store?: unknown, value?: unknown }

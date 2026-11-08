@@ -7,7 +7,6 @@
     "cloudflare",
     "filesystem",
     "nuxt",
-    "nuxt-module",
     "typescript",
     "vercel",
     "vite",
@@ -56,6 +55,11 @@
       "import": "./dist/blob-database.js",
       "default": "./dist/blob-database.js"
     },
+    "./checkout": {
+      "types": "./dist/checkout.d.ts",
+      "import": "./dist/checkout.js",
+      "default": "./dist/checkout.js"
+    },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js",
@@ -71,6 +75,11 @@
       "import": "./dist/internal/path.js",
       "default": "./dist/internal/path.js"
     },
+    "./lineage": {
+      "types": "./dist/lineage.d.ts",
+      "import": "./dist/lineage.js",
+      "default": "./dist/lineage.js"
+    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
@@ -85,11 +94,6 @@
       "types": "./dist/nitro.d.ts",
       "import": "./dist/nitro.js",
       "default": "./dist/nitro.js"
-    },
-    "./nuxt": {
-      "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js",
-      "default": "./dist/nuxt.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
@@ -176,6 +180,7 @@
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs",
     "valibot": "catalog:runtime",
+    "yaml": "catalog:tooling",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",

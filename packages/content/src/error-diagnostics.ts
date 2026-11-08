@@ -1,7 +1,7 @@
 import { defineDiagnostics } from "nostics"
 
 export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/content/diagnostics",
   codes: {
     CONTENT_R0001: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
