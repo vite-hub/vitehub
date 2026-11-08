@@ -99,8 +99,9 @@ function assertWritablePath(pathname: string) {
   }
 }
 
-function blobErrorResponse(status: 400 | 404, error: string): Response {
-  return Response.json({ error }, { status })
+function blobErrorResponse(request: Request, status: 400 | 404, error: string): Response {
+  const response = Response.json({ error }, { status })
+  return request.method === "HEAD" ? new Response(null, { headers: response.headers, status }) : response
 }
 
 async function hashCacheKey(value: unknown): Promise<string> {
@@ -340,12 +341,12 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     async serve(request, pathname, options = {}) {
       const decodedPath = decodePathname(pathname)
       const issue = pathnameIssue(decodedPath)
-      if (issue) return blobErrorResponse(400, `Invalid Blob pathname: it ${issue}.`)
-      if (isReservedPath(decodedPath)) return blobErrorResponse(404, "Blob not found.")
+      if (issue) return blobErrorResponse(request, 400, `Invalid Blob pathname: it ${issue}.`)
+      if (isReservedPath(decodedPath)) return blobErrorResponse(request, 404, "Blob not found.")
       const [error, response] = await serveRequest(request, decodedPath, options)
       if (!error) return response
-      if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(404, "Blob not found.")
-      if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(400, error.message)
+      if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, 404, "Blob not found.")
+      if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, 400, error.message)
       throw error
     },
     store() {

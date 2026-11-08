@@ -115,15 +115,8 @@ returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
 `blob.del()` in ViteHub. The methods take a `string` pathname, so check a
 `getRouterParam()` result for `undefined` before you pass it.
 
-```diff [server/routes/files/[...pathname].get.ts]
-+import { blob } from "vite-hub/blob"
-+
- export default defineEventHandler(async (event) => {
-   const { pathname } = getRouterParams(event)
--  return blob.serve(event, pathname)
-+  return blob.serve(event.req, pathname)
- })
-```
+For a custom serving route on Nitro 3, see
+[Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
 
 `blob.handleUpload()` and `blob.handleMultipartUpload()` keep their names and
 return `[error, value]`. `handleUpload()` takes `formKey`, `multiple`, `ensure`,

@@ -126,9 +126,24 @@ With a partial prefix such as `docs/re`, a native page can be empty while `hasMo
 
 Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them.
 
+In a Nitro 3 or H3 2 handler:
+
+```ts [server/routes/files/[...pathname].get.ts]
+import { blob } from '@vite-hub/blob'
+import { defineEventHandler, getRouterParam } from 'h3'
+
+export default defineEventHandler((event) => {
+  const pathname = getRouterParam(event, 'pathname')
+  if (pathname === undefined) return Response.json({ error: 'Blob not found.' }, { status: 404 })
+  return blob.serve(event.req, pathname)
+})
+```
+
 `serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
 
-In an H3 app, headers that middleware set on `event.res.headers` before the route replace the same headers of the returned `Response`, and they do not reach `4xx` responses.
+HEAD responses keep the same status and headers as GET, with no body.
+
+In an H3 app, headers that middleware set on `event.res.headers` before the route replace the same headers of the returned `Response`, and they do not reach `4xx` responses. The generated Blob serve route preserves those middleware headers on `4xx` responses and keeps the Blob response headers when both set the same name.
 
 `blob.serve()` also answers byte-range requests, so a `<video>` or `<audio>` element can seek, and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`. A GET or HEAD request with one `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` gets `206` with `Content-Range` and only those bytes. A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body. Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file. Transformed responses ignore `Range`.
 

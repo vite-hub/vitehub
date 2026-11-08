@@ -51,6 +51,24 @@ function spyDriver(name = "spy"): BlobDriverAdapter<{ driver: "fs" }> {
 describe("blob pathname validation", () => {
   const unsafe = ["", "/", "..", ".", "a/../b", "a/./b", "..%2Fsecret", "%2e%2e/secret", "a\\..\\b", "a%5C..%5Cb", "a\u0000b", "a%00b", "a\nb", "a%7Fb", "a\uD800b", "a\uDC00b"]
 
+  it.each([
+    { name: "invalid", pathname: "..%2Fsecret", status: 400 },
+    { name: "reserved", pathname: ".vitehub/blob-meta/x.json", status: 404 },
+    { name: "missing", pathname: "missing.txt", status: 404 },
+    { name: "over the R2 key limit", pathname: "a".repeat(1025), status: 400 },
+  ])("returns a bodyless HEAD response for a pathname that is $name", async ({ pathname, status }) => {
+    const storage = createBlobStorage(spyDriver("cloudflare-r2"), "default")
+    const get = await storage.serve(new Request("https://example.test/x"), pathname)
+    const head = await storage.serve(new Request("https://example.test/x", { method: "HEAD" }), pathname)
+
+    expect(get.status).toBe(status)
+    expect(await get.json()).toEqual({ error: expect.any(String) })
+    expect(head.status).toBe(status)
+    expect([...head.headers]).toEqual([...get.headers])
+    expect(head.body).toBeNull()
+    expect(await head.text()).toBe("")
+  })
+
   it.each(unsafe)("rejects %j before any driver call", async (pathname) => {
     const driver = spyDriver()
     const storage = createBlobStorage(driver, "default")
