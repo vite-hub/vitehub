@@ -3,7 +3,8 @@ import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { cliproxy, cloudflare, vercel } from "@vite-hub/gateways"
 
 import { llmGate, llmRoute } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMessage } from "../src/messages.ts"
 import { ask } from "@vite-hub/gateways"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
@@ -121,7 +122,7 @@ describe("ask Driver", () => {
     })
 
     try {
-      await Promise.all(["first-key", "second-key"].map(apiKey => runAgent(agent, {
+      await Promise.all(["first-key", "second-key"].map(apiKey => runAgentWithContext(agent, {
         ...runtime(),
         cloudflare: { env: { TYPESAFE_API_KEY: apiKey } },
       }, { prompt: apiKey })))
@@ -150,7 +151,7 @@ describe("ask Driver", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({
       label: { choice: "invoice", confidence: 0.8, probabilities: { invoice: 0.9, none: 0.1 }, type: "choice" },
       reply: "yes",
       spam: true,
@@ -167,21 +168,21 @@ describe("ask Driver", () => {
   it("normalizes a root function data value to empty Jev state", async () => {
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
-    await expect(runAgent(agent, runtime(), { data: (() => "ignored") as never })).resolves.toEqual({ spam: true })
+    await expect(runAgentWithContext(agent, runtime(), { data: (() => "ignored") as never })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledWith(null, expect.any(Object), expect.any(Object))
   })
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])("serializes non-finite root data %s as null", async (data) => {
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
-    await expect(runAgent(agent, runtime(), { data })).resolves.toEqual({ spam: true })
+    await expect(runAgentWithContext(agent, runtime(), { data })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledWith(null, expect.any(Object), expect.any(Object))
   })
 
   it("rejects root bigint data before sending a Jev request", async () => {
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
-    await expect(runAgent(agent, runtime(), { data: 1n as never })).rejects.toThrow(TypeError)
+    await expect(runAgentWithContext(agent, runtime(), { data: 1n as never })).rejects.toThrow(TypeError)
     expect(askJev).not.toHaveBeenCalled()
   })
 
@@ -189,14 +190,14 @@ describe("ask Driver", () => {
     vi.stubEnv("TYPESAFE_API_KEY", undefined)
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
-    await expect(runAgent(agent, { ...runtime(), cloudflare: { env: { TYPESAFE_API_KEY: "binding-key" } } }, { prompt: "Win money" })).resolves.toEqual({ spam: true })
+    await expect(runAgentWithContext(agent, { ...runtime(), cloudflare: { env: { TYPESAFE_API_KEY: "binding-key" } } }, { prompt: "Win money" })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledWith("Win money", expect.any(Object), expect.objectContaining({ apiKey: "binding-key", baseURL: "https://api.typesafe.ai", provider: "typesafe" }))
   })
 
   it("asks through driver.gateway", async () => {
     vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
     const viaVercel = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") }, gateway: vercel() }, runtime: false })
-    await expect(runAgent(viaVercel, runtime(), { messages: [createMessage({ role: "user", text: "Win money" })] })).resolves.toEqual({ spam: true })
+    await expect(runAgentWithContext(viaVercel, runtime(), { messages: [createMessage({ role: "user", text: "Win money" })] })).resolves.toEqual({ spam: true })
     const [, , vercelOptions] = askJev.mock.calls[0] ?? []
     expect(vercelOptions).toMatchObject({ baseURL: "https://ai-gateway.vercel.sh/v4/ai", model: "typesafe-ai/jev", provider: "vercel" })
     expect(vercelOptions).toMatchObject({ apiKey: "oidc-token", headers: { "ai-gateway-auth-method": "oidc" } })
@@ -205,7 +206,7 @@ describe("ask Driver", () => {
       driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cloudflare({ accountId: "account", typesafeApiKey: "tenant-key", gatewayId: "finance", token: "cf-token" }) },
       runtime: false,
     })
-    await expect(runAgent(viaCloudflare, runtime(), { prompt: "Win money" })).resolves.toEqual({ spam: true })
+    await expect(runAgentWithContext(viaCloudflare, runtime(), { prompt: "Win money" })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenLastCalledWith("Win money", expect.any(Object), expect.objectContaining({
       apiKey: "tenant-key",
       baseURL: "https://gateway.ai.cloudflare.com/v1/account/finance/custom-typesafe",
@@ -225,7 +226,7 @@ describe("ask Driver", () => {
     vi.stubEnv("TYPESAFE_API_KEY", undefined)
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
-    await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
       code: "GATEWAYS_R0002",
       message: expect.stringContaining("TYPESAFE_API_KEY"),
     })
@@ -236,7 +237,7 @@ describe("ask Driver", () => {
     // SAFETY: This fixture deliberately returns an invalid question to verify runtime rejection.
     const agent = defineAgent({ driver: { ask: () => ({ spam: "Is it spam?" }) } as never, runtime: false })
 
-    await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
       code: "GATEWAYS_R0007",
       message: expect.stringContaining('Jev question "spam"'),
     })
@@ -254,7 +255,7 @@ describe("ask Driver", () => {
   ])("validates Jev $name questions before dispatch", async ({ name, question }) => {
     const agent = defineAgent({ driver: { ask: { question: question as never } }, runtime: false })
 
-    await expect(runAgent(agent, runtime(), { prompt: "value" })).rejects.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "value" })).rejects.toMatchObject({
       code: "GATEWAYS_R0007",
       message: expect.stringContaining(name === "if" ? "threshold must be" : `${name} criteria must have`),
     })
@@ -284,7 +285,7 @@ describe("Jev decisions for ask Driver Agents", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledOnce()
     expect(askJev.mock.calls[0]?.[1]).toEqual({ spam: { instructions: "Is it spam?", type: "noul" } })
   })
@@ -299,7 +300,7 @@ describe("Jev decisions for ask Driver Agents", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       ...runtime(),
       cloudflare: { env: { TYPESAFE_API_KEY: "request-key" } },
     }, { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
@@ -321,7 +322,7 @@ describe("Jev decisions for ask Driver Agents", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime(), { messages: [createMessage({ role: "user", text: "Invoice 42" })] })).resolves.toEqual({ spam: true })
+    await expect(runAgentWithContext(agent, runtime(), { messages: [createMessage({ role: "user", text: "Invoice 42" })] })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledTimes(2)
     expect(askJev).toHaveBeenNthCalledWith(1, { request: "Invoice 42" }, {
       decision: {
@@ -374,7 +375,7 @@ describe("Jev decisions for ask Driver Agents", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "Reset your password here" })).rejects.toMatchObject({
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "Reset your password here" })).rejects.toMatchObject({
       code: "LLM_GATE_REJECTED",
       details: { capabilityId: "gate", category: "unsafe", confidence: 0.6 },
     })

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { diagnostics } from "../src/capabilities.ts"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 
 import type { RuntimeDiagnosticEvent, RuntimeResourceSnapshot } from "@vite-hub/runtime"
 
@@ -26,7 +27,7 @@ describe("diagnostics Capability", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "diagnostic-run" },
       runtime: "unknown",
@@ -65,7 +66,7 @@ describe("diagnostics Capability", () => {
       } },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(events.filter(event => event.name === "agent.resource.peak")).toHaveLength(1)
   })
 
@@ -82,7 +83,7 @@ describe("diagnostics Capability", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(events.some(event => event.name === "agent.resource.peak")).toBe(false)
   })
 
@@ -96,7 +97,7 @@ describe("diagnostics Capability", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       memo: vi.fn(),
       run: { runId: "diagnostic-failure" },
       runtime: "unknown",
@@ -114,7 +115,7 @@ describe("diagnostics Capability", () => {
       driver: { run },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(run).toHaveBeenCalledOnce()
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "agent.diagnostics.report.failed" }))
     warn.mockRestore()
@@ -128,8 +129,8 @@ describe("diagnostics Capability", () => {
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
 
     expect(reporter).toHaveBeenCalledOnce()
     warn.mockRestore()
@@ -155,7 +156,7 @@ describe("diagnostics Capability", () => {
       } },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(inspect).toHaveBeenCalledTimes(1)
     expect(maxActive).toBe(1)
     release?.()
@@ -190,7 +191,7 @@ describe("diagnostics Capability", () => {
       } },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     expect(events.filter(event => event.name === "agent.resource.snapshot").map(event => event.attributes?.reason)).toEqual(["start", "finish"])
     expect(inspections).toBe(3)
   })
@@ -234,7 +235,7 @@ describe("diagnostics Capability", () => {
       } },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
     await terminalReported
     expect(maxReporters).toBe(1)
     expect(inspections).toBeGreaterThanOrEqual(3)
@@ -277,10 +278,10 @@ describe("diagnostics Capability", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const runtime = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
 
-    const first = runAgent(agent, runtime(), {})
+    const first = runAgentWithContext(agent, runtime(), {})
     await firstStarted
-    const second = runAgent(agent, runtime(), {})
-    const third = runAgent(agent, runtime(), {})
+    const second = runAgentWithContext(agent, runtime(), {})
+    const third = runAgentWithContext(agent, runtime(), {})
     releaseFirst?.()
     await queuedStarted
     await Promise.resolve()
@@ -302,7 +303,7 @@ describe("diagnostics Capability", () => {
       } },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { abortSignal: controller.signal })).rejects.toThrow("Cancelled.")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { abortSignal: controller.signal })).rejects.toThrow("Cancelled.")
     expect(events.at(-1)).toMatchObject({ attributes: { outcome: "cancelled" }, level: "info", name: "agent.invocation.terminal" })
   })
 
@@ -317,7 +318,7 @@ describe("diagnostics Capability", () => {
       } },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { abortSignal: controller.signal })).resolves.toBe("ok")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { abortSignal: controller.signal })).resolves.toBe("ok")
     expect(events.at(-1)).toMatchObject({ attributes: { outcome: "completed" }, level: "info", name: "agent.invocation.terminal" })
   })
 

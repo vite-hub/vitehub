@@ -4,7 +4,8 @@ import * as v from "valibot"
 import { agentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "../src/internal/invocation-input.ts"
 import { portableResolvedAgentInvokerInput, restoreResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 
-import { agentInvocationRerunInput, defineAgent, defineCapability, runAgent, startAgentInvocation } from "../src/index.ts"
+import { agentInvocationRerunInput, defineAgent, defineCapability, startAgentInvocation } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
 import type { AgentInvocationsOptions } from "../src/server.ts"
@@ -20,7 +21,7 @@ function runtime(runId: string) {
   }
 }
 
-async function journaled(input: Parameters<typeof runAgent>[2], options: Partial<AgentInvocationsOptions> = {}, resolve?: () => { id: string, kind: "user", label: string }, profileId = "reviewer", runMetadata: Partial<NonNullable<Parameters<typeof runAgent>[1]["run"]>> = {}) {
+async function journaled(input: Parameters<typeof runAgentWithContext>[2], options: Partial<AgentInvocationsOptions> = {}, resolve?: () => { id: string, kind: "user", label: string }, profileId = "reviewer", runMetadata: Partial<NonNullable<Parameters<typeof runAgentWithContext>[1]["run"]>> = {}) {
   const invocations = defineAgentInvocations({ metadataContent: ["input.messages", "input.prompt"], ...options, store: createMemoryAgentInvocationStore() })
   const agent = defineAgent({
     data: v.unknown(),
@@ -30,7 +31,7 @@ async function journaled(input: Parameters<typeof runAgent>[2], options: Partial
     runtime: false,
   })
   const runId = `rerun-${Math.random().toString(36).slice(2)}`
-  await runAgent(agent, { ...runtime(runId), run: { runId, ...runMetadata } }, input)
+  await runAgentWithContext(agent, { ...runtime(runId), run: { runId, ...runMetadata } }, input)
   await vi.waitFor(async () => {
     expect(await invocations.getByRunId(runId)).toMatchObject({ status: "completed" })
   })
@@ -97,7 +98,7 @@ describe("agentInvocationRerunInput", () => {
           runtime: false,
         })
     const runId = `rewrite-${source}`
-    await runAgent(agent, runtime(runId), { prompt: "original" })
+    await runAgentWithContext(agent, runtime(runId), { prompt: "original" })
     await vi.waitFor(async () => { expect(await invocations.getByRunId(runId)).toMatchObject({ status: "completed" }) })
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ prompt: "wrapped:original" }))
     expect(agentInvocationRerunInput((await invocations.getByRunId(runId))!)).toEqual({ available: false, reason: "input-prompt-changed" })
@@ -114,7 +115,7 @@ describe("agentInvocationRerunInput", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("command-replay"), { prompt: "/review changes" })
+    await runAgentWithContext(agent, runtime("command-replay"), { prompt: "/review changes" })
     await vi.waitFor(async () => { expect(await invocations.getByRunId("command-replay")).toMatchObject({ status: "completed" }) })
     expect(call).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Review this: changes" }))
@@ -134,7 +135,7 @@ describe("agentInvocationRerunInput", () => {
       invoker: { profiles: [{ id: "reviewer", kind: "person" }] },
       runtime: false,
     })
-    await runAgent(agent, runtime("mutated-profile"), { context: { invokerProfile: profile }, prompt: "original" })
+    await runAgentWithContext(agent, runtime("mutated-profile"), { context: { invokerProfile: profile }, prompt: "original" })
     await vi.waitFor(async () => { expect(await invocations.getByRunId("mutated-profile")).toMatchObject({ status: "completed" }) })
     expect(profile).toEqual({ id: "reviewer" })
     expect(agentInvocationRerunInput((await invocations.getByRunId("mutated-profile"))!)).toEqual({ available: false, reason: "input-has-context" })
@@ -153,7 +154,7 @@ describe("agentInvocationRerunInput", () => {
       runtime: false,
     })
     const runId = `replace-${reason}`
-    await runAgent(agent, runtime(runId), input)
+    await runAgentWithContext(agent, runtime(runId), input)
     await vi.waitFor(async () => { expect(await invocations.getByRunId(runId)).toMatchObject({ status: "completed" }) })
     expect(agentInvocationRerunInput((await invocations.getByRunId(runId))!)).toEqual({ available: false, reason })
   })
@@ -238,7 +239,7 @@ describe("agentInvocationRerunInput", () => {
       invocations,
       runtime: false,
     })
-    await runAgent(agent, runtime("replacement-signal"), { prompt: "Hi" })
+    await runAgentWithContext(agent, runtime("replacement-signal"), { prompt: "Hi" })
     await vi.waitFor(async () => { expect(await invocations.getByRunId("replacement-signal")).toMatchObject({ status: "completed" }) })
     expect(agentInvocationRerunInput((await invocations.getByRunId("replacement-signal"))!)).toEqual({ available: false, reason: "input-has-abort-signal" })
   })
@@ -366,7 +367,7 @@ describe("agentInvocationRerunInput", () => {
       runtime: false,
     })
     const runId = `request-derived-${selectedProfile}`
-    await runAgent(agent, { ...runtime(runId), request: new Request("https://consumer.test/run", { headers: { "x-actor": "request-actor" } }) }, {
+    await runAgentWithContext(agent, { ...runtime(runId), request: new Request("https://consumer.test/run", { headers: { "x-actor": "request-actor" } }) }, {
       prompt: "Hi",
       ...(selectedProfile ? { context: { invokerProfileId: "reviewer" } } : {}),
     })
@@ -381,7 +382,7 @@ describe("agentInvocationRerunInput", () => {
       : { available: false, reason: "input-has-invoker" })
     if (selectedProfile && rerun.available) {
       const rerunId = `${runId}-rerun`
-      await runAgent(agent, { ...runtime(rerunId), request: new Request("https://console.test/rerun") }, {
+      await runAgentWithContext(agent, { ...runtime(rerunId), request: new Request("https://console.test/rerun") }, {
         prompt: rerun.prompt, context: { invokerProfileId: rerun.invokerProfileId },
       })
       await vi.waitFor(async () => { expect(await invocations.getByRunId(rerunId)).toMatchObject({ status: "completed" }) })
