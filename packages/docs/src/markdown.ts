@@ -18,7 +18,7 @@ import mdc from "shiki/dist/langs/mdc.mjs"
 import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 
-import type { ElementNode, ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
+import type { ElementNode, MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { PresetOptions } from "comark-ui/vue"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
 
@@ -37,7 +37,7 @@ export interface DocsParserOptions {
   /** Blocks that show their first fenced block rendered, next to its source. */
   examples?: DocsExamplesOptions
   /** More Comark plugins, after the built-in ones. A plugin with a built-in name replaces it. */
-  plugins?: ComarkPlugin[]
+  plugins?: ParserOptions["plugins"]
 }
 
 export interface DocsExamplesOptions {

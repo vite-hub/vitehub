@@ -127,7 +127,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
   const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext({
     agentIdentity: { name },
-    capabilities: { ...getConsoleAgentCapabilities(), console },
+    capabilities: { ...await getConsoleAgentCapabilities(), console },
     memo: memo(),
     request: consoleRequest(event),
     runtime: "unknown" as const,
