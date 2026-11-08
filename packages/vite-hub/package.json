@@ -1063,11 +1063,6 @@
       "import": "./dist/ui/multi-file-diff.js",
       "default": "./dist/ui/multi-file-diff.js"
     },
-    "./ui/nuxt": {
-      "types": "./dist/ui/nuxt.d.ts",
-      "import": "./dist/ui/nuxt.js",
-      "default": "./dist/ui/nuxt.js"
-    },
     "./ui/patch-diff": {
       "types": "./dist/ui/patch-diff.d.ts",
       "import": "./dist/ui/patch-diff.js",

@@ -886,6 +886,7 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOp
 /** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
+  getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
   getMeta: () => Promise<{
     configKey: "vitehub"
     name: "vite-hub/nuxt"
@@ -894,7 +895,7 @@ type ViteHubNuxtModule = {
 
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
- * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both. Headless apps
+ * them Nuxt UI's Nuxt icon, their icons in the `@nuxt/icon` client bundle, and component auto-imports. `@vite-hub/ui` owns all three. Headless apps
  * do not need the optional Nuxt UI peer or its module, so they must not receive a plugin that imports it.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
@@ -910,6 +911,8 @@ async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
       hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
       options: { plugins: (nuxt.options.plugins ??= []) },
     })
+    // Auto-import the components, as the UI module did. The app still imports `@vite-hub/ui/styles.css` itself.
+    ui.addViteHubUIComponents(nuxt)
   })
 }
 
@@ -1713,6 +1716,12 @@ viteHubNuxtModule.getMeta = async () => ({
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })
+
+viteHubNuxtModule.getModuleDependencies = async () => {
+  if (!isPackageInstalled("@nuxt/ui")) return {}
+  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+  return ui?.viteHubUIIconDependencies ?? {}
+}
 
 export default viteHubNuxtModule
 

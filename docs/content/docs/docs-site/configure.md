@@ -261,11 +261,12 @@ export default defineNuxtConfig({
     banner: 'Lumen 2 is out. Read the upgrade guide.',
     github: { repo: 'acme/lumen' },
     socials: [{ label: 'Lumen on Discord', to: 'https://discord.gg/lumen', icon: 'i-simple-icons-discord' }],
+    footer: [{ label: 'About', to: '/about' }, { label: 'Privacy', to: '/privacy' }],
   },
 })
 ```
 
-`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it, or in the header's menu on narrow screens. The header appears on every page with search and a color mode button. `banner` shows one line above every docs page.
+`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it, or in the header's menu on narrow screens. The header appears on every page with search and a color mode button. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
 
 ## Design
 

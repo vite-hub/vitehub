@@ -82,7 +82,8 @@ const mobileTocUi = {
       </UPageBody>
 
       <!-- Every page ends with the full product list, in the content column. -->
-      <DocsCatalogFooter :current="section" class="vh-article-explore" />
+      <!-- Below the content: its links work before it hydrates. -->
+      <LazyDocsCatalogFooter hydrate-on-visible :current="section" class="vh-article-explore" />
 
       <template v-if="hasCodePanel" #right>
         <DocsCodePanel :body="bodyElement" />
