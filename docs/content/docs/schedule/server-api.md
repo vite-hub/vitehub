@@ -30,7 +30,7 @@ Execution, storage, and runtime state helpers live in `@vite-hub/schedule/runtim
 
 A Static Schedule runs on the cron in its file. When the time comes from your users, such as a reminder that someone asks for in a chat, leave out `cron` and start the Schedule from code.
 
-```ts [server/schedules/reminder.ts]
+```ts [server/schedules/reminder.ts] fragment
 import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({
@@ -40,12 +40,15 @@ export default defineSchedule({
 })
 ```
 
+The route uses Valibot to validate the request body (`pnpm add valibot`):
+
 ```ts [server/api/reminders.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import { object, parse, string } from 'valibot'
 import { startSchedule } from 'vite-hub/schedule'
 
 export default defineEventHandler(async (event) => {
-  const { at, text } = await readBody(event)
+  const { at, text } = await readValidatedBody(event, body => parse(object({ at: string(), text: string() }), body))
   const [error, schedule] = await startSchedule('reminder', { at, payload: { text } })
   if (error) throw error
   return { id: schedule.id }

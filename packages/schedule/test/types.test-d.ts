@@ -15,6 +15,7 @@ import type { ScheduleRunContext } from "../src/index.ts"
 it("infers schedule handler result types", () => {
   const schedule = defineSchedule({ cron: "0 9 * * *", handler: async context => context.id })
 
+  expectTypeOf(schedule.cron).toEqualTypeOf<string>()
   expectTypeOf(schedule.handler).parameters.toEqualTypeOf<[ScheduleRunContext]>()
   expectTypeOf(schedule.handler).returns.toEqualTypeOf<string | Promise<string>>()
 })
@@ -31,6 +32,7 @@ it("types the defineSchedule helper signature", () => {
   })
 
   const positional = defineSchedule("0 9 * * *", async context => context.id, { manual: true })
+  expectTypeOf(positional.cron).toEqualTypeOf<string>()
   expectTypeOf(positional.options).toEqualTypeOf<{ manual?: boolean } | undefined>()
 
   // Without cron, only startSchedule() runs the Definition. The handler reads what startSchedule() stored.

@@ -33,7 +33,8 @@ function validateCron(cron: unknown): asserts cron is string {
   }
 }
 
-export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: ScheduleDefinitionOptions): ScheduleDefinition<TResult>
+export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: ScheduleDefinitionOptions): ScheduleDefinition<TResult> & { cron: string }
+export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult> & { cron: string }): ScheduleDefinition<TResult> & { cron: string }
 export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult>
 export function defineSchedule<TResult = unknown>(cronOrInput: string | ScheduleDefinitionInput<TResult>, handler?: ScheduleHandler<TResult>, options: ScheduleDefinitionOptions = {}): ScheduleDefinition<TResult> {
   if (!isPlainObject(options)) {

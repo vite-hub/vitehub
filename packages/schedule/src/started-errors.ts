@@ -14,7 +14,7 @@ type StartedScheduleErrorCodes = {
 // Errors that `startSchedule()`, `getSchedule()`, `listSchedules()`, and `cancelSchedule()` return as
 // `[error, undefined]`. Keep published codes stable. Each code has a heading on the docs page.
 export const startedScheduleErrors: ErrorCatalog<StartedScheduleErrorCodes> = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/schedule/server-api",
+  docs: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {
     SCHEDULE_NOT_STARTABLE: {
       why: ({ name }: { name: string }) => `No Schedule Definition without \`cron\` is named "${name}", so \`startSchedule()\` cannot start it.`,
