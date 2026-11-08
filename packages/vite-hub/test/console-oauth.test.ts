@@ -993,7 +993,7 @@ describe("media upload with OAuth", () => {
       return /invalid_token/.test(response.headers.get("www-authenticate") ?? "") ? "Bearer new" : undefined
     })
     open({ origin: "https://app.example.com", base: "", authorization: () => "Bearer old", renew })
-    const upload = createConsoleMediaClient("/api/_vitehub/console/media", "docs").upload(new File(["x"], "a.png", { type: "image/png" }), { signal: controller.signal })
+    const upload = createConsoleMediaClient("/_vitehub/api/media", "docs").upload(new File(["x"], "a.png", { type: "image/png" }), { signal: controller.signal })
     if (cancel) {
       await expect(upload).rejects.toMatchObject({ name: "AbortError" })
       expect(sent).toEqual(["Bearer old"])

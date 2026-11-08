@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, useId, watch } from "vue";
-import { motion, MotionConfig } from "motion-v";
+import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import { installOptions } from "./content";
 
 const commandTabs = [
@@ -21,7 +20,7 @@ type PackageManager = (typeof installOptions.packages)[number]["value"];
 const activeTab = ref<CommandTab>("package");
 const activePackageManager = ref<PackageManager>("pnpm");
 const copied = ref(false);
-const indicatorId = `install-tab-${useId()}`;
+const indicator = useSharedIndicator(useTemplateRef<HTMLElement>("tabs"));
 let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
 const selectedPackageManager = computed(
@@ -78,9 +77,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex w-full flex-col border border-default bg-default">
-    <MotionConfig reduced-motion="user">
       <div class="flex min-h-10 flex-wrap items-stretch justify-between border-b border-default">
-        <div class="flex items-stretch text-sm max-sm:min-h-10" role="group" aria-label="Install ViteHub">
+        <div ref="tabs" class="flex items-stretch text-sm max-sm:min-h-10" role="group" aria-label="Install ViteHub">
           <button
             v-for="tab in commandTabs"
             :key="tab.value"
@@ -92,11 +90,9 @@ onBeforeUnmount(() => {
           >
             <UIcon :name="tab.icon" class="hidden size-3.5 shrink-0 sm:block" aria-hidden="true" />
             <span>{{ tab.label }}</span>
-            <motion.span
+            <span
               v-if="activeTab === tab.value"
-              :layout-id="indicatorId"
-              :initial="false"
-              :transition="{ type: 'spring', stiffness: 450, damping: 36 }"
+              :ref="indicator.track"
               class="absolute inset-x-0 -bottom-px h-px bg-inverted"
               aria-hidden="true"
             />
@@ -130,7 +126,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-    </MotionConfig>
 
     <button
       type="button"

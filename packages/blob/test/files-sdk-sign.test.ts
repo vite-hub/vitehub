@@ -35,7 +35,7 @@ describe("signed requests on files-sdk drivers", () => {
   it("signs an S3 read with the requested lifetime", async () => {
     const [error, signed] = await s3Storage().sign("users/a/source.mp3", { expiresIn: 600, method: "GET" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(signed?.method).toBe("GET")
     expect(signed?.headers).toEqual({})
     const url = new URL(signed!.url)
@@ -47,14 +47,14 @@ describe("signed requests on files-sdk drivers", () => {
   it("signs an S3 read even when the store has a public base URL", async () => {
     const [error, signed] = await s3Storage("https://cdn.example").sign("a.txt", { expiresIn: 60, method: "GET" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(new URL(signed!.url).searchParams.get("X-Amz-Expires")).toBe("60")
   })
 
   it("signs an S3 upload that binds its content type", async () => {
     const [error, signed] = await s3Storage().sign("users/a/source.mp3", { contentType: "audio/mpeg", expiresIn: 900, method: "PUT" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(signed?.method).toBe("PUT")
     const url = new URL(signed!.url)
     expect(url.searchParams.get("X-Amz-Expires")).toBe("900")
@@ -77,11 +77,11 @@ describe("signed requests on files-sdk drivers", () => {
       const storage = gcsStorage()
 
       const [readError, read] = await storage.sign("users/a/source.mp3", { expiresIn: 600, method: "GET" })
-      expect(readError).toBeNull()
+      expect(readError).toBeUndefined()
       expect(new URL(read!.url).searchParams.get("X-Goog-Expires")).toBe("600")
 
       const [uploadError, upload] = await storage.sign("users/a/source.mp3", { contentType: "audio/mpeg", expiresIn: 900, method: "PUT" })
-      expect(uploadError).toBeNull()
+      expect(uploadError).toBeUndefined()
       expect(upload?.method).toBe("PUT")
       expect(new URL(upload!.url).searchParams.get("X-Goog-SignedHeaders")).toContain("content-type")
     }

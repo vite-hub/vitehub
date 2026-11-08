@@ -134,7 +134,7 @@ export interface ConsoleMediaClient {
   usage(pathnames: readonly string[]): Promise<Record<string, ConsoleMediaReferenceDocument[]>>
 }
 
-/** `/api/_vitehub/console/documents` → `/api/_vitehub/console/media`. */
+/** `/_vitehub/api/documents` → `/_vitehub/api/media`. */
 export function consoleMediaBase(documentsBase: string): string {
   return documentsBase.replace(/\/documents$/, "/media")
 }
