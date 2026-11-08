@@ -152,10 +152,10 @@ async function resolveStorage(name = "default"): Promise<BlobStorage> {
   // In app tests, each store is a fresh fs folder that the next reset deletes.
   const test = getViteHubTestMode()
   if (test) {
-    resolveBlobStorageConfig(await getBlobRuntimeConfig(), name)
+    const config = resolveBlobStorageConfig(await getBlobRuntimeConfig(), name)
     return test.backend(`blob:${name}`, async () => {
       const store = { base: await test.directory(`blob-${name}`), driver: "fs" } as const
-      return await createConfiguredBlobStorage({ store }, name)
+      return await createConfiguredBlobStorage({ ...config, store, stores: { default: store, [name]: store } }, name)
     })
   }
   return resolveNamedBlobRuntimeStorage(name, async (config) => {

@@ -1,3 +1,5 @@
+import { H3Event } from "h3"
+import sharp from "sharp"
 import { afterAll, beforeEach, expect, it } from "vitest"
 
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
@@ -50,4 +52,38 @@ it("stores each store in a temporary folder that a reset empties", async () => {
 
   const [, listed] = await blob.list()
   expect(listed?.blobs).toEqual([])
+})
+
+it.each([false as const, { transformer: "passthrough" as const }])("preserves image configuration %j when serving variants", async (images) => {
+  setBlobRuntimeConfig({ images, store, stores: { archive: store, default: store } })
+  const bytes = await sharp({ create: { background: "red", channels: 3, height: 200, width: 300 } }).jpeg().toBuffer()
+
+  for (const name of ["default", "archive"]) {
+    const storage = blob.store(name)
+    const [putError] = await storage.media.put("photo.jpg", bytes)
+    expect(putError).toBeUndefined()
+    const event = new H3Event(new Request("https://example.test/photo.jpg"))
+    const [error, body] = await storage.serve(event, "photo.jpg", { variant: { format: "webp", width: 64 } })
+    expect(error).toBeUndefined()
+    expect(event.res.headers.get("content-type")).toBe("image/jpeg")
+    expect(new Uint8Array(await new Response(body).arrayBuffer())).toEqual(new Uint8Array(bytes))
+  }
+})
+
+it("preserves custom image sizes, quality, and transformer for every test store", async () => {
+  setBlobRuntimeConfig({ images: { quality: 42, sizes: [80, 160], transformer: "photon" }, store, stores: { archive: store, default: store } })
+  const bytes = await sharp({ create: { background: "red", channels: 3, height: 200, width: 300 } }).jpeg().toBuffer()
+
+  for (const name of ["default", "archive"]) {
+    const storage = blob.store(name)
+    const [putError] = await storage.media.put("photo.jpg", bytes)
+    expect(putError).toBeUndefined()
+    const event = new H3Event(new Request("https://example.test/photo.jpg"))
+    const [error, body] = await storage.serve(event, "photo.jpg", { variant: { width: 70 } })
+    expect(error).toBeUndefined()
+    expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ format: "webp", width: 80 })
+    const [variantsError, variants] = await storage.media.variants("photo.jpg")
+    expect(variantsError).toBeUndefined()
+    expect(variants?.[0]?.key).toContain("q=42;engine=photon")
+  }
 })

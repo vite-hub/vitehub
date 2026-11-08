@@ -314,16 +314,21 @@ export default defineHandler(event => serveMcpOAuthDiscovery(event.req, {
 ```ts [server/routes/mcp.ts]
 import { verifyMcpRequest } from 'vite-hub/auth/mcp'
 
-const [error, caller] = await verifyMcpRequest(event.req)
-if (error) {
-  return new Response(null, {
-    status: 401,
-    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', event.req.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
-  })
+export default {
+  async fetch(request: Request) {
+    const [error, caller] = await verifyMcpRequest(request)
+    if (error) {
+      return new Response(null, {
+        status: 401,
+        headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', request.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
+      })
+    }
+    return Response.json({ client: caller.clientName })
+  },
 }
 ```
 
-It reads only the URL and the headers of the request, so H3's `event.req` or any value with `url` and `headers` works, and the body stays for the MCP handler. It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token whose scope has `offline_access` skips this check: the person granted access for while they are signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+It reads only the URL and the headers of the request, so the Request of a Fetchable route, H3's `event.req`, or any value with `url` and `headers` works, and the body stays for the MCP handler. It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token whose scope has `offline_access` skips this check: the person granted access for while they are signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 
 ### Delete abandoned registrations
 

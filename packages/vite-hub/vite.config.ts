@@ -255,6 +255,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-project-oauth.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-project-problem.vue",
           to: "dist/console/runtime/components",
         },
