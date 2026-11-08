@@ -1,5 +1,5 @@
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
-import { isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
+import { isChannelSimulated, isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
@@ -9484,6 +9484,39 @@ function createQueuedChannelDispatch(
   }
 }
 
+/**
+ * A browser GET on the webhook route of a simulated chat Channel opens a chat page in the look of its platform. The page
+ * POSTs to the same route, so opening the webhook URL is the way to chat with the Agent as that Channel.
+ */
+async function simulatedChannelPageResponse(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  request: Request,
+  webhook: string | undefined,
+  options: AgentChannelWebhookRouteOptions,
+): Promise<Response | undefined> {
+  const channels = agentChannelOptions(agent)
+  if (!Object.values(channels).some(channel => isChannelSimulated(channel.kind))) return undefined
+  const context = createRuntimeContext(
+    request,
+    undefined,
+    await resolveRuntimeWaitUntil(options.waitUntil),
+    options.cloudflare,
+    options.runtime,
+    options.capabilities,
+    routeAgentIdentity(options),
+  )
+  const webhookId = webhook ?? fallbackWebhookFromRequest(request)
+  const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, webhookId))
+  const channelId = match?.registration.channelId
+  const channel = channelId ? channels[channelId] : undefined
+  if (!isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
+  const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
+  const page = renderChannelSimulatorPage(channel.kind, { agent: routeAgentIdentity(options)?.name || "agent", route: new URL(request.url).pathname })
+  return page === undefined
+    ? undefined
+    : new Response(page, { headers: { "cache-control": "no-store", "content-type": "text/html; charset=utf-8" } })
+}
+
 export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRouteRuntimeContext>): AgentChannelWebhookRouteHandler {
   const activeInvocationScope: WebhookActiveInvocationScope = { owner: "webhook" }
   const webhookQueue = createAgentWebhookQueue<AgentChannelWebhookRouteOptions>({
@@ -9502,6 +9535,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     const webhookStartedAt = Date.now()
     // A replayed inbox request keeps its first arrival time for signature timestamps and retention.
     const webhookReceivedAt = (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxReceivedAt]?: number })[webhookInboxReceivedAt] ?? webhookStartedAt
+    if (request.method === "GET") {
+      const page = await simulatedChannelPageResponse(agent, request, webhook, handlerOptions)
+      if (page) return page
+    }
     if (request.method !== "HEAD" && request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }

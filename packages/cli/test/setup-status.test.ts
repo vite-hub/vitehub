@@ -22,8 +22,8 @@ describe("vitehub status", () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", workflow: ${options} }`) })
     const { exitCode, json } = await runSetup<SetupStatus>(["status", "--json"], root)
     expect(exitCode).toBe(0)
-    expect(feature(json, "workflow").missingPackages).toEqual([])
-    expect(feature(json, "workflow").fix).toBeUndefined()
+    expect(feature(json, "workflow").missingPackages).toEqual(["@vite-hub/workflow"])
+    expect(feature(json, "workflow").fix).toBe("pnpm add @vite-hub/workflow")
   })
 
   it.each([
