@@ -24,10 +24,16 @@ export function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
   return isAuthRequest(input) ? input : getStandardContext(input).req
 }
 
-/** Return an Auth input's host context, including the Standard Context carried by a Web Request. */
-export function authRequestEvent(input: AuthRequestInput): ViteHubContext | undefined {
-  if (input instanceof Request) return { "~standard": getStandardContext(input) }
-  return isAuthRequest(input) ? undefined : input
+/**
+ * Return the object that carries the Standard Context of an Auth input: the request event, or the Web Request itself.
+ * A Request that no framework wrapped gets a Standard Context that reads the host data on it, such as srvx `ip` and
+ * `runtime.cloudflare`.
+ */
+export function authRequestEvent(input: AuthRequestInput): ViteHubContext {
+  // SAFETY: An Auth input is a request event or a Web Request. getStandardContext() sets `~standard` on a Request.
+  const value = input as Request | ViteHubContext
+  getStandardContext(value)
+  return value as ViteHubContext
 }
 
 /** The Cloudflare bindings in the Standard Context of `event`, else the bindings of the active Cloudflare request. */
