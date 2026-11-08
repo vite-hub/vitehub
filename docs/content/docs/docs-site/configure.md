@@ -1,6 +1,6 @@
 ---
 title: Configure a docs site
-description: Organize sections, pick a layout per page, turn the navigation and the outline on or off, change the theme, replace components, and add Markdown blocks.
+description: Organize sections, pick a layout per page, turn the navigation and the outline on or off, change the design, replace components, and add Markdown blocks.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -17,7 +17,7 @@ content/
   docs/
     index.md                /docs
     guide/
-      .navigation.yml       section title, icon, order, category
+      .navigation.yml       section title, icon, order, category, group, fold
       index.md              /docs/guide
       install.md            /docs/guide/install
       deploy/
@@ -59,6 +59,32 @@ export default defineNuxtConfig({
 
 A section without a category, or with a category that `categories` does not list, shows in a last rail group and not in the catalog.
 
+### Groups
+
+A library with one section per package can have more sections than a rail can show. A group puts several sections in one rail item. The item opens the first section of the group, and the sidebar of every member lists all the sections of the group: each section is one row that opens its home page, and its other pages follow it. When the sections of a group have different categories, the sidebar shows each category as a heading.
+
+List the sections in `groups`, or set `group` in their `.navigation.yml`:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: {
+    groups: [
+      { title: 'Components', icon: 'i-lucide-blocks', sections: ['tabs', 'steps', 'cards'] },
+    ],
+  },
+})
+```
+
+```yaml [content/docs/charts/.navigation.yml]
+title: Charts
+icon: i-lucide-chart-line
+category: Data blocks
+group: Components
+```
+
+The group takes the place of its first section in the rail, and its sections keep their `order`. A group without an `icon` shows the icon of its first section. A `group` that `groups` does not list is a group too, with that title. The sections of one group count as one item when the shell decides whether the site needs a rail.
+
 ### Pages in the sidebar
 
 `navigation.order` sorts the pages of a section after its Overview. `navigation.group` puts pages under a label. `navigation.title` is a shorter label than `title`. `navigation: false` keeps a page out of the sidebar; the page still renders at its URL.
@@ -72,6 +98,66 @@ navigation.order: 4
 ---
 ```
 
+### Fold page groups
+
+A section with many pages, such as one page per lint rule, can fold its page groups. Set `fold: true` in its `.navigation.yml`:
+
+```yaml [content/docs/rules/.navigation.yml]
+title: Rules
+icon: i-lucide-stethoscope
+fold: true
+```
+
+Each group with a heading starts shut, and the reader opens it with a click, Enter, or Space. The group that holds the current page opens itself, so its link stays in view. Pages without a group stay open. A [group of sections](#groups) folds the page groups of each section that sets `fold`.
+
+### Panels
+
+A long list of pages, such as one page for each error code, would bury the other pages of a section. Set `navigation.panel: true` on the `index.md` of a folder inside the section, and the folder becomes a panel:
+
+```md [content/docs/queue/diagnostics/index.md]
+---
+title: Queue diagnostics
+navigation.title: Diagnostics
+navigation.panel: true
+---
+```
+
+- The section sidebar shows one link to the panel, with the number of its pages, after the section pages.
+- On a page of the panel, the sidebar lists only the panel: a link back to the section, the panel Overview, and its pages by `navigation.group`. Each group folds. A page title that is a code, such as `QUEUE_DISABLED`, shows in monospace on one line.
+- The rail keeps the reader in the panel. On `/docs/queue/diagnostics/queue_disabled`, the KV item opens `/docs/kv/diagnostics` when that folder is a panel too, and `/docs/kv` when it is not.
+- Previous and next stay inside the panel.
+
+### Pages that search engines skip
+
+Set `seo.index: false` on a page that search engines must not index, such as one page in a long tail of generated pages:
+
+```md [content/docs/queue/diagnostics/queue_disabled.md]
+---
+title: QUEUE_DISABLED
+description: Queue is disabled.
+seo.index: false
+---
+```
+
+The page gets `<meta name="robots" content="noindex, follow">` and stays out of `sitemap.xml`, llms.txt, `llms-full.txt`, and the share images. The site search lists it by its title and description only. The build does not prerender it; the server renders it on request, so thousands of generated pages do not slow the build. Links to the page stay valid for the link checker, and its Markdown copy stays at `/raw/...`. Keep the page that lists these pages indexed.
+
+### Moved pages
+
+When a page moves, keep its old URL with a `redirect` route rule:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  routeRules: {
+    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', status: 301 } },
+  },
+})
+```
+
+The link checker passes links to the old URL. Instead, a production build checks the rule: it stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when the rule goes to a docs URL that no page answers, or when it starts at a page that still exists. Rules from other modules count too. A wildcard rule, such as `/docs/old/**`, is not checked this way.
+
+Rules added in a module's `nitro:config` hook are also validated, but keep the link checker's own redirect warnings.
+
 ### Taglines, credits, and keywords
 
 ```md [content/docs/icons/index.md]
@@ -79,12 +165,13 @@ navigation.order: 4
 title: Icons
 description: Icon components for Lumen pages.
 tagline: Every Lucide icon as a Markdown block.
+eyebrow: comark-icon
 credits: Icons from [Lucide](https://lucide.dev).
 keywords: glyph, symbol, svg
 ---
 ```
 
-`tagline` replaces `description` under the heading, and `description` stays the meta description and the llms.txt entry. `credits` is one line of inline Markdown at the end of the page. `keywords` find the page in search when a reader types a word that the page does not contain. A keyword match ranks like a heading, below the page title.
+`tagline` replaces `description` under the heading, and `description` stays the meta description and the llms.txt entry. `eyebrow` is a short label above the title. `credits` is one line of inline Markdown at the end of the page. `keywords` find the page in search when a reader types a word that the page does not contain. A keyword match ranks like a heading, below the page title.
 
 ## Layouts
 
@@ -167,24 +254,25 @@ export default defineNuxtConfig({
       name: 'Lumen',
       url: 'https://lumen.example.com',
       description: 'Resize and compress images from the command line.',
-      // A one-color SVG in public/. The theme fills it with the text color.
+      // A one-color SVG in public/. The design fills it with the text color.
       logo: '/lumen-mark.svg',
       badge: { label: 'beta', tooltip: 'The CLI flags can change.' },
     },
     banner: 'Lumen 2 is out. Read the upgrade guide.',
     github: { repo: 'acme/lumen' },
     socials: [{ label: 'Lumen on Discord', to: 'https://discord.gg/lumen', icon: 'i-simple-icons-discord' }],
+    footer: [{ label: 'About', to: '/about' }, { label: 'Privacy', to: '/privacy' }],
   },
 })
 ```
 
-`github` adds a GitHub link to the header and the sidebar footer. `socials` adds more links to the sidebar footer. `banner` shows one line above every docs page.
+`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it, or in the header's menu on narrow screens. The header appears on every page with search and a color mode button. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
 
-## Theme
+## Design
 
-The theme uses Geist, black, white, and zinc, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
-- `app.config.ts`: Nuxt UI `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
+- `app.config.ts`: Nuxt UI `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in a stylesheet of your app:
 
 ```css [app/assets/main.css]
@@ -196,7 +284,7 @@ The theme uses Geist, black, white, and zinc, square corners, hairline borders, 
 }
 ```
 
-`--vh-panel-width` sets the width of the page sidebar, and the Nuxt UI `--ui-*` variables set the colors.
+`--vh-panel-width` sets the width of the page sidebar, `--vh-grain: none` turns the grain off, and the Nuxt UI `--ui-*` variables set the colors.
 
 ### Icons
 
@@ -236,10 +324,10 @@ const { github } = useDocsConfig()
 
 | Component | Part of the shell |
 | --- | --- |
-| `AppHeader` | The site header. On wide screens, docs pages show the rail instead. |
+| `AppHeader` | The site header on every page, with search, GitHub, social links, and the color mode button. |
 | `AppSearch` | The search dialog. |
 | `DocsRail` | The section rail. |
-| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The page sidebar and its parts. |
+| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The page sidebar and its parts. |
 | `DocsPage` | Chooses the layout of a page. |
 | `DocsArticle`, `DocsLanding` | The `article` and `tutorial` layouts, and the `landing` layout. |
 | `DocsMarkdown`, `DocsCodePre` | The rendered Markdown and its code blocks. |
@@ -365,14 +453,14 @@ export default defineNuxtConfig({
 })
 ```
 
-The docs module turns on the `comments` option of `vite-hub/nuxt`, which turns on the Database. The Console turns Comments on too. Apply the tables once with `vitehub db generate` and `vitehub db migrate`. You need no `server/comments.ts`. Add one to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
+The docs module turns on the `comments` option of `vite-hub/nuxt`, which turns on the Database. Apply the tables once with `vitehub db generate` and `vitehub db migrate`. You need no `server/comments.ts`. Add one to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
 
 - **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A new deploy keeps the threads on their page. A renamed page starts with none.
 - **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people that `authorize` lets read. Without `authorize`, a production build lets in the people that the Console admits to Comments, and people signed in with GitHub who can push to the repository. A reader who is not signed in gets no toolbar. When the app has no Console and no Auth, and GitHub sign-in is set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
 - **`@` lists your people.** With [Auth](/docs/auth), it suggests the users of Auth that may read the thread. Without Auth, it suggests the people who wrote in threads that you can read.
 - **The Console lists the threads.** Open `/_vitehub` and select **Comments** to see every thread with its page, and open one.
 
-Turn Comments off with `comments: false`. It sets `comments: false` on `vite-hub/nuxt`, so the Console does not turn Comments on either. Pass the `comments` options of `vite-hub/nuxt` to change the Database or to leave the overlay out of the pages:
+Turn Comments off with `comments: false`. It sets `comments: false` on `vite-hub/nuxt`. Pass the `comments` options of `vite-hub/nuxt` to change the Database or to leave the overlay out of the pages:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({

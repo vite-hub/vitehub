@@ -154,6 +154,8 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/registry",
   "@vite-hub/agent/runtime/invocations-dev",
+  // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
+  "@vite-hub/agent/invocations/default",
   "@vite-hub/agent/operations",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
@@ -180,6 +182,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
+  "@vite-hub/kv/runtime/cloudflare-request-env",
   "@vite-hub/kv/runtime/nitro-cache",
   "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
@@ -199,6 +202,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/workflow/runtime/cloudflare-runner",
   "@vite-hub/workflow/runtime/cloudflare-shared",
   "@vite-hub/workflow/runtime/cloudflare-vite",
+  "@vite-hub/workflow/runtime/dev-runs",
   "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/openworkflow-worker",
@@ -357,6 +361,7 @@ describe("framework package contract", () => {
       "./console/documents",
       "./console/env",
       "./console/mcp-client",
+      "./console/operations",
       "./console/sections",
       "./console/server",
       "./console/ui",
@@ -368,9 +373,10 @@ describe("framework package contract", () => {
       "./logs/source",
       "./nuxt",
       "./operations",
+      "./skills",
       "./source/vite",
       "./task",
-      "./ui/nuxt",
+      "./test",
       "./ui/vite",
     ]);
 
@@ -478,12 +484,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toContain('aria-label="Filter sessions"');
     expect(consolePage).toContain("selectedCapabilityId");
-    expect(consolePage).not.toContain(':workspace-base="`${hostBase}/api/invocations`"');
-    expect(
-      consolePage.match(
-        /:workspace-base="`\$\{hostBase\}\/api\/_vitehub\/console\/invocations`"/g,
-      ),
-    ).toHaveLength(3);
+    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(3);
     expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
     expect(consolePage).toContain(
       'const view = target === "agent" ? "details" : "workspace";',
@@ -757,7 +758,7 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain(
       'resolveConsoleRouteName(route.name, "vitehub-console-invocation")',
     );
-    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]');
+    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...projectActions.value, ...themeActions.value], label: "Actions" }]');
     expect(consoleSearch).toContain('label: "Overview"');
     expect(consoleSearch).toContain('label: "Go to"');
     expect(consoleSearch).toContain("kbds: [...shortcut]");
@@ -907,11 +908,11 @@ describe("framework package contract", () => {
       }
       expect(handlers).toHaveLength(11);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/api/_vitehub/console/status",
-        "/api/_vitehub/console/usage",
+        "/_vitehub/api/status",
+        "/_vitehub/api/usage",
         "/_vitehub",
         "/_vitehub/**",
-        "/api/_vitehub/console/client.js",
+        "/_vitehub/api/client.js",
         "/_vitehub/rpc/**",
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",

@@ -8,7 +8,7 @@ const props = defineProps<{
   current?: DocsSection | null
 }>()
 
-const { categories, site } = useDocsConfig()
+const { categories, footer, site } = useDocsConfig()
 const icons = useDocsIcons()
 const groups = docsCatalog(useDocsManifest(), categories)
 
@@ -20,10 +20,10 @@ function isCurrent(section: DocsSection) {
 <template>
   <!-- The rail and the sidebar already mark the current page, so the catalog marks the current section as the current
        item of its list. Sections join the catalog through their `category`. A site without categories has no catalog. -->
-  <footer v-if="groups.length" class="vh-product-footer" :aria-label="`Explore ${site.name} documentation`">
-    <h2 class="vh-product-footer-title">Explore {{ site.name }}</h2>
+  <footer v-if="groups.length || footer.length" class="vh-product-footer" :aria-label="`Explore ${site.name} documentation`">
+    <h2 v-if="groups.length" class="vh-product-footer-title">Explore {{ site.name }}</h2>
 
-    <div class="vh-product-footer-grid">
+    <div v-if="groups.length" class="vh-product-footer-grid">
       <section v-for="group in groups" :key="group.category" class="vh-product-footer-group">
         <h3 class="vh-product-footer-category">{{ group.category }}</h3>
         <ul class="vh-product-footer-list">
@@ -41,6 +41,10 @@ function isCurrent(section: DocsSection) {
         </ul>
       </section>
     </div>
+
+    <nav v-if="footer.length" class="vh-product-footer-site" :aria-label="site.name">
+      <NuxtLink v-for="link in footer" :key="link.to" :to="link.to" class="vh-product-footer-link">{{ link.label }}</NuxtLink>
+    </nav>
   </footer>
 </template>
 
@@ -104,6 +108,18 @@ function isCurrent(section: DocsSection) {
   .vh-product-footer-link {
     padding-block: 0.6875rem;
   }
+}
+
+.vh-product-footer-site {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.25rem;
+  margin-top: 2rem;
+}
+
+.vh-product-footer-grid + .vh-product-footer-site {
+  border-top: 1px solid var(--ui-border);
+  padding-top: 1rem;
 }
 
 .vh-product-footer-link.is-current {

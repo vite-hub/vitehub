@@ -49,7 +49,7 @@ describe("Console RPC", () => {
     const binding = "request-only-secret"
     installConsoleEnv("/console-rpc-env", { entries: [] }, undefined, async (event) => {
       expect(event["~standard"].runtime?.cloudflare?.env).toEqual({ RPC_TOKEN: binding })
-      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } }, event)
+      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } })
     })
     const request = Object.assign(new Request(callURL, {
       body: JSON.stringify({ input: { status: true }, operation: "env.get" }),
@@ -79,11 +79,11 @@ describe("Console RPC", () => {
     })
 
     for (let attempt = 0; attempt < 4; attempt++) {
-      await expect(requestConsole("/api/_vitehub/console/sections"))
+      await expect(requestConsole("/_vitehub/api/sections"))
         .resolves.toEqual({ projectName: "Stateless Console", sections: ["agents", "usage"] })
     }
     expect(next).toBe(4)
-    await expect(requestConsole("/api/_vitehub/console/definitions"))
+    await expect(requestConsole("/_vitehub/api/definitions"))
       .rejects.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("section"), name: "ConsoleRequestError", status: 400 })
   })
 

@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { H3Event } from "h3"
+import type { Plugin } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
@@ -16,6 +17,7 @@ import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/intern
 import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
@@ -69,7 +71,7 @@ const scheduleSummary = (name: string) => ({
   source: "server-schedules",
 })
 
-function installSchedules(handler: () => unknown = () => {}) {
+function installSchedules(handler: (context: { scheduledAt: Date }) => unknown = () => {}) {
   installConsoleOperations([{ operations: scheduleOperations, plugin: "@vite-hub/schedule/vite" }])
   installConsoleSections("/schedule-run", ["schedules"])
   installConsoleDefinitions("/schedule-run", { schedules: { definitions: [scheduleSummary("sync"), scheduleSummary("nightly")], kind: "definition-catalog" } })
@@ -125,6 +127,23 @@ describe("Console Schedule runs", () => {
     expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
   })
 
+  it("installs manual Schedules for `vitehub schedule run` in vite dev without a console option", async () => {
+    const root = await temporaryRoot("vitehub-console-schedule-dev-")
+    await writeFile(join(root, "package.json"), "{}\n")
+    await mkdir(join(root, "server/schedules"), { recursive: true })
+    await writeFile(join(root, "server/schedules/daily-report.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 8 * * *', manual: true, handler() {} })\n")
+    const plugin = vitehub({ preset: "node", schedule: true }).flat()
+      .find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/console")
+    const hook = plugin?.config
+    const config = typeof hook === "function" ? hook : hook?.handler
+    if (!config) throw new TypeError("Expected the Console config hook.")
+
+    await Reflect.apply(config, {}, [{ root }, { command: "serve", mode: "development" }])
+
+    const handler = pathToFileURL(join(root, "server/schedules/daily-report.ts")).href
+    expect(await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["daily-report"]: () => import(${JSON.stringify(handler)}) })`)
+  })
+
   it("discovers manual Static Schedule Definitions for the Console", async () => {
     const root = await temporaryRoot("vitehub-console-schedule-catalog-")
     await mkdir(join(root, "server/schedules"), { recursive: true })
@@ -148,7 +167,7 @@ describe("Console Schedule runs", () => {
     expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
     expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
 
-    const timeZone = (): Promise<string[]> => definitionsHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/definitions?section=schedules" }))
+    const timeZone = (): Promise<string[]> => definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))
       .then(content => content.kind === "record-table" ? content.records.map(record => `${record.cells.timing} / ${record.fields.find(field => field.label === "Time zone")?.value}`) : [])
     installConsoleDefinitions(root, catalog.content, [], { schedules: readScheduleConsoleRecords })
     expect(await timeZone()).toEqual(["0 14 * * 1 (Not a static string) / Not a static string"])
@@ -169,7 +188,7 @@ describe("Console Schedule runs", () => {
   it("marks runnable Schedule Definitions in the catalog", async () => {
     installSchedules()
 
-    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/definitions?section=schedules" }))).toEqual({
+    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
       definitions: [{ ...scheduleSummary("sync"), runnable: true }, scheduleSummary("nightly")],
       kind: "definition-catalog",
       section: "schedules",
@@ -186,7 +205,7 @@ describe("Console Schedule runs", () => {
     }))
     installConsoleDefinitions("/schedule-run", { schedules: { kind: "record-table", records } })
 
-    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/definitions?section=schedules" }))).toEqual({
+    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
       kind: "record-table",
       records: [{ ...records[0], runnable: true }, records[1], records[2]],
       section: "schedules",
@@ -207,6 +226,7 @@ describe("Console Schedule runs", () => {
           completedAt: expect.any(String),
           id: expect.stringMatching(/^srun_manual_sync_/),
           scheduleId: "sync",
+          scheduledAt: expect.any(String),
           startedAt: expect.any(String),
           status: "succeeded",
         },
@@ -237,6 +257,7 @@ describe("Console Schedule runs", () => {
           error: { message: "mailbox unavailable", name: "TypeError" },
           id: expect.stringMatching(/^srun_manual_sync_/),
           scheduleId: "sync",
+          scheduledAt: expect.any(String),
           startedAt: expect.any(String),
           status: "failed",
         },
@@ -260,6 +281,26 @@ describe("Console Schedule runs", () => {
     expect(await signed.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
     expect([replay.status, otherDeployment.status]).toEqual([401, 401])
     expect(await replay.json()).toEqual({ message: "Dispatch nonce was already used." })
+  })
+
+  it("runs a signed dispatch as if the cron fired at `at`, and rejects a bad time", async () => {
+    const seen: string[] = []
+    installSchedules(({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) })
+    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
+    const key = await resolveViteHubDispatchKey(env)
+    async function dispatch(input: Record<string, unknown>) {
+      const body = JSON.stringify(input)
+      const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "ci", body, key: key!, operation: "schedule.run" }) }
+      return await handleDispatchScheduleRunRequest(new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }), env)
+    }
+
+    const signed = await dispatch({ at: "2026-02-28T23:59:00Z", name: "sync" })
+    expect(await signed.json()).toMatchObject({ run: { scheduledAt: "2026-02-28T23:59:00.000Z", status: "succeeded" } })
+    const invalid = await dispatch({ at: "2026-02-30T00:00:00Z", name: "sync" })
+    const wrongType = await dispatch({ at: 1_769_903_940_000, name: "sync" })
+    expect([invalid.status, wrongType.status]).toEqual([400, 400])
+    expect(await invalid.json()).toEqual({ message: "Schedule scheduledAt value is invalid." })
+    expect(seen).toEqual(["2026-02-28T23:59:00.000Z"])
   })
 
   it("uses the request Cloudflare environment for the generated route", async () => {

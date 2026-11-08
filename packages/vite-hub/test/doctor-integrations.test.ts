@@ -252,6 +252,26 @@ describe("vitehub/no-nuxthub-leftovers", () => {
     }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
   })
 
+  it("reports schema imports, NuxtHub helper calls, and blob.delete()", async () => {
+    expect(await codes(noNuxtHubLeftovers, {
+      "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
+      "shared/types/db.ts": "import type { chats } from \"hub:db:schema\"\nexport type Chat = typeof chats.$inferSelect\n",
+      "server/routes/assets/[...pathname].get.ts": "export default defineEventHandler(event => hubBlob().serve(event, \"a\"))\n",
+      "server/api/pages.ts": "export default defineEventHandler(() => hubKV().keys())\n",
+      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.delete(\"a.png\"))\n",
+      "server/api/auto.delete.ts": "export default defineEventHandler(() => blob.delete(\"a.png\"))\n",
+    }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
+  })
+
+  it("accepts local helpers named like NuxtHub ones and blob.del()", async () => {
+    expect(await codes(noNuxtHubLeftovers, {
+      "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
+      "server/utils/storage.ts": "function hubKV() { return {} }\nexport const store = hubKV()\n",
+      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.del(\"a.png\"))\n",
+      "server/api/other.ts": "const files = { delete: (key: string) => key }\nexport default defineEventHandler(() => files.delete(\"a\"))\n",
+    }, "nuxt")).toEqual([])
+  })
+
   it("accepts ViteHub config and apps that still use only NuxtHub", async () => {
     expect(await codes(noNuxtHubLeftovers, {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", kv: true } })\n",
@@ -276,8 +296,9 @@ describe("vitehub/no-removed-apis", () => {
         "export const pages = documents({ route: id => `/blog/${id}` })",
         "export { runSandboxTask, cms }",
       ),
+      "server/api/reminders.post.ts": "import { schedules } from \"vite-hub/schedule/runtime\"\nexport const create = () => schedules.create({ target: \"reminder\", cron: \"0 9 * * *\" })\n",
       "src/Chat.vue": "<script setup lang=\"ts\">\nimport { AgentChat, AgentFileTree } from \"@vite-hub/ui\"\n</script>\n",
-    })).toEqual(Array(7).fill("VHUB0033"))
+    })).toEqual(Array(8).fill("VHUB0033"))
   })
 
   it("accepts current APIs", async () => {
@@ -291,6 +312,7 @@ describe("vitehub/no-removed-apis", () => {
         "export const pages = documents({ url: page => `/blog/${page.id}` })",
         "export { runSandboxTask, cms }",
       ),
+      "server/api/reminders.post.ts": "import { startSchedule } from \"vite-hub/schedule\"\nexport const create = () => startSchedule(\"reminder\", { cron: \"0 9 * * *\" })\n",
       "src/Chat.vue": "<script setup lang=\"ts\">\nimport { Chat, FileTree } from \"@vite-hub/ui\"\n</script>\n",
     })).toEqual([])
   })

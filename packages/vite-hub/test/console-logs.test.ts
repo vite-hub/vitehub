@@ -8,7 +8,7 @@ import type { LogPage, LogSource } from "../src/logs/source.ts";
 import { consoleEvent } from "./console-event.ts";
 import { requestEvent } from "./console-event.ts";
 
-const request = (query = "") => consoleEvent({ url: `http://localhost/api/_vitehub/console/logs${query}` });
+const request = (query = "") => consoleEvent({ url: `http://localhost/_vitehub/api/logs${query}` });
 afterEach(() => installConsoleAccess({ mode: "open" }));
 describe("Console Logs", () => {
   it("checks section access before querying a source", async () => {
@@ -111,7 +111,7 @@ describe("Console Logs", () => {
     installLogSource("/logs-abort-tests", source);
     const controller = new AbortController();
     const req = transport === "HTTP"
-      ? new Request("http://localhost/api/_vitehub/console/logs", { signal: controller.signal })
+      ? new Request("http://localhost/_vitehub/api/logs", { signal: controller.signal })
       : new Request("http://localhost/_vitehub/rpc/__call", {
           method: "POST",
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },
@@ -121,9 +121,11 @@ describe("Console Logs", () => {
     const reading = transport === "HTTP" ? logsRoute(requestEvent(req)) : handleConsoleRpcRequest(req);
     try {
       const signal = await started;
-      controller.abort();
-      // The RPC runs the operation on its own Request, whose signal follows the caller's.
+      expect(signal?.aborted).toBe(false);
+      const reason = new Error("Log request cancelled");
+      controller.abort(reason);
       expect(signal?.aborted).toBe(true);
+      expect(signal?.reason).toBe(reason);
       expect(aborted).toBe(true);
     } finally {
       finish({ entries: [] });

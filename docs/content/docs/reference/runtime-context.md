@@ -13,24 +13,66 @@ work, memoized values, and trace information.
 
 ## Runtime Context comes from the host
 
-Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the same values itself because `runAgent()` does not read framework globals.
+Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the same values itself as the `runtimeContext` option of `runAgent()` and `streamAgent()`, because they do not read framework globals.
 
 | Value | Used for |
 | --- | --- |
 | `runtime` and `platform` | Identifying the active runtime and platform. |
-| `memo` | Resolve one value once during the current execution. `runAgent()` creates a fresh cache when the context has none. |
+| `memo` | Resolve one value once during the current execution. `runAgent()`, `streamAgent()`, and `startAgentInvocation()` create a fresh cache when the context has none. |
 | `waitUntil` and `flushWaitUntil` | Register background work and wait for it to finish. Host support controls work after the response. |
 | Provider context | Reading trusted host resources such as bindings. |
 | `trace` and `traceLog` | Keeping trace identity and recording structured events. |
 
 Keep reusable behavior in Definitions and task data in invocation input. Runtime Context passes host resources to the operation.
 
+## Adapt a Fetchable handler
+
+A [Fetchable](https://fetchable.org) handler is a module that exports
+`fetch(request)` and returns a `Response`. Nitro, Vite deployment plugins, and
+most server runtimes call this shape. Pass its `Request` to `getRuntimeContext()`
+from `vite-hub/runtime`. This example uses the app's `server/agents/support.ts`
+Agent Definition:
+
+```ts [server/routes/api/support.post.ts] fragment
+import { runAgent } from 'vite-hub/agent'
+import { getRuntimeContext } from 'vite-hub/runtime'
+import support from '../../agents/support'
+
+export default {
+  async fetch(request: Request) {
+    const { prompt } = await request.json()
+    const runtime = getRuntimeContext(request)
+
+    try {
+      const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
+      if (error) throw error
+      return Response.json({ text: result.text })
+    }
+    finally {
+      await runtime.flushWaitUntil().catch(console.error)
+    }
+  },
+}
+```
+
+The function reads the host data that srvx and Nitro put on the `Request`:
+`runtime.cloudflare.env`, `runtime.cloudflare.context`, `waitUntil`, and `ip`.
+It accepts the same options as the H3 adapter. `getStandardContext(request)` returns
+the [Standard Context](#standard-context) of the `Request`, so you can pass the
+`Request` to ViteHub APIs that take a request event.
+
+In a ViteHub app, Nitro sets the Standard Context of the H3 event on its
+`Request` too. H3 then adds the response headers that primitives set, such as
+`requireRateLimit()` headers, to the `Response` that the handler returns. Outside
+Nitro, nothing reads `res`. Copy `res.status` and `res.headers` to your `Response`
+when you use a primitive that sets them.
+
 ## Adapt an H3 event
 
 Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. Create a new
 context for each invocation:
 
-```ts [server/api/support.post.ts]
+```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
@@ -42,7 +84,9 @@ export default defineEventHandler(async (event) => {
   })
 
   try {
-    return await runAgent(support, runtime, { prompt })
+    const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
+    if (error) throw error
+    return { text: result.text }
   }
   finally {
     await runtime.flushWaitUntil().catch(console.error)
@@ -88,6 +132,8 @@ first time you read `req`. H3 sends the value that the handler returns as the bo
 setting `res.body` throws `RUNTIME_R0016`.
 
 ```ts [server/api/whoami.get.ts]
+import { defineEventHandler } from 'h3'
+
 export default defineEventHandler((event) => {
   const { req, runtime } = event['~standard']
   return { path: new URL(req.url).pathname, client: runtime?.clientAddress }
@@ -96,8 +142,8 @@ export default defineEventHandler((event) => {
 
 For an event that Nitro did not create, such as in a test, call
 `installStandardContext(event)` from `vite-hub/runtime/h3` first.
-`getStandardContext(event)` returns `event["~standard"]` and sets it first when
-it is missing. ViteHub primitives such as `requireRateLimit()` and
+`getStandardContext(event)` from `vite-hub/runtime/h3` returns `event["~standard"]`
+and sets it first when it is missing. It also accepts a `Request`. ViteHub primitives such as `requireRateLimit()` and
 `useServerEnv()` read request events through it, so they work in an H3 app that
 does not use the ViteHub Vite plugin. The `ViteHubContext` type comes from
 `vite-hub/runtime` and does not load H3 types. In a ViteHub app, the generated

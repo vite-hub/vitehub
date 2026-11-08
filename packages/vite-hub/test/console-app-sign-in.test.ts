@@ -31,7 +31,7 @@ afterEach(() => {
 async function setup(mount = "", providers = true, access: { authorize?: () => boolean, consoleAuthorize?: ConsoleAuthorize, password?: false, signUp?: false } = {}) {
   const database = new DatabaseSync(":memory:")
   databases.push(database)
-  const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
+  const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/_vitehub/api/**`, authorize: true }]
   const definition = defineAuth(() => ({
     baseURL: origin,
     basePath: `${mount}/api/auth`,
@@ -134,6 +134,22 @@ describe("Console reuses app Auth sign-in", () => {
     const start = await pages.signIn(requestEvent(new Request(`${origin}/portal/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } })))
     expect(start.status).toBe(303)
     expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
+  })
+
+  it.each(["request", "request-only", "h3"] as const)("provides Standard Context to app Auth for %s inputs", async (host) => {
+    const request = new Request(`${origin}/portal/_vitehub/sign-in`)
+    const event = host === "request" ? request : host === "request-only" ? { req: request } : new H3Event(request)
+    const resolveAuth = vi.fn(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(resolveAuth)
+
+    await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
+    const response = await pages.signIn(event)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("Sign in with GitHub")
+    const authEvent = resolveAuth.mock.calls[0]?.[2]
+    expect(authEvent?.["~standard"].req).toBe(request)
+    expect(authEvent?.["~standard"].res.headers).toBeInstanceOf(Headers)
+    if (host === "h3") expect(authEvent).toBe(event)
   })
 
   it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {

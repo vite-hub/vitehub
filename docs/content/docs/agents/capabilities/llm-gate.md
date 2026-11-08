@@ -15,7 +15,7 @@ The decision uses one AI SDK model call, or one TypeSafe Jev request for an [ask
 
 Define allow and reject categories with stable keys and short descriptions.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { llmGate } from 'vite-hub/agent/capabilities'
 
@@ -37,6 +37,8 @@ export default defineAgent({
 Set `message` to change the error message that server code receives on rejection:
 
 ```ts
+import { llmGate } from 'vite-hub/agent/capabilities'
+
 llmGate({
   allow: { support: 'Support request the Agent can answer.' },
   reject: { unrelated: 'Request unrelated to support.' },
@@ -61,7 +63,7 @@ A second writer for the same context value fails early.
 ### Rejection errors
 
 The thrown `ViteHubError` has the `message` option text, or `[vitehub] <id> rejected the request.`, and `details` with `capabilityId`, `category`, `confidence`, and `reason` (up to 16,384 characters).
-Server code that calls `runAgent()` receives this error.
+Server code that calls `runAgent()` receives `AGENT_RUN_FAILED` with this error as `error.cause`.
 
 HTTP and Invocation clients receive a public error instead. The HTTP status is `403`. The body is `{ code: 'LLM_GATE_REJECTED', error: 'Agent request was rejected.', details: { capability, category } }`. The `message` text and the model `reason` are not sent to the client.
 
@@ -101,7 +103,7 @@ It does not attach, remove, or grant Capabilities. Later behavior must read the 
 ## Verify the gate
 
 1. Run one allowed invocation. Read the finish extension or context value for `llm-gate` (or your `id`) and confirm `allowed: true` and the expected `category`.
-2. Run one rejected invocation with `runAgent()`. Confirm the error has code `LLM_GATE_REJECTED` and that the Agent Driver did not run.
+2. Run one rejected invocation with `runAgent()`. Confirm that `error.cause` has code `LLM_GATE_REJECTED` and that the Agent Driver did not run.
 3. Send the rejected request over HTTP. Confirm status `403` and the public body without the `message` text or `reason`.
 
 ## Options

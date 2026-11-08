@@ -6,6 +6,11 @@ export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lit
 export interface CloudflareKVStoreConfig {
   driver: "cloudflare-kv-binding"
   binding?: string
+  /**
+   * In `vite dev`, use the real namespace: ViteHub writes `remote: true` on the Wrangler binding and does not fall back
+   * to the local `fs-lite` store. Writes change real data. Builds ignore it.
+   */
+  remote?: boolean
   /** Cloudflare KV namespace id. When omitted, the build reads the id recorded by `vitehub provision run`. */
   namespaceId?: string
   /** Cloudflare KV namespace title that `vitehub provision run` finds or creates when `namespaceId` is not set. */
@@ -14,6 +19,8 @@ export interface CloudflareKVStoreConfig {
 
 export interface UpstashKVStoreConfig {
   driver: "upstash"
+  /** An Upstash store is always remote, in `vite dev` too. */
+  remote?: true
   token?: string
   url?: string
 }
@@ -21,11 +28,26 @@ export interface UpstashKVStoreConfig {
 export interface DenoKVStoreConfig {
   driver: "deno-kv"
   path?: string
+  /** A Deno KV store is local. */
+  remote?: false
 }
 
 export interface FsLiteKVStoreConfig {
   driver: "fs-lite"
   base?: string
+  /** An `fs-lite` store is local. */
+  remote?: false
+}
+
+/** A store without `driver`. ViteHub infers the driver from the host and the env. */
+export interface InferredKVStoreConfig {
+  driver?: undefined
+  /**
+   * In `vite dev`, the inferred store is local unless this is `true`: Upstash env and the Vercel preset do not select
+   * Upstash, and the Cloudflare preset uses the local `fs-lite` store when the dev runtime has no KV binding. With
+   * `true`, `vite dev` uses the real store, so writes change real data. Builds ignore it.
+   */
+  remote?: boolean
 }
 
 export type KVStoreConfig =
@@ -36,9 +58,16 @@ export type KVStoreConfig =
 
 export interface ResolvedCloudflareKVStoreConfig extends CloudflareKVStoreConfig {
   binding: string
+  /** Only in `vite dev`: the `fs-lite` directory that the store uses when the runtime has no binding. */
+  localBase?: string
+  /** Only in `vite dev`. */
+  remote?: true
 }
 
-export type ResolvedUpstashKVStoreConfig = Required<UpstashKVStoreConfig>
+export interface ResolvedUpstashKVStoreConfig extends UpstashKVStoreConfig {
+  token: string
+  url: string
+}
 
 export interface ResolvedDenoKVStoreConfig extends DenoKVStoreConfig {
   path?: string
@@ -60,7 +89,7 @@ export interface KVStoresConfig {
   stores: Record<string, KVStoreConfig>
 }
 
-export type KVModuleOptions = KVStoreConfig | KVStoresConfig | false
+export type KVModuleOptions = KVStoreConfig | InferredKVStoreConfig | KVStoresConfig | false
 
 export interface ResolvedKVModuleOptions {
   store: ResolvedKVStoreConfig
@@ -74,8 +103,12 @@ export type KVErrorCode =
   | "KV_INVALID_CURSOR"
   | "KV_INVALID_LIMIT"
   | "KV_INVALID_TTL"
+  | "KV_KEY_TOO_LONG"
+  | "KV_METADATA_TOO_LARGE"
   | "KV_OPERATION_FAILED"
+  | "KV_TTL_TOO_SHORT"
   | "KV_UNSUPPORTED_OPERATION"
+  | "KV_VALUE_TOO_LARGE"
 
 export interface KVListOptions {
   /** Opaque continuation cursor returned by a previous page. */
@@ -115,27 +148,49 @@ export interface KVListPage {
  */
 export interface KVStorage {
   clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
-  del(key: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  del(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Reads a value or returns `null`. Without `options.type`, a string value is parsed as JSON, so `"123"` reads back as `123`.
    * `{ type: "text" }` returns the stored text, and `json`, `bytes`, `stream`, and `blob` convert it to that type.
    */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
-  get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED">>
+  get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /** Atomically returns and deletes a value when the configured store supports it. `{ type: "text" }` returns the stored text. */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   getAndDelete<T = unknown, K extends "text" | undefined = undefined>(key: string, options?: { type?: K }): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  has(key: string, options?: unknown): Promise<Result<boolean, "KV_OPERATION_FAILED">>
+  has(key: string, options?: unknown): Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /** Atomically increments a counter. The TTL is applied only when the counter is created. */
   increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
   list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
-  set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  /** Cloudflare KV stores return `KV_KEY_TOO_LONG`, `KV_VALUE_TOO_LARGE`, `KV_METADATA_TOO_LARGE`, and `KV_TTL_TOO_SHORT` before a write that Cloudflare rejects. */
+  set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_VALUE_TOO_LARGE">>
   /**
    * Writes the value only when the key has no value, in one atomic step.
    * Returns `true` when this call wrote the value and `false` when the key already had one.
    * Upstash, Deno KV, and `fs-lite` support it. Cloudflare KV is eventually consistent and returns `KV_UNSUPPORTED_OPERATION`.
    */
   setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetIfAbsentOptions): Promise<Result<boolean, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  store(name: KVStoreName): KVStorage
+  /** Selects a named KV store. `{ mode: "read" }` returns a handle without write methods. */
+  store(name: KVStoreName, options?: { mode?: "write" }): KVStorage
+  store(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage
+  store(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage
+}
+
+/** Options of `kv.store()`. */
+export interface KVStoreOptions {
+  /** `"read"` returns a handle without write methods. Defaults to `"write"`. */
+  mode?: "read" | "write"
+}
+
+/**
+ * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `has()`, `keys()`, and `list()`.
+ * It limits this API, not the host: the KV binding or provider token keeps full access, so it is not a security
+ * boundary against code that reads the binding directly.
+ */
+export interface ReadonlyKVStorage {
+  get: KVStorage["get"]
+  has: KVStorage["has"]
+  keys: KVStorage["keys"]
+  list: KVStorage["list"]
 }

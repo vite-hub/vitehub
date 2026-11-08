@@ -6,19 +6,21 @@ import { dirname, resolve } from "node:path"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 
-import { normalizeQueueOptions } from "../config.ts"
+import { defaultLocalQueueBase, normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions } from "../types.ts"
+import type { QueueRuntimeOptions } from "./runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const queuePackageName = "@vite-hub/queue"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
+export const generatedQueueTestSetup = ".vitehub/queue/test-setup.mjs"
 export const generatedQueueNitroPlugin = ".vitehub/nitro/queue/plugin.ts"
 export const generatedQueueNitroMiddleware = ".vitehub/nitro/queue/middleware.ts"
 export const generatedQueueNitroVercelConsumerDir = ".vitehub/nitro/queue/vercel"
@@ -49,6 +51,23 @@ export interface VercelQueueConsumerRoute {
 function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting: string): NormalizedQueueOptions {
   if (typeof queue === "undefined") return false
   return normalizeQueueOptions(queue, { hosting }) || false
+}
+
+/**
+ * The Queue configuration that the generated server installs. `vite dev` runs in Node, where Cloudflare and Vercel
+ * cannot deliver jobs, so it runs them with the local provider and the delivery rules of the provider of the build.
+ * A build keeps the configured provider.
+ */
+function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): false | QueueRuntimeOptions {
+  if (!development || queueConfig === false) return queueConfig
+  if (queueConfig.provider === "local") return { ...queueConfig, development }
+  return {
+    base: resolve(rootDir, defaultLocalQueueBase),
+    ...(queueConfig.cache === undefined ? {} : { cache: queueConfig.cache }),
+    development,
+    provider: "local",
+    rules: queueConfig.provider,
+  }
 }
 
 function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefinition[], namePrefix = ""): Record<string, string> {
@@ -147,9 +166,11 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
   const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
+  // Check Cloudflare names in dev too, so a name collision fails before the first build.
   const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.provider === "cloudflare"
     ? createCloudflareQueueDefinitionNames(definitions, queueConfig.namePrefix)
     : {}
+  const runtimeConfig = resolveRuntimeQueueConfig(queueConfig, development, rootDir)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
     mkdir(generatedDir, { recursive: true }),
@@ -160,12 +181,19 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   if (vercelConsumers.length) await mkdir(vercelConsumerDir, { recursive: true })
   await Promise.all([
     writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
-    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, cloudflareQueues, queueDefinitions, development), "utf8"),
-    writeFile(middlewareFile, renderNitroMiddleware(middlewareFile, queueConfig, definitions.length > 0, development), "utf8"),
+    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, runtimeConfig, cloudflareQueues, queueDefinitions, development), "utf8"),
+    writeFile(middlewareFile, renderNitroMiddleware(middlewareFile, runtimeConfig, definitions.length > 0, development), "utf8"),
     ...vercelConsumers.map(async (consumer) => {
       const file = resolve(rootDir, consumer.handler)
       await writeFile(file, renderVercelQueueConsumerHandler(file, consumer.name), "utf8")
     }),
+    ...(process.env.VITEST ? [writeFile(resolve(rootDir, generatedQueueTestSetup), [
+      `import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(resolve(rootDir, generatedQueueTestSetup), resolveRuntimeModule("internal/runtime/state")))}`,
+      `import registry from "./${generatedRegistryFileName}"`,
+      `setQueueRuntimeConfig(${JSON.stringify(queueConfig)})`,
+      "setQueueRuntimeRegistry(registry)",
+      "",
+    ].join("\n"), "utf8")] : []),
   ])
 }
 

@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
+import { runInNewContext } from "node:vm"
+import { Window, type HTMLButtonElement } from "happy-dom"
 import { defineAuth, type AuthSessionRefresh } from "@vite-hub/auth"
 import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { adminPlugin } from "../../auth/test/fixtures/admin-plugin.ts"
@@ -68,7 +70,7 @@ describe("console.impersonation configuration", () => {
       expect(resolveConsoleAccessBuild({ auth: "app" }, { root })).not.toHaveProperty("impersonation")
       const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }]
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
+      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("requireSession: vitehubRequireSession, impersonation: true })")
       expect(generated).toMatch(/installConsoleAccess\(\{ mode: "auth", .*impersonation: true \}\)/)
@@ -146,7 +148,7 @@ describe("App Auth Console during impersonation", () => {
   async function setup(session?: { onRefresh: AuthSessionRefresh, updateAge: number }) {
     const database = new DatabaseSync(":memory:")
     closers.push(() => database.close())
-    const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
+    const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/_vitehub/api/**`, authorize: true }]
     // Every signed-in user passes the access routes, so only the impersonation check keeps the Console closed.
     const definition = defineAuth(() => ({
       baseURL: origin,
@@ -201,7 +203,7 @@ describe("App Auth Console during impersonation", () => {
     expect(started.status).toBe(200)
     const impersonating = jar(operator.cookie, started)
 
-    const rejected = await access.check(requestEvent(new Request(`${origin}${mount}/api/_vitehub/console/sections`, { headers: { cookie: impersonating } })))
+    const rejected = await access.check(requestEvent(new Request(`${origin}${mount}/_vitehub/api/sections`, { headers: { cookie: impersonating } })))
     expect(rejected?.status).toBe(403)
     expect(await rejected?.json()).toMatchObject({ code: "CONSOLE_IMPERSONATING" })
 
@@ -216,7 +218,18 @@ describe("App Auth Console during impersonation", () => {
     expect(html).toContain(`"${mount}/_vitehub/auth/users?user=${member.id}"`)
     expect(html).toContain(`href="${mount}/"`)
 
-    const stopped = await post("admin/stop-impersonating", {}, impersonating)
+    const window = new Window()
+    closers.push(() => window.close())
+    window.document.write(html)
+    const assign = vi.fn()
+    const fetch = vi.fn(async () => post("admin/stop-impersonating", {}, impersonating))
+    runInNewContext(window.document.querySelector("script")!.textContent, { document: window.document, fetch, window: { location: { assign } } })
+    window.document.querySelector<HTMLButtonElement>("button")!.click()
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith(`${mount}/_vitehub/auth/users?user=${member.id}`))
+    expect(fetch).toHaveBeenCalledWith(`${mount}/api/auth/admin/stop-impersonating`, {
+      body: "{}", credentials: "same-origin", headers: { "content-type": "application/json" }, method: "POST",
+    })
+    const stopped = await fetch.mock.results[0]!.value
     expect(stopped.status).toBe(200)
     const restored = jar(impersonating, stopped)
     const console = await visit("/_vitehub/auth/users", restored)

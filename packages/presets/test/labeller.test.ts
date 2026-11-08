@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { defineAgent, runAgent } from "@vite-hub/agent"
+import { defineAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { cleanupLabeller, labeller } from "../src/labeller.ts"
 
 const message = {
@@ -71,7 +72,7 @@ describe("labeller preset", () => {
     expect(configured().options.dryRun).toBe(true)
     expect(configured().options.minConfidence).toBe(0.6)
     expect(configured().options.trashEnabled).toBe(false)
-    const attempt = (options: Record<string, unknown>) => Promise.resolve().then(() => runAgent(configured(options), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
+    const attempt = (options: Record<string, unknown>) => Promise.resolve().then(() => runAgentWithContext(configured(options), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
     await expect(attempt({ labels: { none: {} } })).rejects.toThrow(/reserved or invalid/)
     await expect(attempt({ labels: { Work: {} }, rules: { bad: { label: "Missing" } } })).rejects.toThrow(/undeclared label/)
     await expect(attempt({ labels: { Work: {} }, rules: { bad: { subject: "" } } })).rejects.toThrow(/non-empty strings/)
@@ -111,6 +112,18 @@ describe("labeller preset", () => {
     const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
     await finish({ message, result: { label: "Receipts", rule: "receipt" } })
     expect(calls).toEqual(["label:Receipts"])
+  })
+
+  it("still labels when an extension adds its own finish hook", async () => {
+    const calls: string[] = []
+    const message = { channel: "gmail", label: async (name: string) => { calls.push(`label:${name}`) } }
+    const extension = defineAgent({
+      extends: configured({ rules: { receipt: { subject: "invoice", label: "Receipts" } } }),
+      hooks: { "agent:finish": () => { calls.push("extension") } },
+    })
+    const finish = extension.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: "Receipts", rule: "receipt" } })
+    expect(calls).toEqual(["label:Receipts", "extension"])
   })
 
   it("rejects label colors outside Gmail's palette when the Agent is defined", () => {
@@ -208,7 +221,7 @@ describe("labeller preset", () => {
     [{ receipts: { label: "Receipts", olderThan: 0 } }, /positive whole number/],
     [[], /cleanup must be an object/],
   ])("rejects invalid cleanup %j", async (cleanup, error) => {
-    const attempt = Promise.resolve().then(() => runAgent(configured({ cleanup }), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
+    const attempt = Promise.resolve().then(() => runAgentWithContext(configured({ cleanup }), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
     await expect(attempt).rejects.toThrow(error)
   })
 })

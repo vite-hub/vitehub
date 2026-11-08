@@ -27,7 +27,8 @@ describe("LLM decision capabilities", () => {
     const generateText = mockAiDecision({ choice: "support", confidence: 0.8, reason: "User asks for account help." })
 
     try {
-      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const agent = defineAgent({
         capabilities: [
           llmRoute({
@@ -44,7 +45,7 @@ describe("LLM decision capabilities", () => {
           } },
       })
 
-      await expect(runAgent(agent, runtime(), {
+      await expect(runAgentWithContext(agent, runtime(), {
         messages: [createMessage({ role: "user", text: "I need help with billing." })],
       })).resolves.toEqual({
         choice: "support",
@@ -64,7 +65,8 @@ describe("LLM decision capabilities", () => {
     mockAiDecision({ allowed: false, category: "unsafe", reason: "The request is unsafe." })
 
     try {
-      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const agent = defineAgent({
         capabilities: [
           llmGate({
@@ -84,7 +86,7 @@ describe("LLM decision capabilities", () => {
           } },
       })
 
-      await expect(runAgent(agent, runtime(), {
+      await expect(runAgentWithContext(agent, runtime(), {
         messages: [createMessage({ role: "user", text: "Do something unsafe." })],
       })).rejects.toMatchObject({
         code: "LLM_GATE_REJECTED",
@@ -106,7 +108,8 @@ describe("LLM decision capabilities", () => {
     mockAiDecision({ allowed: false, category: "unsafe", reason: "x".repeat(20_000) })
 
     try {
-      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const agent = defineAgent({
         capabilities: [llmGate({
           allow: { support: "Safe support question." },
@@ -116,7 +119,7 @@ describe("LLM decision capabilities", () => {
         driver: { async run() { return "should not run" } },
       })
 
-      await expect(runAgent(agent, runtime(), {
+      await expect(runAgentWithContext(agent, runtime(), {
         messages: [createMessage({ role: "user", text: "Do something unsafe." })],
       })).rejects.toMatchObject({
         code: "LLM_GATE_REJECTED",
