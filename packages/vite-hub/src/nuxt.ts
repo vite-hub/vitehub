@@ -620,7 +620,7 @@ async function installConsole(
   // reach it.
   addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, independentAuth ? undefined : access?.signInPage)
   const clientHandler = join(consoleRuntimeRoot, "server/client.get.js")
-  const clientRoute = mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js")
+  const clientRoute = mountPath(nuxt.options.app?.baseURL, "/_vitehub/api/client.js")
   if (!nitro.handlers?.some(handler => handler.route === clientRoute)) {
     (nitro.handlers ??= []).push({ handler: clientHandler, lazy: true, route: clientRoute })
   }
@@ -1595,8 +1595,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         }
         const kit = createNitroServerKit(config)
         if (authHandlers.signIn) kit.addHandler({ handler: authHandlers.signIn, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/_vitehub/sign-in"), method: "get" })
-        if (authHandlers.route) kit.addHandler({ handler: authHandlers.route, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/auth/**") })
-        if (authHandlers.client) kit.addHandler({ handler: authHandlers.client, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js"), method: "get" })
+        if (authHandlers.route) kit.addHandler({ handler: authHandlers.route, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/_vitehub/api/auth/**") })
+        if (authHandlers.client) kit.addHandler({ handler: authHandlers.client, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/_vitehub/api/client.js"), method: "get" })
         kit.addHandler({ handler: authHandlers.middleware, middleware: true, route: "/**" })
         Object.assign(config, kit.config)
       }
