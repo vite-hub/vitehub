@@ -299,10 +299,11 @@ export interface BlobStorage {
   sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
   /** Returns null for a conditional 304 response. */
   /**
-   * Serve an object for a request event with Standard Context properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub
-   * app. Reads the request from `event["~standard"].req` and writes the status and headers to `event["~standard"].res`.
+   * Serve an object for the Request of a Fetchable route or for a request event with Standard Context properties, such
+   * as a Nuxt 5 or Nitro 3 event in a ViteHub app. Reads the request from `["~standard"].req` and writes the status and
+   * headers to `["~standard"].res`. A Request without Standard Context gets one.
    */
-  serve(event: ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>>
+  serve(event: Request | ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>>
   /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
   store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage

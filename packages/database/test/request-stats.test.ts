@@ -1,9 +1,8 @@
-import { createClient } from "@libsql/client"
-import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 import { sql } from "drizzle-orm"
 import { describe, expect, it, vi } from "vitest"
 
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
+import { localLibsql } from "../src/runtime/local-client.ts"
 import {
   runWithDatabaseRequestStats,
   trackD1Database,
@@ -82,7 +81,7 @@ describe("database request stats", () => {
 
   it("counts each libSQL query that Drizzle runs", async () => {
     const db = createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, drizzle: {}, name: "test" }, {}, {
-      libsql: { createClient, drizzle: drizzleLibsql as never },
+      libsql: localLibsql,
       missingConnection: "a connection",
       requireRemoteUrl: false,
     })

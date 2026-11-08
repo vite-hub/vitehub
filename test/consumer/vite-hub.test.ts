@@ -326,6 +326,8 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     // Use the workspace-tested pair: newer msgpackr-extract native tarballs returned 404.
     "msgpackr@^2": "2.1.0",
     "msgpackr-extract": "3.0.4",
+    // Match the exact Vue peer published by the workspace packages.
+    vue: "3.5.44",
     ...additionalOverrides,
   })
     .sort(([left], [right]) => left.localeCompare(right))

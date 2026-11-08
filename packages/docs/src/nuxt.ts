@@ -24,7 +24,7 @@ import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-n
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
@@ -228,7 +228,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       [dependency("nuxt-site-config")]: { defaults: { name: docs.site?.name ?? "Docs", url: docs.site?.url, description: docs.site?.description, defaultLocale: "en" } },
       // Images render while the build prerenders, so the server bundle carries no renderer and a Worker stays small.
       // Disabled setup still registers the no-op composable imported by useDocsSeo.
-      [dependency("nuxt-og-image")]: { defaults: { enabled: docs.ogImage !== false, zeroRuntime: true, defaults: { width: 1200, height: 630 } } },
+      // No runtime cache: its default `lru-cache` storage makes Nitro install `lru-cache` into the app on the first `nuxt dev`.
+      [dependency("nuxt-og-image")]: { defaults: { enabled: docs.ogImage !== false, zeroRuntime: true, runtimeCacheStorage: false, defaults: { width: 1200, height: 630 } } },
       [dependency("nuxt-schema-org")]: {},
       // Installed after the app's modules and just before the link checker, so links to their redirect rules pass.
       ...docs.linkChecker === false ? {} : {
@@ -284,7 +285,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
-      linkChecker.excludeLinks = [...linkChecker.excludeLinks ?? [], ...options.linkChecker?.excludeLinks ?? [], ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase))]
+      linkChecker.excludeLinks = [
+        ...linkChecker.excludeLinks ?? [],
+        ...options.linkChecker?.excludeLinks ?? [],
+        ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase)),
+        // A page with `seo.index: false` is not prerendered, but the manifest has it, so links to it are valid.
+        ...docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)),
+      ]
     }
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
@@ -502,7 +509,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
      */
     function prerenderRoutes(): string[] {
       return [
-        ...docsManifestPages(manifest).flatMap(page => [
+        ...docsIndexedPages(manifest).flatMap(page => [
           page.path,
           // Client navigation reads the parsed page, so static hosts serve it instead of parsing on each request.
           `/api/_docs/page${page.path === "/" ? "/index" : page.path}.json`,
@@ -561,6 +568,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
       nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
+      // A page with `seo.index: false` renders on request, so a site with thousands of them still builds fast. The
+      // crawler would otherwise follow the links to them.
+      const unindexed = new Set(docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).flatMap(page => [page.path, `/api/_docs/page${page.path}.json`]))
+      if (unindexed.size) {
+        const prefix = config.appBase.replace(/\/+$/, "")
+        nitro.prerender.ignore = [...nitro.prerender.ignore ?? [], (path: string) => {
+          const route = path.split(/[?#]/)[0]!
+          return unindexed.has(normalizeDocsPath(prefix && route.startsWith(`${prefix}/`) ? route.slice(prefix.length) : route))
+        }]
+      }
       // The MCP toolkit reads the current request through Nitro's async context.
       if (config.mcp) nitro.experimental = { ...nitro.experimental, asyncContext: true }
     }])
@@ -591,7 +608,7 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: strin
 
 /** Icons of the shell components and the theme. */
 const shellIcons = [
-  "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-copy", "i-lucide-file",
+  "i-lucide-arrow-left", "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-chevron-right", "i-lucide-copy", "i-lucide-file",
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
   "i-ph-github-logo-light", "i-ph-moon-light", "i-ph-sun-light", "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",

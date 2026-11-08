@@ -1,9 +1,7 @@
-import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
-
 import databaseEntries from "#vitehub/database/databases"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
-import { createLocalSqliteClient } from "./local-client.ts"
+import { localLibsql } from "./local-client.ts"
 import { resolveLocalSqliteUrl } from "./local-url.ts"
 
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
@@ -42,7 +40,7 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
   }
 
   return createDrizzleSqliteAdapter(config, schema, {
-    libsql: { createClient: createLocalSqliteClient, drizzle: drizzleLibsql as never },
+    libsql: localLibsql,
     missingConnection: "a Cloudflare D1 binding or `connection.url`",
     requireRemoteUrl: false,
     resolveLocalUrl: resolveLocalSqliteUrl,
