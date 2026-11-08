@@ -73,6 +73,11 @@ const buildOutputTestTimeout = 60_000
 const tempNodeModuleBuildDirs = new Set([".vite-temp"])
 const tempDirs: string[] = []
 
+/** The registry index imports the definition loaders from this module on the first run. */
+function registryRuntimeFile(registryFile: string): string {
+  return join(dirname(registryFile), "registry-runtime.mjs")
+}
+
 async function writeViteHubWorkflowOwnership(workflowRoot: string, files: string[], routes: unknown[]) {
   const ownership = {
     files: Object.fromEntries(await Promise.all(files.map(async file => [
@@ -278,7 +283,7 @@ it("preserves literal parent Agent Workflow references without retaining their t
     retainedAgentInstructions,
   )
 
-  const registry = await readFile(artifacts.registryFile, "utf8")
+  const registry = await readFile(registryRuntimeFile(artifacts.registryFile), "utf8")
   expect(registry).not.toContain("Follow the shared Workflow policy.")
   expect(registry).toContain(`@${relative(agentRoot, policy)}`)
   expect(registry).toContain("Review the change.")
@@ -305,7 +310,7 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
     artifactDir,
   )
 
-  const registryContents = await readFile(artifacts.registryFile, "utf8")
+  const registryContents = await readFile(registryRuntimeFile(artifacts.registryFile), "utf8")
   expect(registryContents).toContain(pathToFileURL(retainedWorkflowFile).href)
   expect(registryContents).toContain(`import("./vercel-native/`)
   const [vercelNativeFile] = artifacts.vercelNativeFiles
@@ -328,7 +333,7 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
 
   const publishedWorkflowFile = join(publishedDir, "sources", "server", "workflows", "cleanup", "01-cleanup.ts")
   const publishedAppFile = join(publishedDir, "sources", "src", "server.ts")
-  await expect(readFile(join(publishedDir, "registry.mjs"), "utf8")).resolves.toContain(pathToFileURL(publishedWorkflowFile).href)
+  await expect(readFile(join(publishedDir, "registry-runtime.mjs"), "utf8")).resolves.toContain(pathToFileURL(publishedWorkflowFile).href)
   await expect(readFile(join(publishedDir, "cloudflare-worker.mjs"), "utf8")).resolves.toContain(`from "./sources/src/server.ts"`)
   await expect(readFile(join(publishedDir, "vercel-server.mjs"), "utf8")).resolves.toContain(`from "./sources/src/server.ts"`)
   await expect(readdir(join(publishedDir, "vercel-native"))).resolves.toHaveLength(1)
@@ -389,7 +394,7 @@ it("removes partial staged Workflow publication when preparation fails", async (
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
   await mkdir(retainedRoot, { recursive: true })
   const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
-  await rm(artifacts.registryFile)
+  await rm(registryRuntimeFile(artifacts.registryFile))
 
   await expect(generateWorkflowProviderOutputs({
     artifacts,
@@ -491,7 +496,7 @@ it("preserves staged Workflow imports from configured external server directorie
 
   const artifacts = await writeProviderEntries(rootDir, false, {}, [externalServerDir], false, undefined, retainedRoot, artifactDir)
 
-  const registryContents = await readFile(artifacts.registryFile, "utf8")
+  const registryContents = await readFile(registryRuntimeFile(artifacts.registryFile), "utf8")
   expect(registryContents).toContain(pathToFileURL(externalHandler).href)
   expect(registryContents).toContain(pathToFileURL(externalStep).href)
   const [vercelNativeFile] = artifacts.vercelNativeFiles
@@ -1306,7 +1311,7 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerBundleContents).toContain("bundled Markdown template")
     expect(cloudflareWorkerBundleContents).toContain("./.vitehub/workflow/sources/")
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)
-    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
+    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry-runtime.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
     expect(registry).toContain("options: { rootStep: false }")
     expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
@@ -1383,7 +1388,7 @@ describe("Vite workflow provider outputs", () => {
     expect(generatedNative).toContain('"use workflow"')
     expect(generatedNative).toContain('"use step"')
     expect(generatedNative).not.toContain("vitehub.email.definition")
-    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
+    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry-runtime.mjs"), "utf8")
     const nativeExport = `${getCloudflareWorkflowClassName("monthly-recap")}Native`
     expect(registry).toContain(nativeExport)
     expect(registry).toContain(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)
