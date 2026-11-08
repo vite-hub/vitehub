@@ -40,12 +40,12 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
   <div class="sticky top-0 z-50">
     <UHeader
       v-model:open="menuOpen"
-      :ui="{
+      :ui="withDocsTheme('header', {
         // Docs pages pin the rail to the left edge, so the header spans the full width.
         container: isDocsRoute ? 'max-w-none' : undefined,
         right: 'pointer-coarse:gap-0.5',
         toggle: touchIconButton,
-      }"
+      })"
     >
       <template #left>
         <!-- The menu repeats this slot and focuses the brand first. Its tooltip would take the first Escape, so it is off there. -->
@@ -84,10 +84,10 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
         :collapsed="false"
         label="Search docs"
         :kbds="['meta', 'K']"
-        :ui="{
+        :ui="withDocsTheme('contentSearchButton', {
           base: 'vh-header-search hidden w-full lg:inline-flex',
           trailing: 'ms-auto flex items-center gap-0.5',
-        }"
+        })"
       />
 
       <template #right>
@@ -96,11 +96,11 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
         <UContentSearchButton
           collapsed
           :kbds="[]"
-          :ui="{
+          :ui="withDocsTheme('contentSearchButton', {
             base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated pointer-coarse:!size-11 max-[22.5rem]:pointer-coarse:!w-10 lg:hidden',
             label: 'sr-only',
             trailing: 'hidden',
-          }"
+          })"
         />
         <a
           v-if="github"
