@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent, runAgent } from "../src/index.ts"
+import { recoverInterruptedAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
 
@@ -105,6 +106,46 @@ describe("Agent Invocation store open", () => {
     expect(open).toHaveBeenCalledTimes(2)
   })
 
+  it("shares a slow open between recovery and journal reads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({ id: "interrupted", traceId: "interrupted", status: "running", observations: [], createdAt: "2020-01-01T00:00:00Z", updatedAt: "2020-01-01T00:00:00Z" })
+    const list = store.list.bind(store)
+    let ready = false
+    store.open = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      ready = true
+    })
+    store.list = options => {
+      if (!ready) throw new Error("Store is not open")
+      return list(options)
+    }
+    const invocations = defineAgentInvocations({ store, storeTimeoutMs: 20 })
+
+    const [recovered] = await Promise.all([
+      recoverInterruptedAgentInvocations(invocations, { recover: () => true }),
+      invocations.list(),
+    ])
+
+    expect(recovered).toBe(1)
+    expect(store.open).toHaveBeenCalledOnce()
+    await expect(invocations.get("interrupted")).resolves.toMatchObject({ status: "failed" })
+  })
+
+  it("propagates a rejected recovery open and retries before accessing the store", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const list = vi.spyOn(store, "list")
+    store.open = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("Database unavailable"))
+      .mockResolvedValue(undefined)
+    const invocations = defineAgentInvocations({ store })
+
+    await expect(recoverInterruptedAgentInvocations(invocations, { recover: () => true })).rejects.toThrow("Database unavailable")
+    expect(list).not.toHaveBeenCalled()
+    await expect(recoverInterruptedAgentInvocations(invocations, { recover: () => true })).resolves.toBe(0)
+    await invocations.list()
+    expect(store.open).toHaveBeenCalledTimes(2)
+  })
+
   it("stops waiting for an open after 10 seconds", async () => {
     vi.useFakeTimers()
     const invocations = defineAgentInvocations({ store: lazyStore(() => new Promise(() => {})) })
@@ -124,7 +165,7 @@ describe("Agent Invocation store open", () => {
     const list = vi.fn(() => ({ invocations: [] }))
     const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), list, open } })
 
-    const first = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
+    const first = expect(recoverInterruptedAgentInvocations(invocations, { recover: () => true })).rejects.toThrow("store open timed out after 10000 ms")
     await vi.advanceTimersByTimeAsync(10_000)
     await first
 

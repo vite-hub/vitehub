@@ -2255,6 +2255,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     [agentInvocationsBrand]: true,
     get supportsDelete() { return hasRuntimeType(store.delete, "function") },
     async [recoverInterruptedAgentInvocationsSymbol](recoveryOptions) {
+      if (openStore) await openStore()
       return await failInterruptedAgentInvocations(store, recoveryOptions)
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
