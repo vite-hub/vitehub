@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
-import { defineAgent, runAgentInline, streamAgentInline } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
