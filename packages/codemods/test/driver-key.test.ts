@@ -33,13 +33,67 @@ describe("driver-key", () => {
   })
 
   it("leaves a key that already reads driver and reports a config that sets both", async () => {
-    const result = await migrateSource("vite.config.ts", "export default defineConfig({ queue: { provider: 'vercel', driver: 'cloudflare' } })\n")
+    const result = await migrateSource("vite.config.ts", "import { defineConfig } from 'vite'\nexport default defineConfig({ queue: { provider: 'vercel', driver: 'cloudflare' } })\n")
     expect(result.edits).toEqual([])
-    expect(result.followUps).toEqual([{ file: "vite.config.ts", line: 1, message: "`queue` sets both `provider` and `driver`. Keep one `driver`." }])
+    expect(result.followUps).toEqual([{ file: "vite.config.ts", line: 2, message: "`queue` sets both `provider` and `driver`. Keep one `driver`." }])
   })
 
   it("keeps a store whose provider is not a Workspace Store driver", async () => {
     const result = await migrateSource("utils.ts", "export const cache = { store: { provider: 'redis' } }\n")
+    expect(result.edits).toEqual([])
+  })
+
+  it("leaves unrelated APIs and Workspace-like data unchanged", async () => {
+    const result = await migrateSource("vite.config.ts", `
+import { createBrowser, createEmail, hubQueue, defineConfig } from "other-library"
+const api = { createBrowser() {}, hubQueue() {} }
+createBrowser({ provider: "local" })
+createEmail({ driver: "cloudflare-email" })
+hubQueue({ provider: "memory" })
+api.createBrowser({ provider: "local" })
+api.hubQueue({ provider: "memory" })
+defineConfig({ queue: { provider: "memory" } })
+const data = { vitehub: { queue: { provider: "memory" } }, checkout: { store: { provider: "github" } } }
+const cache = { store: { provider: "memory" } }
+`)
+    expect(result.edits).toEqual([])
+  })
+
+  it("resolves aliases and namespace imports of the owning APIs", async () => {
+    const result = await migrateSource("utils.ts", `
+import { vitehub as hub } from "vite-hub"
+import { createBrowser as browser } from "vite-hub/browser"
+import { createQueueClient as queue } from "@vite-hub/queue"
+import { defineWorkspace as workspace } from "@vite-hub/workspace"
+import * as email from "@vite-hub/email"
+hub({ queue: { provider: "memory" }, workspace: { store: { provider: "vercel-blob" } } })
+browser({ provider: localBrowser() })
+queue({ provider: "cloudflare" })
+workspace({ store: { provider: "github" } })
+email.createEmail({ driver: "cloudflare-email" })
+`)
+    const after = result.edits[0]?.after
+    expect(after).toContain('queue: { driver: "memory" }')
+    expect(after).toContain('store: { driver: "vercel" }')
+    expect(after).toContain('browser({ driver: localBrowser() })')
+    expect(after).toContain('queue({ driver: "cloudflare" })')
+    expect(after).toContain('store: { driver: "github" }')
+    expect(after).toContain('email.createEmail({ driver: "cloudflare" })')
+  })
+
+  it("leaves local functions and shadowed imports unchanged", async () => {
+    const result = await migrateSource("utils.ts", `
+import { createBrowser as browser } from "vite-hub/browser"
+import * as queue from "@vite-hub/queue/vite"
+function createEmail(options) { return options }
+createEmail({ driver: "cloudflare-email" })
+function useBrowser(browser) { return browser({ provider: "local" }) }
+function useQueue({ queue }) { return queue.hubQueue({ provider: "memory" }) }
+function make() {
+  const hubQueue = options => options
+  return hubQueue({ provider: "memory" })
+}
+`)
     expect(result.edits).toEqual([])
   })
 })

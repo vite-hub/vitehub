@@ -32,27 +32,32 @@ type KeyFeature = keyof typeof renamedKeys
 type ValueFeature = keyof typeof renamedValues
 type Feature = KeyFeature | ValueFeature
 
-/** Workspace Store drivers. A `store` object with one of these `provider` values is a Workspace Store. */
+/** Driver names accepted by the old Workspace Store options. */
 const workspaceStoreDrivers = new Set(["local", "memory", "github", "cloudflare-artifacts", "vercel-blob"])
 
-/** Functions whose first argument is the options object of one feature. */
-const featureCalls = new Map<string, Feature | "browser">([
-  ["createBrowser", "browser"],
-  ["createEmail", "email"],
-  ["createQueueClient", "queue"],
-  ["hubBlob", "blob"],
-  ["hubDb", "database"],
-  ["hubEmail", "email"],
-  ["hubKv", "kv"],
-  ["hubQueue", "queue"],
-  ["hubRateLimit", "rateLimit"],
-  ["hubRealtime", "realtime"],
-  ["hubSandboxTask", "sandboxTask"],
-  ["hubWorkflow", "workflow"],
-])
+type Api = Feature | "browser" | "workspace" | "config"
 
-/** Calls whose first argument is a config root that holds feature keys, such as `vitehub({ queue: ... })`. */
-const configCalls = new Set(["defineConfig", "defineNuxtConfig", "defineNitroConfig", "vitehub"])
+/** Match both the exported name and the module that owns the API. */
+const apiCalls = new Map<string, { kind: Api, sources: readonly string[] }>([
+  ["createBrowser", { kind: "browser", sources: ["@vite-hub/browser", "vite-hub/browser"] }],
+  ["createEmail", { kind: "email", sources: ["@vite-hub/email", "vite-hub/email"] }],
+  ["createQueueClient", { kind: "queue", sources: ["@vite-hub/queue", "vite-hub/queue"] }],
+  ["defineWorkspace", { kind: "workspace", sources: ["@vite-hub/workspace", "vite-hub/workspace"] }],
+  ["hubWorkspace", { kind: "workspace", sources: ["@vite-hub/workspace/vite", "vite-hub/workspace/vite"] }],
+  ["hubBlob", { kind: "blob", sources: ["@vite-hub/blob/vite", "vite-hub/blob/vite"] }],
+  ["hubDb", { kind: "database", sources: ["@vite-hub/database/vite", "vite-hub/database/vite"] }],
+  ["hubEmail", { kind: "email", sources: ["@vite-hub/email/vite", "vite-hub/email/vite"] }],
+  ["hubKv", { kind: "kv", sources: ["@vite-hub/kv/vite", "vite-hub/kv/vite"] }],
+  ["hubQueue", { kind: "queue", sources: ["@vite-hub/queue/vite", "vite-hub/queue/vite"] }],
+  ["hubRateLimit", { kind: "rateLimit", sources: ["@vite-hub/rate-limit/vite", "vite-hub/rate-limit/vite"] }],
+  ["hubRealtime", { kind: "realtime", sources: ["@vite-hub/realtime/vite", "vite-hub/realtime/vite"] }],
+  ["hubSandboxTask", { kind: "sandboxTask", sources: ["@vite-hub/sandbox/task/vite", "vite-hub/sandbox/task/vite"] }],
+  ["hubWorkflow", { kind: "workflow", sources: ["@vite-hub/workflow/vite", "vite-hub/workflow/vite"] }],
+  ["vitehub", { kind: "config", sources: ["vite-hub"] }],
+  ["defineConfig", { kind: "config", sources: ["vite", "vite-plus", "nitro/config"] }],
+  ["defineNuxtConfig", { kind: "config", sources: ["nuxt/config"] }],
+  ["defineNitroConfig", { kind: "config", sources: ["nitro/config"] }],
+])
 
 const configFile = /^(?:vite|nuxt|nitro)\.config\.[cm]?[jt]s$/
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"]
@@ -83,10 +88,52 @@ function objectProperties(object: ObjectExpression): ObjectProperty[] {
   return object.properties.filter((property): property is ObjectProperty => property.type === "ObjectProperty")
 }
 
-function calleeName(node: Node): string | undefined {
-  if (node.type === "Identifier") return node.name
-  if (node.type === "MemberExpression" && !node.computed && node.property.type === "Identifier") return node.property.name
-  return undefined
+function resolveApis(program: File) {
+  const declarations = new Map<string, number>()
+  const imports = new Map<string, { source: string, name?: string }>()
+  const add = (node: Node | null | undefined): void => {
+    if (!node) return
+    if (node.type === "Identifier") declarations.set(node.name, (declarations.get(node.name) ?? 0) + 1)
+    else if (node.type === "RestElement") add(node.argument)
+    else if (node.type === "AssignmentPattern") add(node.left)
+    else if (node.type === "ArrayPattern") node.elements.forEach(add)
+    else if (node.type === "ObjectPattern") node.properties.forEach(property => add(property.type === "RestElement" ? property.argument : property.value))
+    else if (node.type === "TSParameterProperty") add(node.parameter)
+  }
+  walk(program, (node) => {
+    if (node.type === "ImportDeclaration") {
+      for (const specifier of node.specifiers) {
+        add(specifier.local)
+        if (node.importKind === "type" || specifier.type === "ImportDefaultSpecifier") continue
+        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type") {
+          imports.set(specifier.local.name, { source: node.source.value, name: keyName(specifier.imported) })
+        }
+        else if (specifier.type === "ImportNamespaceSpecifier") imports.set(specifier.local.name, { source: node.source.value })
+      }
+    }
+    else if (node.type === "VariableDeclarator") add(node.id)
+    else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression"
+      || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod" || node.type === "TSDeclareFunction") {
+      if ("id" in node) add(node.id)
+      node.params.forEach(add)
+    }
+    else if (node.type === "ClassDeclaration" || node.type === "ClassExpression" || node.type === "TSEnumDeclaration" || node.type === "TSImportEqualsDeclaration") add(node.id)
+    else if (node.type === "CatchClause") add(node.param)
+  })
+
+  return (callee: Node, implicitConfig?: string): Api | undefined => {
+    const local = callee.type === "Identifier" ? callee.name
+      : callee.type === "MemberExpression" && callee.object.type === "Identifier" ? callee.object.name : undefined
+    if (!local) return undefined
+    const binding = imports.get(local)
+    // A second declaration can shadow the import. Leave this name unchanged throughout the file.
+    if (!binding) return callee.type === "Identifier" && local === implicitConfig && !declarations.has(local) ? "config" : undefined
+    if (declarations.get(local) !== 1) return undefined
+    const name = callee.type === "Identifier" ? binding.name
+      : callee.type === "MemberExpression" && !binding.name ? keyName(callee.property, callee.computed) : undefined
+    const api = name ? apiCalls.get(name) : undefined
+    return api?.sources.includes(binding.source) ? api.kind : undefined
+  }
 }
 
 /** Renames the key of `property` to `driver`. A shorthand `{ provider }` becomes `{ driver: provider }`. */
@@ -145,35 +192,39 @@ function rewriteWorkspaceStore(context: FileContext, object: ObjectExpression) {
   renameValue(context, provider, renamedValues.store, "store.driver")
 }
 
-/** True when `object` is a config root: the argument of `vitehub()` or `defineConfig()`, `vitehub` in Nuxt config, or the default export. */
-function isConfigRoot(object: ObjectExpression, parent: Node | undefined): boolean {
-  if (!parent) return false
-  if (parent.type === "CallExpression") {
-    const name = calleeName(parent.callee)
-    return Boolean(name && configCalls.has(name) && parent.arguments[0] === object)
+function rewriteWorkspace(context: FileContext, object: ObjectExpression) {
+  for (const property of objectProperties(object)) {
+    if (propertyName(property) === "store" && property.value.type === "ObjectExpression") rewriteWorkspaceStore(context, property.value)
   }
-  if (parent.type === "ObjectProperty") return keyName(parent.key, parent.computed) === "vitehub" && parent.value === object
-  return parent.type === "ExportDefaultDeclaration"
 }
 
-function rewriteProgram(context: FileContext, program: File, isConfig: boolean) {
+function rewriteConfig(context: FileContext, object: ObjectExpression) {
+  for (const property of objectProperties(object)) {
+    const name = propertyName(property)
+    if (!name || property.value.type !== "ObjectExpression") continue
+    if (name === "vitehub") rewriteConfig(context, property.value)
+    else if (name === "workspace") rewriteWorkspace(context, property.value)
+    else if (name !== "store" && (isKeyFeature(name) || isValueFeature(name))) rewriteFeature(context, name, property.value)
+  }
+}
+
+function rewriteProgram(context: FileContext, program: File) {
+  const resolveApi = resolveApis(program)
+  const fileName = basename(context.file)
+  const implicitConfig = fileName.startsWith("nuxt.config.") ? "defineNuxtConfig" : fileName.startsWith("nitro.config.") ? "defineNitroConfig" : undefined
   walk(program, (node, ancestors) => {
-    if (node.type === "CallExpression") {
-      const name = calleeName(node.callee)
-      const feature = name ? featureCalls.get(name) : undefined
-      const options = node.arguments[0]
-      if (feature && options?.type === "ObjectExpression") rewriteFeature(context, feature, options)
+    const parent = ancestors.at(-1)
+    if (node.type === "ExportDefaultDeclaration" && node.declaration.type === "ObjectExpression" && configFile.test(fileName)) {
+      rewriteConfig(context, node.declaration)
       return
     }
-    if (node.type !== "ObjectExpression") return
-    const parent = ancestors.at(-1)
-    if (parent?.type === "ObjectProperty" && parent.value === node && keyName(parent.key, parent.computed) === "store") rewriteWorkspaceStore(context, node)
-    if (!isConfig || !isConfigRoot(node, parent)) return
-    for (const property of objectProperties(node)) {
-      const name = propertyName(property)
-      if (!name || property.value.type !== "ObjectExpression") continue
-      if (name !== "store" && (isKeyFeature(name) || isValueFeature(name))) rewriteFeature(context, name, property.value)
-    }
+    if (node.type !== "CallExpression") return
+    const api = resolveApi(node.callee, parent?.type === "ExportDefaultDeclaration" ? implicitConfig : undefined)
+    const options = node.arguments[0]
+    if (!api || options?.type !== "ObjectExpression") return
+    if (api === "config") rewriteConfig(context, options)
+    else if (api === "workspace") rewriteWorkspace(context, options)
+    else rewriteFeature(context, api, options)
   })
 }
 
@@ -194,7 +245,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       continue
     }
     const context: FileContext = { changed: false, file, followUps, output: new MagicString(source), style: detectStyle(source, program) }
-    rewriteProgram(context, program, configFile.test(basename(file)))
+    rewriteProgram(context, program)
     if (context.changed) edits.push({ path: file, before: source, after: context.output.toString() })
   }
 
