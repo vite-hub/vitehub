@@ -118,8 +118,8 @@ export function timeZoneOffsetMinutes(at: Date, timeZone: string): number {
 }
 
 /**
- * Returns the newest minute at or before `at` that the UTC `cron` matches, within one day. Hosts such as Vercel call a
- * cron route some seconds or minutes late and send no scheduled time, so this gives each wake its planned minute.
+ * Returns the newest minute at or before `at` that the UTC `cron` matches, within one day, or the current minute.
+ * This is an estimate for hosts without a scheduled timestamp, not an identity for delayed or retried deliveries.
  */
 export function latestCronMinute(cron: string, at: Date): Date {
   const record: ScheduleCronRecord = { cron, id: cron }

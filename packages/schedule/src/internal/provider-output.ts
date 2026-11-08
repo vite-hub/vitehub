@@ -5,6 +5,7 @@ import { builtinModules } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
+import { parseCronExpression } from "cron-schedule"
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, recoverNetlifyDeploymentOutput, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
@@ -335,7 +336,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
               ]
             : []),
           "  const cron = scheduleCron(name, definition)",
-          "  // Vercel sends no scheduled time and can call late, so the run gets the cron minute that this call is for.",
+          "  // Vercel sends no scheduled time. This estimate cannot identify a late wake after another cron match.",
           workflowRuntime
             ? "  await runWithVercelWorkflowRuntimeEvent(req, res, () => runSchedule(name, cron, scheduledWakeTime(cron)))"
             : "  await runSchedule(name, cron, scheduledWakeTime(cron))",
@@ -359,6 +360,7 @@ function renderNetlifyScheduleFunction(file: string, registryFile: string, sched
     "  const loaded = await scheduleRegistry[scheduleName]?.()",
     "  const definition = unwrapScheduleDefinition(loaded)",
     "  if (!definition) return new Response('Missing schedule definition.', { status: 404 })",
+    "  // Without a scheduled timestamp, attribution and time-zone filtering use the latest host cron match.",
     `  const scheduledAt = scheduledWakeTime(${JSON.stringify(cron)})`,
     ...(inTimeZone ? ["  if (!isTimeZoneWakeDue(definition, scheduleName, scheduledAt)) return new Response(null, { status: 204 })"] : []),
     `  await executeStaticSchedule({ cron: ${JSON.stringify(cron)}, definition, name: scheduleName, scheduledAt })`,
@@ -397,7 +399,13 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
       const cronId = index.toString(36)
       const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
       const cronNamePrefix = `vitehub-${cronId}-`
-      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
+      // Deno numbers weekdays 1-7, starting on Sunday. Names preserve the standard cron occurrence set.
+      const fields = cron.trim().split(/\s+/)
+      if (fields[4] !== "*") {
+        const weekdays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+        fields[4] = parseCronExpression(cron).weekdays.map(day => weekdays[day]).join(",")
+      }
+      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, denoCron: fields.join(" "), inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
     })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
@@ -412,12 +420,13 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  return unwrapScheduleDefinition(loaded)",
     "}",
     "",
-    "for (const { cron, cronName, inTimeZone, name } of scheduleCrons) {",
-    "  Deno.cron(cronName, cron, async () => {",
+    "for (const { cron, cronName, denoCron, inTimeZone, name } of scheduleCrons) {",
+    "  Deno.cron(cronName, denoCron, async () => {",
     "    const definition = await loadScheduleDefinition(name)",
     "    if (!definition) {",
     "      throw missingScheduleDefinitionError(name)",
     "    }",
+    "    // Deno provides no occurrence timestamp, including on retries. This is a callback-time estimate.",
     "    const scheduledAt = scheduledWakeTime(cron)",
     "    if (inTimeZone && !isTimeZoneWakeDue(definition, name, scheduledAt)) return",
     "    await executeStaticSchedule({ cron, definition, name, scheduledAt })",

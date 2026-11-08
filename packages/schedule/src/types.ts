@@ -2,8 +2,9 @@ export interface ScheduleRunContext {
   id: string
   attemptId?: string
   /**
-   * Stable key of this occurrence: `schedule:<name>:<scheduledAt ISO>`. A host that delivers one cron wake twice gives
-   * both runs the same key. Pass it as `idempotencyKey` to Queue, Email, or a Channel so the work happens once.
+   * Key derived from `scheduledAt`: `schedule:<name>:<scheduledAt ISO>`. Cloudflare and the Process Runtime retain
+   * occurrence identity. Vercel, Netlify, and Deno estimate it from callback time, so a late delivery or retry across
+   * a host cron boundary can have a different key. Pass it to Queue, Email, or a Channel to dedupe the same key.
    */
   idempotencyKey: string
   runId?: string

@@ -120,9 +120,9 @@ On daylight saving time changes, every host behaves the same. A local time that 
 
 ## Run the work once per occurrence
 
-A host can deliver one cron wake twice. Each run gets `idempotencyKey`, `schedule:<name>:<scheduledAt ISO>`, and both deliveries of one wake get the same key. Pass it to Email, a Channel `send()`, or a Queue on Vercel or the local driver, so the work happens once:
+A host can deliver one cron wake twice. Each run gets `idempotencyKey`, `schedule:<name>:<scheduledAt ISO>`. Cloudflare supplies the scheduled timestamp, and the Process Runtime records each occurrence, so their repeated deliveries keep the same key. Pass it to Email, a Channel `send()`, or a Queue on Vercel or the local driver to dedupe work with the same key:
 
-```ts [server/schedules/daily-lesson.ts]
+```ts [server/schedules/daily-lesson.ts] fragment
 export default defineSchedule({
   cron: '0 7 * * *',
   timeZone: 'Europe/Stockholm',
@@ -133,6 +133,8 @@ export default defineSchedule({
 ```
 
 The process driver also stores one run per occurrence and does not run a repeated wake again.
+
+Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. They estimate `scheduledAt` as the latest host UTC cron match within the previous day, or the current minute when none matches. A late delivery or retry after another host cron match can get a different key. Time-zone filtering uses that estimate too: a summer Madrid 06:00 wake delivered after the extra 07:00 wake can be skipped. These hosts cannot guarantee occurrence identity or dedupe across that boundary. Use an application business key for side effects that must dedupe across delays and retries.
 
 Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`. Add `--at 2026-01-31T23:59:00Z` to run it as if the cron fired at that time; the handler gets that time as `scheduledAt`. Manual runs do not advance the Process Runtime's catch-up cursor, even when their scheduled time is in the future. Run it on a deployment with `vitehub schedule run daily-report --url https://app.example.com`, from a CI job with a [signed dispatch](/docs/development/cli#signed-dispatch) (`vitehub schedule run --url` signs with `VITEHUB_DISPATCH_KEY` when it is set), or from the Console.
 

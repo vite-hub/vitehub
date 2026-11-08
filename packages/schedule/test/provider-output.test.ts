@@ -559,7 +559,7 @@ describe("schedule provider output", () => {
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
     const source = await readFile(denoCron, "utf8")
 
-    expect(source).toContain("Deno.cron(cronName, cron")
+    expect(source).toContain("Deno.cron(cronName, denoCron")
     const cronNames = [...source.matchAll(/"?cronName"?:\s*"([^"]+)"/g)].map(match => match[1])
     expect(cronNames).toHaveLength(4)
     expect(new Set(cronNames).size).toBe(cronNames.length)
@@ -568,6 +568,43 @@ describe("schedule provider output", () => {
     expect(source).toContain("unwrapScheduleDefinition")
     expect(source).not.toContain("./registry.mjs")
     expect(source).toContain("handler: () => \"ok\"")
+  })
+
+  it("registers shifted and declared weekdays with Deno weekday names", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-weekdays-")
+    for (const [name, cron, timeZone] of [
+      ["sydney", "0 9 * * 1-5", "Australia/Sydney"],
+      ["sunday", "0 9 * * 0,7", "UTC"],
+      ["weekdays", "0 9 * * 1-5", "UTC"],
+      ["steps", "0 9 * * 0-6/2", "UTC"],
+    ]) {
+      await writeFile(join(rootDir, "src", `${name}.schedule.ts`), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        `export default defineSchedule({ cron: '${cron}', timeZone: '${timeZone}', handler: () => 'ok' })`,
+      ].join("\n"))
+    }
+    await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+    const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+    const source = (await readFile(denoCron, "utf8")).replace(
+      JSON.stringify("@vite-hub/schedule/runtime/static"),
+      JSON.stringify(pathToFileURL(resolveScheduleRuntimeEntry()).href),
+    )
+    const registrations: Record<string, string> = {}
+    vi.stubGlobal("Deno", { cron: (name: string, cron: string) => { registrations[name] = cron } })
+    try {
+      const nodeEntry = join(rootDir, "deno-node.mjs")
+      await writeFile(nodeEntry, source)
+      await import(pathToFileURL(nodeEntry).href)
+      const registered = (name: string) => Object.entries(registrations).find(([id]) => id.endsWith(`-${name}`))?.[1]
+      expect(registered("sydney")).toBe("0 22,23 * * SUN,MON,TUE,WED,THU")
+      expect(registered("sunday")).toBe("0 9 * * SUN")
+      expect(registered("weekdays")).toBe("0 9 * * MON,TUE,WED,THU,FRI")
+      expect(registered("steps")).toBe("0 9 * * SUN,TUE,THU,SAT")
+      expect(registered("cleanup")).toBe("0 0 * * *")
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("preserves published Deno cron output when closure bundling fails", async () => {

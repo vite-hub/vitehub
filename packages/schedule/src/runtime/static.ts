@@ -137,8 +137,9 @@ function isScheduleRuntimeError(error: unknown): error is Error {
 }
 
 /**
- * Returns the planned minute of a host wake that carries no scheduled time, such as a Vercel or Netlify cron call:
- * the newest minute at or before now that the host's UTC `cron` matches.
+ * Estimates a wake minute from callback time when the host supplies no scheduled timestamp. This is the newest UTC
+ * cron match within one day, or the current minute when none matches. It cannot identify a delayed or retried wake
+ * after another cron match; callers must not treat it as the provider's occurrence identity.
  */
 export function scheduledWakeTime(cron: string, now: Date = new Date()): Date {
   return latestCronMinute(normalizeCron(cron), now)

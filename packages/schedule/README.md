@@ -123,9 +123,9 @@ On daylight saving time changes, every host and the Process Runtime behave the s
 
 ## Run a Schedule once per occurrence
 
-Each run gets `idempotencyKey`, `schedule:<name>:<scheduledAt ISO>`. A host can deliver one cron wake twice. Both runs get the same key, because hosts without a scheduled time (Vercel, Netlify, Deno) get `scheduledAt` from the cron minute that the wake is for, not from the clock. Pass the key to the work that must happen once, such as Email, a Channel `send()`, or a Queue on Vercel or the local driver:
+Each run gets `idempotencyKey`, `schedule:<name>:<scheduledAt ISO>`. Cloudflare supplies the scheduled timestamp, and the Process Runtime records each occurrence. Repeated deliveries of those occurrences keep the same key. Pass the key to Email, a Channel `send()`, or a Queue on Vercel or the local driver to dedupe work with the same key:
 
-```ts
+```ts fragment
 export default defineSchedule({
   cron: "0 7 * * *",
   timeZone: "Europe/Stockholm",
@@ -136,6 +136,8 @@ export default defineSchedule({
 ```
 
 The Process Runtime also stores one run per occurrence, so it does not run a repeated wake again. Host cron output does not store runs.
+
+Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. They estimate `scheduledAt` as the latest host UTC cron match within the previous day, or the current minute when none matches. A late delivery or retry after another host cron match can get a different key. Time-zone filtering uses that estimate too: a summer Madrid 06:00 wake delivered after the extra 07:00 wake can be skipped. These hosts cannot guarantee occurrence identity or dedupe across that boundary. Use an application business key for side effects that must dedupe across delays and retries.
 
 ## Run schedules in one process
 

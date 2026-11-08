@@ -144,13 +144,22 @@ describe("Static Schedule runtime", () => {
     expect(runs).toEqual(["brief"])
   })
 
-  it("gives a repeated delivery of one wake the same idempotency key", async () => {
+  it("gives timestamp-free deliveries within the same host cron interval the same key", async () => {
     const keys: string[] = []
     const definition: ScheduleDefinition = { cron: "0 4 * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) }
     for (const now of ["2026-06-12T04:00:02Z", "2026-06-12T04:03:40Z"]) {
       await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt: scheduledWakeTime(definition.cron, new Date(now)) })
     }
     expect(keys).toEqual(["schedule:report:2026-06-12T04:00:00.000Z", "schedule:report:2026-06-12T04:00:00.000Z"])
+  })
+
+  it("estimates timestamp-free deliveries from the latest host match across cron boundaries", async () => {
+    const keys: string[] = []
+    const definition: ScheduleDefinition = { cron: "* * * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) }
+    for (const now of ["2026-06-12T12:00:59Z", "2026-06-12T12:01:00Z"]) {
+      await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt: scheduledWakeTime(definition.cron, new Date(now)) })
+    }
+    expect(keys).toEqual(["schedule:report:2026-06-12T12:00:00.000Z", "schedule:report:2026-06-12T12:01:00.000Z"])
   })
 
   it("matches equivalent cron whitespace from provider events", async () => {
