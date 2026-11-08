@@ -74,6 +74,26 @@ describe("Agent Invocation store open", () => {
     await expect(invocations.getByRunId("first-run")).resolves.toMatchObject({ status: "completed" })
   })
 
+  it("opens before creating the first run in a store that requires initialization", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const create = store.create.bind(store)
+    let ready = false
+    store.open = async () => {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      ready = true
+    }
+    store.create = vi.fn(input => {
+      if (!ready) throw new Error("Store is not open")
+      return create(input)
+    })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store, storeTimeoutMs: 20 })
+    const run = vi.fn(() => "done")
+
+    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("initialized-run"), {})).resolves.toBe("done")
+    expect(store.create).toHaveBeenCalledOnce()
+    await expect(invocations.getByRunId("initialized-run")).resolves.toMatchObject({ status: "completed" })
+  })
+
   it("opens again after a rejected open", async () => {
     const open = vi.fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error("Database unavailable"))
@@ -93,5 +113,38 @@ describe("Agent Invocation store open", () => {
     const settled = expect(list).rejects.toThrow("store open timed out after 10000 ms")
     await vi.advanceTimersByTimeAsync(10_000)
     await settled
+  })
+
+  it.each(["resolve", "reject"] as const)("shares a timed-out open until it settles: %s", async (outcome) => {
+    vi.useFakeTimers()
+    const pending = Promise.withResolvers<void>()
+    const open = vi.fn<() => Promise<void>>()
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(undefined)
+    const list = vi.fn(() => ({ invocations: [] }))
+    const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), list, open } })
+
+    const first = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
+    await vi.advanceTimersByTimeAsync(10_000)
+    await first
+
+    const next = invocations.list()
+    // A later caller gets a new wait bound, but must share the unfinished open.
+    await vi.advanceTimersByTimeAsync(1)
+    expect(open).toHaveBeenCalledOnce()
+    expect(list).not.toHaveBeenCalled()
+    if (outcome === "resolve") {
+      pending.resolve()
+      await expect(next).resolves.toMatchObject({ invocations: [] })
+      await expect(invocations.list()).resolves.toMatchObject({ invocations: [] })
+      expect(open).toHaveBeenCalledOnce()
+    }
+    else {
+      const rejected = expect(next).rejects.toThrow("Database unavailable")
+      pending.reject(new Error("Database unavailable"))
+      await rejected
+      await expect(invocations.list()).resolves.toMatchObject({ invocations: [] })
+      expect(open).toHaveBeenCalledTimes(2)
+    }
   })
 })

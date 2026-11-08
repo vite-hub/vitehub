@@ -169,6 +169,8 @@ export interface AgentInvocationListOptions {
   search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
   triggeredBy?: string
+  /** ISO timestamp; keeps invocations whose `updatedAt` is at or after it. Stores without an index for it may ignore it. */
+  updatedSince?: string
 }
 
 export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">
@@ -218,7 +220,7 @@ export interface AgentInvocationStore {
   /**
    * Prepares a store that connects on first use, such as one that loads its database client and runs migrations.
    * The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`.
-   * A rejected open runs again before the next operation.
+   * Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried.
    */
   open?(): MaybePromise<void>
   claim(id: string, claimId: string, leaseMs: number, options?: {
@@ -2188,14 +2190,16 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
   }
   // A lazy store opens once, outside the bound of the operation that comes first.
-  let opening: Promise<unknown> | undefined
+  let opening: Promise<void> | undefined
   const storeOpen = options.store.open
-  const openStore = storeOpen && (() => opening ??= boundedStoreOperation(() => storeOpen.call(options.store), STORE_OPEN_TIMEOUT_MS, true).then((result) => {
+  const openStore = storeOpen && (async () => {
+    const task = opening ??= Promise.resolve().then(() => storeOpen.call(options.store)).catch((error: unknown) => {
+      opening = undefined
+      throw error
+    })
+    const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
     if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
-  }).catch((error: unknown) => {
-    opening = undefined
-    throw error
-  }))
+  })
   const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
     if (openStore) {
       try {
@@ -2378,50 +2382,52 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
-        if (!creationTask) {
-          const task = Promise.resolve().then(async () => {
-            if (!bindOptions.existingOnly) return await store.create(createInput)
-            const record = await store.get(recordId)
-            return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
-              ? { created: false, record }
-              : undefined
-          }).then((result) => {
-            if (result) {
-              traceId = result.record.traceId
-              if (bindOptions.existingOnly) existingTraceId = result.record.traceId
-              if (bindOptions.existingOnly) existingCursor = result.record.cursor
-              limits = observationLimits(result.record.observationLimits)
-              observationCount = result.record.observations.length
-              observationsTruncated = result.record.observationsTruncated === true
-                || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
-              truncationPersisted = result.record.observationsTruncated === true
-              observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
-              invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
-              reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
-              finished = terminalStatus(result.record.status) && !reopenFailed
-              boundToTerminalRecord = finished
-              workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
-              createdNew = result.created
-              created = true
-              cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
-                || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
-              readCancellationRequest(result.record)
-            }
-            else if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return result
-          }, () => {
-            if (creationTask === task) {
-              creationTask = undefined
-              creationTimedOut = false
-            }
-            return undefined
-          })
-          creationTask = task
-        }
-        const result = await boundedStore(() => creationTask!, timeoutMs)
+        const result = await boundedStore(() => {
+          if (!creationTask) {
+            const task = Promise.resolve().then(async () => {
+              if (!bindOptions.existingOnly) return await store.create(createInput)
+              const record = await store.get(recordId)
+              return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
+                ? { created: false, record }
+                : undefined
+            }).then((result) => {
+              if (result) {
+                traceId = result.record.traceId
+                if (bindOptions.existingOnly) existingTraceId = result.record.traceId
+                if (bindOptions.existingOnly) existingCursor = result.record.cursor
+                limits = observationLimits(result.record.observationLimits)
+                observationCount = result.record.observations.length
+                observationsTruncated = result.record.observationsTruncated === true
+                  || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
+                truncationPersisted = result.record.observationsTruncated === true
+                observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+                invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
+                reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
+                finished = terminalStatus(result.record.status) && !reopenFailed
+                boundToTerminalRecord = finished
+                workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
+                createdNew = result.created
+                created = true
+                cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
+                  || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
+                readCancellationRequest(result.record)
+              }
+              else if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return result
+            }, () => {
+              if (creationTask === task) {
+                creationTask = undefined
+                creationTimedOut = false
+              }
+              return undefined
+            })
+            creationTask = task
+          }
+          return creationTask!
+        }, timeoutMs)
         if (result === storeOperationTimedOut) creationTimedOut = true
         return created
       }
