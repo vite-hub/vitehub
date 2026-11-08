@@ -8,7 +8,7 @@ icon: i-lucide-code-2
 
 ## Send from an H3 or Nitro handler
 
-`useChannel()` returns immediately. `send()` performs the connector call and returns `[null, receipt]` on success or `[error, null]` on failure. The receipt has the Channel name, connector name, ViteHub delivery id, and optional provider message id. Check the error before using the receipt.
+`useChannel()` returns immediately. `send()` performs the connector call and returns a `Result` from `vite-hub/runtime`: `[undefined, receipt]` on success or `[error, undefined]` on failure. The receipt has the Channel name, connector name, ViteHub delivery id, and optional provider message id. Check the error before using the receipt. See [Errors](#errors) for each code.
 
 The optional provider `id` must be a string. Unreadable or non-string IDs are omitted from successful receipts and delivery logs.
 
@@ -132,3 +132,19 @@ For a channel thread, set `thread.root` on the first send so the temporary messa
 ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that the platform no longer has counts as deleted.
 
 ViteHub stores roots and receipts in KV under the channel name, such as `teams:` or `slack:`, and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.
+
+## Errors
+
+`send()` returns these errors. Each one has `code`, `why`, `fix`, and `docs`. `error.cause` keeps the lower-level error. `JSON.stringify(error)` does not include `cause`, so a connector error that contains private data does not leave the server.
+
+### CHANNEL_DEFINITION_FAILED
+
+No Channel Definition has this name, or its file failed to load. Add `server/channels/<name>.ts` with a default export from `defineOutboundChannel()`, and read `error.cause` for the load error. A later `send()` loads the definition again.
+
+### CHANNEL_INVALID_SEND
+
+The text is empty, the options are not an object, no connector is selected, or the Channel Definition does not declare the selected connector. `error.why` names the problem. Pass non-empty text and a `connector` that the definition declares, or set `defaultConnector`.
+
+### CHANNEL_SEND_FAILED
+
+The connector threw, or it returned a value that is not an object. `error.cause` keeps the connector error. The message can still have reached the recipient, so check before you send it again.

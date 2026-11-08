@@ -1,5 +1,5 @@
 import { build } from "esbuild"
-import { defineHandler, H3Event } from "h3"
+import { defineHandler } from "h3"
 import { createApp, eventHandler, toNodeListener } from "h3-v1"
 import { createServer } from "node:http"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -21,6 +21,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import type { ConsoleOAuthConfig } from "../src/console/runtime/server/bearer.ts"
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
 import consoleMcpDiscoveryHandler from "../src/console/runtime/server/mcp-discovery.ts"
+import { requestEvent } from "./console-event.ts"
 
 const require = createRequire(import.meta.url)
 const fixtureKey = Symbol.for("test.console.mcp.middleware")
@@ -74,8 +75,8 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' wit
       createConsoleAuth: ConsoleOAuthConfig["auth"]
     }
     // Delegation still prepares the real SQLite-backed Auth before the route checks a token.
-    await guard.default(new H3Event(new Request(resource)))
-    const instance = await guard.createConsoleAuth(new Request(resource), new H3Event(new Request(resource)))
+    await guard.default(requestEvent(new Request(resource)))
+    const instance = await guard.createConsoleAuth(new Request(resource), requestEvent(new Request(resource)))
     const context = await instance.$context
     // SAFETY: Better Auth's adapter and JWT plugin add these runtime methods.
     const adapter = context.internalAdapter as typeof context.internalAdapter & { createUser: (user: object) => Promise<{ id: string }> }

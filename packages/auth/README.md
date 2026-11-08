@@ -77,7 +77,7 @@ The owned core tables have fixed columns. `authDatabase()` rejects `additionalFi
 
 ## First admin
 
-`VITEHUB_ADMIN_EMAILS` is a comma-separated list of emails. A new account with one of them, from an email and password sign-up or a first social sign-in, gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default). Existing accounts keep their role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. This bootstrap rule does not prove email ownership: restrict access until you create the admin account, then unset the variable before opening public sign-up. Email verification alone cannot protect an account someone else registered with their own password.
+`VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
 ## Sessions without a database
 
