@@ -153,5 +153,61 @@
         "useResend() is used in ways the codemod does not rewrite"
       ]
     }
+  },
+  {
+    "id": "ziit",
+    "repo": "0PandaDEV/Ziit",
+    "commit": "12296dd1671bb8a6e453526a08c16b82206d887d",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron"
+      ],
+      "report": [
+        "moved 2 cron jobs"
+      ]
+    }
+  },
+  {
+    "id": "clocktracker",
+    "repo": "lindsaykwardell/clocktracker",
+    "commit": "1dbe8d9b1e3c05a68544d097872980a390c8862e",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron"
+      ],
+      "report": [
+        "adds nuxt-cron in a way the codemod cannot remove"
+      ]
+    }
+  },
+  {
+    "id": "helium",
+    "repo": "SrIzan10/helium",
+    "commit": "b0960ed441276feb9abf4e55fd45e57029136c25",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron (error)"
+      ],
+      "report": [
+        "has six fields"
+      ]
+    }
+  },
+  {
+    "id": "headless-sentry",
+    "repo": "pin705/headless-sentry",
+    "commit": "cb4acb3e461f0e6319cef94fc37ee633833b29f4",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxt-cron"
+      ],
+      "report": [
+        "moved 4 cron jobs"
+      ]
+    }
   }
 ]
