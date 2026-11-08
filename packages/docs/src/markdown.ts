@@ -169,9 +169,43 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   }
   return async (markdown) => {
     const document = await parseDocument(markdown)
-    await renderHtmlBlocks(document.nodes)
-    return { ...document, nodes: unwrapListParagraphs(document.nodes) }
+    const nodes = isolateExampleHeadings(unwrapListParagraphs(document.nodes))
+    await renderHtmlBlocks(nodes)
+    return { ...document, nodes }
   }
+}
+
+/** Preview anchors belong to their own document, including links to headings in that preview. */
+function isolateExampleHeadings(nodes: ComarkNode[]): ComarkNode[] {
+  const used = new Set<string>()
+  const walk = (nodes: ComarkNode[], visit: (node: Extract<ComarkNode, unknown[]>) => void, skipPreviews = false) => {
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null || (skipPreviews && node[0] === "example-preview")) continue
+      visit(node)
+      walk(node.slice(2) as ComarkNode[], visit, skipPreviews)
+    }
+  }
+  walk(nodes, node => { if (typeof node[1].id === "string") used.add(node[1].id) })
+  let preview = 0
+  const rewrite = (nodes: ComarkNode[], anchors = new Map<string, string>()): ComarkNode[] => nodes.map((node) => {
+    if (typeof node === "string" || node[0] === null) return node
+    const [tag, props, ...children] = node
+    const scope = tag === "example-preview" ? new Map<string, string>() : anchors
+    if (tag === "example-preview") {
+      const prefix = `docs-example-${++preview}-`
+      walk(children, ([heading, props]) => {
+        if (heading === null || !/^h[1-6]$/.test(heading) || typeof props.id !== "string") return
+        let id = `${prefix}${props.id}`
+        while (used.has(id)) id += "-preview"
+        used.add(id)
+        scope.set(props.id, id)
+      }, true)
+    }
+    const id = /^h[1-6]$/.test(tag) && typeof props.id === "string" ? scope.get(props.id) : undefined
+    const href = tag === "a" && typeof props.href === "string" && props.href.startsWith("#") ? scope.get(props.href.slice(1)) : undefined
+    return [tag, { ...props, ...(id ? { id } : {}), ...(href ? { href: `#${href}` } : {}) }, ...rewrite(children, scope)]
+  })
+  return rewrite(nodes)
 }
 
 /**

@@ -1,7 +1,8 @@
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { agentInvocationRerunInput, defineAgent, runAgentInline, startAgentInvocation, workflow } from "../src/index.ts"
+import { agentInvocationRerunInput, defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { runAgentWorkflowDefinition, type AgentWorkflowInvocationPayload } from "../src/runtime/workflow.ts"
 import { markAgentInvocationCallerAbortSignal } from "../src/internal/invocation-input.ts"
@@ -15,7 +16,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
   return { ...actual, useWorkspace: vi.fn(actual.useWorkspace) }
 })
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 afterEach(() => {
   setAgentWorkflowRuntimeLoaders({

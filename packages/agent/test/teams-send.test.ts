@@ -18,7 +18,7 @@ const kvModule = vi.hoisted(() => ({
   },
 }))
 
-// teams.connector() loads the optional @vite-hub/kv through this helper.
+// teams() loads the optional @vite-hub/kv through this helper when it sends.
 vi.mock("../src/internal/optional-kv.ts", () => ({ importOptionalKV: async () => kvModule }))
 
 function encode(thread: TeamsThread): string {
@@ -54,10 +54,10 @@ async function setup() {
   const adapter = createAdapter()
   const { teams } = await import("../src/channels.ts")
   // SAFETY: The fake implements the Teams adapter methods that the connector calls.
-  return { adapter, connector: teams.connector({ adapter: adapter as never }) }
+  return { adapter, connector: teams({ adapter: adapter as never }) }
 }
 
-describe("teams.connector()", () => {
+describe("teams() send", () => {
   it("posts to a thread and opens direct messages for user recipients", async () => {
     const { adapter, connector } = await setup()
     await expect(connector.send("Hello", { recipient: channel })).resolves.toEqual({ id: "100" })
@@ -219,7 +219,7 @@ describe("teams.connector()", () => {
     vi.doMock("#vitehub/env/server", () => ({ useServerEnv: () => ({ teams: { appId: "app-id", appPassword: "secret", appTenantId: "tenant" } }) }))
     try {
       const { teams } = await import("../src/channels.ts")
-      const teamsConnector = teams.connector({ adapter: { userName: "Bot" } })
+      const teamsConnector = teams({ adapter: { userName: "Bot" } })
       await teamsConnector.send("a", { recipient: channel })
       await teamsConnector.send("b", { recipient: channel })
       expect(createTeamsAdapter).toHaveBeenCalledOnce()

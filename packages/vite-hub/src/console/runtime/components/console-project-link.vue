@@ -6,6 +6,7 @@ import { consoleTokenRefused } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
 import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
@@ -21,6 +22,8 @@ const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }
 const tokenProblem = computed<ConsoleProjectProblem | undefined>(() => problem.value ?? (tokenStep.value?.rejected
   ? { title: "The token is not correct", message: consoleTokenRefused(consoleProjectHost(tokenStep.value.target)) }
   : undefined));
+// A project with `auth: "app"` signs the Console in on its own sign-in page.
+const oauthStep = shallowRef<{ target: ConsoleProjectTarget, resourceMetadata: string }>();
 // A touch screen keeps its keyboard closed until the person taps a field. There the dialog itself takes focus, so a
 // screen reader starts inside it and no button shows a focus ring.
 const autofocus = !("ontouchstart" in window);
@@ -41,6 +44,7 @@ watch(open, (value) => {
   url.value = "";
   problem.value = undefined;
   tokenStep.value = undefined;
+  oauthStep.value = undefined;
   busy.value = false;
 });
 
@@ -65,6 +69,7 @@ async function link(token?: string): Promise<void> {
       return;
     }
     if (result.kind === "token") tokenStep.value = { target: result.target, rejected: result.rejected };
+    else if (result.kind === "oauth") oauthStep.value = { target: result.target, resourceMetadata: result.resourceMetadata };
     else problem.value = result.problem;
     busy.value = false;
   }
@@ -77,6 +82,7 @@ async function link(token?: string): Promise<void> {
 
 function back(): void {
   tokenStep.value = undefined;
+  oauthStep.value = undefined;
   problem.value = undefined;
 }
 </script>
@@ -85,16 +91,21 @@ function back(): void {
   <!-- The top stays in place and the dialog grows down, so an answer below the field moves nothing above it. -->
   <UModal
     v-model:open="open"
-    :title="tokenStep ? 'Enter the Console token' : 'Link project'"
+    :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? 'Enter the Console token' : 'Link project'"
     :content="content"
     :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)] sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
     <template #description>
-      <template v-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
+      <template v-if="oauthStep">{{ consoleProjectHost(oauthStep.target) }} signs you in on its own page.</template>
+      <template v-else-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
       <template v-else>Open a ViteHub app in this Console. The app must list this Console in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>.</template>
     </template>
     <template #body>
-      <div v-if="tokenStep" class="grid gap-3">
+      <div v-if="oauthStep" class="grid gap-3">
+        <ConsoleProjectOAuth :target="oauthStep.target" :resource-metadata="oauthStep.resourceMetadata" />
+        <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" @click="back" />
+      </div>
+      <div v-else-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
           :problem="tokenProblem"

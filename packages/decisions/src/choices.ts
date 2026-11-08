@@ -1,4 +1,5 @@
 import { ask, askWithModel } from "@vite-hub/gateways"
+import { getPublicAiGatewayDiagnostic } from "@vite-hub/gateways/internal"
 
 import { decisionsDiagnostics } from "./diagnostics.ts"
 
@@ -49,6 +50,12 @@ function define(message: string): never {
 
 function fail(code: "DECISIONS_R0002" | "DECISIONS_R0003" | "DECISIONS_R0004" | "DECISIONS_R0006", message: string): ChoicesError {
   return decisionsDiagnostics[code]({ message: `[vitehub] ${message}` })
+}
+
+/** Exposes trusted gateway diagnostics while keeping unknown failures in `cause`. */
+function gatewayFailed(cause: unknown): ChoicesError {
+  const diagnostic = getPublicAiGatewayDiagnostic(cause)
+  return decisionsDiagnostics.DECISIONS_R0005({ cause, fix: diagnostic?.fix, reason: diagnostic?.message.replace(/^\[vitehub\]\s*/, "") })
 }
 
 function probability(value: unknown): number {
@@ -286,7 +293,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
           answers = await asker.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { signal: request?.signal })
         }
         catch (cause) {
-          return [decisionsDiagnostics.DECISIONS_R0005({ message: "[vitehub] The gateway request failed.", cause })]
+          return [gatewayFailed(cause)]
         }
       }
       if (needsSupported(prepared.groups)) {

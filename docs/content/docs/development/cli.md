@@ -44,6 +44,7 @@ Available namespaces:
   pull        Merge the remote changes of a Workspace ref into a local folder.
   push        Pull, then commit the local changes of a checkout folder to its ref.
   resolve     Keep the local version of binary files that both sides changed.
+  hooks       Git hooks that check checkout folders before a commit and push them with the default branch.
   console     Console development workflows.
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
@@ -78,7 +79,7 @@ Available namespaces:
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
 | `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
-| `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret. Does not load the project config. |
+| `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret and pushes the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -152,6 +153,7 @@ Available namespaces:
 | `vitehub workflow get` | Available | Workflow Package | Read a Workflow run. |
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |
 | `vitehub workflow resume` | Available | Workflow Package | Resume a Workflow signal by hook token. |
+| `vitehub workflow runs` | Available | Workflow Package | List, show, or clear the Workflow runs that `vite dev` recorded. Show includes steps, status, result, and error. Clearing history asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub workspace history` | Available | Workspace Package | List the retained revisions of a Workspace with ref, author, message, and time. |
 | `vitehub workspace refs` | Available | Workspace Package | List the history refs of a Workspace and their head revisions. |
@@ -161,6 +163,10 @@ Available namespaces:
 | `vitehub workspace commit` | Available | Workspace Package | Commit files to a ref when its head is still `ifHead`. `vitehub push` calls it. |
 | `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
 | `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
+| `vitehub hooks install` | Available | Workspace Package | Write `.git/hooks/pre-commit` and `pre-push`, or print the commands for Husky, lefthook, pre-commit, simple-git-hooks, or `core.hooksPath`. |
+| `vitehub hooks uninstall` | Available | Workspace Package | Remove the hooks that `vitehub hooks install` wrote. |
+| `vitehub hooks pre-commit` | Available | Workspace Package | Fail while a checkout folder has conflicts. Works offline. |
+| `vitehub hooks pre-push` | Available | Workspace Package | Run `vitehub push` when the Git push updates the default branch. Fails when that changes `vitehub.lock` or pulls files: commit them and push again. |
 | `vitehub resolve` | Available | Workspace Package | Keep the local version of binary files that both sides changed. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
@@ -360,8 +366,9 @@ pnpm vitehub deploy --preview
 pnpm vitehub deploy --temporary --yes --json
 ```
 
-- `--preview`: a preview deploy instead of production. Deno has none.
+- `--preview`: a preview deploy instead of production. Deno has none. A preview does not push the checkout folders of `vitehub.lock`.
 - `--no-build`: deploy the build output that is there.
+- `--no-push`: do not check or push the checkout folders of `vitehub.lock`.
 - `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
 - `--yes`: deploy without the question. Without a terminal, the command needs it and exits with `2` and a `rerun`.
 
@@ -392,6 +399,28 @@ When `vitehub init --console` left a pending Console link, `deploy` sets `VITEHU
 A temporary deploy has no account to hold a secret. The hash is SHA-256 of a 256-bit random token, so it is not secret by itself. It goes into the build output as a plain runtime var: `vars` in the generated `wrangler.json` on Cloudflare, `environment` in each `.vc-config.json` on Vercel. `console.secret` is then `var`. The command prints the claim link: claim a Cloudflare Worker within 60 minutes. `--json` returns it in `temporary.claimUrl`. Do not share the claim link.
 
 After a first deploy, `.vitehub/link.json` gets the host project with `verified: false`, so `vitehub status` finds it. Run `vitehub link` to verify it.
+
+### Push the checkout folders
+
+When `vitehub.lock` has checkout folders, a production deploy also pushes them, as `vitehub push` does. The project must install `@vite-hub/workspace` or `vite-hub`, which read the lock. Without a lock or a checkout, the deploy does not push. Without that package, it does not push and prints one warning when the lock has checkout folders.
+
+1. After the deploy question and before the build, the command checks each folder for conflicts, pulls remote changes, and checks for conflicts again. The build uses the pulled files. A declined question loads no project code. A file with unresolved conflicts stops the deploy with `SETUP_DEPLOY_CHECKOUT_CONFLICT`. A failed pull stops it before the build or deploy. An installed package that does not load stops it with `SETUP_DEPLOY_CHECKOUT_MODULE_FAILED`.
+2. After the deploy, it pushes each folder to the app that `remote` of its lock entry names. A folder without `remote` goes to the dev server, as with `vitehub push`.
+3. The push pulls again, so it can change `vitehub.lock` and files in the folders. The command lists the files changed by both pulls and the push. Commit them.
+
+A `--preview` deploy does not push, so a preview never writes the shared Workspace ref. `--json` returns the push in `checkouts`:
+
+```json [vitehub deploy --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "url": "https://my-app.example.workers.dev",
+  "checkouts": {
+    "results": [{ "workspace": "docs", "ref": "main", "revision": "r3", "pushed": ["guide.md"], "pull": { "ref": "main", "from": "r1", "head": "r2", "files": [{ "path": "news.md", "action": "added" }] } }],
+    "changed": ["vitehub.lock", "content/news.md"]
+  }
+}
+```
 
 ### `SETUP_DEPLOY_HOST_UNSUPPORTED`
 
@@ -440,6 +469,18 @@ The host does not list `VITEHUB_CONSOLE_TOKEN_SHA256` after the command set it, 
 ### `SETUP_DEPLOY_SECRET_UNSUPPORTED`
 
 On Windows, the Deno secret has no stdin path. Set the variable in the host dashboard. The command exits with `3`.
+
+### `SETUP_DEPLOY_CHECKOUT_CONFLICT`
+
+A checkout folder of `vitehub.lock` has a file with conflict markers or an open binary conflict. Nothing was built or deployed. Remove the markers, or run `vitehub resolve` for a binary file, then deploy again. `--no-push` deploys without the push. The command exits with `1`.
+
+### `SETUP_DEPLOY_CHECKOUT_MODULE_FAILED`
+
+The project installs `@vite-hub/workspace/checkout` or `vite-hub/workspace/checkout`, but the module does not load: it has a syntax error, a missing dependency, an error when it starts, or no `localCheckoutStatus` and `pushWorkspaces` exports. Nothing was built or deployed. Reinstall the dependencies and use the same version of the Workspace package as the CLI. `--no-push` deploys without the push. The command exits with `1`.
+
+### `SETUP_DEPLOY_PUSH_FAILED`
+
+The app is deployed, but the Workspace push failed. `checkouts.error` has the code, message, and fix of the push. Fix the cause and run `vitehub push`. Do not deploy again. The command exits with `1`.
 
 ## Read and write blobs
 
@@ -1145,6 +1186,8 @@ pnpm vitehub pull --dry-run
 pnpm vitehub push --message "Fix the install guide"
 ```
 
+Run `pnpm vitehub hooks install` once to check for conflicts before each commit and to push the checkout folders when you push the default branch. A push of another branch leaves the remote ref alone, so work in progress does not reach the shared draft. The Workspace push updates `vitehub.lock`, and Git cannot add it to a push that already started, so the hook stops that Git push. Commit `vitehub.lock` and any pulled files, then run `git push` again. Skip the hooks for one Git command with `--no-verify`.
+
 ## Read Workspace history during development
 
 Use `vitehub workspace history`, `refs`, and `show` to read the [retained history](/docs/workspace/server-api#retained-folder-history) of a Workspace: its refs, such as `draft` and `published`, and the revisions on each ref. Start the app's dev server and run the commands from another terminal, or pass `--url <origin>` to read a deployed app. The commands only read. They never commit or move a ref.
@@ -1227,8 +1270,17 @@ pnpm vitehub workflow start welcome --payload '{"name":"Ada"}'
 pnpm vitehub workflow get <runId>
 pnpm vitehub workflow cancel <runId> --yes
 pnpm vitehub workflow resume <token> --payload '{"approved":true}'
+pnpm vitehub workflow runs list --status failed
+pnpm vitehub workflow runs show <runId>
+pnpm vitehub workflow runs clear --yes
 ```
 
-The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The payload is a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` asks for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows all four; `workflows:read` allows only `get`.
+The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The payload is a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `get`, `runs list`, and `runs show`.
 
-Inline runs can be read for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name. Workflow inspection lists Definitions; this CLI adds no run list, replay, or Console run view.
+Inline runs can be read with `get` for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name.
+
+### Inspect runs in development
+
+`vite dev` records every inline run: the runs that `vitehub workflow start`, the Console, and app code start. `vitehub workflow runs list` lists them newest first, with their status and step count. Filter with `--workflow <name>`, `--status queued|running|completed|failed`, and `--limit <n>`. `vitehub workflow runs show <runId>` prints the run with each step, its status and times, the error of a failed step, and the result of the run. Add `--json` for the step outputs. Credentials in results, outputs, and error messages are redacted. `vitehub workflow runs clear --yes` removes all recorded runs and prints how many it removed, so a test or an agent can start from an empty history without a restart. It does not cancel active runs and does not change what `get` returns.
+
+The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list`, `runs show`, and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`). Read one deployed run with `vitehub workflow get <runId> --workflow <name>`. An id that the history does not have fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).
