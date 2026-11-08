@@ -1751,21 +1751,22 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   // provider runtime; setup and admission may have taken time.
                   await assertLease();
                   modelDispatched = true;
-                  return await runAgent(
+                  const [error, result] = await runAgent(
                     agent,
-                    {
-                      runtime: "vite",
-                      run: githubRun,
-                      memo: (_key, create) => create(),
-                      waitUntil: () => {},
-                    },
                     {
                       abortSignal,
                       context,
                       messages: [createMessage({ role: "user", text: userMessage })],
                     },
-                    { schedule: { ...schedule, runId }, output: "drained" },
+                    {
+                      // The pass does not keep background work alive after it returns.
+                      runtimeContext: { runtime: "vite", run: githubRun, waitUntil: () => {} },
+                      schedule: { ...schedule, runId },
+                    },
                   );
+                  // Provider retry and abort handling read the original failure.
+                  if (error) throw error.cause ?? error;
+                  return result.output;
                 } finally {
                   releaseModelSlot();
                 }
