@@ -111,7 +111,7 @@ describe("@vite-hub/ui package contract", () => {
       "comark-chat": "catalog:",
       comark: "catalog:markdown-ui",
       "vega-loader": "^5.1.3",
-      katex: "^0.18.7",
+      katex: "^0.19.1",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
       "@types/node": "catalog:tooling",

@@ -259,7 +259,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/comments": "workspace:*",
     "nostics": "catalog:runtime",
-    "katex": "^0.18.7",
+    "katex": "^0.19.1",
     "reka-ui": "catalog:ui",
     "shiki": "^4.5.0",
     "comark": "catalog:markdown-ui",
