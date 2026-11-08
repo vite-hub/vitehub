@@ -11,9 +11,9 @@ import type { KVRuntimeDriver } from "./driver.ts"
  * A Cloudflare KV store in `vite dev`. It uses the binding when the runtime has one, for example on the workerd
  * runner. Otherwise, for example on Nitro's default Node runner, it uses a local `fs-lite` store with the Workers KV limits.
  */
-export default function createCloudflareKVLocalDriver(store: ResolvedCloudflareKVStoreConfig & { localBase: string }): KVRuntimeDriver {
+export default async function createCloudflareKVLocalDriver(store: ResolvedCloudflareKVStoreConfig & { localBase: string }): Promise<KVRuntimeDriver> {
   const binding = createCloudflareDriver({ binding: store.binding, namespaceId: store.namespaceId })
-  const local = createFsLiteKVDriver({ base: store.localBase, driver: "fs-lite" })
+  const local = await createFsLiteKVDriver({ base: store.localBase, driver: "fs-lite" })
   installCloudflareKVLimits(local)
   const pick = () => getActiveCloudflareBinding(store.binding) ? binding : local
   return {

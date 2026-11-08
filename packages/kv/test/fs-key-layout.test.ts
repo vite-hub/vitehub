@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 
 import { afterEach, expect, it, vi } from "vitest"
@@ -10,7 +10,8 @@ import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
 const interruption = vi.hoisted(() => ({
   link: undefined as ((destination: string) => void | Promise<void>) | undefined,
-  rename: undefined as (() => void) | undefined,
+  readdir: undefined as (() => void) | undefined,
+  rename: undefined as ((source: string) => void | Promise<void>) | undefined,
 }))
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
@@ -21,13 +22,19 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       return actual.link(...args)
     },
     rename: async (...args: Parameters<typeof actual.rename>) => {
-      interruption.rename?.()
+      await interruption.rename?.(String(args[0]))
       return actual.rename(...args)
+    },
+    readdir: async (...args: Parameters<typeof actual.readdir>) => {
+      const entries = await actual.readdir(...args)
+      interruption.readdir?.()
+      return entries
     },
   }
 })
 afterEach(() => {
   interruption.link = undefined
+  interruption.readdir = undefined
   interruption.rename = undefined
 })
 
@@ -311,6 +318,57 @@ it("retries when another initializer stages its unpublished workspace", () => wi
     await other.dispose()
   }
 }, async (base) => {
+  await mkdir(join(base, "a"))
+  await writeFile(join(base, "a", "b"), "legacy")
+}))
+
+it("waits for migration before cleaning up an unpublished workspace", () => withStore(async (storage, base) => {
+  const other = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  const candidateReady = Promise.withResolvers<void>()
+  const publish = Promise.withResolvers<void>()
+  const retrying = Promise.withResolvers<void>()
+  let candidate = ""
+  let publishing = false
+  let waitingForRetry = false
+  interruption.link = async (destination) => {
+    if (!candidate && destination.endsWith(".unstorage-tmp-vitehub-record")) {
+      candidate = dirname(destination)
+      candidateReady.resolve()
+      await publish.promise
+    }
+    else if (destination === join(base, ".unstorage-tmp-vitehub-layout-v1-1")) {
+      publishing = true
+    }
+  }
+  interruption.rename = async (source) => {
+    if (source !== candidate) return
+    // Pause after the winning initializer's directory scan. Let the loser fail publication and retry.
+    publishing = false
+    waitingForRetry = true
+    publish.resolve()
+    await retrying.promise
+  }
+  interruption.readdir = () => {
+    if (waitingForRetry && publishing) retrying.resolve()
+  }
+  const pending = storage.getKeys()
+  try {
+    await candidateReady.promise
+    const values = await Promise.all([pending, other.getKeys()])
+    expect(values.map(keys => keys.sort())).toEqual([[".unstorage-tmp-vitehub-layout-v1", "a:b"], [".unstorage-tmp-vitehub-layout-v1", "a:b"]])
+    for (const current of [storage, other]) {
+      await expect(current.getItem("a:b")).resolves.toBe("legacy")
+      await expect(current.getItem(".unstorage-tmp-vitehub-layout-v1")).resolves.toBe("record key")
+    }
+  }
+  finally {
+    publish.resolve()
+    retrying.resolve()
+    await Promise.allSettled([pending])
+    await other.dispose()
+  }
+}, async (base) => {
+  await writeFile(join(base, ".unstorage-tmp-vitehub-layout-v1"), "record key")
   await mkdir(join(base, "a"))
   await writeFile(join(base, "a", "b"), "legacy")
 }))

@@ -52,6 +52,7 @@ async function migrateKeys(root: string): Promise<string> {
   await mkdir(root, { recursive: true })
   let recordPath = ""
   let layout = ""
+  const candidates: string[] = []
   while (!layout) {
     const entries = await readdir(root, { withFileTypes: true })
     for (const entry of entries) {
@@ -78,6 +79,7 @@ async function migrateKeys(root: string): Promise<string> {
     let name = layoutRecordName
     for (let suffix = 1; entries.some(entry => entry.name === name); suffix++) name = `${layoutRecordName}-${suffix}`
     const candidate = await mkdtemp(join(root, ".unstorage-tmp-vitehub-migration-"))
+    candidates.push(candidate)
     const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
     try {
       await writeFile(temporary, basename(candidate))
@@ -93,12 +95,15 @@ async function migrateKeys(root: string): Promise<string> {
     }
     finally {
       await rm(temporary, { force: true })
-      if (!layout) await rm(candidate, { force: true, recursive: true })
     }
   }
   // The unique workspace cannot contain legacy keys. Lock inside it so only the store must be writable.
   const release = await lock(layout, { lockfilePath: join(layout, "lock"), retries: { retries: 100, minTimeout: 20, maxTimeout: 100 } })
   try {
+    // Another initializer may be staging these directories. Cleanup must share its migration lock.
+    for (const candidate of candidates) {
+      if (candidate !== layout) await rm(candidate, { force: true, recursive: true })
+    }
     const complete = join(layout, "complete")
     if (await exists(complete)) return layout
     const legacy = join(layout, "legacy")
