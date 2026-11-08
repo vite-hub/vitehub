@@ -1,5 +1,12 @@
 // Parts follow the names of the shadcn/ui agentic components: https://ui.shadcn.com/docs/changelog/2026-10-ai-elements
 const partFamilies = {
+  "agent-session": [
+    "AgentSession",
+    "AgentSessionDetailsRow",
+    "AgentSessionDetailsSection",
+    "AgentSessionTimeline",
+    "AgentSessionWorkGroup",
+  ],
   attachment: [
     "Attachment",
     "AttachmentAction",
@@ -67,6 +74,7 @@ export const componentNames = [
   "ToolList",
   "TraceRun",
   "UnresolvedFile",
+  ...partFamilies["agent-session"],
   ...partFamilies.attachment,
   ...partFamilies["avatar-stack"],
   ...partFamilies.bubble,

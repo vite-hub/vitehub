@@ -5,6 +5,7 @@ export * from "./components/code-view.ts";
 export * from "./components/file-tree.ts";
 export * from "./components/markdown.ts";
 export * from "./components/message-parts.ts";
+export * from "./components/agent-session.ts";
 export * from "./components/chat-session.ts";
 export * from "./components/tool-list.ts";
 export * from "./components/trace-run.ts";
