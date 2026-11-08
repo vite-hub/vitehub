@@ -86,6 +86,34 @@ function checkPurpose(purpose: unknown): asserts purpose is string {
   if (typeof purpose !== "string" || !purpose) argumentError("`purpose` must be a non-empty string.")
 }
 
+// Validate the input before JSON.stringify can omit members or change them to null.
+// doctor-disable typescript/strict/no-runtime-typeof -- This boundary accepts unknown values from JavaScript callers.
+function checkJsonValue(value: unknown, ancestors = new Set<object>()): void {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return
+  if (typeof value === "number" && Number.isFinite(value)) return
+  if (typeof value !== "object" || value === null || ancestors.has(value)) {
+    argumentError("`value` must contain only JSON values and no cycles.")
+  }
+  const array = Array.isArray(value)
+  const prototype: unknown = Object.getPrototypeOf(value)
+  if ((!array && prototype !== Object.prototype && prototype !== null) || Object.getOwnPropertySymbols(value).length) {
+    argumentError("`value` must contain only plain JSON objects and arrays.")
+  }
+  ancestors.add(value)
+  if (array) {
+    if (Object.keys(value).length !== value.length) argumentError("`value` must not contain sparse arrays or extra array properties.")
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.hasOwn(value, index)) argumentError("`value` must not contain sparse arrays.")
+      checkJsonValue(value[index], ancestors)
+    }
+  }
+  else {
+    for (const member of Object.values(value)) checkJsonValue(member, ancestors)
+  }
+  ancestors.delete(value)
+}
+// doctor-enable typescript/strict/no-runtime-typeof
+
 function rootSecret(secret: UnsealOptions["secret"]): string | undefined {
   if (secret === undefined) return undefined
   const value = secret instanceof SecretEnv ? secret.unseal() : secret
@@ -134,6 +162,7 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
       if (ttl !== undefined && (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0)) {
         argumentError("`ttl` must be a positive number of seconds.")
       }
+      checkJsonValue(value)
       let json: string | undefined
       try {
         json = JSON.stringify(value)

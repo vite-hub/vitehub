@@ -32,8 +32,11 @@ describe("seal and unseal", () => {
     ["an object", { userId: "u_1", input: { title: "Café 🌍", tags: ["a", "b"] }, at: 1 }],
     ["a string", "hello"],
     ["a number", 42],
+    ["a boolean", false],
     ["null", null],
     ["an array", [1, "two", { three: 3 }]],
+    ["an empty array", []],
+    ["a null-prototype object", { __proto__: null, userId: "u_1" }],
   ])("round-trips %s as JSON in a URL-safe string", async (_name, value) => {
     const sealed = await seal("app:test", value)
     expect(sealed).toMatch(/^[\w-]+$/)
@@ -43,6 +46,12 @@ describe("seal and unseal", () => {
 
   it("uses a new IV for each value, so equal values give different strings", async () => {
     expect(await seal("app:test", { a: 1 })).not.toBe(await seal("app:test", { a: 1 }))
+  })
+
+  it("allows shared objects that do not form a cycle", async () => {
+    const shared = { id: 1 }
+    const value = { first: shared, second: shared }
+    expect(await unseal("app:test", await seal("app:test", value))).toEqual([undefined, value])
   })
 
   it("checks and types the value with a schema", async () => {
@@ -152,6 +161,37 @@ describe("seal and unseal", () => {
     ["undefined", () => seal("app:test", undefined)],
     ["a function", () => seal("app:test", () => 1)],
     ["a BigInt", () => seal("app:test", 1n)],
+    ["a symbol", () => seal("app:test", Symbol("scope"))],
+    ["NaN", () => seal("app:test", Number.NaN)],
+    ["Infinity", () => seal("app:test", Number.POSITIVE_INFINITY)],
+    ["negative Infinity", () => seal("app:test", Number.NEGATIVE_INFINITY)],
+    ["nested undefined", () => seal("app:test", { role: "admin", scope: undefined })],
+    ["a nested function", () => seal("app:test", { scope: () => "admin" })],
+    ["a nested symbol", () => seal("app:test", { scope: Symbol("admin") })],
+    ["a nested BigInt", () => seal("app:test", { id: 1n })],
+    ["nested NaN", () => seal("app:test", { counts: [Number.NaN] })],
+    ["nested Infinity", () => seal("app:test", [{ count: Number.POSITIVE_INFINITY }])],
+    ["nested negative Infinity", () => seal("app:test", { count: Number.NEGATIVE_INFINITY })],
+    ["undefined in an array", () => seal("app:test", [undefined])],
+    ["a function in an array", () => seal("app:test", [() => 1])],
+    ["a symbol in an array", () => seal("app:test", [Symbol("scope")])],
+    ["a sparse array", () => {
+      const values = [1]
+      values.length = 2
+      return seal("app:test", { values })
+    }],
+    ["a Date", () => seal("app:test", { createdAt: new Date() })],
+    ["a Map", () => seal("app:test", new Map([["scope", "admin"]]))],
+    ["a Set", () => seal("app:test", new Set(["admin"]))],
+    ["a typed array", () => seal("app:test", new Uint8Array([1, 2]))],
+    ["a custom toJSON", () => seal("app:test", { toJSON: () => "other" })],
+    ["a symbol key", () => seal("app:test", { [Symbol("scope")]: "admin" })],
+    ["an array property", () => seal("app:test", Object.assign([1], { scope: "admin" }))],
+    ["a cycle", () => {
+      const value: Record<string, unknown> = {}
+      value.self = value
+      return seal("app:test", value)
+    }],
     ["a short secret", () => seal("app:test", 1, { secret: "short" })],
     ["an empty purpose in unseal", () => unseal("", "x")],
   ])("throws ENV_SEAL_ARGUMENT_INVALID for %s", async (_name, call) => {
