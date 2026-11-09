@@ -74,12 +74,21 @@ describe("scheduleLeaseStoreFromDatabase", () => {
   })
 
   it("runs the lease SQL through libSQL", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const execute = vi.fn(async () => ({ rows: [] }))
-    const leases = scheduleLeaseStoreFromDatabase({ $client: { execute } })
+    const leases = scheduleLeaseStoreFromDatabase({ $client: { execute, protocol: "ws" } })
+    expect(warn).not.toHaveBeenCalled()
 
     await leases?.get("schedule/srun_static_daily_2026-11-09T08:00:00.000Z")
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ args: ["schedule/srun_static_daily_2026-11-09T08:00:00.000Z"] }))
+  })
+
+  it("warns that a local libSQL file is safe for one process only", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    expect(scheduleLeaseStoreFromDatabase({ $client: { execute: vi.fn(), protocol: "file" } })).toBeDefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("local libSQL file"))
   })
 
   it("returns undefined for a Database without a postgres.js or libSQL client", () => {

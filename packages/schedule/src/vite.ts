@@ -434,7 +434,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
             ? [
                 // Every server of the app claims each occurrence in the Default Database, so one server runs it.
                 "  const leases = scheduleLeaseStoreFromDatabase(databases.default.db)",
-                "  if (!leases) console.warn('[vitehub:schedule] The Default Database has no postgres.js or libSQL client, so each server process runs every Schedule. Use a Postgres or libSQL Default Database to run more than one server.')",
+                "  if (!leases) console.warn('[vitehub:schedule] The Default Database has no postgres.js or libSQL client, so each server process runs every Schedule. Use a Postgres or remote libSQL Default Database to run more than one server.')",
               ]
             : []),
           "  const runtimeInstallation = installProcessScheduleRuntime({",

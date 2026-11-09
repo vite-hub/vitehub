@@ -41,7 +41,7 @@ Do not use this driver on request-scoped or serverless hosts that may stop betwe
 
 ### Run on more than one server
 
-Every server checks every Schedule, and one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `schedule/<run id>` in the `vitehub_leases` table of the Default Database. The other servers skip the occurrence and try again at their next scan. This works on Postgres and libSQL.
+Every server checks every Schedule, and one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `schedule/<run id>` in the `vitehub_leases` table of the Default Database. The other servers skip the occurrence and try again at their next scan. This works on Postgres and remote libSQL, such as Turso. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at start.
 
 | Case | What happens |
 | --- | --- |

@@ -20,6 +20,9 @@ function hasMethod(value: unknown, name: string): boolean {
  * generated Process Runtime uses it on the Default Database, so every server of the app claims occurrences in one
  * place. The client is read on each query, as a Database can change it. Returns `undefined` when the Database has
  * neither client, such as D1, or is not configured.
+ *
+ * On a local libSQL file it warns once: `@libsql/client` 0.18 can lose committed writes when several processes write
+ * to one file, so two processes can both get a lease there. One process on the file is safe.
  */
 export function scheduleLeaseStoreFromDatabase(db: object): LeaseStore | undefined {
   const client = (): unknown => Reflect.get(db, "$client")
@@ -33,6 +36,9 @@ export function scheduleLeaseStoreFromDatabase(db: object): LeaseStore | undefin
   }
   const dialect = hasMethod(first, "unsafe") ? "postgresql" : hasMethod(first, "execute") ? "sqlite" : undefined
   if (!dialect) return undefined
+  if (dialect === "sqlite" && Reflect.get(Object(first), "protocol") === "file") {
+    console.warn("[vitehub:schedule] The Default Database is a local libSQL file. @libsql/client can lose writes when several processes write to one file, so two server processes can run the same Schedule occurrence. Run one server process on the file, or use Postgres or remote libSQL.")
+  }
   return createSqlLeaseStore({
     dialect,
     async query(sql, params) {
