@@ -60,7 +60,8 @@ vi.mock("@vite-hub/web-container", () => ({
 
 const { PlaygroundContainer } = await import("../src/workspace/playground-container.ts");
 
-// Nuxt UI stand-ins: a button, a menu that lists its items as buttons, and a modal that shows its footer when open.
+// Nuxt UI stand-ins: a button, a menu that lists its items as buttons, a tab strip, and a modal that shows its footer
+// when open.
 type Item = { label: string, type?: string, disabled?: boolean, onSelect?: () => void };
 const UButton = defineComponent({
   props: { label: { default: undefined, type: String } },
@@ -73,12 +74,19 @@ const UDropdownMenu = defineComponent({
     ...props.items.flat().filter(item => item.type !== "label").map(item => h("button", { "data-item": item.label, disabled: item.disabled, onClick: item.onSelect }, item.label)),
   ]),
 });
+type Tab = { label: string, value: string, badge?: string | number };
+const UTabs = defineComponent({
+  props: { items: { required: true, type: Array as PropType<Tab[]> }, modelValue: { default: undefined, type: String } },
+  emits: ["update:modelValue"],
+  setup: (props, { emit }) => () => h("div", { role: "tablist" }, props.items.map(item =>
+    h("button", { "aria-selected": String(item.value === props.modelValue), role: "tab", type: "button", onClick: () => emit("update:modelValue", item.value) }, [item.label, item.badge === undefined ? null : String(item.badge)]))),
+});
 const UModal = defineComponent({
   props: { open: Boolean, title: { default: undefined, type: String } },
   setup: (props, { slots }) => () => props.open ? h("div", { role: "dialog" }, [h("h2", props.title), slots.footer?.()]) : null,
 });
 const global = {
-  components: { UButton, UDropdownMenu, UModal },
+  components: { UButton, UDropdownMenu, UModal, UTabs },
   stubs: { WorkspaceEditor: true, WorkspaceFileTree: true, WorkspacePreview: true },
 };
 
