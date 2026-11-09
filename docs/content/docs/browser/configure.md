@@ -1,6 +1,6 @@
 ---
 title: Browser configuration
-description: Configure the Browser Run binding, the session engine, and remote local development.
+description: Set the Browser Run binding, the session engine, and remote local development.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configuration
 
-`browser: true` enables Cloudflare Browser Run actions. Use an object only to change the binding, the session engine, or to connect local development to the hosted service.
+`browser: true` turns on Cloudflare Browser Run. Pass an object only to change the binding or engine, or to use the hosted service locally.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -69,9 +69,9 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `binding` | `string` | `'BROWSER'` | Cloudflare Browser Run binding name. Must be a valid binding identifier. |
-| `engine` | `'kitesurf' \| 'chromium'` | `'kitesurf'` | Session engine for `browser.open()`. `'chromium'` selects a persistent Chromium session. |
-| `remote` | `boolean` | `false` | Connect local Wrangler development to the hosted Browser Run service. |
+| `binding` | `string` | `'BROWSER'` | Browser Run binding name. Must be a valid binding identifier. |
+| `engine` | `'kitesurf' \| 'chromium'` | `'kitesurf'` | Session engine for `browser.open()`. `'chromium'` uses a persistent Chromium session. |
+| `remote` | `boolean` | `false` | Use the hosted Browser Run service in local Wrangler development. |
 
 `browser: false` disables Browser Provider Output. Without `vite-hub`, pass the same options to `hubBrowser()` from `@vite-hub/browser/vite`.
 

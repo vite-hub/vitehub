@@ -1,24 +1,23 @@
 ---
 title: Instructions
-description: Write durable model-facing behavior and policy for an Agent in colocated documents, shared guidance, and trusted values.
+description: Tell an Agent's model how to behave, in a Markdown file next to the Agent, shared files, or trusted values.
 navigation.order: 20
 navigation.group: Instructions and tools
 icon: i-lucide-scroll-text
 navigation.kind: Guides
 ---
 
-Instructions tell a model or a coding provider how to behave. Use them for
-durable behavior: which evidence to trust, when to escalate, and what to say
-when evidence is missing. Model-backed and provider-backed Drivers read
-instructions. Custom `run` and `ask` Drivers do not.
+Instructions tell a model or coding provider how to behave: which evidence to
+trust, when to escalate, and what to say when evidence is missing.
+Model-backed and provider-backed Drivers read them. Custom `run` and `ask`
+Drivers do not.
 
-Keep tool schemas in Capabilities and files in the
-[Workspace](/docs/agents/workspace-context). Instructions describe how to use
-them.
+Tool schemas go in Capabilities and files go in the
+[Workspace](/docs/agents/workspace-context). Instructions say how to use them.
 
 ## Start with a colocated document
 
-Put longer guidance beside the Agent as `instructions.md`:
+Put longer guidance in `instructions.md` next to the Agent:
 
 ```md [server/agents/support/instructions.md]
 # Support
@@ -38,22 +37,22 @@ export default defineAgent({
 })
 ```
 
-The colocated document is the default when `driver.instructions` is absent.
-ViteHub parses it as Markdown through Comark. Provider Drivers receive the
-rendered document as Codex developer instructions, or as a prompt file for
-Claude Code. Codex puts developer instructions before the working directory in
-its prompt, so the provider can reuse the cached prompt prefix across
-invocations. ViteHub writes `AGENTS.md` for Codex instead when the
-instructions are larger than 32 KiB, when `driver.env` sets
-`T3CODE_CODEX_LAUNCH_ARGS`, or when the launch arguments set
-`developer_instructions`. Driver instructions replace a `developer_instructions`
-value in the Codex configuration file. A resumed Codex session continues only
-while its instructions do not change. Otherwise ViteHub starts a new session
-and sends it the conversation. [Sandboxes](/docs/agents/sandboxes) receive the
-instructions in the Sandbox Home. This is also true when the Agent has a
-Workspace: a Provider Driver gets the document as Driver instructions, and
-ViteHub does not store it as `AGENTS.md` in the Workspace. A model Driver with
-a Workspace reads it from `AGENTS.md` in the Workspace.
+ViteHub uses this file when `driver.instructions` is not set, and parses it as
+Markdown with Comark. How each Driver gets it:
+
+- Codex gets it as developer instructions. Codex puts them before the working
+  directory in its prompt, so it can reuse the cached prompt prefix. ViteHub
+  writes `AGENTS.md` instead when the instructions are over 32 KiB, when
+  `driver.env` sets `T3CODE_CODEX_LAUNCH_ARGS`, or when the launch arguments
+  set `developer_instructions`. Driver instructions replace
+  `developer_instructions` in the Codex configuration file.
+- A resumed Codex session continues only while its instructions stay the same.
+  Otherwise ViteHub starts a new session and sends it the conversation.
+- Claude Code gets it as a prompt file.
+- [Sandboxes](/docs/agents/sandboxes) get it in the Sandbox Home. With a
+  Workspace, a provider Driver still gets it as Driver instructions, not as
+  `AGENTS.md` in the Workspace.
+- A model Driver with a Workspace reads it from `AGENTS.md` in the Workspace.
 
 Use `driver.instructions` for short text:
 
@@ -71,13 +70,12 @@ export default defineAgent({
 })
 ```
 
-`driver.instructions` accepts a string, an array of strings, or a callback
-that returns them for each Invocation.
+It takes a string, an array of strings, or a callback that returns them per
+Invocation.
 
 ## Split reusable guidance
 
-Import authored Markdown with `?raw` and combine the parts in
-`driver.instructions`:
+Import Markdown files with `?raw` and combine them in `driver.instructions`:
 
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -92,13 +90,12 @@ export default defineAgent({
 })
 ```
 
-ViteHub does not follow file references. Text such as `@./path.md` stays
-literal in the document.
+ViteHub does not follow file references. `@./path.md` stays plain text.
 
 ## Extend inherited instructions
 
-A parent Agent can reserve one slot for the instructions of each child. Put
-exactly one `{{{ instructions }}}` marker in `template`, outside code:
+A parent Agent can keep one slot for each child's instructions. Put exactly
+one `{{{ instructions }}}` marker in `template`, outside code:
 
 ```ts [server/agents/reviewer/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -123,20 +120,19 @@ export default defineAgent({
 })
 ```
 
-The child text replaces the slot content. It does not append to it. A child
-that sets no instructions keeps the parent `content`. A colocated
-`instructions.md` fills the slot when the template has no `content`.
+The child text replaces the slot content, and does not append. A child with
+no instructions keeps the parent `content`. A colocated `instructions.md` fills
+the slot when the template has no `content`.
 
-To discard the inherited template, set
-`instructions: { mode: 'replace', value: '...' }`. A new
-`{ template, content }` object also replaces it. Without a template, child
-instructions replace the parent document. Read
-[Extend an Agent](/docs/agents/agent-presets#extend-an-agent) for the other
-inheritance rules.
+To drop the inherited template, set
+`instructions: { mode: 'replace', value: '...' }` or a new
+`{ template, content }` object. Without a template, child instructions replace
+the parent document. Read
+[Extend an Agent](/docs/agents/agent-presets#extend-an-agent) for other rules.
 
 ## Insert trusted invocation values
 
-Read Invocation values through `data.context.*` bindings. Use `:insert` for
+Read Invocation values with `data.context.*` bindings. Use `:insert` for
 trusted Markdown:
 
 ```md [server/agents/support/instructions.md]
@@ -145,15 +141,14 @@ Answer for {{ data.context.customerName }}.
 :insert{:markdown="data.context.supportPolicy"}
 ```
 
-The caller or a Capability must set these values before composition. A missing
-binding fails the Invocation. ViteHub does not render it as empty text.
-Templates cannot read request fields, environment variables, or JavaScript
-expressions.
+The caller or a Capability must set these values first. A missing binding
+fails the Invocation, and is not rendered as empty text. Templates cannot read
+request fields, environment variables, or JavaScript expressions.
 
 ### Reserve a custom instruction slot
 
-To let a host add trusted, invocation-specific Markdown, author the exact
-`{{{ context.customInstructions }}}` slot in the instruction document:
+To let a host add trusted Markdown per invocation, write the exact
+`{{{ context.customInstructions }}}` slot in the document:
 
 ```md [server/agents/support/instructions.md]
 Answer from the support policy.
@@ -161,12 +156,12 @@ Answer from the support policy.
 {{{ context.customInstructions }}}
 ```
 
-The slot is optional when no custom instructions are supplied. When a value is
-supplied, it must be a string and the document must contain at least one slot
-outside a fenced, inline, or HTML code example. The inserted Markdown is added
-after template rendering, so its bindings and directives remain literal text.
-Generic `data.context.customInstructions` scalar and `:insert` bindings are not
-available; use the authored slot to make the trust boundary explicit.
+The slot is optional when no custom instructions are given. A given value must
+be a string, and the document must have at least one slot outside a fenced,
+inline, or HTML code example. The Markdown is added after template rendering,
+so its bindings and directives stay plain text. Generic
+`data.context.customInstructions` scalar and `:insert` bindings do not work.
+The written slot makes the trust boundary explicit.
 
 Use conditions for small policy branches:
 
@@ -179,15 +174,14 @@ Prefer customer-facing language and next actions.
 ::
 ```
 
-Conditions bind `data.context.*` paths and support the `eq`, `neq`, `gt`,
-`gte`, `lt`, and `lte` props. Compute a compound condition in TypeScript and
-pass a boolean. See [Markdown templates](/docs/reference/markdown-templates)
-for the full syntax.
+Conditions bind `data.context.*` paths and support `eq`, `neq`, `gt`, `gte`,
+`lt`, and `lte`. For a compound condition, compute a boolean in TypeScript. See
+[Markdown templates](/docs/reference/markdown-templates) for the full syntax.
 
 ## Insert Workspace bindings
 
-Declare values or Markdown files under `workspace.bindings`. Then reference
-only those named bindings:
+Declare values or Markdown files in `workspace.bindings`, then use them by
+name:
 
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -209,16 +203,14 @@ export default defineAgent({
 })
 ```
 
-`:insert` adds the declared Markdown as it is. ViteHub does not evaluate
-bindings, conditions, or coverage directives inside it. Render dynamic content
-before you pass it as a fragment. ViteHub does not scan or load other Markdown
-files in the Workspace.
+`:insert` adds the Markdown as it is, without evaluating its bindings,
+conditions, or coverage directives. Render dynamic content before you pass it.
+ViteHub does not scan or load other Markdown files in the Workspace.
 
 ## Cover configured primitives
 
-Say how to use each configured Source, Capability, and Skill. ViteHub records
-this coverage for inspection. It warns when a configured primitive has no
-explicit policy.
+Say how to use each Source, Capability, and Skill you configure. ViteHub
+records this coverage for inspection, and warns when one has no policy.
 
 ```md [server/agents/support/instructions.md]
 ::source{key="docs"}
@@ -237,23 +229,23 @@ Use this Skill only when the task needs browser evidence.
 ViteHub removes the wrapper directives before the model runs and keeps their
 text. A file in the Workspace does not count as coverage.
 
-A custom Capability with no model-facing behavior can turn off this warning
-with `instructionCoverage: false`. Use this for accounting and telemetry
-Capabilities, so they do not add empty text to the prompt.
+A custom Capability the model never uses, such as accounting or telemetry, can
+turn off the warning with `instructionCoverage: false`. It then adds no empty
+text to the prompt.
 
 ## Choose where instructions live
 
 | Instruction source | Use it for |
 | --- | --- |
-| Colocated `instructions.md` | Durable guidance for model-backed and provider-backed execution. |
-| Model `driver.instructions` | Model-facing behavior, including callbacks and bindings that run for each Invocation. |
-| Provider `driver.instructions` | Invocation-scoped policy that ViteHub writes into the provider working directory. |
-| Custom `driver.run` | Application code reads the prepared context directly. ViteHub does not build a model prompt. |
+| Colocated `instructions.md` | Lasting guidance for model-backed and provider-backed Drivers. |
+| Model `driver.instructions` | Model behavior, with callbacks and bindings that run per Invocation. |
+| Provider `driver.instructions` | Per-Invocation policy that ViteHub writes into the provider working directory. |
+| Custom `driver.run` | Your code reads the prepared context. ViteHub builds no model prompt. |
 
-Read [Agent Drivers](/docs/agents/agent-drivers) for Driver-specific behavior.
-Run `vitehub agent info --agent <name>` to see the resolved instructions and
+Read [Agent Drivers](/docs/agents/agent-drivers) for each Driver. Run
+`vitehub agent info --agent <name>` to see the resolved instructions and
 coverage warnings. See the [CLI development loop](/docs/development/cli).
 
 ## Next steps
 
-[Attach Capabilities](/docs/agents/capabilities) for tools, then choose [Chat History](/docs/agents/chat-history-sessions) or [Workspace context](/docs/agents/workspace-context) for the evidence the Driver needs.
+[Attach Capabilities](/docs/agents/capabilities) for tools. Then pick [Chat History](/docs/agents/chat-history-sessions) or [Workspace context](/docs/agents/workspace-context) for the evidence the Driver needs.
