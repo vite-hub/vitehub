@@ -200,5 +200,29 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.setViewportSize({ width: 1024, height: 720 })
   })
 
+  await t.test("a tap on the Comment bar comments on the selected text", async () => {
+    const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
+    try {
+      await touch.goto(`http://127.0.0.1:${port}/`)
+      await touch.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      await touch.evaluate(() => {
+        const range = document.createRange()
+        range.selectNodeContents(document.querySelector("#second"))
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+      })
+      const button = touch.locator("vitehub-comments .selection-bar button")
+      await button.waitFor({ timeout: 5000 })
+      // A tap on a phone can clear the selection before the click lands, as a press outside the selected text does.
+      await touch.evaluate(() => addEventListener("pointerdown", () => getSelection().removeAllRanges(), { capture: true }))
+      await button.tap()
+      await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
+      assert.equal((await highlights(touch))["vitehub-comment-active"], 1)
+    }
+    finally {
+      await touch.close()
+    }
+  })
+
   assert.deepEqual(errors, [])
 })

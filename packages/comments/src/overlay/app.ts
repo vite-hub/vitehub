@@ -386,38 +386,48 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
 
   /** The text that the reader selected on the page, when they may comment on it. */
-  function pageSelection(): Selection | undefined {
+  function pageSelection(): Range | undefined {
     const selection = getSelection()
     if (!canComment || editing.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
-    const container = selection.getRangeAt(0).commonAncestorContainer
+    const range = selection.getRangeAt(0)
+    const container = range.commonAncestorContainer
     const element = container instanceof Element ? container : container.parentElement
     if (!element?.isConnected || ignored(element) || element.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return
-    return selection
+    return range.cloneRange()
   }
+  /**
+   * The text under the bar. The bar comments on it, not on the live selection: on a phone, a tap on the bar can clear the
+   * selection before the click.
+   */
+  let barRange: Range | undefined
+  /** Whether a press on the bar is in progress, so the selection change that it causes keeps the bar. */
+  let pressingBar = false
   /** Shows or moves the bar over the selected text. */
   function trackSelection() {
-    const selection = state?.draft.value ? undefined : pageSelection()
-    const rect = selection?.getRangeAt(0).getBoundingClientRect()
+    if (pressingBar) return
+    barRange = state?.draft.value ? undefined : pageSelection()
+    const rect = barRange?.getBoundingClientRect()
     selected.value = rect && (rect.width || rect.height) ? { left: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom } : undefined
   }
   /** Starts a comment on the selected text, as Drop does: the composer opens at the end of the quote. */
-  function commentOnSelection(): boolean {
-    const selection = pageSelection()
-    if (!selection) return false
+  function commentOnSelection(range = pageSelection()): boolean {
+    pressingBar = false
+    if (!range) return false
     if (needsName.value) {
-      namedQuote = selection.getRangeAt(0).cloneRange()
+      namedQuote = range
       naming.value = true
       return true
     }
     void edit.finish(true)
-    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    const rect = range.getBoundingClientRect()
     try {
-      state.startDraft(selection, { point: { x: rect.right, y: rect.top } })
-      selection.removeAllRanges()
+      state.startDraft(range, { point: { x: rect.right, y: rect.top } })
+      getSelection()?.removeAllRanges()
     }
     catch {
       return false
     }
+    barRange = undefined
     selected.value = undefined
     return true
   }
@@ -533,9 +543,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               role: "group",
               "aria-label": "Selected text",
               style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${below ? bar.bottom + (touch ? 20 : 8) : bar.top - 8}px` },
-              // A press here must not take the selection away from the page.
+              // A press here must not take the selection away from the page, nor hide the bar before the click.
+              onPointerdown: (event: PointerEvent) => {
+                event.preventDefault()
+                pressingBar = true
+                // The click comes right after the release. A press that ends without one lets the bar follow the page again.
+                addEventListener("pointerup", () => setTimeout(() => {
+                  if (!pressingBar) return
+                  pressingBar = false
+                  trackSelection()
+                }, 300), { capture: true, once: true })
+              },
               onMousedown: (event: MouseEvent) => event.preventDefault(),
-            }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: commentOnSelection }, [commentIcon(), "Comment"])))
+            }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: () => commentOnSelection(barRange) }, [commentIcon(), "Comment"])))
           }
           if (panelTarget.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
