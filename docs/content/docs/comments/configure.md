@@ -376,7 +376,7 @@ node --input-type=module -e "import { commentsMigrationSql } from 'vite-hub/comm
 
 3. Run `vitehub db migrate --dry-run`, then `vitehub db migrate`.
 
-A Database that already has the tables of the comment operations gets the new `metadata`, `context`, and `revision` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
+A Database that already has the tables of the comment operations gets the new `metadata`, `context`, `revision`, and `request_id` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
 
 Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments reads the tables once per server process, so after `vitehub db migrate` the next request works without a restart.
 

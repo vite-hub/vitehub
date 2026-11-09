@@ -145,6 +145,8 @@ export interface NewThread extends NewMessage {
   metadata?: CommentMetadata
   context?: CommentContext
   revision?: number
+  /** The retry key. A second thread with the same key in the same scope is never inserted. */
+  requestId?: string
 }
 
 /** What `list` filters by. `userId` is the signed-in user, for `mine` and `mentions`. */
@@ -161,7 +163,8 @@ export interface CommentsStore {
   getByAttachment: (key: string, cursor?: string) => Promise<{ threads: CommentThread[], cursor?: string }>
   /**
    * Inserts the thread and its first message together, with the next number of its scope. Several creators at once each
-   * get their own number, and a number is never handed out twice.
+   * get their own number, and a number is never handed out twice. With `requestId`, a thread of the scope that already
+   * has that key comes back instead, and nothing is inserted.
    */
   createThread: (input: NewThread) => Promise<CommentThread>
   /**
@@ -347,6 +350,9 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       }
     },
     async createThread(input) {
+      const requested = async () => input.requestId === undefined ? undefined : (await read(and(eq(threads.scope, input.scope), eq(threads.requestId, input.requestId)), 1))[0]
+      const earlier = await requested()
+      if (earlier) return earlier
       for (let attempt = 0; attempt < allocationAttempts; attempt++) {
         const n = await claimNumber(input.scope)
         const thread = {
@@ -367,6 +373,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
           metadata: input.metadata ? JSON.stringify(input.metadata) : null,
           context: input.context ? JSON.stringify(input.context) : null,
           revision: input.revision ?? null,
+          requestId: input.requestId ?? null,
           updatedAt: input.now,
         }
         try {
@@ -377,9 +384,12 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         catch (error) {
           // A driver without a batch or a transaction may have kept the message. A failed cleanup must not hide the original error.
           if (!groups()) await db.delete(messages).where(eq(messages.id, input.id)).catch(() => undefined)
+          if (!isUniqueViolation(error)) throw error
+          // A retry with the same key won the race.
+          const winner = await requested()
+          if (winner) return winner
           // The unique index is a backstop for a counter that lags the threads. Claim the next number.
-          if (isUniqueViolation(error)) continue
-          throw error
+          continue
         }
         return one(input.threadId)
       }

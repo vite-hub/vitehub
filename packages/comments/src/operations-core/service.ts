@@ -262,6 +262,8 @@ export const contextSchema = v.object({
 })
 
 const revisionSchema = v.pipe(v.number(), v.integer(), v.minValue(0))
+/** The retry key of `comments.create`, such as `crypto.randomUUID()`. */
+export const requestIdSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200))
 const attachmentKey = v.pipe(v.string(), v.minLength(1), v.maxLength(500))
 
 function invalid(issues: readonly v.BaseIssue<unknown>[], field: string): Error {
@@ -335,6 +337,8 @@ export interface CreateThreadInput {
   metadata?: CommentMetadata
   context?: CommentContext
   revision?: number
+  /** A retry with the same key in the same scope gets the thread of the first call. */
+  requestId?: string
 }
 
 export interface WriteOptions {
@@ -343,6 +347,8 @@ export interface WriteOptions {
   /** What the server checked about `user`, for the mention checks. */
   gate?: CommentsPolicyGate
   waitUntil?: (task: Promise<unknown>) => void
+  /** Whether the caller may read the thread that a retry of `createThread` gets back. Default: yes. */
+  canRead?: (thread: CommentThread) => Promise<boolean>
 }
 
 /** Starts a thread. The caller checked access. */
@@ -351,10 +357,12 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
   const metadata = input.metadata === undefined ? undefined : check(metadataSchema, input.metadata, "metadata")
   const context = input.context === undefined ? undefined : check(contextSchema, input.context, "context")
   const revision = input.revision === undefined ? undefined : check(revisionSchema, input.revision, "revision")
+  const requestId = input.requestId === undefined ? undefined : check(requestIdSchema, input.requestId, "requestId")
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: input.subject, ...(metadata ? { metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
   const mentioned = await checkMentions(runtime, { body, ids: input.mentions, subject: input.subject, user, ...(options.gate ? { gate: options.gate } : {}) })
+  const threadId = newId("thread")
   const created = await runtime.store.createThread({
     anchor: input.anchor ?? { kind: "page" },
     attachments,
@@ -365,12 +373,18 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
     now: Date.now(),
     scope,
     subject: input.subject,
-    threadId: newId("thread"),
+    threadId,
     ...(input.actor ? { actor: input.actor } : {}),
     ...(metadata ? { metadata } : {}),
     ...(context ? { context } : {}),
     ...(revision === undefined ? {} : { revision }),
+    ...(requestId === undefined ? {} : { requestId }),
   })
+  if (created.id !== threadId) {
+    // A retry: the first call stored the thread and sent its notifications. Only its author gets it back.
+    if (created.author.id !== input.author.id || (options.canRead && !(await options.canRead(created)))) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
+    return created
+  }
   await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
   runtime.forge?.changed(created.id)
   return created

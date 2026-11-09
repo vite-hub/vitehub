@@ -109,7 +109,7 @@ function resultError(error: unknown, id: string): ReturnType<typeof commentsErro
   const code = error instanceof Error ? Reflect.get(error, "code") : undefined
   if (code === "COMMENTS_R0002" || code === "COMMENTS_R0003") return commentsErrors.COMMENTS_NOT_FOUND({ id })
   if (code === "COMMENTS_R0016") return commentsErrors.COMMENTS_RESOLVED()
-  if (typeof code === "string" && ["COMMENTS_R0005", "COMMENTS_R0007", "COMMENTS_R0008", "COMMENTS_R0017", "COMMENTS_R0018"].includes(code)) {
+  if (typeof code === "string" && ["COMMENTS_R0005", "COMMENTS_R0007", "COMMENTS_R0008", "COMMENTS_R0017", "COMMENTS_R0018", "COMMENTS_R0022"].includes(code)) {
     return commentsErrors.COMMENTS_INVALID_INPUT({ issue: error instanceof Error ? error.message : String(error) })
   }
   throw error

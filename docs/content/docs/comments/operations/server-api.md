@@ -14,7 +14,7 @@ All operations belong to the Console section `comments`. Run them from the Conso
 | --- | --- | --- | --- |
 | `comments.list` | read | `{ subject?, subjectKind?, page?, status?, mine?, mentions?, revision?, limit?, before? }` | `CommentThread[]`, newest first. |
 | `comments.get` | read | `{ id }` or `{ scope, n }` | The thread, or `null` when it does not exist or you may not read it. |
-| `comments.create` | write | `{ subject, anchor, body, mentions?, attachments?, metadata?, revision? }` | The new thread. |
+| `comments.create` | write | `{ subject, anchor, body, mentions?, attachments?, metadata?, revision?, requestId? }` | The new thread. A retry with the same `requestId` in the same scope returns the first thread. |
 | `comments.reply` | write | `{ threadId, body, mentions?, attachments? }` | The thread. |
 | `comments.edit` | write | `{ threadId, messageId, body, mentions? }` | The thread. Only the author. |
 | `comments.delete` | destructive | `{ threadId, messageId? }` | The thread, or `null` when it is gone. |

@@ -5,7 +5,7 @@ import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
-import { attachmentThread, can, createThread, deniedError, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, storeAttachment, suggest } from "./service.ts"
+import { attachmentThread, can, createThread, deniedError, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, storeAttachment, suggest } from "./service.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./define.ts"
@@ -187,7 +187,7 @@ const listInput = v.strictObject({
   subjectKind: v.optional(subjectKind),
 })
 const getInput = v.union([v.strictObject({ id }), v.strictObject({ n: v.pipe(v.number(), v.integer(), v.minValue(1)), scope: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) })])
-const createInput = v.strictObject({ anchor, attachments, body: text, mentions, metadata, revision: v.optional(revision), subject })
+const createInput = v.strictObject({ anchor, attachments, body: text, mentions, metadata, requestId: v.optional(requestIdSchema), revision: v.optional(revision), subject })
 const replyInput = v.strictObject({ attachments, body: text, mentions, threadId: id })
 const editInput = v.strictObject({ body: text, mentions, messageId: id, threadId: id })
 const deleteInput = v.strictObject({ messageId: v.optional(id), threadId: id })
@@ -252,7 +252,7 @@ export const commentActions = {
   async create(input: CommentCreateInput & { context?: CommentContext }, who: CommentsCaller): Promise<CommentThread> {
     await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
-    return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, writeOptions(who))
+    return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, { ...writeOptions(who), canRead: thread => permitted(who, "read", { thread }) })
   },
 
   /** `allowResolved`: the operations keep a reply box on resolved threads, and a reply keeps the thread resolved. */
@@ -364,7 +364,7 @@ const get = defineOperation({
 })
 
 const create = defineOperation({
-  description: "Start a comment thread on a subject, such as a page, with an anchor and a first message.",
+  description: "Start a comment thread on a subject, such as a page, with an anchor and a first message. Send the same `requestId` again to retry: you get the first thread, not a second one.",
   input: createInput,
   kind: "write",
   name: "comments.create",
