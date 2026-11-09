@@ -96,6 +96,13 @@ it.each([false, true])("reads a mounted startup file without inspecting sibling 
   expect(readFile.mock.calls.map(([path]) => path)).not.toContain("docs/second.md")
   expect(list).not.toHaveBeenCalled()
 
+  readFile.mockClear()
+  list.mockClear()
+  await expect(view.readFile("docs/absent.md")).rejects.toThrow()
+  expect(readFile.mock.calls.map(([path]) => path)).not.toContain("docs/first.md")
+  expect(readFile.mock.calls.map(([path]) => path)).not.toContain("docs/second.md")
+  expect(list).not.toHaveBeenCalled()
+
   const other = createWorkspaceSourceView({
     name: "other",
     sources: { docs: custom({ files: [{ content: "other", path: "second.md" }], materialize: "startup", mount: "docs" }) },

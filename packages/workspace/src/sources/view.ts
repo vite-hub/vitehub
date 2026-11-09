@@ -839,7 +839,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
-        await ensureMaterialized(resolution.sourceKey)
+        await ensureMaterialized(resolution.sourceKey, true, resolution.workspacePath)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       await materializeRootStartupSources(false)
