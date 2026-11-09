@@ -300,7 +300,7 @@ describe("the comments overlay", () => {
     const innerHTML = vi.spyOn(Element.prototype, "innerHTML", "set")
     const { host } = await mounted()
     const icon = host.shadowRoot!.querySelector("[data-slot='comment-toolbar-mode'] svg")
-    expect(icon?.getAttribute("viewBox")).toBe("0 0 256 256")
+    expect(icon?.getAttribute("viewBox")).toBe("0 0 24 24")
     expect(icon?.querySelector("path")?.getAttribute("d")?.length).toBeGreaterThan(10)
     expect(innerHTML).not.toHaveBeenCalled()
     innerHTML.mockRestore()
