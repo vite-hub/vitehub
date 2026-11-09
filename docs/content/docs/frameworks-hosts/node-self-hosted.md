@@ -72,11 +72,11 @@ one disk, so they do not work across several instances.
 | Cache | `fs-lite` under `.vitehub/data/cache` | Only with `cache: { driver: 'kv' }` and KV on Upstash. |
 | Database | SQLite file `file:.vitehub/data/database/sqlite.db` | Only with a remote database, such as Postgres or remote libSQL. |
 | Database `migrateOnStart` | Off. It applies migrations only to a local SQLite `file:` URL, and fails the build for Postgres. | No. Run `vitehub db migrate` once from the deploy step. |
-| Queue | The `local` provider. Jobs are files under `.vitehub/data/queue` and survive a restart. Each process keeps its job list and running jobs in memory. | No. Two instances read the same jobs and can run a job twice. |
+| Queue | The `local` provider. Jobs are files under `.vitehub/data/queue` and survive a restart. Each process keeps its job list and running jobs in memory. | No. With a separate directory per instance, a job runs only on the instance that accepted it. If that instance stops, its jobs wait on its disk until it starts again, and they are lost with that disk. With one shared volume, there is no lock between processes, so two instances can run the same job. |
 | Rate Limit | `memory`. Counters reset on restart. The only other driver is `cloudflare`. | No. Each instance counts alone. |
 | Realtime | None. A build needs `realtime: { authority: 'memory' }`, which keeps rooms in memory. | No. Peers on other instances do not see the room. |
 | Schedule | None. A build needs `schedule: { runtime: { driver: 'process' } }`, or `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
-| Workflow | `vercel`, which runs inline in the request off Vercel. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow. | Only with OpenWorkflow and `postgres.url`. |
+| Workflow | `vercel`, which runs inline in the request off Vercel. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
 | Sandbox | None | `sandboxTask: true` fails the build. |
 
 A multi-instance deploy today needs one instance that owns Queue, Rate Limit,
