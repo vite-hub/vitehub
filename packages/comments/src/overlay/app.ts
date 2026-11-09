@@ -85,8 +85,11 @@ export interface OverlayControl {
   /** The pointer moved over `target` of the page: presence cursors and the hover outline of edit mode. */
   pointer: (event: PointerEvent, target: Element | undefined) => void
   leave: () => void
-  /** The page scrolled, resized, or changed, so cursors and outlines move. */
-  layout: () => void
+  /**
+   * The page scrolled, resized, or changed, so cursors and outlines move. `changed`: the DOM of the page changed, so the
+   * highlights find their text again. A scroll does not move a range, so it does not repaint them.
+   */
+  layout: (changed?: boolean) => void
   /** The selection of the page changed, so the bar over selected text shows, moves, or goes. */
   selectionChanged: () => void
   /** Says why the person cannot comment, such as **Sign in with GitHub**, when they cannot. */
@@ -183,6 +186,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const panelStatus = ref<CommentStatus>("open")
   const panelThread = ref<string | null>(null)
   const selected = shallowRef<Selected>()
+  /** Counts the DOM changes of the page, so the highlights find their text again after one. */
+  const pageChanges = ref(0)
   let room: RealtimeRoom | undefined
   // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
@@ -504,8 +509,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         // The state sends the raw anchor, so the context is kept by it, not by its reactive proxy.
         contexts.set(toRaw(draft.anchor), captureContext(target))
       }, { flush: "sync" })
-      // Positions change when the page scrolls, resizes, or changes, so the ranges are found again then too.
-      watch([state.positions, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor], paintHighlights, { flush: "post" })
+      // A range follows its text when the page scrolls. A change to the page's DOM can replace the text, so the ranges
+      // are found again then.
+      watch([pageChanges, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor], paintHighlights, { flush: "post" })
       watch(() => state.draft.value, trackSelection)
 
       return () => {
@@ -699,8 +705,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       } satisfies Cursor)
     },
     leave: () => room?.setLocal("cursor", null),
-    layout: () => {
+    layout: (changed) => {
       tick.value++
+      if (changed) pageChanges.value++
       if (selected.value) trackSelection()
     },
     selectionChanged: trackSelection,

@@ -109,6 +109,33 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.keyboard.press("Escape")
   })
 
+  await t.test("a scroll does not repaint the highlights, and a change to the page does", async () => {
+    const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    // Away from the pins, so no hover changes while the page moves.
+    await page.mouse.move(5, 5)
+    await page.evaluate(() => {
+      document.body.style.paddingBottom = "2000px"
+      window.highlightPaints = 0
+      const set = CSS.highlights.set.bind(CSS.highlights)
+      CSS.highlights.set = (...args) => { window.highlightPaints++; return set(...args) }
+    })
+    try {
+      // The padding is a change to the page too. Count from after it.
+      await frames()
+      await page.evaluate(() => { window.highlightPaints = 0 })
+      for (const y of [40, 80, 120, 0]) {
+        await page.evaluate(top => scrollTo(0, top), y)
+        await frames()
+      }
+      assert.equal(await page.evaluate(() => window.highlightPaints), 0)
+      await page.evaluate(() => document.querySelector("#second").append(" More."))
+      await page.waitForFunction(() => window.highlightPaints > 0, undefined, { timeout: 5000 })
+    }
+    finally {
+      await page.evaluate(() => { document.body.style.paddingBottom = ""; scrollTo(0, 0) })
+    }
+  })
+
   await t.test("in comment mode a drag comments on an area", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
