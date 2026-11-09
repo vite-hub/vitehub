@@ -49,6 +49,7 @@ if (!decision.allowed) return genericCard()
 | `checkRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Consume a discovered managed Rate Limit and return its decision. |
 | `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Enforce fixed windows in one process. |
+| `kvRateLimitDriver` from `@vite-hub/rate-limit/drivers/kv` | Enforce fixed windows in a KV store that every process shares, with `kv` from `vite-hub/kv`. |
 | `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Consume a Cloudflare Rate Limiting binding directly. |
 | `hubRateLimit` from `@vite-hub/rate-limit/vite` | Register source collection, runtime setup, and Provider Output without the framework preset. |
 
@@ -101,5 +102,20 @@ const decision = await limiter.consume({ key: 'demo' })
 ```
 
 Every direct limiter exposes its resolved `policy` and the provider capabilities that affect enforcement and deployment. The memory driver is process-local and intended for development, tests, and known single-process hosts.
+
+`kvRateLimitDriver()` counts in a KV store instead, so every process that uses the store shares the counts. The store needs an atomic `increment`: the `redis`, `database`, and `upstash` KV drivers have one.
+
+```ts
+import { createRateLimiter } from '@vite-hub/rate-limit'
+import { kvRateLimitDriver } from '@vite-hub/rate-limit/drivers/kv'
+import { kv } from 'vite-hub/kv'
+
+const limiter = createRateLimiter({
+  driver: kvRateLimitDriver({ storage: kv.store('limits') }),
+  enforcement: 'strict',
+  limit: 10,
+  window: '1m',
+})
+```
 
 Custom drivers return `[null, result]` after consuming the counter and `[error, undefined]` only for expected operational outages handled by the failure policy. Configuration, provider-contract, and implementation defects must throw normally.

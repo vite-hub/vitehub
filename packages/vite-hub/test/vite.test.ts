@@ -950,11 +950,13 @@ describe("vitehub", () => {
     expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
+      kvImport: "vite-hub/kv",
       provider: "memory",
     })
     expect(pluginNames(vitehub({ preset: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
+      kvImport: "vite-hub/kv",
       provider: "cloudflare",
     })
     expect(pluginNames(vitehub({
@@ -963,6 +965,7 @@ describe("vitehub", () => {
     }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
+      kvImport: "vite-hub/kv",
       projectRoot: "packages/policies",
       provider: "cloudflare",
       scanDirs: ["rules"],
@@ -2060,6 +2063,26 @@ describe("vitehub", () => {
     await expect(applyDeploymentConfig(options, {}, "serve")).resolves.toMatchObject({
       rateLimit: { namespace: "acme", provider: "memory" },
     })
+  })
+
+  it("counts Node Rate Limits in KV when the app enables KV", async () => {
+    await expect(applyDeploymentConfig({ preset: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
+      rateLimit: { provider: "memory" },
+    })
+    await expect(applyDeploymentConfig({ kv: true, preset: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
+      rateLimit: { provider: "kv" },
+    })
+    // An explicit provider wins, and the dev server counts in memory.
+    await expect(applyDeploymentConfig({ kv: true, preset: "node", rateLimit: { provider: "memory" } }, {}, "build")).resolves.toMatchObject({
+      rateLimit: { provider: "memory" },
+    })
+    await expect(applyDeploymentConfig({ kv: true, preset: "node", rateLimit: true }, {}, "serve")).resolves.toMatchObject({
+      rateLimit: { provider: "memory" },
+    })
+
+    integrationMocks.hubRateLimit.mockClear()
+    vitehub({ kv: true, preset: "node", rateLimit: true })
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

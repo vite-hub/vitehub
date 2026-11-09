@@ -16,7 +16,7 @@ icon: i-lucide-gauge
     modules: ['vite-hub/nuxt'],
     vitehub: {
       preset: 'node',
-      // On Node, counts stay in memory
+      // On Node, counts stay in memory. Turn on KV to share them.
       rateLimit: true,
     },
   })
@@ -32,7 +32,7 @@ icon: i-lucide-gauge
     plugins: [
       vitehub({
         preset: 'node',
-        // On Node, counts stay in memory
+        // On Node, counts stay in memory. Turn on KV to share them.
         rateLimit: true,
       }),
       nitro(),
@@ -49,7 +49,7 @@ icon: i-lucide-gauge
     plugins: [
       vitehub({
         preset: 'node',
-        // On Node, counts stay in memory
+        // On Node, counts stay in memory. Turn on KV to share them.
         rateLimit: true,
       }),
     ],
@@ -126,8 +126,8 @@ icon: i-lucide-gauge
   `limiter.consume()` returns the result and does not throw.
   :::
 
-  :::product-feature-item{title="Memory on Node, native on Cloudflare" icon="i-lucide-server" to="/docs/rate-limit/hosts#deploy-to-cloudflare"}
-  On Node, counts stay in memory. On Cloudflare, the limit uses Cloudflare Rate Limiting.
+  :::product-feature-item{title="Shared on Node with KV, native on Cloudflare" icon="i-lucide-server" to="/docs/rate-limit/hosts#share-counts-on-node"}
+  On Node, counts go to KV when KV uses Redis or Postgres, else they stay in memory. On Cloudflare, the limit uses Cloudflare Rate Limiting.
   :::
 
   :::product-feature-item{title="See each limit before you deploy" icon="i-lucide-file-search" to="/docs/rate-limit/hosts#inspect-generated-guarantees"}
@@ -135,14 +135,14 @@ icon: i-lucide-gauge
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/rate-limit/limits-and-errors#limitations"}
-  Memory counts reset on restart and are not shared between servers.
+  Memory counts reset on restart and are not shared between servers. KV counts rejected requests too.
   :::
 ::
 
 ::agent-only{skill="rate-limit"}
 Use Rate Limit to guard an action with an atomic counter and a defined window. Put identity derivation in the caller or Agent Capability.
 
-Choose a provider whose guarantees match the action. Memory is local to one process. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
+Choose a provider whose guarantees match the action. Memory is local to one process. On Node, the `kv` provider shares counts when KV uses Redis or Postgres; read the boot line that names the provider. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
 
 Prove allowed, rejected, reset, and provider failure behavior. Check the resolved window and enforcement mode in generated inspection state.
 ::

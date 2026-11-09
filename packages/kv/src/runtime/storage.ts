@@ -3,11 +3,11 @@ import "../virtual-module.d.ts"
 import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import { normalizeKVOptions } from "../config.ts"
+import { normalizeKVOptions, resolveInferredStore } from "../config.ts"
 import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVDriver, KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
 import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -101,6 +101,17 @@ async function resolveStorage(name = "default") {
     if (storagePromises.get(name) === promise) storagePromises.delete(name)
   })
   return promise
+}
+
+/**
+ * The driver that a store uses in this server process. An inferred Node store reads `REDIS_URL` here, as the store
+ * itself does, so the answer can differ from the build. App tests return `fs-lite`. An unknown store throws.
+ */
+export async function getKVStoreDriver(name: KVStoreName = "default"): Promise<KVDriver> {
+  const config = await resolveHostedConfig()
+  const store = resolveHostedKVStore(config.kv, name)
+  if (getViteHubTestMode()) return "fs-lite"
+  return resolveInferredStore(store, globalThis.process?.env ?? {}).driver
 }
 
 async function runKVOperation<TResult, TCode extends KVErrorCode = never>(

@@ -661,6 +661,21 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
   throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" preset has no host cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
 }
 
+/**
+ * The Rate Limit provider of a build. On Node, Rate Limit counts in KV when the app enables KV, because KV can use Redis
+ * or a Postgres Database that every instance shares. KV picks that driver when the server starts, so the Rate Limit
+ * runtime checks it at boot and counts in memory, with a warning, when the store cannot share counts.
+ */
+function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): "cloudflare" | "kv" | "memory" {
+  const policy = plan.services.rateLimit
+  if (!policy.supported) return "memory"
+  if (plan.preset !== "node") return policy.adapter
+  const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.provider : undefined
+  if (configured === "kv" || configured === "memory") return configured
+  const kvEnabled = options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")
+  return kvEnabled ? "kv" : "memory"
+}
+
 function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: HostSelectedService[],
@@ -784,7 +799,7 @@ function deploymentPlugins(
               namespace: name,
               // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
               // default for `serve`: one in-memory limiter.
-              provider: building ? plan.services.rateLimit.adapter : "memory",
+              provider: building ? buildRateLimitProvider(plan, options) : "memory",
             }
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
@@ -1378,12 +1393,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
-    const rateLimitPolicy = plan.services.rateLimit
-    // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
+    // SAFETY: ViteHub adds its private generated import bases to the public Rate Limit options before calling the owned integration.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
-      provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
+      provider: buildRateLimitProvider(plan, options),
       importBase: `${generatedImportBase}/rate-limit`,
+      kvImport: "vite-hub/kv",
     } as RateLimitModuleOptions)))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in

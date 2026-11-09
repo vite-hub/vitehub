@@ -13,7 +13,7 @@ A Rate Limit stops a client that sends too many requests. You set how many reque
 In this tutorial, you let a route accept two requests per minute. The third request gets the HTTP status `429 Too Many Requests`.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands from the root of the app. You need no account and no API key. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for a shared count.
+> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands from the root of the app. You need no account and no API key. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. To share them, turn on KV with Redis or Postgres, see [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node).
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

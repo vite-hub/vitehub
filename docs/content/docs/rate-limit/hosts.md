@@ -1,6 +1,6 @@
 ---
 title: Rate Limit hosts
-description: Inspect the generated Rate Limit manifest and deploy managed Rate Limits to Cloudflare.
+description: Inspect the generated Rate Limit manifest, share counts across Node instances through KV, and deploy managed Rate Limits to Cloudflare.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
@@ -29,6 +29,58 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
   ]
 }
 ```
+
+## Share counts on Node
+
+On the `node` preset, Rate Limit counts in memory by default, so each server process allows the full limit. Turn on [KV](/docs/kv) and the build selects the `kv` provider instead: each request runs one atomic `increment` on a KV key for the Rate Limit ID, the client key, and the window start. Every instance that uses the same Redis server or Postgres Database shares the count.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', kv: true, rateLimit: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', kv: true, rateLimit: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', kv: true, rateLimit: true })],
+})
+```
+:::
+::
+
+KV selects its driver when the server starts: `redis` when `REDIS_URL` is set, else `database` with a Postgres Default Database, else `fs-lite`. Rate Limit asks KV at boot and prints its choice:
+
+```txt
+[vitehub] Rate Limit counts in the KV store "default" (redis). Every server process that uses this store shares the counts.
+```
+
+`fs-lite` has no shared atomic increment, so Rate Limit then counts in memory and prints a warning:
+
+```txt
+[vitehub] Rate Limit counts in the memory of this process, because the KV store "default" uses fs-lite, which has no shared atomic increment. Each server process allows the full limit. Set REDIS_URL or use a Postgres Database to share the counts.
+```
+
+A build that counts in memory also prints a warning. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
 
 ## Deploy to Cloudflare
 

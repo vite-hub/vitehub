@@ -1,6 +1,6 @@
 import * as v from "valibot"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
-import { getRateLimitRuntimeConfig, listMemoryRateLimiters } from "./runtime/state.ts"
+import { listRuntimeRateLimiters, resolveRateLimitProvider } from "./runtime/state.ts"
 
 import type { RateLimitCounterScope, RateLimiter, RateLimitRuntimeConfig, RateLimitWindow } from "./types.ts"
 
@@ -41,6 +41,8 @@ export type RateLimitResetInspection =
 const cloudflareRateLimitCounterUnsupportedReason = "The Cloudflare Rate Limiting binding exposes only limit(), which consumes a token. It cannot read or reset a counter."
 
 const unusedReason = "No request used this Rate Limit in this process since it started, so no counter exists."
+/** A `kv` counter is shared, but the policy that names its window comes from the requests of this process. */
+const unusedKVReason = "No request used this Rate Limit in this process since it started, so this process does not know its window. Other processes can still have a counter."
 
 function unavailableReason(cause: unknown): string {
   return `The Rate Limit driver failed: ${cause instanceof Error ? cause.message : String(cause)}`
@@ -56,7 +58,7 @@ function assertTarget(name: string, key: string): void {
 }
 
 function limitersFor(target: RateLimitCounterTarget): RateLimiter[] | undefined {
-  return target.provider === "memory" ? listMemoryRateLimiters(target.name) : undefined
+  return target.provider === "cloudflare" ? undefined : listRuntimeRateLimiters(target.name)
 }
 
 /**
@@ -65,10 +67,10 @@ function limitersFor(target: RateLimitCounterTarget): RateLimiter[] | undefined 
  */
 export async function peekRateLimit(name: string, key: string): Promise<RateLimitPeekInspection> {
   assertTarget(name, key)
-  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: getRateLimitRuntimeConfig().provider }
+  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: await resolveRateLimitProvider() }
   const limiters = limitersFor(target)
   if (!limiters) return { ...target, reason: cloudflareRateLimitCounterUnsupportedReason, status: "unsupported" }
-  if (limiters.length === 0) return { ...target, reason: unusedReason, status: "unused" }
+  if (limiters.length === 0) return { ...target, reason: target.provider === "kv" ? unusedKVReason : unusedReason, status: "unused" }
   const counters: RateLimitCounterSnapshot[] = []
   for (const limiter of limiters) {
     const result = await limiter.peek({ key })
@@ -92,14 +94,15 @@ export async function peekRateLimit(name: string, key: string): Promise<RateLimi
  */
 export async function resetRateLimit(name: string, key: string): Promise<RateLimitResetInspection> {
   assertTarget(name, key)
-  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: getRateLimitRuntimeConfig().provider }
+  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: await resolveRateLimitProvider() }
   const limiters = limitersFor(target)
   if (!limiters) return { ...target, reason: cloudflareRateLimitCounterUnsupportedReason, status: "unsupported" }
+  if (limiters.length === 0 && target.provider === "kv") return { ...target, reason: unusedKVReason, status: "unsupported" }
   for (const limiter of limiters) {
     const result = await limiter.reset({ key })
     if (result.status === "unsupported") return { ...target, reason: result.reason, status: "unsupported" }
     if (result.status === "unavailable") return { ...target, reason: unavailableReason(result.cause), status: "unavailable" }
   }
-  // The guard creates memory limiters only, so a process scope is exact when no limiter exists yet.
+  // No limiter exists only for memory here, so the counter scope is the process.
   return { ...target, scope: limiters[0]?.capabilities.scope ?? "process", status: "reset" }
 }

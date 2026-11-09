@@ -12,6 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `kv` from `@vite-hub/kv` | Read and write the Default KV Store or a named KV Store. |
 | `disposeKVStores` from `@vite-hub/kv` | Dispose all cached stores from an application shutdown hook. |
+| `getKVStoreDriver` from `@vite-hub/kv` | Name the driver that a store uses in this server process, for example `redis` when an inferred Node store finds `REDIS_URL`. Rate Limit reads it at boot. |
 | `hubKv` from `@vite-hub/kv/vite` | Register KV runtime configuration. |
 | `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve KV Vite runtime config manually. |
 
