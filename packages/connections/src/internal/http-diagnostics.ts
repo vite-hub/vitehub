@@ -11,12 +11,14 @@ export interface ManagementErrorBody {
   requestId?: string;
 }
 
-export function managementErrorBody(code: string, message: string, requestId?: string, details?: Record<string, string>): ManagementErrorBody {
+export function managementErrorBody(code: string, message: string, requestId?: string, details?: Record<string, string>, fix?: string): ManagementErrorBody {
   const body: ManagementErrorBody = { code, message };
   if (details) body.details = details;
   const guidance = connectionsErrorGuidance(code);
   if (guidance) {
-    body.fix = guidance.fix;
+    // The thrown error has the fix with its parameters, such as the Connection name.
+    const repair = fix ?? guidance.fix;
+    if (repair) body.fix = repair;
     body.docs = guidance.docs;
   }
   if (requestId) body.requestId = requestId;
