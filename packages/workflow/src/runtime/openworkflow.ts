@@ -178,8 +178,7 @@ function sleep(ms: number): Promise<void> {
 function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
-    // A rejected probe also got its answer: a database that is down fails the setup next.
-    task.then(() => true, () => true),
+    task.then(() => true),
     new Promise<boolean>((resolve) => {
       timer = setTimeout(() => resolve(false), ms)
       timer.unref?.()
@@ -214,8 +213,15 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
         const [lock] = await transaction<{ locked: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) as locked`
         if (!lock?.locked) return
         const probe = postgres.default(url, { max: 1, onnotice: () => {} })
-        const reached = await settlesWithin(probe`select 1`, postgresSecondConnectionTimeoutMs).finally(() => probe.end({ timeout: 0 }))
-        if (!reached) throw workflowErrorDiagnostics.WORKFLOW_R0037()
+        // A probe that fails also got an answer: a database that is down fails the setup next.
+        const answered = Promise.resolve(probe`select 1`).then(() => {}, () => {})
+        if (!await settlesWithin(answered, postgresSecondConnectionTimeoutMs)) {
+          // Ending the probe while it waits destroys its socket, and postgres.js then rejects a promise that no code
+          // handles. The rollback below frees the connection, so the probe gets its answer and ends after it.
+          void answered.then(() => probe.end())
+          throw workflowErrorDiagnostics.WORKFLOW_R0037()
+        }
+        await probe.end()
         result = { value: await setup() }
       })
       if (result) return result.value
