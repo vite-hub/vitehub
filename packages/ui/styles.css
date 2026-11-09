@@ -3331,7 +3331,7 @@
     transition: background-color 150ms ease-out, color 150ms ease-out;
   }
   .vh-device-frame__band[data-within] { background: var(--vh-bg-elevated); border-color: var(--vh-bg-accented); color: var(--vh-highlighted); }
-  .vh-device-frame__band[aria-pressed="true"] { background: var(--vh-inverted); border-color: var(--vh-inverted); color: var(--vh-bg); }
+  .vh-device-frame__band[aria-pressed="true"] { background: var(--vh-highlighted); border-color: var(--vh-highlighted); color: var(--vh-inverted); }
   @media (hover: hover) and (pointer: fine) {
     .vh-device-frame__button:hover,
     .vh-device-frame__select:hover { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
@@ -3363,9 +3363,9 @@
     .vh-device-frame[data-on]:not([data-dragging]) .vh-device-frame__page { transition: transform 200ms ease-out; }
   }
   .vh-device-frame__readout {
-    background: var(--vh-inverted);
+    background: var(--vh-highlighted);
     border-radius: calc(var(--vh-radius) * 0.75);
-    color: var(--vh-bg);
+    color: var(--vh-inverted);
     font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     inset-block-start: 0.5rem;
