@@ -278,12 +278,12 @@ jobs:
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) || steps.changed.outputs.packages != '' }}
         uses: ./.github/actions/setup-deno
       - if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: node test/run-package-task.mjs test ${{ matrix.shard.args }}
+        run: node test/run-package-task.mjs test --cache ${{ matrix.shard.args }}
         env:
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
       - name: Test changed packages
         if: ${{ steps.changed.outputs.packages != '' }}
-        run: node test/run-package-task.mjs test --packages "$PACKAGES"
+        run: node test/run-package-task.mjs test --cache --packages "$PACKAGES"
         env:
           PACKAGES: ${{ steps.changed.outputs.packages }}
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
@@ -413,6 +413,12 @@ jobs:
       - uses: ./.github/actions/setup
 
       - run: vp run build
+      # This job builds every package, so its task cache serves the next run.
+      - name: Save the Vite+ task cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/task-cache
+          key: vp-task-cache-${{ runner.os }}-${{ github.sha }}
       - run: vp run --filter vitehub-docs test:snippets
 
   # The docs site deploys from the verified bundle on every push to main. The Production environment holds the Cloudflare token.
