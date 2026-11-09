@@ -61,6 +61,11 @@
       "import": "./dist/operations.js",
       "default": "./dist/operations.js"
     },
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "import": "./dist/preview.js",
+      "default": "./dist/preview.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",

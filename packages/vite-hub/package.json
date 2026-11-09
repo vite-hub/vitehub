@@ -663,6 +663,11 @@
       "import": "./dist/content/editor.js",
       "default": "./dist/content/editor.js"
     },
+    "./content/preview": {
+      "types": "./dist/content/preview.d.ts",
+      "import": "./dist/content/preview.js",
+      "default": "./dist/content/preview.js"
+    },
     "./content/realtime": {
       "types": "./dist/content/realtime.d.ts",
       "import": "./dist/content/realtime.js",

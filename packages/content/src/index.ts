@@ -65,7 +65,7 @@ import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
-export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,

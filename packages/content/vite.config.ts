@@ -10,7 +10,20 @@ export default defineConfig({
       neverBundle: ["comark-ui", /^comark-ui\//, "@valibot/to-json-schema", "@vite-hub/blob", /^@vite-hub\/blob\//, "@vite-hub/runtime", /^@vite-hub\/runtime\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", "comark-content", /^comark-content\//, "comark", /^comark\//, /^@tiptap\//, "@vite-hub/realtime", /^@vite-hub\/realtime\//, "diff", "drizzle-orm", /^drizzle-orm\//, "vite", "yaml"],
       onlyBundle: false,
     },
-    entry: ["src/cli.ts", "src/client.ts", "src/collections.ts", "src/database.ts", "src/editor.ts", "src/index.ts", "src/operations.ts", "src/realtime.ts", "src/runtime/console.ts", "src/vite.ts"],
+    entry: {
+      "cli": "src/cli.ts",
+      "client": "src/client.ts",
+      "collections": "src/collections.ts",
+      "database": "src/database.ts",
+      "editor": "src/editor.ts",
+      "index": "src/index.ts",
+      "operations": "src/operations.ts",
+      // The preview API without the Content runtime, for the generated preview plugin.
+      "preview": "src/preview-entry.ts",
+      "realtime": "src/realtime.ts",
+      "runtime/console": "src/runtime/console.ts",
+      "vite": "src/vite.ts",
+    },
     exports: {
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
