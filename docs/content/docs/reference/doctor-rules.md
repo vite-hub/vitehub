@@ -79,7 +79,7 @@ Some rules read the whole project, not only one file:
 | [`VHUB0020`](#vhub0020) | `vitehub/workflow-step-names` | Error |
 | [`VHUB0021`](#vhub0021) | `vitehub/valid-schedule-cron` | Error |
 | [`VHUB0022`](#vhub0022) | `vitehub/manual-schedule-run` | Error |
-| [`VHUB0023`](#vhub0023) | `vitehub/valid-outbound-channel` | Error |
+| [`VHUB0023`](#vhub0023) | `vitehub/valid-channel` | Error |
 | [`VHUB0024`](#vhub0024) | `vitehub/realtime-carets` | Warning |
 | [`VHUB0025`](#vhub0025) | `vitehub/realtime-persistence` | Error |
 | [`VHUB0026`](#vhub0026) | `vitehub/forge-error-imports` | Warning |
@@ -152,9 +152,9 @@ const { appName } = usePublicEnv()
 
 ## VHUB0003
 
-**Destructure `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
+**Read `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
 
-Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that uses the tuple as the value has two problems. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass. The error is lost.
+Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that drops the tuple, or uses it as the value, loses the error. A statement such as `await runQueue('sync', input)` turns a failed send into silence. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass.
 
 The rule checks these calls:
 
@@ -163,10 +163,12 @@ The rule checks these calls:
 - `runQueue()`, `dynamicQueue.run()`, and `send()` and `sendBatch()` of a client from `getQueue()`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
-- `runAgent(agent, input)` from `vite-hub/agent`, and `runAgent(agent, input, { output: 'drained' })`
+- `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
+- `runAgent()` and `streamAgent()` from `vite-hub/agent`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and the helpers that Nuxt auto-imports into `server/`. It reports a result that code:
 
+- drops, as in a statement such as `await kv.set(key, value)` or `email.send(message)`
 - assigns to a name
 - tests in a condition, negates, or compares
 - reads a property from, iterates with `for...of`, spreads, or puts in a template literal or object property
@@ -195,7 +197,28 @@ export default defineEventHandler(async () => {
 })
 ```
 
-The rule accepts a statement that ignores the result, such as `await kv.set(key, value)`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
+These excerpts use the app's `sync` Queue Definition.
+
+```ts [server/utils/dispatch.ts] fragment
+import { runQueue } from 'vite-hub/queue'
+
+export async function dispatchSync(connectionId: string) {
+  // Invalid: a failed send is silent.
+  await runQueue('sync', { connectionId })
+}
+```
+
+```ts [server/utils/dispatch.ts] fragment
+import { runQueue } from 'vite-hub/queue'
+
+export async function dispatchSync(connectionId: string) {
+  // Valid
+  const [error] = await runQueue('sync', { connectionId })
+  if (error) throw error
+}
+```
+
+To ignore a failure on purpose, such as a best-effort cache write, write `void await kv.set(key, value)`. The rule accepts `void`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. It does not check tuples inside `Promise.all()`. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
 
 ## VHUB0004
 
@@ -478,14 +501,16 @@ A Runtime Helper gets a literal name that matches no Definition that ViteHub dis
 
 The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` is always accepted. The rule does not check `runSchedule(name, { registry })`, which reads its own registry, and it does not see Workflows that another file registers with `createWorkflow()`.
 
-```ts [server/api/signup.post.ts]
+This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
+
+```ts [server/api/signup.post.ts] fragment
 import { runQueue } from 'vite-hub/queue'
 
 // Invalid: the file is server/queues/welcome-email.ts
-await runQueue('welcom-email', { email })
+const [typoError] = await runQueue('welcom-email', { email })
 
 // Valid
-await runQueue('welcome-email', { email })
+const [error] = await runQueue('welcome-email', { email })
 ```
 
 Doctor runs the discovery of each owner package. It does not check a kind that has no Definition files, because plugins can contribute Definitions that Doctor cannot see. It does not check names that are not string literals.
@@ -516,7 +541,7 @@ export default defineQueue(async ({ payload }) => {})
 
 **Put each Definition where ViteHub discovers it.** Rule `vitehub/definition-location`.
 
-A file default-exports `defineQueue()`, `defineWorkflow()`, `defineSchedule()`, `defineBrowser()`, `defineRealtime()`, `defineOutboundChannel()`, `defineAgent()`, `defineConnection()`, or `defineSandboxTask()`, but ViteHub does not discover the file. The Definition is never registered: a Schedule never runs, and calls by name fail.
+A file default-exports `defineQueue()`, `defineWorkflow()`, `defineSchedule()`, `defineBrowser()`, `defineRealtime()`, `defineChannel()`, `defineAgent()`, `defineConnection()`, or `defineSandboxTask()`, but ViteHub does not discover the file. The Definition is never registered: a Schedule never runs, and calls by name fail.
 
 A discovered file can re-export a Definition from another module, as in `export { default } from '../utils/email-queue'`. The rule does not report that module.
 
@@ -542,14 +567,16 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 `runQueue()`, `deferQueue()`, `dynamicQueue.run()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. ViteHub does not read enqueue options from the payload. A call that wraps the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType` sends the whole object as the payload, and the options have no effect.
 
-```ts [server/api/signup.post.ts]
+This excerpt uses the app's `welcome-email` Queue Definition and the handler's `email` value.
+
+```ts [server/api/signup.post.ts] fragment
 import { runQueue } from 'vite-hub/queue'
 
 // Invalid
-await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+const [wrappedError] = await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
 
 // Valid
-await runQueue('welcome-email', { email }, { delaySeconds: 60 })
+const [error] = await runQueue('welcome-email', { email }, { delaySeconds: 60 })
 ```
 
 The rule accepts a payload with a `payload` field and no option keys, because that is application data.
@@ -595,7 +622,7 @@ const [error, run] = await runWorkflow('onboard-user', body)
 const run = await runWorkflow('onboard-user', body)
 ```
 
-The rule does not check `runAgent()`. Its tuple forms are tuples, and `runAgent(agent, context, input)` returns the Agent's output, which can be an array.
+The rule does not check `runAgent()` and `streamAgent()`, because they return tuples.
 
 ## VHUB0019
 
@@ -684,31 +711,30 @@ export default defineSchedule({ cron: '0 8 * * *', manual: true, handler })
 
 ## VHUB0023
 
-**Configure each outbound Channel connector.** Rule `vitehub/valid-outbound-channel`.
+**Give each Channel an adapter that fits its targets.** Rule `vitehub/valid-channel`.
 
-`defineOutboundChannel()` throws when its module loads if `connectors` is empty (`CHANNELS_C0003`), a connector has no `send` function (`CHANNELS_C0004`), or `defaultConnector` is not a connector name (`CHANNELS_C0005`). The registry loads the module on the first `send()`, so the error appears as a returned error at that moment. The rule reports these mistakes in object literals.
+`defineChannel()` throws when its module loads if it has no `adapter` or the adapter has no `kind` (`CHANNELS_C0007`), or if an `on` handler sits on an adapter that does not receive webhooks (`CHANNELS_C0010`). Handlers need `webhook()` or `stripe()`. A chat adapter such as `slack()` sends its messages to the Agent that lists the Channel. The registry loads the module on the first `send()`, so the error appears as a returned error at that moment. The rule reports these mistakes in object literals.
 
-```ts [server/channels/alerts.ts]
-import { defineOutboundChannel } from 'vite-hub/channels'
+```ts [server/channels/alerts.ts] fragment
+import { defineChannel } from 'vite-hub/channels'
 
 // Invalid
-export default defineOutboundChannel({
-  connectors: { slack: { url: 'https://hooks.slack.com/...' } },
-  defaultConnector: 'email',
+export default defineChannel({
+  adapter: { send: async text => sendToSlack(text) },
+  on: { webhook: event => console.log(event) },
 })
 ```
 
 ```ts [server/channels/alerts.ts] fragment
-import { defineOutboundChannel } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
 
 // Valid
-export default defineOutboundChannel({
-  connectors: { slack: { send: async text => sendToSlack(text) } },
-  defaultConnector: 'slack',
+export default defineChannel({
+  adapter: { kind: 'slack', send: async text => sendToSlack(text) },
 })
 ```
 
-The rule does not check connectors that a call or a spread creates.
+The rule does not check adapters that a variable or a spread creates.
 
 ## VHUB0024
 
@@ -808,7 +834,7 @@ The rule skips a definition with a spread, and runtimes from variables. Read [Sa
 
 **Import `defineAgent` from `vite-hub/agent`.** Rule `vitehub/define-agent-from-vite-hub`.
 
-An app that depends on `vite-hub` imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the Console journal, so ViteHub does not record Invocations of the Agent. A string `invocations` setting, such as `'database'`, also fails when the module loads.
+An app that depends on `vite-hub` imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the default journal, so ViteHub does not record Invocations of the Agent. A string `invocations` setting, such as `'database'`, also fails when the module loads.
 
 ```ts [server/agents/support.ts] fragment
 // Invalid
@@ -879,7 +905,7 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `queue: { ... }` ignores its fields. The preset selects the Queue provider.
 - In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 // Invalid
 export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
@@ -902,7 +928,9 @@ An app that uses ViteHub still has NuxtHub parts:
 
 - `@nuxthub/core` in `modules` of `nuxt.config.ts`. NuxtHub and ViteHub both register `kv`, `blob`, and database helpers.
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
-- `hub:db`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
+- `blob.delete()`. ViteHub Blob names this method `blob.del()`.
 
 ```ts [nuxt.config.ts]
 // Invalid

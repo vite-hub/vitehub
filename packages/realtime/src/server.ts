@@ -1,5 +1,5 @@
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace"
+import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
 import { H3Event, HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -8,6 +8,8 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+// Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
+import type {} from "@vite-hub/runtime/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
@@ -65,7 +67,7 @@ import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
-import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { realtimeDurableObjectKey } from "./durable-key.ts"
 
@@ -685,9 +687,17 @@ function refuseUpgrade(request: Request, status: number): Response {
 
 const webSocketHooksKey = Symbol.for("crossws.hooks")
 
-/** An H3 2 event over a Web Request. Nuxt 4 runs Nitro 2, whose H3 1 events carry Node's request. */
+/**
+ * An H3 2 event over the Web Request of the event's Standard Context. Nuxt 4 runs Nitro 2, whose H3 1 events carry
+ * Node's request, so they get a new H3 2 event with the same context and the same Standard Context: the host
+ * bindings, the Durable Object state, and the peer address stay on the original event.
+ */
 function toWebEvent(event: H3Event): H3Event {
-  return isH3V1Event(event) ? new H3Event(toH3V1Request(event), event.context) : event
+  const standard = getStandardContext(event)
+  if (standard.req === event.req) return event
+  const webEvent = new H3Event(standard.req, event.context)
+  Object.defineProperty(webEvent, "~standard", { configurable: true, enumerable: false, value: standard })
+  return webEvent
 }
 
 const durableObjectKey: unique symbol = Symbol.for(realtimeDurableObjectKey)
@@ -722,20 +732,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     clearTimeout(held.timer)
   }
 
-  function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
-    const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
-    const platform = (event.context._platform as { cloudflare?: Record<string, unknown> } | undefined)?.cloudflare
-    if (!runtime) return platform
-    if (!platform) return runtime
-    return {
-      ...runtime,
-      ...platform,
-      context: runtime.context ?? platform.context,
-      env: platform.env ?? runtime.env,
-    }
+  /** The Cloudflare bindings and execution context, or the Durable Object state, in the event's Standard Context. */
+  function resolveCloudflare(event: H3Event): { context?: unknown, env?: unknown } | undefined {
+    return getStandardContext(event).runtime?.cloudflare
   }
 
-  async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
+  async function forwardToCloudflareDurableObject(event: H3Event): Promise<Response | undefined> {
     const cloudflare = resolveCloudflare(event)
     const context = cloudflare?.context
     const binding = (cloudflare?.env as Record<string, unknown> | undefined)?.$DurableObject as {
@@ -753,7 +755,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return await binding.get(binding.idFromName(durableRoomsInstance)).fetch(request)
   }
 
-  function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
+  function resolveRealtimeRoomSql(event: H3Event): RealtimeRoomSql | undefined {
     const context = resolveCloudflare(event)?.context
     if (!context || typeof context !== "object" || !Object.hasOwn(context, "storage")) return undefined
     const storageDescriptor = Object.getOwnPropertyDescriptor(context, "storage")

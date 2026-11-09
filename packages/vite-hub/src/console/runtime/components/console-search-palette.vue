@@ -11,6 +11,8 @@ import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
+import { openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session"
+import { consoleProjectHost, consoleProjectName } from "../client/projects"
 import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
@@ -118,7 +120,7 @@ let sessionRequest: AbortController | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const emit = defineEmits<{ changed: []; selectPage: []; selectSession: [] }>()
 const toast = useConsoleToast()
-// Document actions live next to the section list, as `/api/_vitehub/console/documents`.
+// Document actions live next to the section list, as `/_vitehub/api/documents`.
 const documentsBase = props.sectionsBase.replace(/\/sections$/, "/documents")
 const documentSections = ref<ConsoleDocumentSearchSection[]>([])
 const documentResults = ref<ConsoleDocumentSearchItem[]>([])
@@ -337,6 +339,35 @@ const themeActions = computed<CommandPaletteItem[]>(() => appearance
     ]
   : [])
 
+// A hosted Console switches between the projects that this browser linked.
+const projects = useConsoleProjects()
+const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "hosted"
+  ? [{
+      children: [
+        ...projects.projects.value.map(project => ({
+          active: project.id === projects.current.value?.id,
+          icon: project.id === projects.current.value?.id ? "i-lucide-check" : "i-lucide-box",
+          label: consoleProjectName(project),
+          suffix: consoleProjectHost(project),
+          onSelect: () => {
+            if (project.id !== projects.current.value?.id) switchConsoleProject(project.id)
+          },
+        })),
+        { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+        { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
+      ],
+      icon: "i-lucide-arrow-left-right",
+      keywords: ["project", "projects", "app", "link", "change"],
+      label: "Switch project…",
+      placeholder: "Choose a project…",
+    }, {
+      icon: "i-lucide-plus",
+      keywords: ["create", "init", "start", "stack", "app"],
+      label: "New project",
+      onSelect: openConsoleNewProject,
+    }]
+  : [])
+
 /** Pages and collections of the document editor sections, after their section in the Go to group. */
 function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
   const entry = documentSections.value.find(candidate => candidate.details.id === section)
@@ -384,8 +415,8 @@ const groups = computed<CommandPaletteGroup[]>(() => [
   ...(debouncedSearchTerm.value && documentSections.value.length
     ? [documentGroup.value]
     : []),
-  ...(props.actions?.length || contentActions.value.length || themeActions.value.length
-    ? [{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]
+  ...(props.actions?.length || contentActions.value.length || projectActions.value.length || themeActions.value.length
+    ? [{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...projectActions.value, ...themeActions.value], label: "Actions" }]
     : []),
   {
     id: "go-to",

@@ -8,7 +8,7 @@ icon: i-lucide-terminal
 ---
 
 ::product-hero{tagline="Run simple shell commands like ls, cat, and rg from your server, with limits you control." hosts="Node, Docker, Cloudflare"}
-  :::product-files
+  :::code-tree
   ```ts [server/utils/docs-shell.ts]
   import { createShellRuntime } from 'vite-hub/shell'
   import {

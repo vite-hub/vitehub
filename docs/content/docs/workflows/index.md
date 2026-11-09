@@ -8,7 +8,7 @@ icon: i-lucide-workflow
 ---
 
 ::product-hero{tagline="Run long tasks in steps, then check their status and result later with a run id." hosts="Cloudflare, Vercel, Node, Docker"}
-  :::product-files
+  :::code-tree
   ```ts [server/workflows/onboard-user/index.ts]
   import { defineWorkflow } from 'vite-hub/workflow'
 

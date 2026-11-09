@@ -115,6 +115,10 @@ function createCloudflareAgentStateEntrypointPlugin(options: CloudflareAgentStat
 
   return {
     name: "vitehub-agent-cloudflare-state-exports",
+    options(inputOptions) {
+      // Workers treat entry exports as handlers. Keep shared values in internal chunks.
+      return { ...inputOptions, preserveEntrySignatures: "strict" }
+    },
     buildStart() {
       this.emitFile({
         type: "chunk",

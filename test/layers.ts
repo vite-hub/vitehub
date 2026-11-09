@@ -2,7 +2,8 @@ export const testLayerIncludes = Object.freeze({
   contracts: ["test/*.test.ts"],
   consumer: ["test/consumer/**/*.test.ts"],
   output: ["test/output/**/*.test.ts"],
-  packages: ["packages/*/test/**/*.test.ts", "packages/*/test/**/*.test-d.ts"],
+  // Package suites also own app fixtures that they run in a child test process.
+  packages: ["packages/*/test/**/*.test.ts", "packages/*/test/**/*.test-d.ts", "packages/*/fixtures/*/test/**/*.test.ts"],
 });
 
 export function testLayersFor(path: string) {
@@ -18,7 +19,7 @@ export function testLayersFor(path: string) {
   if (/^test\/output\/.+\.test\.ts$/.test(normalized)) {
     layers.push("output");
   }
-  if (/^packages\/[^/]+\/test\/.+\.test(?:-d)?\.ts$/.test(normalized)) {
+  if (/^packages\/[^/]+\/(?:fixtures\/[^/]+\/)?test\/.+\.test(?:-d)?\.ts$/.test(normalized)) {
     layers.push("packages");
   }
 

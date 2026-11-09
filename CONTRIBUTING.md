@@ -141,6 +141,16 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 `docs/content/docs/` has one folder per product. Each Server Primitive folder is one docs section with its own page panel and uses the same task lanes when the product has real content for them: `index.md` (the Overview: set `layout: landing` so it renders as a landing page with a hero and page cards beside the shared navigation), `get-started.md` (the Tutorial), `configure.md` (Guides), `server-api.md` (Reference), `agent-capability.md` when the primitive has an Agent Capability, `hosts.md` (Deploy), and `limits-and-errors.md` (Operate). Create a page only when the product has real content for it. Product-specific pages such as `env/bridge.md` come after the template pages. Sidebar groups combine related tasks under Learn, Build, and Deploy and operate. Each page still follows the Diátaxis model: a Tutorial teaches a first result, a Guide completes one task, Reference describes the contract, and Concepts explain choices. Set `navigation.kind` when a page needs a lane other than the standard page id mapping. `.navigation.yml` declares the section `title`, `icon`, `order`, catalog `category`, and `related` section ids. Every docs page shows the primitive rail. Set the section `icon` to a `@vite-hub/icons` icon, such as `i-vitehub-kv`, so the rail, the sidebar, and the Console show the same icon. Draw a missing icon in `packages/icons/svg/` first. The site runs on `@vite-hub/docs` (`packages/docs`): the shell, the page layouts, search, and the agent resources live there, and `docs/nuxt.config.ts` sets the ViteHub options under `docs`. Markdown blocks that only ViteHub uses live in `docs/app/components/content/`. Pages outside `docs/content/docs/`, such as `docs/content/about.md`, render at their own path. Agent-only Capabilities live under `agents/capabilities/`. Get started, the shared architecture overview, and AI resources live under `getting-started/`. Detailed concepts live with their owner package. Framework, development, and shared reference sections are reached from Get started and the catalog. When a page moves, add its old path to `docs/modules/vitehub-docs/redirects.ts` and update inbound links; `corepack pnpm exec vp run --filter vitehub-docs test:links` checks every internal link and anchor.
 
+### Writing docs pages
+
+Write for a developer who has never used ViteHub. Explain a term the first time you use it, in one plain sentence. "A Schedule is server code that runs at set times" is better than "a Static Schedule Definition".
+
+- Start a tutorial with what the reader builds and what they need. Then give the steps. End with what happens in production and with links to the next pages.
+- Write one instruction per sentence, in the imperative: "Create `server/schedules/daily-report.ts`." Do not explain a tool, such as ESM or `pnpm pkg`, unless the step fails without it.
+- After a code block, explain only the lines that the reader must understand, as a short list. Put the rest on the Configure or Server API page.
+- Show the real output of each command that the reader runs. Copy it from a real run.
+- Use comark-ui blocks, not hand-made Markdown. Write install commands once as a `bash pm` fence, so the reader picks npm, pnpm, yarn, or bun. Use `> [!NOTE]` for the one thing the reader must not miss, `::tabs` for Vite and Nuxt versions of a step, `::details` for text most readers skip, and `::card-group` for the next pages.
+
 ### Code blocks
 
 CI type-checks every `ts` block in `docs/content/docs/` and in the package READMEs against the built packages. Run the same package build and check as CI:
@@ -151,6 +161,8 @@ corepack pnpm exec vp run --filter vitehub-docs test:snippets
 ```
 
 Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. The check also writes the `.vitehub` types that ViteHub generates for the Definitions that a page shows, such as `[server/queues/welcome-email.ts]` or `[server/databases/config.ts]`. A page that calls a Definition by name, such as `runQueue('welcome-email')` or `useDatabase('default')`, must show that Definition. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. The site does not show the marker. `docs/scripts/check-snippets.baseline.json` lists the blocks that failed when the check started. Fix a listed block and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
+
+Run `corepack pnpm --dir docs run test:snippets --update-baseline` to remove fixed entries. The command leaves the baseline unchanged and fails if it finds a new or changed failure.
 
 ### Content for agents
 

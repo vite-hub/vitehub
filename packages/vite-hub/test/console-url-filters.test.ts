@@ -39,6 +39,7 @@ const renderer = createRenderer({
 const unmounts: Array<() => void> = []
 afterEach(() => {
   for (const unmount of unmounts.splice(0)) unmount()
+  vi.unstubAllGlobals()
   mocks.operation.mockReset()
   mocks.request.mockReset()
 })
@@ -140,7 +141,7 @@ describe("Comments operation view", () => {
     ])
     const { router, state } = await mountPage<{ search: string, visibleItems: Array<{ id: string }> }>(OperationView, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?filter=open&q=pricing", routes)
     await vi.waitFor(() => expect(state.visibleItems.map(item => item.id)).toEqual(["1"]))
-    expect(mocks.operation).toHaveBeenLastCalledWith("/definitions", details.view, { status: "open" }, expect.anything())
+    expect(mocks.operation).toHaveBeenLastCalledWith(details.view, { status: "open" }, expect.anything())
     state.search = "bo"
     await settle(router, { filter: "open", q: "bo" })
     expect(state.visibleItems.map(item => item.id)).toEqual(["2"])
@@ -206,6 +207,7 @@ describe("Channels", () => {
   const routes = [{ component: {}, name: "vitehub-console-channels", path: "/channels" }]
 
   it("searches threads and keeps the search when a thread of the Channel opens", async () => {
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: new URL("http://localhost/_vitehub/channels") }))
     mocks.request.mockImplementation(async (path: string) => path.endsWith("/threads")
       ? { threads: [{ invocationCount: 1, participants: ["Maxi"], thread: "telegram:1", title: "Refund" }, { invocationCount: 2, participants: ["Ana"], thread: "telegram:2" }] }
       : path.endsWith("/channels")

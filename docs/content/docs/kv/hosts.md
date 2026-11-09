@@ -12,6 +12,8 @@ The KV package selects the default or named store and generates store-name types
 
 Application code keeps importing `kv` from `@vite-hub/kv` when you switch between local, Cloudflare, Deno, Vercel-compatible, or other drivers.
 
+`vite dev` keeps every store local unless it sets `remote: true`, also when `.env` has Upstash credentials. Read [Development stays local](/docs/kv/configure#development-stays-local).
+
 ## Read and write keys during development
 
 `hubKv()` contributes the `vitehub kv` CLI namespace. Start the Vite Development Server, then read and write keys from another terminal.
@@ -26,6 +28,12 @@ pnpm vitehub kv del settings
 The commands call the same KV storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. There is no `clear` command. The commands run the `kv.*` [operations](/docs/development/operations) of the app, on the dev server of this project or, with `--url`, on a deployed app that enables the [Console](/docs/development/console). The operations run in the Nitro runtime, which owns the stores. `kv set` and `kv del` refuse keys that start with `vitehub:` (`KV_RESERVED_KEY`), because ViteHub keeps its own state there; reads stay open. Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
 
 KV inspection represents `bigint` values, including nested values, as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`. Cloudflare write results report the effective TTL after rounding. The drivers cannot report how long a key has left, so `kv get` reports `expiry: "unknown"` (or `"none"` for `fs-lite`, which never expires keys). A write without `--ttl` removes an existing expiry, and the Console editor warns about it and has an **Expires in seconds** field.
+
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production keys ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same namespace `id` share its data ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview namespace in `previews.kv_namespaces` of the project Wrangler config, because ViteHub does not write that block.
+
+For a preview Worker of its own, set `KV_NAMESPACE_ID` in its build with `namespaceId` unset, or configure `namespaceId` with the preview id. A configured `namespaceId` takes precedence over `KV_NAMESPACE_ID`. Alternatively, set a separate `namespaceName` with both `namespaceId` and `KV_NAMESPACE_ID` unset and provision it before building. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Production checks
 

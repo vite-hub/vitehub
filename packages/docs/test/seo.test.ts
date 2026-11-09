@@ -69,17 +69,21 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
       expect(image).toBe("https://lumen.example.com/own.png")
       expect(existsSync(join(root, ".output/public/_og"))).toBe(false)
     }
+    // The comark-ui stylesheet is in the first HTML, and the static host serves it.
+    const stylesheet = /<link[^>]* href="(\/_docs\/comark-[0-9a-f]{10}\.css)"/.exec(install)?.[1]
+    expect(stylesheet).toBeDefined()
+    expect(existsSync(join(root, ".output/public", stylesheet!))).toBe(true)
     expect.soft(install).toContain("\"@type\":\"WebSite\"")
     expect(install).toContain("\"@type\":\"WebPage\"")
     expect(install).toContain("\"@type\":[\"Article\",\"TechArticle\"]")
     expect(install).toContain("\"@type\":\"BreadcrumbList\"")
 
-    // A `home` page is its own blocks under the site header, which shows on wide screens because there is no docs rail.
+    // A `home` page is its own blocks under the site header, which shows on every page, docs pages included.
     const home = await page("index")
     expect(home).toContain("Read <a")
     expect(home).not.toMatch(/class="[^"]*vh-docs-rail/)
     expect(home).toMatch(/class="sticky top-0 z-50"/)
-    expect(await page("docs/guide/install")).toMatch(/class="sticky top-0 z-50 lg:hidden"/)
+    expect(await page("docs/guide/install")).toMatch(/class="sticky top-0 z-50"/)
     expect.soft(await page("docs/guide/embedded")).toContain("<title>Lumenate · Lumen</title>")
     expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 

@@ -21,10 +21,12 @@ import support from '../agents/support'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.string() })))
+  const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.pipe(v.string(), v.nonEmpty()) })))
   const runtime = getRuntimeContext(event)
   try {
-    return await runAgent(support, runtime, { prompt })
+    const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
+    if (error) throw error
+    return { text: result.text }
   }
   finally {
     await runtime.flushWaitUntil().catch(console.error)
@@ -310,12 +312,21 @@ const [error, receipt] = await enqueueChannelTask('airtable', 'close-duplicate',
 })
 
 // Someone objected: drop the queued task.
-await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
+const [cancelError, cancelled] = await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
+if (cancelError) throw cancelError
 ```
 
 A later enqueue of the same trigger's task with the same `key` replaces a queued task that has not started. `cancelChannelTask()` drops that trigger's queued tasks with the `key` and returns how many it dropped. A task that has started keeps running. Use `prepare` to check live state when the task starts and return `ignored()` when the work is no longer needed.
 
-Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return `[error, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time.
+Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return a `Result` from `vite-hub/runtime`: `[error, undefined]` or `[undefined, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time. `error.code` is one of these:
+
+#### CHANNEL_TASK_FAILED
+
+The queue or the Agent State store failed while it queued or cancelled the task. `error.cause` keeps the original error. Retry when the store is available again.
+
+#### CHANNEL_TASK_REJECTED
+
+The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem.
 
 
 
@@ -368,6 +379,6 @@ With the built-in SQLite state providers, a pending notification survives a rest
 | A server route already owns validation and input | `runAgent()` or `streamAgent()` |
 | A Capability owns history, policy, or event preparation | `runAgentTrigger()` or `streamAgentTrigger()` |
 | A messaging provider delivers an event | A [Channel](/docs/agents/channels) and its Trigger |
-| A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations), handling its runtime-specific return value |
+| A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations) for the result |
 
 Webhook adapters may retain ownership until delivery finishes. Configure Channel timeout, concurrency, and durable delivery there rather than adding webhook policy to the Driver.

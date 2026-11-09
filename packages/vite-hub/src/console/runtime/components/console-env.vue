@@ -228,7 +228,7 @@ onBeforeUnmount(() => request?.abort());
           <button
             v-else-if="statuses && blockingCount"
             type="button"
-            class="rounded-sm px-1 outline-none hover:bg-elevated focus-visible:ring-1 focus-visible:ring-primary"
+            class="rounded-sm px-1 outline-none hover:bg-elevated focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
             :class="attentionOnly ? 'bg-elevated' : ''"
             :aria-pressed="attentionOnly"
             @click="attentionOnly = !attentionOnly"
@@ -273,7 +273,7 @@ onBeforeUnmount(() => request?.abort());
               <li v-for="(row, index) in group.rows" :key="row.entry.path ?? `undisclosed-${index}`">
                 <button
                   type="button"
-                  class="group grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2 text-start outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary"
+                  class="group grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2 text-start outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)"
                   :aria-current="selected === row.entry ? 'true' : undefined"
                   @click="selected = row.entry"
                 >

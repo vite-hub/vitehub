@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }));
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }));
 
 import { publishAgentActivity } from "../src/index.ts";
 import { github } from "../src/channels.ts";

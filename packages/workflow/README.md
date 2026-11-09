@@ -56,7 +56,7 @@ The handler gets `(payload, context)`. Annotate `payload` to type it. `context` 
 
 A folder Workflow runs its numbered files as steps. `01.create-user.ts` becomes `steps.createUser`:
 
-```ts
+```ts [server/workflows/onboard-user/index.ts]
 // server/workflows/onboard-user/index.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
@@ -66,14 +66,14 @@ export default defineWorkflow("onboard-user", async (payload: { email: string },
 });
 ```
 
-```ts
+```ts [server/workflows/onboard-user/01.create-user.ts]
 // server/workflows/onboard-user/01.create-user.ts
 export default async function createUser(input: { email: string }) {
   return { id: `user:${input.email}`, email: input.email };
 }
 ```
 
-```ts
+```ts [server/workflows/onboard-user/02.send-welcome.ts]
 // server/workflows/onboard-user/02.send-welcome.ts
 export default async function sendWelcome(user: { id: string, email: string }) {
   return { userId: user.id, welcomeSent: true };
@@ -179,6 +179,8 @@ The other runtime helpers are:
 - `createWorkflow()` creates a named handle with `run`, `defer`, `getRun`, and `cancel` methods.
 
 Unsupported provider operations fail with `WORKFLOW_OPERATION_UNSUPPORTED`; ViteHub does not pretend that an inline run was cancelled or resumed.
+
+`hubWorkflow()` contributes the `workflow.start`, `get`, `cancel`, `resume`, `runs-list`, `runs-show`, and `runs-clear` operations. In `vite dev`, the dev Nitro plugin records every inline run in the memory of the dev server: its status, times, result, error, and each step of a folder Workflow. `vitehub workflow runs list` lists the newest runs first, `vitehub workflow runs show <runId>` shows one with its steps, and `vitehub workflow runs clear --yes` removes them all. The history keeps the newest 200 runs until the dev server restarts. It does not include runs that a Cloudflare binding, OpenWorkflow, or a native Vercel Workflow executes. Only the dev Nitro plugin imports `@vite-hub/workflow/runtime/dev-runs`, which holds the history. The production runtime has only an empty recorder slot, so a build does not include the history code and never records runs. The three commands fail there with `WORKFLOW_RUNS_UNAVAILABLE`.
 
 Inline runs buffer the response body before completion. Each inspection and duplicate start returns a fresh response, so reading or cancelling one result does not consume later results. A body read failure marks the run as failed.
 

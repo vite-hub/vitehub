@@ -1,3 +1,4 @@
+import { BlobNotFoundError } from "@vercel/blob"
 import { H3Event } from "h3"
 import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -6,7 +7,9 @@ import { createDriver as createR2Driver } from "../src/drivers/cloudflare-native
 import { createBundledVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
-import type { BlobResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobErrorCode } from "../src/types.ts"
 
 // An in-memory Vercel Blob that, like the service, has no custom metadata and can forbid overwrites.
 const vercel = vi.hoisted(() => {
@@ -17,7 +20,7 @@ const vercel = vi.hoisted(() => {
     const object = objects.get(pathname)!
     return { contentType: object.contentType, etag: object.etag, pathname, size: object.body.byteLength, uploadedAt: object.uploadedAt, url: `https://store.public.blob.vercel-storage.com/${encodeURI(pathname)}` }
   }
-  const missing = () => Object.assign(new Error("Vercel Blob: The requested blob does not exist"), { name: "BlobNotFoundError" })
+  const missing = () => new BlobNotFoundError()
   return {
     calls: [] as Array<Record<string, unknown>>,
     objects,
@@ -60,10 +63,10 @@ const vercel = vi.hoisted(() => {
   }
 })
 
-vi.mock("@vercel/blob", () => vercel.module)
+vi.mock("@vercel/blob", async importOriginal => ({ ...vercel.module, BlobNotFoundError: (await importOriginal<typeof import("@vercel/blob")>()).BlobNotFoundError }))
 
-function ok<TResult>(result: BlobResult<TResult>): TResult {
-  expect(result[0]).toBeNull()
+function ok<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
+  expect(result[0]).toBeUndefined()
   return result[1] as TResult
 }
 

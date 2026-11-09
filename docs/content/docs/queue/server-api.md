@@ -25,7 +25,7 @@ Application code imports from `vite-hub/queue` after enabling `queue: true` in t
 | `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `vite-hub/queue` | Inspect provider-derived names. Do not persist these names as application identifiers. |
 | `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `vite-hub/queue` | Host adapter helpers used by generated Provider Output. Install `@vercel/functions` when you import the Vercel-specific runtime. |
 
-Queue option, client, job, provider, registry, and result types are exported from `vite-hub/queue`. For advanced owner-package composition, `@vite-hub/queue` exposes the same APIs, with `hubQueue` from `@vite-hub/queue/vite` and the `@vite-hub/queue/nuxt` module. The framework distribution configures these integrations for applications. Generated output uses the specific `@vite-hub/queue/internal/runtime/*` subpaths listed in the package exports; do not import those runtime modules from application code.
+Queue option, client, job, provider, registry, and result types are exported from `vite-hub/queue`. For advanced owner-package composition, `@vite-hub/queue` exposes the same APIs, with `hubQueue` from `@vite-hub/queue/vite`. The framework distribution configures this integration for applications, and Nuxt apps use `vite-hub/nuxt`. Generated output uses the specific `@vite-hub/queue/internal/runtime/*` subpaths listed in the package exports; do not import those runtime modules from application code.
 
 ## Queue job
 
@@ -57,6 +57,8 @@ Providers can retry failed delivery, so a handler must tolerate another run afte
 | Cloudflare | A successful handler acknowledges the message. A failed handler retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }` from `onError`. Return `void` to keep the default. |
 | Local | A successful handler removes the job. A failed handler runs again after 1, 2, and 4 seconds. After 4 attempts, or after a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), the job stays as a dead job. | None. The local provider does not call `onError` or `callbackOptions.retry`. |
 | Vercel | Provider behavior. ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler) when the callback returns `undefined`; other `undefined` results keep Vercel's retry behavior. | Return a directive from `callbackOptions.retry`. Return `void` to keep the default. |
+
+In `vite dev`, a Cloudflare or Vercel app runs its jobs with the local provider and the retry rules of its provider. It does not call `onError` or `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
 
 Throw `ViteHubError` when the Queue Definition needs a stable application failure code. Application error codes do not choose retry policy. Use `onError` or `callbackOptions.retry` for that.
 

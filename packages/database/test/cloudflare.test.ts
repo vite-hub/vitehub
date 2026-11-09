@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resolveDBViteConfig } from "../src/config.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
-import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding, resolveCloudflareD1Bindings } from "../src/internal/cloudflare.ts"
+import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding, resolveCloudflareD1Bindings, resolveDevRemoteConfig } from "../src/internal/cloudflare.ts"
 
 const tempDirs: string[] = []
 
@@ -300,5 +300,34 @@ describe("Cloudflare D1 binding projections", () => {
         database_name: "other-db",
       },
     ])
+  })
+})
+
+describe("resolveDevRemoteConfig", () => {
+  const base = { connection: { url: "file:.vitehub/data/database/sqlite.db" }, drizzle: {}, name: "default" }
+
+  it("keeps local SQLite when nothing asks for the remote database", () => {
+    const config = { ...base, cloudflare: { binding: "DB", databaseId: "database-id" } }
+    expect(resolveDevRemoteConfig(config, undefined)).toBe(config)
+    expect(resolveDevRemoteConfig(config, false)).toBe(config)
+  })
+
+  it("turns remote: true into D1 over HTTP with the Cloudflare API credentials", () => {
+    expect(resolveDevRemoteConfig({ ...base, cloudflare: { binding: "DB", databaseId: "database-id" } }, true)).toEqual({
+      ...base,
+      cloudflare: { binding: "DB", databaseId: "database-id", http: true },
+      remote: true,
+    })
+  })
+
+  it("keeps a D1 proxy and treats cloudflare.http as remote", () => {
+    const http = { authToken: "token", url: "https://d1.example.com/raw" }
+    expect(resolveDevRemoteConfig({ ...base, cloudflare: { databaseId: "database-id", http } }, undefined)).toMatchObject({ cloudflare: { http }, remote: true })
+    expect(resolveDevRemoteConfig({ ...base, cloudflare: { databaseId: "database-id", http } }, true)).toMatchObject({ cloudflare: { http }, remote: true })
+  })
+
+  it("rejects remote: false when the integration sets cloudflare.http", () => {
+    expect(() => resolveDevRemoteConfig({ ...base, cloudflare: { databaseId: "database-id", http: true } }, false))
+      .toThrow(expect.objectContaining({ code: "DATABASE_REMOTE_CONFLICT" }))
   })
 })
