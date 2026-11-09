@@ -9,7 +9,7 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
-import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
+import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
@@ -300,12 +300,6 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
     async run({ definition, event, id, name, options, payload }) {
       if (!definition.options?.native) {
         return await fallback.run({ definition, event, id, name, options, payload })
-      }
-      if (options.id) {
-        throw createWorkflowError({
-          code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-          details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
-        })
       }
       return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))
     },

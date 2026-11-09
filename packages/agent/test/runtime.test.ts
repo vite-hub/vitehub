@@ -16068,7 +16068,7 @@ describe("agent message protocol", () => {
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
-      }, {})).rejects.toThrow('Duplicate workflow name "explicit-registry-collision"')
+      }, {})).rejects.toMatchObject({ code: "AGENT_R0422", message: expect.stringContaining('Workflow name "explicit-registry-collision" belongs to a discovered Agent') })
     })
 
     it("reuses a discovered Workflow registry entry for named discovered Agent runs", async () => {

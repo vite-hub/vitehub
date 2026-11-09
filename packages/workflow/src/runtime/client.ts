@@ -1,6 +1,7 @@
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { createWorkflowError } from "../errors.ts"
@@ -8,6 +9,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
 import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
+import { getWorkflowTestRun, recordWorkflowTestRun } from "./test-client.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -172,6 +174,14 @@ export async function startWorkflow<TPayload = unknown>(
 
   const id = options.id || randomId("wrun")
   const definition = await loadRequiredWorkflowDefinition(name)
+  if (config.provider === "vercel" && definition.options?.native && options.id) {
+    throw createWorkflowError({
+      code: "WORKFLOW_RUN_ID_UNSUPPORTED",
+      details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
+    })
+  }
+  const test = getViteHubTestMode()
+  if (test) return recordWorkflowTestRun(test, config.provider, { deferred: options.deferred === true, id, name, payload })
   return await getWorkflowRuntimeAdapter(config).run<TPayload, unknown>({
     // SAFETY: The named Workflow definition receives the caller-provided payload and its result remains unknown.
     definition: definition as WorkflowDefinition<TPayload, unknown>,
@@ -185,6 +195,8 @@ export async function startWorkflow<TPayload = unknown>(
 
 export async function getWorkflowRun(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
   const config = getActiveWorkflowConfig()
+  const test = getViteHubTestMode()
+  if (test) return getWorkflowTestRun(test, config.provider, name, id)
 
   return await getWorkflowRuntimeAdapter(config).get({
     event: getWorkflowRuntimeEvent(),
@@ -196,7 +208,14 @@ export async function getWorkflowRun(name: string, id: string): Promise<Workflow
 export async function cancelWorkflow(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
   const config = getActiveWorkflowConfig()
 
-  await loadRequiredWorkflowDefinition(name)
+  const definition = await loadRequiredWorkflowDefinition(name)
+  const test = getViteHubTestMode()
+  if (test) {
+    if (config.provider === "cloudflare" || (config.provider === "vercel" && !definition.options?.native)) {
+      throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: config.provider } })
+    }
+    return getWorkflowTestRun(test, config.provider, name, id, true)
+  }
   return await getWorkflowRuntimeAdapter(config).cancel({
     event: getWorkflowRuntimeEvent(),
     id,
@@ -210,6 +229,10 @@ export async function resumeWorkflow<TPayload = unknown>(token: string, payload:
     throw workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflow()` requires an opaque signal token." })
   }
   const config = getActiveWorkflowConfig()
+  // Test backends start no handlers, so there is no suspended signal to resume.
+  if (getViteHubTestMode()) {
+    throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider: config.provider } })
+  }
   return await getWorkflowRuntimeAdapter(config).resume(token, payload)
 }
 

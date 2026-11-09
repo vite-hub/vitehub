@@ -4,8 +4,7 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { join, resolve } from "pathe"
 
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { cloudflareUnsupportedEnqueueOptions, formatQueueOptionNames, queueProviderResult } from "../errors.ts"
-import { queueErrorDiagnostics } from "../error-diagnostics.ts"
+import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 
@@ -16,8 +15,6 @@ export const localQueueMaxAttempts = 4
 
 /** Dead jobs that the local provider keeps per Queue Definition. It deletes the oldest above this count. */
 export const localQueueDeadLimit = 100
-
-export const localUnsupportedEnqueueOptions = ["contentType", "region", "retentionSeconds"] as const
 
 /** The delivery rules that the local engine applies. */
 export interface LocalQueueDeliveryRules {
@@ -635,10 +632,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
 
 /** The provider of the rules rejects the option, so `vite dev` fails as the host does. */
 function unsupportedOptions(options: QueueEnqueueOptions, rules: LocalQueueDeliveryRules) {
-  const unsupported = rules.unsupportedOptions.filter(option => options[option] !== undefined)
-  return unsupported.length
-    ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider: rules.rules })
-    : undefined
+  return queueUnsupportedOptionsError(options, rules.rules, rules.unsupportedOptions)
 }
 
 export function createLocalQueueClient(engine: LocalQueueEngine, queue: string): LocalQueueClient {
