@@ -6,8 +6,10 @@ import { createSource, useSource } from "@vite-hub/source"
 import type { Source, SourceItem, SourceName } from "@vite-hub/source"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { withContentSnapshot } from "./snapshots.ts"
 
 import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentSnapshotLoader } from "./snapshots.ts"
 
 export interface ContentSourceOptions {
   prefix?: string
@@ -43,6 +45,8 @@ export type ContentSourceInput =
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
 const contentSourceUrlKey = Symbol("vitehub.contentSourceUrl")
+/** The `name` of the `@vite-hub/source` Source that each adapter reads, such as `glob` or `files`. */
+const contentSourceKinds = new WeakMap<ComarkContentSource, string>()
 const typedArrayTag = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Uint8Array.prototype),
   Symbol.toStringTag,
@@ -248,6 +252,7 @@ function createContentSourceFactory(
       }
       if (options.prefix !== undefined) source.prefix = options.prefix
       if (options.schema !== undefined) source.schema = options.schema
+      if (isSourceDefinition(sourceInput)) contentSourceKinds.set(source, sourceInput.name)
       Object.defineProperty(source, contentSourceFactory, {
         value: {
           create: (overrides = {}) => factory.create(contentSourceOptions(options, overrides)),
@@ -262,6 +267,12 @@ function createContentSourceFactory(
 /** The `url` that `contentSource(input, { url })` set, if any. */
 export function contentSourceUrl(input: ContentSourceInput | undefined): ContentDocumentUrl | undefined {
   return isRuntimeObject(input) ? Reflect.get(input, contentSourceUrlKey) as ContentDocumentUrl | undefined : undefined
+}
+
+/** The `name` of the `@vite-hub/source` Source behind an input, such as `glob` or `files`, or undefined for other inputs. */
+export function contentSourceKind(input: ContentSourceInput): string | undefined {
+  if (isSourceDefinition(input)) return input.name
+  return isComarkContentSource(input) ? contentSourceKinds.get(input) : undefined
 }
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
@@ -284,7 +295,11 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
   return source
 }
 
-export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions): ReturnType<typeof comarkContent> {
+/**
+ * Create the Comark instance of one Source. With `snapshot`, the instance hydrates from the build-time snapshot on its
+ * first read and keeps the Source as its origin.
+ */
+export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions, snapshot?: ContentSnapshotLoader): ReturnType<typeof comarkContent> {
   const source = contentSource(input)
   options = {
     ...options,
@@ -297,7 +312,7 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
     })),
   }
   const factory = getContentSourceFactory(source)
-  if (!factory) return comarkContent(name, { ...options, source })
+  if (!factory) return comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(source, snapshot) : source })
 
   // Each async load retains its own Source reader, including parsers that outlive a failed load.
   const loads = new AsyncLocalStorage<ComarkContentSource>()
@@ -307,7 +322,7 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
     getItem: key => (loads.getStore() ?? source).getItem(key),
     getItemRaw: key => (loads.getStore() ?? source).getItemRaw(key),
   }
-  const instance = comarkContent(name, { ...options, source: scopedSource })
+  const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot) : scopedSource })
   const init = instance.init.bind(instance)
   const refresh = instance.refresh.bind(instance)
   const get = instance.get.bind(instance)

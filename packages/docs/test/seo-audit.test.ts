@@ -47,6 +47,16 @@ describe("readDocsSeoPage", () => {
     expect(read.links).toEqual(["/about"])
     expect(docsSitemapPaths("<urlset><url><loc>https://acme.dev/help/docs/kv</loc></url></urlset>", "https://acme.dev/help")).toEqual(["/docs/kv"])
   })
+
+  it("treats nested example previews as separate heading outlines", () => {
+    const read = page("/docs/kv", {
+      body: '<h1>Page</h1><h2>Examples</h2><div class="extra docs-example-preview"><div><h1>Demo</h1><h4>Demo heading</h4></div></div>'
+        + '<div style="display:none"><div class="docs-example-preview"><h1>Inactive demo</h1></div></div><h3>Next page heading</h3>',
+    })
+    expect(read.h1).toBe(1)
+    expect(read.headingSkip).toBeNull()
+    expect(page("/docs/kv", { body: '<h1>Page</h1><div class="docs-example-preview"><h1>Demo</h1></div><h4>Invalid page heading</h4>' }).headingSkip).toBe("h1 → h4")
+  })
 })
 
 describe("docsSeoProblems", () => {
