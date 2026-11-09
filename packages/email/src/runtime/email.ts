@@ -1,7 +1,9 @@
 import definition from "#vitehub/email/definition"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { createEmail } from "../client.ts"
 import { emailErrorDiagnostics } from "../error-diagnostics.ts"
+import { createTestEmail } from "../test.ts"
 
 import type { EmailClient } from "../types.ts"
 
@@ -14,6 +16,9 @@ export const email: EmailClient = {
     client ??= generated ? createEmail(generated) : undefined
     // A missing provider is a config error, so it throws.
     if (!client) throw emailErrorDiagnostics.EMAIL_NOT_CONFIGURED({})
+    // In app tests, the outbox of `vite-hub/test` receives every message, and no provider runs.
+    const test = getViteHubTestMode()
+    if (test) return await test.backend("email", createTestEmail).send(message)
     return await client.send(message)
   },
 }
