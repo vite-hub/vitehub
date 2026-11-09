@@ -1,9 +1,10 @@
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
-import { describe, expect, it } from "vitest"
+import * as v from "valibot"
+import { describe, expect, it, vi } from "vitest"
 
 import { createDrizzleFormsStore, formsSchema, formsTables } from "../src/database.ts"
-import { createFormsInbox, createMemoryFormsStore } from "../src/index.ts"
+import { createFormsInbox, createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
 
 import type { FormsStore, FormSubmission } from "../src/index.ts"
 
@@ -22,6 +23,52 @@ describe.each([
   ["Drizzle SQLite", drizzleStore],
   ["memory", async () => createMemoryFormsStore()],
 ])("%s store", (_, create) => {
+  const request = () => new Request("https://site.test/form", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "Hi" }) })
+
+  it.each([
+    { name: "nested JSON", output: { message: "Hi", details: { items: [true, null, 3] }, zero: -0 }, expected: { message: "Hi", details: { items: [true, null, 3] }, zero: 0 }, text: 'details: {"items":[true,null,3]}' },
+    { name: "null", output: null, expected: null, text: "value: null" },
+  ])("uses the same $name output in hooks, email, and storage", async ({ output, expected, text }) => {
+    const store = await create()
+    const onSubmit = vi.fn()
+    const email = vi.fn(async () => {})
+    const form = defineForm({
+      schema: v.pipe(v.object({ message: v.string() }), v.transform(() => output)),
+      onSubmit,
+      notify: { email: { to: "owner@example.com" } },
+    })
+    const response = await handleFormRequest("contact", form, request(), { store, email })
+    expect(response.status).toBe(201)
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expected }), expect.anything())
+    expect(email).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining(text) }))
+    expect((await store.list())[0]?.data).toEqual(expected)
+  })
+
+  it.each([
+    { name: "bigint", output: () => ({ value: 1n }) },
+    { name: "Date", output: () => ({ value: new Date("2026-01-01") }) },
+    { name: "Map", output: () => ({ value: new Map([["key", "value"]]) }) },
+    { name: "non-finite number", output: () => ({ value: Infinity }) },
+    { name: "undefined field", output: () => ({ value: undefined }) },
+    { name: "undefined output", output: () => undefined },
+    { name: "cycle", output: () => { const value: { self?: unknown } = {}; value.self = value; return value } },
+  ])("rejects transformed $name before hooks, email, or storage", async ({ output }) => {
+    const store = await create()
+    const onSubmit = vi.fn()
+    const email = vi.fn(async () => {})
+    const form = defineForm({
+      schema: v.pipe(v.object({ message: v.string() }), v.transform(() => output())),
+      onSubmit,
+      notify: { email: { to: "owner@example.com" } },
+    })
+    const response = await handleFormRequest("contact", form, request(), { store, email })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ issues: [{ path: [], message: expect.stringContaining("JSON") }] })
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(email).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+  })
+
   it("lists newest first, by form and status, and pages with before", async () => {
     const store = await create()
     for (const row of [submission("a", "contact", 1), submission("b", "contact", 2), submission("c", "feedback", 2), submission("d", "contact", 3)]) await store.insert(row)
