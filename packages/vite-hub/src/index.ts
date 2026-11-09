@@ -1361,7 +1361,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
   // The cache can enable KV through Vite's top-level config after plugin construction.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
-    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(presetKVOptions || undefined))
+    // hubKv() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, options.kv ? { hosting: plan.nitroPreset } : {}))
   }
   else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
@@ -1497,7 +1498,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   return plugins as PluginOption[]
 }
 
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
   return withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved))
 }
 
