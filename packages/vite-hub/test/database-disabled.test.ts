@@ -86,8 +86,8 @@ describe("vitehub() without database", () => {
     const plugins = [vitehub({ preset: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
-    const resolveId = guard?.resolveId
-    if (typeof resolveId !== "function") throw new TypeError("Expected the disabled Database guard.")
+    const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
+    if (!resolveId) throw new TypeError("Expected the disabled Database guard.")
     // SAFETY: The guard reads only the import source and importer.
     expect(resolveId.call({} as never, "vite-hub/database/drizzle", join(root, "src/server.ts"), {} as never)).toBeUndefined()
     expect((await runDb(root, plugins, ["db", "--help"])).stdout).toContain("generate")
@@ -101,8 +101,8 @@ describe("vitehub() without database", () => {
     const plugins = [vitehub({ preset: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
-    const resolveId = guard?.resolveId
-    if (typeof resolveId !== "function") throw new TypeError("Expected the disabled Database guard.")
+    const resolveId = guard?.resolveId && "handler" in guard.resolveId ? guard.resolveId.handler : undefined
+    if (!resolveId) throw new TypeError("Expected the disabled Database guard.")
     // SAFETY: The guard reads only the import source and importer.
     expect(resolveId.call({} as never, "vite-hub/database/drizzle", join(root, "src/server.ts"), {} as never)).toBeUndefined()
   })

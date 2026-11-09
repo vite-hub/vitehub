@@ -33,6 +33,7 @@ interface DatabasePlugin {
 export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, string>, explicitlyDisabled = false): Plugin & { vitehub: { cli: () => ViteHubCliContributor | undefined } } {
   let serverDirs: string[] | undefined
   let state: DisabledDatabaseState | undefined
+  const runtimeImportIds = new RegExp(`^(?:${[...runtimeImports.keys()].map(id => id.replace(/[$()*+.?[\\\]^{|}]/g, "\\$&")).join("|")})$`)
 
   return {
     name: "vite-hub/database-disabled",
@@ -52,12 +53,15 @@ export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, strin
         serverDirs,
       }
     },
-    resolveId(source, importer) {
-      const specifier = runtimeImports.get(source)
-      if (!specifier || !state || hasDatabasePlugin(state)) return
-      throw viteHubErrorDiagnostics.VITE_HUB_B0013({
-        message: `[vitehub] Database is disabled but ${importer ? JSON.stringify(importer) : "the application"} imports ${JSON.stringify(specifier)}. ${enableDatabase}`,
-      })
+    resolveId: {
+      filter: { id: runtimeImportIds },
+      handler(source, importer) {
+        const specifier = runtimeImports.get(source)
+        if (!specifier || !state || hasDatabasePlugin(state)) return
+        throw viteHubErrorDiagnostics.VITE_HUB_B0013({
+          message: `[vitehub] Database is disabled but ${importer ? JSON.stringify(importer) : "the application"} imports ${JSON.stringify(specifier)}. ${enableDatabase}`,
+        })
+      },
     },
     vitehub: {
       cli: () => {
