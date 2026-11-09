@@ -1,5 +1,5 @@
 import type { AnchorPosition, CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, shallowRef, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, type PropType, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
@@ -215,6 +215,24 @@ export const CommentLayer = defineComponent({
     );
     // The height of a new comment's bubble, with its gap to the box under it.
     const draftAboveRoom = 72;
+    // The card of a new comment grows with its text. When a card above its area reaches the top of the screen, it opens
+    // under the area instead, until the next draft.
+    const draftCard = ref<HTMLElement | null>(null);
+    const draftBelow = ref(false);
+    watch(() => state.draft.value, (next, previous) => {
+      if (next !== previous) draftBelow.value = false;
+    });
+    const fits = typeof ResizeObserver === "function"
+      ? new ResizeObserver(() => {
+          const card = draftCard.value;
+          if (card?.parentElement?.hasAttribute("data-above") && card.getBoundingClientRect().top < 8) draftBelow.value = true;
+        })
+      : undefined;
+    watch(draftCard, (card, previous) => {
+      if (previous) fits?.unobserve(previous);
+      if (card) fits?.observe(card);
+    });
+    onBeforeUnmount(() => fits?.disconnect());
     // `--vh-comment-x` lets the card move back on screen when the screen is narrower than the card.
     const place = ({ x, y }: { x: number; y: number }) => ({ left: `${x}px`, top: `${y}px`, "--vh-comment-x": `${x}px` });
     const side = (x: number, y: number) => ({
@@ -321,7 +339,7 @@ export const CommentLayer = defineComponent({
               {
                 ...side(point.x, point.y),
                 // A new comment on an area opens above it, so the box stays in view while the person types.
-                ...(draft.anchor.kind === "area" || draft.anchor.kind === "image") && point.y > draftAboveRoom ? { "data-above": "true" } : {},
+                ...(draft.anchor.kind === "area" || draft.anchor.kind === "image") && point.y > draftAboveRoom && !draftBelow.value ? { "data-above": "true" } : {},
                 "data-draft": "true",
                 "data-kind": draft.anchor.kind,
                 "data-slot": "comment-layer-item",
@@ -331,7 +349,7 @@ export const CommentLayer = defineComponent({
                 h(CommentPin, { author: user.value, draft: true }),
                 h(
                   "div",
-                  { "data-slot": "comment-layer-popover" },
+                  { "data-slot": "comment-layer-popover", ref: draftCard },
                   h(CommentComposer, {
                     accept: props.accept,
                     attachments: attachmentsOn.value,

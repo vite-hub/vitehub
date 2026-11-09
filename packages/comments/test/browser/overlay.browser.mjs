@@ -167,6 +167,22 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal((await api.threads()).length, 2)
   })
 
+  await t.test("a new area comment that grows past the top of the screen moves under its area", async () => {
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
+    const box = await page.locator("#second").boundingBox()
+    await drag(page, { x: box.x + 300, y: box.y + 4 }, { x: box.x + 500, y: box.y + box.height - 4 })
+    await composer.waitFor({ timeout: 5000 })
+    const card = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
+    assert.equal(await page.locator("vitehub-comments [data-slot='comment-layer-item'][data-draft='true']").getAttribute("data-above"), "true")
+    await composer.fill(Array.from({ length: 9 }, (_, line) => `Line ${line + 1}`).join("\n"))
+    await page.waitForTimeout(200)
+    assert.ok((await card.boundingBox()).y >= 0, `the card starts at ${(await card.boundingBox()).y}`)
+    await composer.press("Escape")
+    await composer.press("Escape")
+    await composer.waitFor({ state: "detached", timeout: 5000 })
+  })
+
   await t.test("Enter comments on the focused element, and the focus goes back to it after the comment", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
