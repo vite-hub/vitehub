@@ -716,9 +716,11 @@ describe("hubBlob", () => {
       await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
       const middleware = join(root, ".vitehub/nitro/blob/middleware.ts")
       const nitroEntry = fileURLToPath(import.meta.resolve("nitro"))
+      // The generated middleware imports the Blob runtime state by file path.
+      const runtimeState = join(import.meta.dirname, "../dist/runtime/state.js")
       const result = await bundle({
         stdin: {
-          contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from '@vite-hub/blob/runtime/state'`,
+          contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from ${JSON.stringify(runtimeState)}`,
           resolveDir: root,
         },
         alias: { nitro: nitroEntry, h3: fileURLToPath(import.meta.resolve("h3")) },
@@ -730,7 +732,8 @@ describe("hubBlob", () => {
         plugins: [{
           name: "cloudflare-middleware-boundaries",
           setup(build) {
-            build.onResolve({ filter: /^(cloudflare:workers|@vite-hub\/blob\/runtime\/state)$/ }, args => ({ path: args.path, namespace: "middleware-test" }))
+            build.onResolve({ filter: /^cloudflare:workers$/ }, args => ({ path: args.path, namespace: "middleware-test" }))
+            build.onResolve({ filter: /runtime[\\/]state\.js$/ }, args => args.path === runtimeState ? { path: "runtime-state", namespace: "middleware-test" } : undefined)
             build.onLoad({ filter: /.*/, namespace: "middleware-test" }, args => ({
               resolveDir: root,
               contents: args.path === "cloudflare:workers"
@@ -1435,12 +1438,12 @@ describe("hubBlob", () => {
     })
   })
 
-  it("uses a configured package base in physical Nitro imports", async () => {
+  it("imports the public root through the package base and its runtime state by file path", async () => {
     const root = await temporaryDirectory("vitehub-blob-import-base-")
     const plugin = hubBlob({
       driver: "fs",
       serve: true,
-    }, { importBase: "vite-hub/_internal/blob" })
+    }, { importBase: "vite-hub/blob" })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
     await configResolved({
@@ -1451,9 +1454,10 @@ describe("hubBlob", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
-    expect(nitroPlugin).toContain("from 'vite-hub/_internal/blob/runtime/state'")
-    expect(middleware).toContain("from 'vite-hub/_internal/blob/runtime/state'")
-    expect(handler).toContain("from 'vite-hub/_internal/blob'")
+    const runtimeState = JSON.stringify(join(import.meta.dirname, "../dist/runtime/state.js"))
+    expect(nitroPlugin).toContain(`from ${runtimeState}`)
+    expect(middleware).toContain(`from ${runtimeState}`)
+    expect(handler).toContain("from 'vite-hub/blob'")
     expect(`${nitroPlugin}\n${middleware}\n${handler}`).not.toContain("@vite-hub/blob")
   })
 })

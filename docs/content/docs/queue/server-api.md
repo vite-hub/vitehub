@@ -25,7 +25,7 @@ Application code imports from `vite-hub/queue` after enabling `queue: true` in t
 | `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `vite-hub/queue` | Inspect provider-derived names. Do not persist these names as application identifiers. |
 | `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `vite-hub/queue` | Host adapter helpers used by generated Provider Output. Install `@vercel/functions` when you import the Vercel-specific runtime. |
 
-Queue option, client, job, provider, registry, and result types are exported from `vite-hub/queue`. For advanced owner-package composition, `@vite-hub/queue` exposes the same APIs, with `hubQueue` from `@vite-hub/queue/vite`. The framework distribution configures this integration for applications, and Nuxt apps use `vite-hub/nuxt`. Generated output uses the specific `@vite-hub/queue/internal/runtime/*` subpaths listed in the package exports; do not import those runtime modules from application code.
+Queue option, client, job, provider, registry, and result types are exported from `vite-hub/queue`. For advanced owner-package composition, `@vite-hub/queue` exposes the same APIs, with `hubQueue` from `@vite-hub/queue/vite`. The framework distribution configures this integration for applications, and Nuxt apps use `vite-hub/nuxt`. Generated output imports the Queue runtime modules by file path. They are not package exports.
 
 ## Queue job
 

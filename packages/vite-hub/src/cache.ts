@@ -1,5 +1,3 @@
-import { fileURLToPath } from "node:url"
-
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { DeploymentPreset } from "./index.ts"
@@ -16,10 +14,8 @@ export type CacheOptions =
 
 type CacheDriver = Exclude<CacheOptions["driver"], "kv">
 
-/** Unstorage driver that `{ driver: "kv" }` mounts. It runs over `kv` from `vite-hub/kv`. */
-// Resolve before Nitro applies prefix aliases such as `vite-hub/_internal/kv` to a file.
-const kvCacheDriver: string = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
-type KVCacheMount = { driver: typeof kvCacheDriver, base: string }
+/** `{ driver: "kv" }` mounts the KV package's unstorage driver by file path. It runs over `kv` from `vite-hub/kv`. */
+type KVCacheMount = { driver: string, base: string }
 
 export interface ResolvedCacheStorage {
   /** Nitro cache mount for production output. */
@@ -74,10 +70,10 @@ function readCacheDriver(cache: true | CacheOptions, preset: DeploymentPreset): 
 }
 
 /** Resolve `cache` into Nitro storage mounts for one deployment preset. */
-export function resolveCacheStorage(cache: true | CacheOptions, preset: DeploymentPreset, kvEnabled = false): ResolvedCacheStorage {
+export function resolveCacheStorage(cache: true | CacheOptions, preset: DeploymentPreset, kvCacheDriver?: string): ResolvedCacheStorage {
   // KV runs on every host, so this driver needs `kv` instead of a preset.
   if (isPlainObject(cache) && cache.driver === "kv") {
-    if (!kvEnabled) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
+    if (!kvCacheDriver) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
     const mount: KVCacheMount = { base: trimmed(cache.base) ?? "nitro-cache", driver: kvCacheDriver }
     return { devStorage: mount, storage: mount }
   }
