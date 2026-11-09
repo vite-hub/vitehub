@@ -28,8 +28,7 @@ export const formSubmissions = sqliteTable("vitehub_form_submissions", {
 /** The tables of Forms, for `defineDatabase({ schema })` or a Database contribution. */
 export const formsSchema = { formSubmissions }
 
-/** The schema keys of `formsSchema` and their SQL names. */
-export const formsTableNames: Readonly<Record<string, string>> = { formSubmissions: "vitehub_form_submissions" }
+export { formsTableNames } from "./table-names.ts"
 
 /** The tables of `formsSchema` as SQLite statements that are safe to run on every start. */
 export const formsTables: readonly string[] = [
