@@ -896,9 +896,6 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
-      '@yarnpkg/parsers':
-        specifier: catalog:tooling
-        version: 3.1.0
       ai:
         specifier: catalog:ai
         version: 7.0.130(zod@4.6.7)
@@ -932,9 +929,6 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-      yaml:
-        specifier: catalog:tooling
-        version: 2.9.1
     devDependencies:
       '@agntn/web':
         specifier: catalog:ai
@@ -2471,9 +2465,18 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
+      '@yarnpkg/parsers':
+        specifier: catalog:tooling
+        version: 3.1.0
+      comark:
+        specifier: catalog:markdown
+        version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.1
     devDependencies:
       '@libsql/client':
         specifier: catalog:database

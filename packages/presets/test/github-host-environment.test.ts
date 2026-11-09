@@ -12,7 +12,7 @@ vi.mock("node:child_process", async () => {
   };
 });
 
-import { createGitHubHost } from "../src/server/github-host.ts";
+import { createGitHubHost } from "../src/github/host.ts";
 
 it("isolates provider credentials and git directories across concurrent checkouts", async () => {
   let token = 0

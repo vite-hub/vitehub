@@ -398,11 +398,6 @@
       "import": "./dist/agent/server.js",
       "default": "./dist/agent/server.js"
     },
-    "./agent/server/github": {
-      "types": "./dist/agent/server/github.d.ts",
-      "import": "./dist/agent/server/github.js",
-      "default": "./dist/agent/server/github.js"
-    },
     "./agent/state/sqlite": {
       "types": "./dist/agent/state/sqlite.d.ts",
       "import": "./dist/agent/state/sqlite.js",

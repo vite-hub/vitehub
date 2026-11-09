@@ -1,8 +1,9 @@
+import { agentInvocationId, type AgentRunMetadata } from "@vite-hub/agent"
 import * as v from "valibot"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
 import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
-import type { GitHubHost } from "./github-host.ts";
+import type { GitHubHost } from "./host.ts";
 
 export type PullRequestFeedback = {
   comments: string;
@@ -306,8 +307,7 @@ export async function createGitHubPullRequestRun(
   repository: string,
   pullRequest: Pick<PullRequest, 'number' | 'headRefOid' | 'title' | 'url'>,
   options: { agentName: string, runId: string, publicUrl?: string },
-): Promise<import('../types.ts').AgentRunMetadata> {
-  const { agentInvocationId } = await import('../invocations.ts')
+): Promise<AgentRunMetadata> {
   const publicUrl = options.publicUrl ?? resolvePublicUrl({ agentName: options.agentName })
   const sessionUrl = publicUrl
     ? consoleInvocationUrl(publicUrl, options.agentName, await agentInvocationId(options.runId, options.agentName))

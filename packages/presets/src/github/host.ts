@@ -1,5 +1,5 @@
-import { github, type GitHubChannelOptions } from '../channels.ts'
-import type { AgentChannelDefinition } from '../types.ts'
+import { github, type GitHubChannelOptions } from '@vite-hub/agent/channels'
+import type { AgentChannelDefinition } from '@vite-hub/agent'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -10,9 +10,8 @@ import { promisify } from "node:util"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
-import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
-import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./github-repair.ts"
+import { prepareGitHubPullRequestWorkspace } from "./checkout.ts"
+import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
 const exec = promisify(execFile)
 const rateLimitLimit = 256
@@ -121,7 +120,7 @@ function secret(value: GitHubHostSecret | undefined): string | undefined {
 
 function positiveInteger(value: string, name: string): number {
   const number = Number(value)
-  if (!Number.isSafeInteger(number) || number <= 0) throw agentDiagnostics.AGENT_R0748({ message: `${name} must be a positive integer.` })
+  if (!Number.isSafeInteger(number) || number <= 0) throw new TypeError(`${name} must be a positive integer.`)
   return number
 }
 
@@ -172,8 +171,8 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
       identity ??= (async () => {
         const { id: appId, login } = await client.app().catch((error: unknown) => {
           const status = forgeErrorStatus(error)
-          if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App request /app failed with ${status}.`, cause: error })
-          if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0757({ message: error.message, cause: error })
+          if (status !== undefined) throw new Error(`GitHub App request /app failed with ${status}.`, { cause: error })
+          if (error instanceof ForgeResponseError) throw new Error(error.message, { cause: error })
           throw error
         })
         const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
@@ -279,7 +278,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   function fallbackToken(config: GitHubHostCredentials): string {
     const configured = secret(config.token)?.trim()
-    if (!configured) throw agentDiagnostics.AGENT_R0751({ message: "GitHub authentication is not configured. Set VITEHUB_GITHUB_TOKEN or GitHub App credentials." })
+    if (!configured) throw new Error("GitHub authentication is not configured. Set VITEHUB_GITHUB_TOKEN or GitHub App credentials.")
     return configured
   }
 
@@ -295,8 +294,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     let credentialKey: string
 
     if (appValues.some(Boolean)) {
-      if (!appValues.every(Boolean)) throw agentDiagnostics.AGENT_R0755({ message: "GitHub App appId, installationId, and privateKey must be configured together." })
-      if (!appOwner) throw agentDiagnostics.AGENT_R0756({ message: "GitHub App owner must be configured with App credentials." })
+      if (!appValues.every(Boolean)) throw new Error("GitHub App appId, installationId, and privateKey must be configured together.")
+      if (!appOwner) throw new Error("GitHub App owner must be configured with App credentials.")
       if (input.fallback || (repositoryOwner && repositoryOwner !== appOwner)) {
         token = fallbackToken(config)
         credentialKey = tokenKey(token)
@@ -312,8 +311,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         catch (error) {
           if (input.signal?.aborted) throw abortError(input.signal.reason)
           const status = forgeErrorStatus(error)
-          if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App token request failed with ${status}.`, cause: error })
-          if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token.", cause: error })
+          if (status !== undefined) throw new Error(`GitHub App token request failed with ${status}.`, { cause: error })
+          if (error instanceof ForgeResponseError) throw new Error("GitHub App token response did not include a token.", { cause: error })
           throw error
         }
       }
@@ -385,14 +384,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     run: (checkout: GitHubHostCheckout) => Promise<T>,
     options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
-    if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headSha must be a full Git commit SHA." })
+    if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw new Error("A pull request headSha must be a full Git commit SHA.")
     for (const repository of [pullRequest.repository, pullRequest.headRepository]) {
       if (repository !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repository)) {
-        throw agentDiagnostics.AGENT_R0766({ message: "Expected a GitHub repository in owner/name form." })
+        throw new Error("Expected a GitHub repository in owner/name form.")
       }
     }
     if (pullRequest.headRepository && !pullRequest.headRef) {
-      throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." })
+      throw new Error("A pull request headRef is required when headRepository is supplied.")
     }
     const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
     const checkoutIdentity = await lstat(checkout, { bigint: true })
@@ -451,7 +450,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const commandOptions = { env, maxBuffer, signal: operation.signal }
       if (pullRequest.headRef) {
         await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions)
-        if (pullRequest.headRef.startsWith("-")) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef cannot start with a dash." })
+        if (pullRequest.headRef.startsWith("-")) throw new Error("A pull request headRef cannot start with a dash.")
       }
       // Provider workspaces must be self-contained. A blobless partial clone
       // defers file objects to a lazy network fetch, which is unavailable to
@@ -474,11 +473,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         : "disabled://pull-request-head-repository-unavailable"
       await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], commandOptions)
       if (pullRequest.headRepository) {
-        if (!pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." })
+        if (!pullRequest.headRef) throw new Error("A pull request headRef is required when headRepository is supplied.")
         await exec("git", ["-C", checkout, "config", "remote.origin.push", `HEAD:refs/heads/${pullRequest.headRef}`], commandOptions)
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
-      if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
+      if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
       operation.signal.throwIfAborted()
       const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean } = {}) => await prepareGitHubPullRequestWorkspace(checkout, target, { ...options, signal: operation.signal })
       let pushHead = pullRequest.headSha
@@ -487,7 +486,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         const signal = options.signal ? AbortSignal.any([operation.signal, options.signal]) : operation.signal
         signal.throwIfAborted()
         const expectedHead = pushHead
-        if (!pullRequest.headRepository || !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "Pull request source repository and branch are required to push." })
+        if (!pullRequest.headRepository || !pullRequest.headRef) throw new Error("Pull request source repository and branch are required to push.")
         const readEnv = { ...process.env }
         delete readEnv.GH_TOKEN
         delete readEnv.GITHUB_TOKEN
@@ -500,9 +499,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         readEnv.GIT_CONFIG_GLOBAL = "/dev/null"
         const readOptions = { env: readEnv, maxBuffer, signal }
         const root = (await exec("git", ["-C", target, "rev-parse", "--show-toplevel"], readOptions)).stdout.trim()
-        if (await realpath(root) !== await realpath(target)) throw agentDiagnostics.AGENT_R0766({ message: "Push target must be the root of its prepared Git checkout." })
+        if (await realpath(root) !== await realpath(target)) throw new Error("Push target must be the root of its prepared Git checkout.")
         const head = (await exec("git", ["-C", target, "rev-parse", "HEAD"], readOptions)).stdout.trim()
-        if (!/^[a-f0-9]{40}$/i.test(head)) throw agentDiagnostics.AGENT_R0766({ message: "Push target did not return a full Git commit SHA." })
+        if (!/^[a-f0-9]{40}$/i.test(head)) throw new Error("Push target did not return a full Git commit SHA.")
         if (await realpath(target) !== await realpath(checkout)) {
           // Import without host credentials. Authenticated Git only reads our trusted clone's config.
           await exec("git", ["-C", checkout, "-c", "protocol.file.allow=always", "-c", "uploadpack.packObjectsHook=", "fetch", "--no-tags", "--", await realpath(target), head], readOptions)

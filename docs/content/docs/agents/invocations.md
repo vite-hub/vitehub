@@ -349,8 +349,6 @@ For journal recovery after a process restart, see [Recover interrupted Invocatio
 
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
 
-For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` exposes `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and does not retain disposable checkouts.
-
 An expired execution lease does not prove that its Driver stopped. Cancellation of an unowned running Invocation remains a durable request until the execution owner observes it.
 
 Cancellation of an unowned pending Invocation remains a durable request. A later worker reads the request before starting its Driver and records cancellation. Pending journal status alone does not prove that an earlier Driver never started.

@@ -610,11 +610,6 @@
     "error": "TS2339 Property 'tenantId' does not exist on type '{}'.\nTS2339 Property 'token' does not exist on type '{}'.\nTS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'.\nTS2344 Type '{ token: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
   },
   {
-    "id": "packages/agent/README.md#f017c18ce15f",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'checkRuns'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'headSha'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'statuses'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'createGitHubRequiredCheckPolicyReader'.\nTS2304 Cannot find name 'evaluateGitHubRequiredChecks'.\nTS2304 Cannot find name 'github'.\nTS7006 Parameter 'branch' implicitly has an 'any' type.\nTS7006 Parameter 'repository' implicitly has an 'any' type."
-  },
-  {
     "id": "packages/auth/README.md#73fb174ae71d",
     "label": null,
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."

@@ -34,7 +34,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
-| `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
 | `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
 | `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
 | `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
@@ -337,11 +336,3 @@ composition and the owner-package paths above for advanced integration control.
 - [File conventions](/docs/reference/file-conventions)
 - [Package reference](/docs/reference)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-
-`@vite-hub/agent/server/github` also exports
-`createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`.
-These inspect active rulesets and classic required-check protection, preserve App
-bindings, and classify complete check evidence for an exact head. Unknown policy
-is distinct from a known policy with no required checks. Cached results are for
-scheduling and inspection, not merge authorization. Invalidate the policy reader
-after branch-protection or ruleset changes.

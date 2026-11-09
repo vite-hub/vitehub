@@ -3,7 +3,7 @@ import {
   createGitHubPullRequestRun,
   createGitHubPullRequests,
   pullRequestCheckState,
-} from "../src/server/github-pull-requests.ts";
+} from "../src/github/pull-requests.ts";
 import { githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts";
 
 const connection = <T>(nodes: T[] = []) => ({
@@ -33,7 +33,7 @@ async function host(node: unknown = feedback(), pullRequest: unknown = snapshot,
 
 describe("GitHub pull request snapshots", () => {
   it("links non-slug Agent names to the Console invocation", async () => {
-    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { agentInvocationId } = await import("@vite-hub/agent")
     const run = await createGitHubPullRequestRun("acme/app", snapshot, {
       agentName: "team/support",
       publicUrl: "https://agent.example.test",
@@ -47,7 +47,7 @@ describe("GitHub pull request snapshots", () => {
   })
 
   it("defaults the session link to vitehub({ publicUrl })", async () => {
-    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { agentInvocationId } = await import("@vite-hub/agent")
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { babysitter: "https://agents.example.test" } })
     try {
       const linked = await createGitHubPullRequestRun("acme/app", snapshot, { agentName: "babysitter", runId: "delivery-2" })
