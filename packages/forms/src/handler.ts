@@ -50,7 +50,7 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     ...(options.honeypot !== undefined ? { honeypot: options.honeypot } : {}),
     ...(options.maxBytes ? { maxBytes: options.maxBytes } : {}),
     ...(options.rateLimit !== undefined ? { rateLimit: options.rateLimit } : {}),
-    // Before the rate limit and the body: a refused sender uses no budget, and `authorize` can still read the body.
+    // Before the rate limit and body parsing: a refused sender uses no budget, and `authorize` can read the bounded body.
     check: async (incoming) => {
       caller.user = services.identify ? await services.identify(incoming) : null
       if (!options.authorize || await options.authorize({ request: incoming, user: caller.user })) return undefined

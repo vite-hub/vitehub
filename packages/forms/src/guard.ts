@@ -25,10 +25,10 @@ function bodyKind(request: Request): BodyKind | undefined {
 }
 
 /** Reads at most `limit` bytes, so a large body without `content-length` stops early. */
-async function readText(request: Request, limit: number): Promise<string | undefined> {
+async function readBytes(request: Request, limit: number) {
   const declared = Number(request.headers.get("content-length") ?? 0)
   if (declared > limit) return undefined
-  if (!request.body) return ""
+  if (!request.body) return new Uint8Array()
   const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
   let size = 0
@@ -37,7 +37,7 @@ async function readText(request: Request, limit: number): Promise<string | undef
     if (done) break
     size += value.byteLength
     if (size > limit) {
-      // Not awaited: with a copy of the request, the cancel settles only when the copy is done too.
+      // Do not wait for another branch when the host supplied a cloned request.
       reader.cancel().catch(() => {})
       return undefined
     }
@@ -49,7 +49,7 @@ async function readText(request: Request, limit: number): Promise<string | undef
     bytes.set(chunk, offset)
     offset += chunk.byteLength
   }
-  return new TextDecoder().decode(bytes)
+  return bytes
 }
 
 async function readBody(request: Request, kind: BodyKind, text: string): Promise<Record<string, unknown> | undefined> {
@@ -139,9 +139,9 @@ export interface GuardRequestOptions {
   /** Default `{ limit: 5, window: "1m" }`. `false` turns it off. */
   rateLimit?: FormRateLimit | false
   /**
-   * Access checks of the app, such as sign-in. They run after the origin check and before the rate limit and the body,
-   * so a refused request uses no rate budget. The check gets a copy of the request, so it can read the body. Return a status and a message to
-   * stop the request.
+   * Access checks of the app, such as sign-in. They run after the origin and body size checks, before the rate limit
+   * and body parsing, so a refused request uses no rate budget. The check gets a copy with the bounded body, so it can
+   * read the body. Return a status and a message to stop the request.
    */
   check?: (request: Request) => Promise<{ status: number, message: string } | undefined> | { status: number, message: string } | undefined
 }
@@ -163,7 +163,7 @@ export interface GuardedRequest {
 
 /**
  * The checks of a public write, before the app reads the body: `POST`, a JSON, URL-encoded, or multipart body, the
- * origin, the `check` of the app, the rate limit, the size, and the honeypot. Returns `[response]` when a check stops the request, else
+ * origin, the size, the `check` of the app, the rate limit, and the honeypot. Returns `[response]` when a check stops the request, else
  * `[undefined, guarded]`. A filled honeypot answers like a success, so a bot does not try again.
  */
 export async function guardRequest(request: Request, options: GuardRequestOptions, services: GuardRequestServices = {}): Promise<[Response, undefined] | [undefined, GuardedRequest]> {
@@ -176,21 +176,17 @@ export async function guardRequest(request: Request, options: GuardRequestOption
   const html = wantsPage(request, kind)
   // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
   const stop = (status: number, message: string, headers?: Record<string, string>): [Response, undefined] => [html ? back(request, appPath(undefined, request), "error") : fail(status, message, headers), undefined]
-  // A copy, so the check can read the body and the guard still reads it after. A copy that the check did not read is
-  // cancelled, else cancelling the guard's own read of a large body waits for it.
-  const copy = options.check ? request.clone() : undefined
-  const refused = copy ? await options.check?.(copy) : undefined
-  // Not awaited: a branch of a tee settles its cancel only when the other branch is done too.
-  if (copy?.body && !copy.bodyUsed && !copy.body.locked) copy.body.cancel().catch(() => {})
+  const bytes = await readBytes(request, options.maxBytes ?? defaultMaxBytes)
+  if (bytes === undefined) return stop(413, "The message is too large.")
+  // Bound the raw bytes before a callback can consume them. Keep the bytes intact for native body readers.
+  const refused = await options.check?.(new Request(request, { method: "POST", body: bytes }))
   if (refused) return stop(refused.status, refused.message)
   const rateLimit = options.rateLimit === false ? undefined : options.rateLimit ?? defaultRateLimit
   if (rateLimit && services.rateLimit) {
     const decision = await services.rateLimit(request, options.key, rateLimit)
     if (!decision.allowed) return stop(429, "Too many messages. Try again later.", decision.retryAfter ? { "retry-after": String(Math.ceil(decision.retryAfter)) } : undefined)
   }
-  const text = await readText(request, options.maxBytes ?? defaultMaxBytes)
-  if (text === undefined) return stop(413, "The message is too large.")
-  const raw = await readBody(request, kind, text)
+  const raw = await readBody(request, kind, new TextDecoder().decode(bytes))
   if (!raw) return stop(400, "The body is not a form.")
   const page = appPath(raw[pageField], request)
   const honeypot = options.honeypot === false ? undefined : options.honeypot ?? "website"

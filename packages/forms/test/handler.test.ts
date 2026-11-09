@@ -133,6 +133,33 @@ describe("handleFormRequest", () => {
     expect((await ada.store.list())[0]?.user).toEqual({ id: "ada", name: "Ada" })
   })
 
+  it.each(["identify", "authorize"])("bounds the body before %s can read it, without using rate budget", async (consumer) => {
+    const read = vi.fn(async (request: Request) => request.text())
+    const form = defineForm({
+      schema: v.object({ text: v.string() }),
+      maxBytes: 2048,
+      authorize: async ({ request }) => {
+        if (consumer === "authorize") await read(request)
+        return false
+      },
+    })
+    const rateLimit = vi.fn(async () => ({ allowed: true }))
+    const { store, all } = services({
+      identify: async (request) => {
+        if (consumer === "identify") await read(request)
+        return null
+      },
+      rateLimit,
+    })
+    expect((await handleFormRequest("issue", form, post({ text: "x".repeat(8192) }), all)).status).toBe(413)
+    expect(read).not.toHaveBeenCalled()
+    expect(rateLimit).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+    expect((await handleFormRequest("issue", form, post({ text: "Hi" }), all)).status).toBe(401)
+    expect(read).toHaveBeenCalledOnce()
+    expect(rateLimit).not.toHaveBeenCalled()
+  })
+
   it("answers with the Response that onSubmit returns and stores nothing", async () => {
     const form = defineForm({
       schema: v.object({ target: v.string() }),
