@@ -43,11 +43,11 @@
   "devDependencies": {
     "@chat-adapter/slack": "catalog:chat",
     "@iconify-json/lucide": "catalog:ui",
-    "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
     "@takumi-rs/core": "catalog:nuxt",
     "@types/node": "catalog:tooling",
+    "comark-chips": "^0.9.1",
     "playwright-core": "catalog:browser",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

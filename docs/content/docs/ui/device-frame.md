@@ -8,7 +8,7 @@ icon: i-ph-device-mobile-light
 
 `DeviceFrame` shows its content at a device's size, after Chrome's device toolbar and Firefox's responsive mode. The page gets exactly that many CSS pixels, so its media queries see a phone. It sits centered on a muted stage and fits the pane, scaled down but never up, as in T3 Code's preview. Off, the content fills the frame.
 
-::component-preview{name="DeviceFrameExample"}
+::example{name="DeviceFrameExample" flush height=32}
 ::
 
 ## Installation

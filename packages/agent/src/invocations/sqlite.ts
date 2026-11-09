@@ -283,13 +283,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     }
     return statements
   }
-  /** Reads the observation rows of one invocation in the order that they extend its record. */
+  // Unary + sorts the selected rows instead of scanning payloads through the position index.
   const observationRowsStatement = (id: string, observationNames?: string): InStatement => ({
     args: observationNames === undefined ? [id] : [id, observationNames],
     sql: `SELECT position, observation FROM ${observationTable}
       WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === undefined
         ? ""
-        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`,
+        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === undefined ? "position" : "+position"}`,
   })
   let initialized: Promise<void> | undefined
   /** The database file. Set by initialize() when maxSize is set. */
@@ -738,6 +738,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       )`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
         ON ${observationTable} (invocation_sequence, position)`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`)
       // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
         AFTER DELETE ON ${table}

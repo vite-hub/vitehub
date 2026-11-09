@@ -10,17 +10,16 @@ describe("docs color mode", () => {
     expect(header).toContain("<UColorModeButton");
   });
 
-  it("defines browser schemes and the design's dark palette", async () => {
-    const styles = await readFile(new URL("theme/design.css", packageRuntime), "utf8");
-    const lightRule = styles.match(/:root\.light \{(?<body>[^}]+)\}/)?.groups?.body;
-    const darkRule = styles.match(/:root\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
+  it("takes the browser schemes and the dark palette from the shared theme", async () => {
+    const theme = await readFile(new URL("../../packages/ui/theme.css", import.meta.url), "utf8");
+    const design = await readFile(new URL("theme/design.css", packageRuntime), "utf8");
+    const darkRule = theme.match(/:root\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
 
-    expect(lightRule).toContain("color-scheme: light");
+    expect(theme).toMatch(/:root \{[^}]*color-scheme: light/);
     expect(darkRule).toContain("color-scheme: dark");
-    expect(darkRule).toContain("--ui-bg: oklch(0.145 0 0)");
-    expect(darkRule).toContain("--ui-bg-elevated: oklch(0.22 0 0)");
-    expect(darkRule).toContain("--ui-border: oklch(0.26 0 0)");
-    expect(darkRule).toContain("--ui-text: oklch(0.87 0 0)");
-    expect(darkRule).toContain("--ui-text-highlighted: oklch(0.96 0 0)");
+    expect(darkRule).toContain("--ui-bg:");
+    expect(darkRule).toContain("--ui-text-highlighted:");
+    // The docs design lays the page out and leaves every color to the theme.
+    expect(design).not.toMatch(/--ui-(bg|text|border)[\w-]*:/);
   });
 });

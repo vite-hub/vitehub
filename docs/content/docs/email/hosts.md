@@ -28,6 +28,46 @@ By default a dev send stays in the outbox. The provider gets no request, `email.
 
 Set `remote: true` in the Email config to send real email from `vite dev`. The outbox records each message and then sends it through the provider. The first send prints `` [vitehub] Email is remote: `vite dev` sends real email through resend. `` Builds ignore `remote`, so the build output does not change.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    email: {
+      driver: 'resend',
+      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
+      remote: true,
+      outbox: { limit: 100 },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    email: {
+      driver: 'resend',
+      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
+      remote: true,
+      outbox: { limit: 100 },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -44,6 +84,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |

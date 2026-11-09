@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { BrowserSupportNotice } from "@vite-hub/ui/browser-support-notice";
 import { checkWebContainerSupport } from "@vite-hub/web-container";
-import { useClipboard, useMediaQuery } from "@vueuse/core";
+import { useMediaQuery } from "@vueuse/core";
+import { CopyButton } from "@vite-hub/ui/copy-button";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import TutorialCodePre from "~/components/tutorial/TutorialCodePre.vue";
-import { splitTutorialDocument } from "~/utils/runnable-tutorial";
+import { frameworkNodes, splitTutorialDocument } from "~/utils/runnable-tutorial";
 import { tutorialActionsKey } from "~/utils/tutorial-actions";
 
 import type { DocsPageResponse } from "@vite-hub/docs";
@@ -21,7 +22,8 @@ if (!tutorial) throw createError({ statusCode: 404, statusMessage: "Tutorial not
 
 const { data } = await useFetch<DocsPageResponse>(`/api/_docs/page${tutorial.page}.json`, { key: `docs:${tutorial.page}` });
 if (!data.value) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
-const lesson = splitTutorialDocument(data.value.document.nodes);
+// The workspace is a Vite app, so the lesson shows the Vite tab of every framework tabs block.
+const lesson = splitTutorialDocument(frameworkNodes(data.value.document.nodes, "Vite"));
 const total = tutorial.steps.length;
 
 useSeoMeta({ title: tutorial.title, ogTitle: tutorial.title, description: tutorial.description, ogDescription: tutorial.description });
@@ -123,7 +125,6 @@ function key(event: KeyboardEvent) {
   event.preventDefault();
 }
 
-const { copy, copied } = useClipboard({ copiedDuring: 1500 });
 const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 </script>
 
@@ -139,8 +140,8 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
           <span class="text-muted">Step {{ step + 1 }} of {{ total }} · </span>
           <span class="font-medium text-highlighted">{{ tutorial.steps[step]?.title }}</span>
         </p>
-        <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
-        <UButton v-if="step < total - 1" size="sm" color="neutral" trailing-icon="i-lucide-arrow-right" label="Next" @click="step = step + 1" />
+        <UButton variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
+        <UButton v-if="step < total - 1" trailing-icon="i-lucide-arrow-right" label="Next" @click="step = step + 1" />
       </header>
 
       <div class="vh-run-prose">
@@ -156,8 +157,8 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         <aside class="vh-run-mobile" aria-labelledby="vh-run-mobile-title">
           <p id="vh-run-mobile-title" class="text-sm text-highlighted">This tutorial has a live workspace. Open it on a desktop to edit and run the code.</p>
           <div class="mt-3 flex flex-wrap gap-2">
-            <UButton size="sm" color="neutral" variant="outline" :icon="copied ? 'i-lucide-check' : 'i-lucide-link'" :label="copied ? 'Copied' : 'Copy link'" @click="copy(`${site.url}${route.fullPath}`)" />
-            <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-download" label="Download starter" :to="starter" external download />
+            <CopyButton :value="`${site.url}${route.fullPath}`" icon="i-lucide-link" label="Copy link" variant="outline" />
+            <UButton variant="outline" icon="i-lucide-download" label="Download starter" :to="starter" external download />
           </div>
         </aside>
 
@@ -167,7 +168,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
           </div>
           <div v-else class="vh-run-open">
             <p class="text-sm text-muted">Edit and run the code of each step in your browser.{{ tutorial.snapshot ? "" : " The first start installs the app, which takes a few minutes." }}</p>
-            <UButton class="mt-3" color="neutral" icon="i-lucide-play" label="Open workspace" @click="opened = true" />
+            <UButton class="mt-3" icon="i-lucide-play" label="Open workspace" @click="opened = true" />
           </div>
         </div>
 
@@ -177,9 +178,9 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         </UPageBody>
 
         <nav class="vh-run-footer" aria-label="Steps">
-          <UButton color="neutral" variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
-          <UButton v-if="step < total - 1" color="neutral" trailing-icon="i-lucide-arrow-right" :label="`Next: ${tutorial.steps[step + 1]?.title}`" @click="step = step + 1" />
-          <UButton v-else color="neutral" variant="outline" to="/learn" label="Back to Learn" />
+          <UButton variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
+          <UButton v-if="step < total - 1" trailing-icon="i-lucide-arrow-right" :label="`Next: ${tutorial.steps[step + 1]?.title}`" @click="step = step + 1" />
+          <UButton v-else variant="outline" to="/learn" label="Back to Learn" />
         </nav>
       </div>
     </div>
@@ -254,7 +255,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 .vh-run-mobile {
   margin-top: 1.5rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
   padding: 1rem;
 }
 
@@ -275,14 +276,14 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 
   .vh-run-open {
     border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
+    border-radius: calc(var(--ui-radius) * 2);
     padding: 1rem;
   }
 
   .vh-run-tablet-workspace {
     height: 75dvh;
     border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
+    border-radius: calc(var(--ui-radius) * 2);
     overflow: hidden;
   }
 }
@@ -360,10 +361,5 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 
 .vh-run-divider:hover {
   background: var(--ui-border-accented);
-}
-
-.vh-run-divider:focus-visible {
-  background: var(--ui-primary);
-  outline: none;
 }
 </style>

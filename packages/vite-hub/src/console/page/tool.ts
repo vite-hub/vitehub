@@ -2,10 +2,11 @@ import { contentFieldAttribute, contentPreviewFrameParameter, contentPreviewPubl
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import { appPathname } from "../../comments-overlay/loader-core.ts"
+import { consolePageToolColors } from "../standalone-page.ts"
 
 const styles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);gap:2px}${viteHubPillButtonStyles}
 button.view-draft{gap:6px}button.view-draft[hidden]{display:none}
-.dot{width:7px;height:7px;border-radius:50%;background:#f59e0b;flex:none}`
+.dot{width:7px;height:7px;border-radius:50%;background:${consolePageToolColors.draft};flex:none}`
 // The editor fades in once it is ready, over the window's own surface, so it never flashes a blank page. The status
 // only shows when the wait is long enough to notice.
 const windowStyles = `iframe{opacity:0;transition:opacity 150ms ease-out}iframe.ready{opacity:1}
@@ -133,7 +134,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     select.setAttribute("aria-pressed", "false")
     shadow.append(select)
     const style = document.createElement("style")
-    style.textContent = `.vitehub-select-content [${contentFieldAttribute}]{outline:1px dashed #3b82f6;outline-offset:3px;cursor:crosshair}.vitehub-select-content [${contentFieldAttribute}]:hover{outline-style:solid}`
+    style.textContent = `.vitehub-select-content [${contentFieldAttribute}]{outline:1px dashed ${consolePageToolColors.picker};outline-offset:3px;cursor:crosshair}.vitehub-select-content [${contentFieldAttribute}]:hover{outline-style:solid}`
     document.head.append(style)
     // Selecting moves the open window out of the way until a field is picked; a cancel brings it back. When the window
     // was already minimized, it stays minimized, and only a picked field opens it.
@@ -302,10 +303,10 @@ function loadLivePage(href: string, signal: AbortSignal): Promise<Document> {
 
 const tabStyles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);align-items:center;gap:2px}${viteHubPillButtonStyles}
 .label{display:inline-flex;align-items:center;gap:6px;padding:0 8px;color:var(--vitehub-pill-strong);white-space:nowrap}
-.dot{width:7px;height:7px;border-radius:50%;background:#f59e0b;flex:none}
+.dot{width:7px;height:7px;border-radius:50%;background:${consolePageToolColors.draft};flex:none}
 .gone{padding:0 8px 0 0;color:var(--vitehub-pill-muted);white-space:nowrap}
 button.marks:disabled{cursor:default;color:var(--vitehub-pill-muted)}[hidden]{display:none!important}`
-const changeStyles = `[${draftChangeAttribute}]{background-color:rgb(245 158 11 / .16);outline:2px solid rgb(245 158 11 / .85);outline-offset:2px;border-radius:2px}`
+const changeStyles = `[${draftChangeAttribute}]{background-color:color-mix(in oklab,${consolePageToolColors.draft} 16%,transparent);outline:2px solid color-mix(in oklab,${consolePageToolColors.draft} 85%,transparent);outline-offset:2px;border-radius:2px}`
 
 /**
  * The tab of the draft view, on top of the pill: it says that this page shows the draft, marks the blocks that the

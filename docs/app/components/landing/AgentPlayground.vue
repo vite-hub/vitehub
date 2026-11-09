@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { brandColors } from "../../data/brand-colors"
 import PropertyHelp from "./PropertyHelp.vue"
 
 type ProjectFile = {
@@ -34,10 +35,10 @@ type AgentConfig = {
 }
 
 type EnvironmentOption = {
-  color: string
+  color?: string
   icon: string
-  key: string
   label: string
+  value: string
 }
 
 const projects: ExampleProject[] = [
@@ -263,35 +264,35 @@ const agentProperties: Record<AgentPropertyKey, {
     icon: "i-lucide-bot",
     label: "driver",
     title: "Agent Driver",
-    to: "/docs/agents/agent-drivers/",
+    to: "/docs/agents/agent-drivers",
   },
   runtime: {
     description: "Chooses inline execution or a durable workflow that can survive waits, retries, and restarts.",
     icon: "i-lucide-workflow",
     label: "runtime",
     title: "Execution runtime",
-    to: "/docs/workflows/",
+    to: "/docs/workflows",
   },
   workspace: {
     description: "Provides the persistent file tree and selects where the Agent's working state is stored.",
     icon: "i-lucide-folder-tree",
     label: "workspace",
     title: "Workspace",
-    to: "/docs/agents/workspace-context/",
+    to: "/docs/agents/workspace-context",
   },
   capabilities: {
     description: "Adds named abilities such as browser, Git, scheduling, and Skills.",
     icon: "i-lucide-blocks",
     label: "capabilities",
     title: "Capabilities",
-    to: "/docs/agents/capabilities/official/",
+    to: "/docs/agents/capabilities/official",
   },
   channels: {
     description: "Connects the Agent to triggers and delivery surfaces such as GitHub, Slack, and HTTP.",
     icon: "i-lucide-radio-tower",
     label: "channels",
     title: "Channels",
-    to: "/docs/agents/channels/",
+    to: "/docs/agents/channels",
   },
 }
 const agentPropertyOrder: readonly AgentPropertyKey[] = [
@@ -361,21 +362,22 @@ const channelOptions = [
   { code: "web: webChat()", icon: "i-lucide-message-circle", key: "web-chat", label: "Web chat" },
 ] satisfies PlaygroundOption[]
 
+// Vercel, Deno, and the generic H3 icon have no brand color, so they take the text color.
 const frameworkOptions: EnvironmentOption[] = [
-  { color: "#646cff", icon: "i-simple-icons-vite", key: "vite", label: "Vite" },
-  { color: "#00dc82", icon: "i-simple-icons-nuxt", key: "nuxt", label: "Nuxt" },
-  { color: "#f27cec", icon: "i-unjs-nitro", key: "nitro", label: "Nitro" },
-  { color: "#ef4444", icon: "i-simple-icons-tanstack", key: "tanstack", label: "TanStack Start" },
-  { color: "#6366f1", icon: "i-lucide-server", key: "h3", label: "H3 server" },
+  { color: brandColors.vite, icon: "i-simple-icons-vite", value: "vite", label: "Vite" },
+  { color: brandColors.nuxt, icon: "i-simple-icons-nuxt", value: "nuxt", label: "Nuxt" },
+  { color: brandColors.nitro, icon: "i-unjs-nitro", value: "nitro", label: "Nitro" },
+  { color: brandColors.tanstack, icon: "i-simple-icons-tanstack", value: "tanstack", label: "TanStack Start" },
+  { icon: "i-lucide-server", value: "h3", label: "H3 server" },
 ]
 
 const hostOptions: EnvironmentOption[] = [
-  { color: "#f48120", icon: "i-simple-icons-cloudflare", key: "cloudflare", label: "Cloudflare" },
-  { color: "#52525b", icon: "i-simple-icons-vercel", key: "vercel", label: "Vercel" },
-  { color: "#00c7b7", icon: "i-simple-icons-netlify", key: "netlify", label: "Netlify" },
-  { color: "#475569", icon: "i-simple-icons-deno", key: "deno", label: "Deno" },
-  { color: "#5fa04e", icon: "i-simple-icons-nodedotjs", key: "node", label: "Node" },
-  { color: "#2496ed", icon: "i-simple-icons-docker", key: "docker", label: "Docker / self-hosted" },
+  { color: brandColors.cloudflare, icon: "i-simple-icons-cloudflare", value: "cloudflare", label: "Cloudflare" },
+  { icon: "i-simple-icons-vercel", value: "vercel", label: "Vercel" },
+  { color: brandColors.netlify, icon: "i-simple-icons-netlify", value: "netlify", label: "Netlify" },
+  { icon: "i-simple-icons-deno", value: "deno", label: "Deno" },
+  { color: brandColors.node, icon: "i-simple-icons-nodedotjs", value: "node", label: "Node" },
+  { color: brandColors.docker, icon: "i-simple-icons-docker", value: "docker", label: "Docker / self-hosted" },
 ]
 
 const selectedProjectId = ref(projects[0]!.id)
@@ -421,23 +423,11 @@ const selectContent = {
   sideOffset: 6,
 }
 
+// Code values stay on one line, and the menus grow to fit them.
 const selectUi = {
-  base: "min-h-7 rounded-md shadow-xs",
   value: "overflow-visible text-clip whitespace-nowrap",
   placeholder: "overflow-visible text-clip whitespace-nowrap",
-  content: "w-max min-w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-default bg-default shadow-md ring-0",
-  viewport: "p-1",
-  item: "min-h-8 gap-2 rounded-md px-2 py-1.5 before:hidden data-highlighted:bg-elevated",
-  itemLeadingIcon: "size-4 shrink-0 text-muted",
-  itemWrapper: "min-w-0 overflow-visible",
-  itemLabel: "overflow-visible text-clip whitespace-normal leading-4 sm:whitespace-nowrap",
-  itemTrailing: "ms-auto flex w-4 shrink-0 items-center justify-end",
-  itemTrailingIcon: "size-3.5 text-highlighted",
-  trailingIcon: "size-3.5",
-}
-const catalogSelectUi = {
-  ...selectUi,
-  viewport: "max-h-72 p-1",
+  content: "w-max min-w-64 max-w-[calc(100vw-1rem)]",
 }
 
 const projectItems = projects.map(project => ({
@@ -446,13 +436,8 @@ const projectItems = projects.map(project => ({
   value: project.id,
 }))
 const projectSelectUi = {
-  ...selectUi,
-  base: "min-h-8 w-full rounded-md bg-default px-2 shadow-none",
-  content: "w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-default bg-default shadow-lg ring-0",
-  item: "min-h-9 gap-2 rounded-md px-2.5 py-2 before:hidden data-highlighted:bg-elevated",
-  itemLabel: "truncate font-medium",
+  content: "w-64 max-w-[calc(100vw-1rem)]",
 }
-
 const selectedProject = computed(() =>
   projects.find(project => project.id === selectedProjectId.value) ?? projects[0]!,
 )
@@ -460,6 +445,12 @@ const selectedFile = computed(() =>
   selectedProject.value.files.find(file => file.path === selectedFilePath.value)
   ?? selectedProject.value.files[0]!,
 )
+const fileItems = computed(() => selectedProject.value.files.map(file => ({
+  icon: file.path.endsWith(".ts") ? "i-vscode-icons-file-type-typescript" : "i-vscode-icons-file-type-markdown",
+  label: file.path.replace(`${selectedProject.value.rootPath}/`, ""),
+  value: file.path,
+})))
+
 const selectedAgentConfig = computed(() => projectAgentConfigs[selectedProjectId.value]!)
 const hasVisibleChannels = computed(() => selectedAgentConfig.value.visiblePropertyKeys.includes("channels"))
 const hasProviderDriver = computed(() =>
@@ -661,18 +652,10 @@ async function addChannel(value: unknown) {
 function removeChannel(index: number) {
   selectedAgentConfig.value.channelKeys.splice(index, 1)
 }
-
-function selectFramework(key: string) {
-  frameworkKey.value = key
-}
-
-function selectHost(key: string) {
-  hostKey.value = key
-}
 </script>
 
 <template>
-  <section class="playground-stage min-w-0">
+  <section class="playground-stage min-w-0 rounded-lg">
     <ol class="flex flex-wrap gap-x-5 gap-y-1 px-3 py-2.5 text-xs text-muted" aria-label="Explore an Agent">
       <li><span class="me-1.5 font-medium tabular-nums text-highlighted">1</span>Choose an Agent</li>
       <li><span class="me-1.5 font-medium tabular-nums text-highlighted">2</span>Edit its configuration</li>
@@ -688,9 +671,6 @@ function selectHost(key: string) {
           value-key="value"
           icon="i-lucide-folder-open"
           aria-label="Select example project"
-          size="sm"
-          color="neutral"
-          variant="outline"
           class="project-select"
         >
           <template #default>
@@ -702,21 +682,14 @@ function selectHost(key: string) {
           <span class="truncate">{{ selectedProject.rootPath }}/</span>
         </p>
 
-        <button
-          v-for="file in selectedProject.files"
-          :key="file.path"
-          class="tree-file"
-          :class="{ 'is-active': selectedFile.path === file.path }"
-          :aria-pressed="selectedFile.path === file.path"
-          type="button"
-          @click="selectedFilePath = file.path"
-        >
-          <UIcon
-            :name="file.path.endsWith('.ts') ? 'i-vscode-icons-file-type-typescript' : 'i-vscode-icons-file-type-markdown'"
-            class="size-4 shrink-0"
-          />
-          <span class="truncate">{{ file.path.replace(`${selectedProject.rootPath}/`, "") }}</span>
-        </button>
+        <!-- Vertical tabs center their list by default. The file list fills the tree, so long paths truncate. -->
+        <UTabs
+          v-model="selectedFilePath"
+          :items="fileItems"
+          :content="false"
+          orientation="vertical"
+          class="flex-col items-stretch"
+        />
       </aside>
 
       <div class="editor-pane">
@@ -749,8 +722,6 @@ function selectHost(key: string) {
                 value-key="value"
                 aria-label="Agent Driver"
                 size="xs"
-                color="neutral"
-                variant="outline"
                 class="code-select driver-select"
               >
                 <template #default>
@@ -768,8 +739,6 @@ function selectHost(key: string) {
                 value-key="value"
                 aria-label="Agent execution runtime"
                 size="xs"
-                color="neutral"
-                variant="outline"
                 class="code-select runtime-select"
               >
                 <template #default>
@@ -787,8 +756,6 @@ function selectHost(key: string) {
                 value-key="value"
                 aria-label="Workspace store"
                 size="xs"
-                color="neutral"
-                variant="outline"
                 class="code-select workspace-select"
               >
                 <template #default>
@@ -811,12 +778,10 @@ function selectHost(key: string) {
                     :items="capabilityItemsFor(capabilityKey, index)"
                     :icon="capabilityOption(capabilityKey).icon"
                     :content="selectContent"
-                    :ui="catalogSelectUi"
+                    :ui="selectUi"
                     value-key="value"
                     :aria-label="`Capability ${index + 1}`"
                     size="xs"
-                    color="neutral"
-                    variant="outline"
                     class="code-select capability-select"
                   >
                     <template #default>
@@ -826,7 +791,6 @@ function selectHost(key: string) {
                   <span>,</span>
                   <UButton
                     icon="i-lucide-x"
-                    color="neutral"
                     variant="ghost"
                     size="xs"
                     class="property-remove"
@@ -842,14 +806,12 @@ function selectHost(key: string) {
                     v-model="capabilitySelectionKey"
                     :items="availableCapabilityItems"
                     :content="selectContent"
-                    :ui="catalogSelectUi"
+                    :ui="selectUi"
                     value-key="value"
                     icon="i-lucide-plus"
                     placeholder="Add capability"
                     aria-label="Add Agent capability"
                     size="xs"
-                    color="neutral"
-                    variant="outline"
                     class="capability-add"
                     @update:model-value="addCapability"
                   />
@@ -872,12 +834,10 @@ function selectHost(key: string) {
                     :items="channelItemsFor(channelKey)"
                     :icon="channelOption(channelKey).icon"
                     :content="selectContent"
-                    :ui="catalogSelectUi"
+                    :ui="selectUi"
                     value-key="value"
                     :aria-label="`Channel ${index + 1}`"
                     size="xs"
-                    color="neutral"
-                    variant="outline"
                     class="code-select channel-select"
                   >
                     <template #default>
@@ -887,7 +847,6 @@ function selectHost(key: string) {
                   <span>,</span>
                   <UButton
                     icon="i-lucide-x"
-                    color="neutral"
                     variant="ghost"
                     size="xs"
                     class="property-remove"
@@ -903,14 +862,12 @@ function selectHost(key: string) {
                     v-model="channelSelectionKey"
                     :items="availableChannelItems"
                     :content="selectContent"
-                    :ui="catalogSelectUi"
+                    :ui="selectUi"
                     value-key="value"
                     icon="i-lucide-plus"
                     placeholder="Add channel"
                     aria-label="Add Agent channel"
                     size="xs"
-                    color="neutral"
-                    variant="outline"
                     class="channel-add"
                     @update:model-value="addChannel"
                   />
@@ -922,7 +879,6 @@ function selectHost(key: string) {
               <UButton
                 v-if="!selectedAgentConfig.defaultPropertyKeys.includes(propertyKey)"
                 icon="i-lucide-x"
-                color="neutral"
                 variant="ghost"
                 size="xs"
                 class="property-remove"
@@ -942,8 +898,6 @@ function selectHost(key: string) {
                 placeholder="Add property"
                 aria-label="Add Agent property"
                 size="xs"
-                color="neutral"
-                variant="outline"
                 class="property-add"
                 @update:model-value="addProperty"
               />
@@ -966,43 +920,23 @@ function selectHost(key: string) {
     <div class="environment-panel">
       <div class="environment-group">
         <span class="environment-label">Build with</span>
-        <div class="logo-row framework-row" role="group" aria-label="Build with framework">
-          <UButton
-            v-for="option in frameworkOptions"
-            :key="option.key"
-            color="neutral"
-            variant="ghost"
-            class="logo-option"
-            :class="{ 'is-selected': frameworkKey === option.key }"
-            :style="{ '--brand-color': option.color }"
-            :aria-label="option.label"
-            :aria-pressed="frameworkKey === option.key"
-            @click="selectFramework(option.key)"
-          >
-            <UIcon :name="option.icon" class="logo-mark" />
-            <span class="logo-name">{{ option.label }}</span>
-          </UButton>
+        <div class="environment-tabs">
+          <UTabs v-model="frameworkKey" :items="frameworkOptions" :content="false" class="w-max min-w-full">
+            <template #leading="{ item }">
+              <UIcon :name="item.icon" class="size-4 shrink-0" :style="{ color: item.color }" />
+            </template>
+          </UTabs>
         </div>
       </div>
 
       <div class="environment-group">
         <span class="environment-label">Deploy on</span>
-        <div class="logo-row host-row" role="group" aria-label="Deploy on host">
-          <UButton
-            v-for="option in hostOptions"
-            :key="option.key"
-            color="neutral"
-            variant="ghost"
-            class="logo-option"
-            :class="{ 'is-selected': hostKey === option.key }"
-            :style="{ '--brand-color': option.color }"
-            :aria-label="option.label"
-            :aria-pressed="hostKey === option.key"
-            @click="selectHost(option.key)"
-          >
-            <UIcon :name="option.icon" class="logo-mark" />
-            <span class="logo-name">{{ option.label }}</span>
-          </UButton>
+        <div class="environment-tabs">
+          <UTabs v-model="hostKey" :items="hostOptions" :content="false" class="w-max min-w-full">
+            <template #leading="{ item }">
+              <UIcon :name="item.icon" class="size-4 shrink-0" :style="{ color: item.color }" />
+            </template>
+          </UTabs>
         </div>
       </div>
     </div>
@@ -1017,7 +951,6 @@ function selectHost(key: string) {
   container-type: inline-size;
   overflow: hidden;
   border: 1px solid var(--ui-border);
-  border-radius: 0.75rem;
   background: var(--ui-bg);
 }
 
@@ -1052,25 +985,6 @@ function selectHost(key: string) {
   font-family: var(--font-mono);
   font-size: 0.58rem;
   font-weight: 500;
-}
-
-.tree-file {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  gap: 0.35rem;
-  border-radius: 0.3rem;
-  padding: 0.32rem 0.45rem 0.32rem 1.25rem;
-  color: var(--ui-text-muted);
-  font-size: 0.66rem;
-  text-align: left;
-}
-
-.tree-file:hover,
-.tree-file.is-active {
-  background: var(--ui-bg-elevated);
-  color: var(--ui-text-highlighted);
 }
 
 .editor-pane {
@@ -1147,7 +1061,8 @@ function selectHost(key: string) {
 }
 
 .syntax-keyword {
-  color: #7c3aed;
+  color: var(--ui-text-highlighted);
+  font-weight: 500;
 }
 
 .code-select,
@@ -1156,7 +1071,6 @@ function selectHost(key: string) {
 .channel-add {
   width: max-content;
   max-width: none;
-  border-radius: 0.375rem;
   font-family: var(--font-mono);
 }
 
@@ -1165,30 +1079,12 @@ function selectHost(key: string) {
   min-width: 12rem;
 }
 
-.driver-select {
-  background: color-mix(in srgb, #8b5cf6 10%, var(--ui-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #8b5cf6 30%, transparent);
-  color: #6d28d9;
-}
-
-.runtime-select {
-  background: color-mix(in srgb, #f59e0b 10%, var(--ui-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 30%, transparent);
-  color: #b45309;
-}
-
 .workspace-select {
   min-width: 17rem;
-  background: color-mix(in srgb, #6366f1 9%, var(--ui-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #6366f1 28%, transparent);
-  color: #4338ca;
 }
 
 .capability-select {
   min-width: 19rem;
-  background: color-mix(in srgb, #0ea5e9 9%, var(--ui-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #0ea5e9 26%, transparent);
-  color: #0369a1;
 }
 
 .capability-add,
@@ -1206,9 +1102,6 @@ function selectHost(key: string) {
 
 .channel-select {
   min-width: 20rem;
-  background: color-mix(in srgb, #10b981 9%, var(--ui-bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #10b981 26%, transparent);
-  color: #047857;
 }
 
 .property-add {
@@ -1218,7 +1111,6 @@ function selectHost(key: string) {
 .property-remove {
   min-height: 1.5rem;
   min-width: 1.5rem;
-  border-radius: 0.25rem;
 }
 
 .editor-code {
@@ -1270,70 +1162,16 @@ function selectHost(key: string) {
   line-height: 1rem;
 }
 
-.logo-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.2rem;
+/* The tabs scroll sideways when the row is too narrow for every label. pb-px keeps the underline inside. */
+.environment-tabs {
+  overflow-x: auto;
+  padding-bottom: 1px;
+  scrollbar-width: none;
 }
-
-.logo-option {
-  min-height: 2.35rem;
-  min-width: 0;
-  width: 100%;
-  justify-content: center;
-  gap: 0.35rem;
-  border: 0;
-  border-radius: 0.375rem;
-  color: var(--ui-text-muted);
-}
-
-.logo-mark {
-  width: 1rem;
-  height: 1rem;
-  color: var(--brand-color);
-  opacity: 0.72;
-}
-
-.logo-name {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 0.6rem;
-  font-weight: 500;
-  line-height: 0.75rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.logo-option.is-selected {
-  background: var(--ui-bg);
-  color: var(--ui-text-highlighted);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), inset 0 0 0 1px color-mix(in srgb, var(--brand-color) 28%, var(--ui-border));
-}
-
-.logo-option.is-selected .logo-mark {
-  opacity: 1;
-}
-
-:global(.dark) .syntax-keyword { color: #c4b5fd; }
-:global(.dark) .driver-select { color: #c4b5fd; }
-:global(.dark) .runtime-select { color: #fcd34d; }
-:global(.dark) .workspace-select { color: #a5b4fc; }
-:global(.dark) .capability-select { color: #7dd3fc; }
-:global(.dark) .channel-select { color: #6ee7b7; }
 
 @media (min-width: 40rem) {
   .playground-stage {
     height: var(--agent-playground-height, 38rem);
-  }
-}
-
-@container (min-width: 40rem) {
-  .framework-row {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  .host-row {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 
@@ -1354,15 +1192,6 @@ function selectHost(key: string) {
     opacity: 1;
     pointer-events: auto;
   }
-
-  .logo-option:hover {
-    background: color-mix(in srgb, var(--brand-color) 7%, var(--ui-bg));
-    color: var(--ui-text-highlighted);
-  }
-
-  .logo-option:hover .logo-mark {
-    opacity: 1;
-  }
 }
 
 /* Touch targets fill the 2rem code rows instead of the 24px icon size. */
@@ -1371,10 +1200,6 @@ function selectHost(key: string) {
     min-width: 2rem;
     min-height: 2rem;
     justify-content: center;
-  }
-
-  .tree-file {
-    min-height: 2.25rem;
   }
 }
 

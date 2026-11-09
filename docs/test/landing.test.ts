@@ -117,8 +117,8 @@ describe("landing page", () => {
     expect(source).toContain("The server layer for Vite apps.");
     expect(normalizedSource).toContain("Write once.<br>Deploy anywhere.");
     expect(normalizedSource).toContain("Same code on every host. The host picks the provider.");
-    // One radius system: the landing is square like the primitive grid.
-    expect(source).not.toMatch(/rounded-(?:full|sm|md|lg)\b|999px/);
+    // Geist radii only (docs/design/tokens.md): no square, 2px, 16px, or arbitrary corners.
+    expect(source).not.toMatch(/rounded-(?:none|sm|2xl|3xl|\[)|999px/);
     expect(source).toContain('aria-label="ViteHub APIs"');
     expect(source).toContain("useSharedIndicator");
     expect(source).toContain("prefers-reduced-motion");
@@ -128,7 +128,8 @@ describe("landing page", () => {
       /Pick this path|Verified contract|First success \/|The map \/|Your move \/|DIRECT|COMPOSED/,
     );
     expect(source).not.toMatch(/Math\.random|Date\.now|window\.matchMedia/);
-    expect(source).toContain(":aria-pressed");
+    // Tab strips come from UTabs, which owns the selected state and the keyboard behavior.
+    expect(source).toContain("<UTabs");
     expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
   });
 
@@ -221,7 +222,8 @@ describe("landing page", () => {
     expect(primitiveLines).toContain("usePreferredReducedMotion()");
     expect(primitiveLines).toContain("pause();");
     expect(primitives).toContain("useIntersectionObserver(");
-    expect(installCommand).toContain(":tabindex=\"activeTab === 'package' ? 0 : -1\"");
+    // The package manager tabs leave the page, and the tab order, while the Agent skill command shows.
+    expect(installCommand).toContain("v-show=\"activeTab === 'package'\"");
     expect(installCommand).toContain("transition: none;");
   });
 

@@ -228,7 +228,7 @@ export const DeviceFrame = defineComponent({
       const percent = Math.round(scale.value * 100);
       return h("div", { key: "bar", class: "vh-device-frame__bar", role: "toolbar", "aria-label": "Device" }, [
         slots["toolbar-start"]?.(),
-        h("label", { class: "vh-device-frame__select" }, [
+        h("label", { class: "vh-device-frame__select", "data-focus-ring": "" }, [
           icon(preset.value?.kind ?? "custom"),
           h("span", { "aria-hidden": "true", class: "vh-device-frame__select-label" }, preset.value?.label ?? "Custom"),
           h(
@@ -244,6 +244,7 @@ export const DeviceFrame = defineComponent({
         h("input", {
           "aria-label": "Width",
           class: "vh-device-frame__number",
+          "data-focus-frame": "",
           inputmode: "numeric",
           max: SIZE_MAX,
           min: SIZE_MIN,
@@ -255,6 +256,7 @@ export const DeviceFrame = defineComponent({
         h("input", {
           "aria-label": "Height",
           class: "vh-device-frame__number",
+          "data-focus-frame": "",
           inputmode: "numeric",
           max: SIZE_MAX,
           min: SIZE_MIN,
@@ -285,6 +287,7 @@ export const DeviceFrame = defineComponent({
             h("input", {
               "aria-label": "Zoom, in percent",
               class: "vh-device-frame__number",
+              "data-focus-frame": "",
               inputmode: "numeric",
               max: ZOOM_MAX * 100,
               min: ZOOM_MIN * 100,

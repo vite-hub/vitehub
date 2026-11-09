@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createSSRApp, defineComponent, h, nextTick } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
@@ -1233,7 +1233,7 @@ describe("Agent Invocation UI", () => {
     expect(prompt.get(".vh-invocation-message__role").text()).toBe("Maxi");
     expect(prompt.get(".vh-invocation-message__meta time").attributes("datetime")).toBe("2026-08-22T14:34:00.000Z");
     await prompt.get('button[aria-label="Copy message"]').trigger("click");
-    await nextTick();
+    await flushPromises();
     expect(writeText).toHaveBeenCalledWith("Check item 18807.\n\nInvocation ID: message-meta\nTrace ID: trace\nAgent: support-agent\nURL: https://github.com/vite-hub/vite-hub/issues/18807");
     expect(prompt.get('button[aria-label="Copied"]').text()).toBe("Copied");
   });
@@ -1347,7 +1347,7 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocation, { props: { invocation } });
 
     await wrapper.get('button[aria-label="Copy message"]').trigger("click");
-    await nextTick();
+    await flushPromises();
     expect(wrapper.find('button[aria-label="Copied"]').exists()).toBe(false);
     expect(wrapper.get('button[aria-label="Copy failed"]').text()).toContain("Copy failed");
     expect(wrapper.get('[role="status"]').text()).toBe("Message could not be copied");
@@ -1839,7 +1839,7 @@ describe("Agent Invocation UI", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await payloads[0]!.get(".vh-invocation-payload__copy").trigger("click");
     expect(writeText).toHaveBeenCalledWith('{\n  "summary": "Private query omitted."\n}');
-    expect(payloads[0]!.get(".vh-invocation-payload__copy").text()).toBe("Copied");
+    await vi.waitFor(() => expect(payloads[0]!.get(".vh-invocation-payload__copy").text()).toBe("Copied"));
 
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     const rows = inspector.findAll(".vh-invocation-timeline__row");
@@ -2563,7 +2563,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.text()).not.toContain(invocation.traceId);
     const copy = wrapper.get('button[aria-label="Copy Trace ID"]');
     await copy.trigger("click");
-    await Promise.resolve();
+    await flushPromises();
 
     expect(writeText).toHaveBeenCalledWith(invocation.traceId);
     expect(copy.attributes("aria-label")).toBe("Trace ID copied");
@@ -2588,7 +2588,7 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
     await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
-    await Promise.resolve();
+    await flushPromises();
 
     expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
     expect(wrapper.get('button[aria-label="Copy Trace ID"]').find(".vh-invocation-inspector__copy-icon").exists()).toBe(true);
@@ -2596,7 +2596,7 @@ describe("Agent Invocation UI", () => {
     const status = wrapper.get('[role="status"]');
     await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
     expect(status.text()).toBe("");
-    await Promise.resolve();
+    await flushPromises();
     expect(status.text()).toBe("Trace ID could not be copied");
   });
 
@@ -2616,6 +2616,7 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
     await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
+    await flushPromises();
 
     expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
   });

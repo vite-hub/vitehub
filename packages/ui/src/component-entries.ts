@@ -68,6 +68,8 @@ export const componentNames = [
   "ToolList",
   "TraceRun",
   "UnresolvedFile",
+  "CopyButton",
+  "Status",
   ...partFamilies.attachment,
   ...partFamilies["avatar-stack"],
   ...partFamilies.bubble,
