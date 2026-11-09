@@ -8,7 +8,7 @@ icon: i-lucide-list-ordered
 ---
 
 ::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Cloudflare, Vercel"}
-  :::product-files{feature="queue"}
+  :::code-tree{feature="queue"}
   ```ts [server/api/signup.post.ts]
   import { defineEventHandler, readBody } from 'h3'
   import { runQueue } from 'vite-hub/queue'
@@ -48,6 +48,19 @@ icon: i-lucide-list-ordered
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'cloudflare',
+      // On Cloudflare, jobs go to Cloudflare Queues
+      queue: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -64,6 +77,23 @@ icon: i-lucide-list-ordered
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'cloudflare',
+        // On Cloudflare, jobs go to Cloudflare Queues
+        queue: true,
+      }),
+    ],
+  })
+  ```
+  ::::
   :::
 ::
 

@@ -24,8 +24,9 @@ import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
-import { addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
+import { addConsoleAssetManifestModule, addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
 import { transformConsoleOperationFeatures } from "./operation-features.ts"
+import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -365,7 +366,10 @@ function configureConsoleNitroRoutes(
     if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   }
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, sections, !rpcOnly && oauth, crossOrigin)
-  if (!rpcOnly) addConsolePageToolRoutes(kit.config, consoleRuntimeRoot, mount)
+  if (!rpcOnly) {
+    addConsolePageToolRoutes(kit.config, consoleRuntimeRoot, mount)
+    addConsoleAssetManifestModule(kit.config)
+  }
   const consoleAssetsBase = consoleMountPath(mount, "/_vitehub/assets")
   // The page tools contribute their loader asset to the kit.
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
@@ -954,6 +958,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       publishDevServer(server)
       // Nitro's WebSocket upgrades skip its dev handlers. The listener signs only after the Nitro module made a key.
       if (server.httpServer) addViteHubDevPeerUpgradeSigner(server.httpServer)
+      if (resolvedConsoleConfiguration && server.httpServer) {
+        const http = server.httpServer
+        http.once("listening", () => {
+          const notice = consoleDevAccessNotice(consoleAccess()?.mode, http.address())
+          if (notice) server.config.logger[notice.level](notice.message)
+        })
+      }
       if (fixture) server.watcher.add(fixture)
       if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
       const refresh = async (path: string) => {

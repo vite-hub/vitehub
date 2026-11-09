@@ -160,25 +160,71 @@ For `wrangler dev`, set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_<BINDING>
 
 ### Select a hosted database for Vercel
 
-Keep the Database Definition limited to tables, then select its hosted libSQL connection in the Vite Integration. Runtime Env declarations keep the Vercel Marketplace environment variable lookup in generated output instead of embedding credentials at build time.
+Keep the Database Definition limited to tables, then select its hosted libSQL connection in the `database` option. Runtime Env declarations keep the Vercel Marketplace environment variable lookup in generated output instead of embedding credentials at build time.
 
-```ts [vite.config.ts]
-import { hubDb } from '@vite-hub/database/vite'
-import { env, hubEnv } from '@vite-hub/env/vite'
-import { defineConfig } from 'vite'
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
 
-export default defineConfig({
-  plugins: [
-    hubEnv(),
-    hubDb({
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    database: {
       connection: {
         url: env({ source: env.source('TURSO_DATABASE_URL') }),
         authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      database: {
+        connection: {
+          url: env({ source: env.source('TURSO_DATABASE_URL') }),
+          authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      database: {
+        connection: {
+          url: env({ source: env.source('TURSO_DATABASE_URL') }),
+          authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+        },
       },
     }),
   ],
 })
 ```
+:::
+::
 
 This connection is a deployment default. A Database Definition can still declare its own `connection.url` or `connection.authToken`. Those values take precedence for that database.
 
@@ -196,6 +242,8 @@ Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated W
 
 A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declare a D1 binding that ViteHub writes, for example one kept from NuxtHub. Nitro merges that file into the generated config, and ViteHub then keeps one entry per binding name, at the top level and in each `env`: its own entry wins, and the project entry only fills the fields it lacks, such as `preview_database_id` or `migrations_table`. An all-zero `database_id` or `preview_database_id`, such as `00000000-0000-4000-8000-000000000000` in a Deploy to Cloudflare template, never names a database: a real id from either side replaces it, and a primary `database_id` that stays all-zero is left out, so Wrangler provisions the database on deploy. An unresolved `preview_database_id` is preserved to prevent remote development from falling back to the production database; replace it with a real preview database ID before using remote development. ViteHub keeps its own `migrations_dir` and ignores the project's `migrations_dir` and `migrations_pattern`, because the staged migrations live there. When the two name a different `database_id`, `database_name`, or `preview_database_id`, the build fails with [`DATABASE_WRANGLER_BINDING_CONFLICT`](/docs/database/limits-and-errors#database_wrangler_binding_conflict). The simplest setup removes the binding from the project file.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
@@ -208,6 +256,48 @@ export default defineNuxtConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      database: {
+        driver: 'd1',
+        databaseName: 'app-content',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      database: {
+        driver: 'd1',
+        databaseName: 'app-content',
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it cannot get the id from provision state, `database.databaseId`, or an existing complete matching Nitro Wrangler binding.
 

@@ -167,6 +167,38 @@ ViteHub:
 The budget comes from `VITEHUB_SHUTDOWN_DRAIN_MS`. The `shutdown.drainMs` option
 sets its default, and the variable wins when it is set:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: { shutdown: { drainMs: 45_000 } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: { shutdown: { drainMs: 45_000 } },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -180,6 +212,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 The default is 0, which interrupts the work at once. Give the host a
 termination grace period longer than the budget plus 25 seconds: 15 seconds

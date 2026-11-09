@@ -421,11 +421,11 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
 
   return [
     `import { defineCommentsPlugin, selectCommentsDatabase } from ${JSON.stringify(input.imports.runtime)}`,
-    `import { databases } from ${JSON.stringify(input.imports.databases)}`,
     ...definitionLines(input.definition, input.imports.runtime),
     ...session.imports,
     "",
-    `const database = () => selectCommentsDatabase(databases${input.database ? `, ${JSON.stringify(input.database)}` : ""})`,
+    // The Database registry imports the app's schema and drizzle-orm, so it loads on the first Comments call.
+    `const database = async () => selectCommentsDatabase((await import(${JSON.stringify(input.imports.databases)})).databases${input.database ? `, ${JSON.stringify(input.database)}` : ""})`,
     "",
     // With Auth, `@` suggests the users of Auth.
     ...(input.session?.auth ? [`import { commentsAuthUsers } from ${JSON.stringify(input.imports.auth)}`] : []),
