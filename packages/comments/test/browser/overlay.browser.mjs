@@ -200,6 +200,35 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.setViewportSize({ width: 1024, height: 720 })
   })
 
+  await t.test("two quotes of one paragraph get two pins that each take a click", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    if (await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.evaluate(() => {
+      const text = document.querySelector("#first").lastChild
+      const range = document.createRange()
+      range.setStart(text, text.data.indexOf("worth"))
+      range.setEnd(text, text.data.indexOf("worth") + "worth staying".length)
+      getSelection().removeAllRanges()
+      getSelection().addRange(range)
+    })
+    await page.locator("vitehub-comments .selection-bar").waitFor({ timeout: 5000 })
+    await page.keyboard.press("c")
+    await composer.fill("Second quote")
+    await composer.press("Enter")
+    await composer.waitFor({ state: "detached", timeout: 5000 })
+    const pins = page.locator("vitehub-comments [data-slot='comment-pin'][aria-label*='quote'], vitehub-comments [data-slot='comment-pin'][aria-label*='airport']")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelectorAll("[data-slot='comment-pin'][aria-label*='Second quote']").length === 1)
+    const boxes = await pins.evaluateAll(elements => elements.map((pin) => {
+      const box = pin.getBoundingClientRect()
+      const hit = pin.getRootNode().elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+      return { label: pin.getAttribute("aria-label"), y: box.y, hit: hit?.closest("[data-slot='comment-pin']") === pin }
+    }))
+    assert.equal(boxes.length, 2)
+    assert.ok(Math.abs(boxes[0].y - boxes[1].y) >= 28, JSON.stringify(boxes))
+    assert.ok(boxes.every(box => box.hit), JSON.stringify(boxes))
+  })
+
   await t.test("a tap on the Comment bar comments on the selected text", async () => {
     const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
     try {

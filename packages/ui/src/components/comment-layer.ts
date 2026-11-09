@@ -1,4 +1,4 @@
-import type { CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
+import type { AnchorPosition, CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, type PropType, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
@@ -16,6 +16,8 @@ const popoverHeight = 420;
 
 // A pointer that moved more than this between down and up was a scroll or a drag, not a click.
 const clickSlop = 6;
+// The room of one pin. Pins closer than this to each other stack.
+const pinSpacing = 32;
 // A drag in comment mode draws an area. A smaller one is a slip, not an area.
 const minimumArea = 8;
 
@@ -245,9 +247,19 @@ export const CommentLayer = defineComponent({
       });
 
     return () => {
-      const items = pinned.value.flatMap((thread) => {
+      // Pins that would cover each other, such as two quotes of one paragraph in its gutter, stack downward, so each
+      // stays visible and takes its own click.
+      const spots = new Map<string, AnchorPosition>();
+      for (const thread of pinned.value) {
         const position = state.positions.value.get(thread.id);
-        if (!position || position.detached || position.clipped || thread.anchor.kind === "page") return [];
+        if (!position || position.detached || position.clipped || thread.anchor.kind === "page") continue;
+        let y = position.y;
+        while ([...spots.values()].some((spot) => Math.abs(spot.x - position.x) < pinSpacing && Math.abs(spot.y - y) < pinSpacing)) y += pinSpacing;
+        spots.set(thread.id, { ...position, y });
+      }
+      const items = pinned.value.flatMap((thread) => {
+        const position = spots.get(thread.id);
+        if (!position) return [];
         const open = state.openId.value === thread.id;
         const hover = state.hoverId.value === thread.id && !open && !state.draft.value;
         return [
@@ -287,7 +299,7 @@ export const CommentLayer = defineComponent({
       // Keep one thread instance while its anchor moves between pinned and floating positions.
       const opened = state.opened.value;
       const openedPosition = opened && state.positions.value.get(opened.id);
-      const pointForThread = openedPosition && !openedPosition.detached && !openedPosition.clipped && opened?.anchor.kind !== "page" ? openedPosition : undefined;
+      const pointForThread = openedPosition && !openedPosition.detached && !openedPosition.clipped && opened?.anchor.kind !== "page" ? (spots.get(opened.id) ?? openedPosition) : undefined;
       const openThread = opened
         ? h("div", {
             ...(pointForThread ? side(pointForThread.x, pointForThread.y) : {}),
