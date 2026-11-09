@@ -44,6 +44,8 @@ const SANDBOX_PACKAGE_NAME = '@vite-hub/sandbox'
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-task-provider-loader'
 const SANDBOX_STATE_ID = '#vitehub/sandbox-task'
 const RESOLVED_SANDBOX_STATE_ID = '\0vitehub:sandbox-task:state'
+// Rolldown and Vite skip the resolveId and load hooks for every other id.
+const SANDBOX_STATE_ID_PATTERN = /^(?:#vitehub\/sandbox-task|\0vitehub:sandbox-task:state)$/
 
 type AliasMap = Record<string, string>
 interface SandboxTaskViteInternalOptions {
@@ -390,17 +392,23 @@ export function hubSandboxTask(options?: SandboxTaskPublicOptions): SandboxTaskV
         },
       }
     },
-    resolveId(id) {
-      if (!sandboxTaskStateModule)
-        return
-      if (id === SANDBOX_STATE_ID)
-        return RESOLVED_SANDBOX_STATE_ID
-      if (id === RESOLVED_SANDBOX_STATE_ID)
-        return id
+    resolveId: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (!sandboxTaskStateModule)
+          return
+        if (id === SANDBOX_STATE_ID)
+          return RESOLVED_SANDBOX_STATE_ID
+        if (id === RESOLVED_SANDBOX_STATE_ID)
+          return id
+      },
     },
-    load(id) {
-      if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
-        return sandboxTaskStateModule
+    load: {
+      filter: { id: SANDBOX_STATE_ID_PATTERN },
+      handler(id) {
+        if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
+          return sandboxTaskStateModule
+      },
     },
     async configResolved(config) {
       resolvedConfig = config
