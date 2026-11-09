@@ -8,7 +8,7 @@ icon: i-lucide-logs
 ---
 
 ::product-hero{tagline="Structured logs powered by Evlog, with Explorer, Stream, and a data inspector." hosts="Local development, existing backends"}
-  :::product-files
+  :::code-tree
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({

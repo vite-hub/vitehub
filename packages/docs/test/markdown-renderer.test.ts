@@ -43,13 +43,15 @@ function block(name: string) {
 }
 
 describe("DocsMarkdown", () => {
-  it.each(["callout", "note", "tip", "github-callout", "tabs-item"])("loads an app's %s content component before the built-in block", async (tag) => {
+  it.each(["callout", "note", "tip", "github-callout", "tabs-item", "code-tree"])("loads an app's %s content component before the built-in block", async (tag) => {
     const load = vi.fn(async () => ({ default: block("app") }))
     const component = renderer({ [tag]: load })
     expect(load).not.toHaveBeenCalled()
 
     const document = { nodes: [[tag, { title: "App title" }, "App content"]], toc: [] }
-    const html = await renderToString(vue.createSSRApp(component, { document }))
+    const app = vue.createSSRApp(component, { document })
+    app.component("ProseCodeTree", block("nuxt-ui"))
+    const html = await renderToString(app)
 
     expect(load).toHaveBeenCalledOnce()
     expect(html).toContain('data-component="app"')
@@ -82,5 +84,17 @@ describe("DocsMarkdown", () => {
     expect(page.h1).toBe(1)
     expect(page.headingSkip).toBeNull()
     expect(docsSeoProblems([page], [])).not.toEqual(expect.arrayContaining([expect.stringMatching(/h1 headings|skips a heading/)]))
+  })
+
+  it("renders example headings without duplicating page anchors", async () => {
+    const document = await parseMarkdown("## Install\n\n::example\n```md\n## Install\n\n### Preview details\n```\n::\n\n::example\n```md\n## Install\n```\n::\n")
+    const html = await renderToString(vue.createSSRApp(renderer(), { document }))
+
+    expect(html.match(/id="install"/g)).toHaveLength(1)
+    expect(html.match(/href="#install"/g)).toHaveLength(1)
+    expect(html.match(/<h2\b/g)).toHaveLength(3)
+    expect(html).toMatch(/<h3\b[^>]*>Preview details<\/h3>/)
+    const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1])
+    expect(new Set(ids).size).toBe(ids.length)
   })
 })

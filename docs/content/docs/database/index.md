@@ -8,7 +8,7 @@ icon: i-lucide-database
 ---
 
 ::product-hero{tagline="Define SQL tables in TypeScript and query them from your routes, with typed rows." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files{feature="database"}
+  :::code-tree{feature="database"}
   ```ts [src/database.ts]
   import { defineDatabase } from 'vite-hub/database'
   import {

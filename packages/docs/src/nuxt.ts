@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
@@ -15,6 +15,7 @@ import {
   createResolver,
   defineNuxtModule,
   extendPages,
+  updateTemplates,
   useLogger,
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
@@ -146,6 +147,11 @@ export interface DocsModuleOptions {
    * this config. The page route, search, and Console drafts parse with it.
    */
   parser?: string
+  /**
+   * The folder, relative to the app's source folder, of the Vue files that `::example{name}` shows. Defaults to
+   * `examples`, so `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue` beside its source.
+   */
+  examples?: string
 }
 
 /** Options as the client and the server read them from `runtimeConfig.public.docs`. */
@@ -425,8 +431,28 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
 
+    // `::example{name}` shows a Vue file of the examples folder. The page loads the component, and the parser reads
+    // its source, so the server bundle carries every source as a string.
+    const examplesDir = resolve(nuxt.options.srcDir, options.examples ?? "examples")
+    const exampleFiles = () => existsSync(examplesDir) ? readdirSync(examplesDir).filter(file => file.endsWith(".vue")).sort() : []
+    nuxt.options.alias["#docs/examples"] = addTemplate({
+      filename: "docs/examples.mjs",
+      write: true,
+      getContents: () => `export default {\n${exampleFiles().map(file => `  ${JSON.stringify(file.slice(0, -4))}: () => import(${JSON.stringify(join(examplesDir, file))}),`).join("\n")}\n}\n`,
+    }).dst
+    addTemplate({ filename: "docs/examples.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const examples: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default examples\n` })
+    const exampleSourcesFile = addTemplate({
+      filename: "docs/example-sources.mjs",
+      write: true,
+      getContents: () => `export default ${JSON.stringify(Object.fromEntries(exampleFiles().map(file => [file.slice(0, -4), readFileSync(join(examplesDir, file), "utf8")])))}\n`,
+    }).dst
+    nuxt.hook("builder:watch", async (_event, path) => {
+      if (resolve(nuxt.options.srcDir, path).startsWith(`${examplesDir}${sep}`)) await updateTemplates({ filter: template => template.filename.startsWith("docs/example") })
+    })
+
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
     if (nuxt.options.dev) {
+      nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), examplesDir])]
       let timer: ReturnType<typeof setTimeout> | undefined
       let regeneration = Promise.resolve()
       let closed = false
@@ -628,7 +654,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           }
         }
       }
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
       // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
       // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
       const inline = nitro.externals?.inline
@@ -684,7 +710,9 @@ const shellIcons = [
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
   "i-ph-github-logo-light", "i-ph-moon-light", "i-ph-sun-light", "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
-  "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-text",
+  "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
+  "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",
+  "i-vscode-icons-file-type-vue", "i-vscode-icons-file-type-yaml",
 ]
 
 /**

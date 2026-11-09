@@ -8,7 +8,7 @@ icon: i-lucide-key-round
 ---
 
 ::product-hero{tagline="Declare your settings and secrets once, then read them as typed values in browser and server code." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
   import { env } from 'vite-hub/env'

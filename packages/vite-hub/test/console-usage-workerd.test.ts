@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
 import * as v from "valibot";
@@ -13,6 +14,23 @@ const sourceModule = async (path: string) => ({
     compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2023 },
   }).outputText,
 });
+
+// The Console HTTP error helper imports H3. Bundle its `createError()` with the Workers build of H3, as a host build does.
+const consoleHttpErrorModules = async () => [
+  await sourceModule("src/console/runtime/server/http-error.ts"),
+  {
+    type: "ESModule" as const,
+    path: resolve(root, "src/console/runtime/server/h3"),
+    contents: (await build({
+      bundle: true,
+      conditions: ["workerd", "worker"],
+      format: "esm",
+      platform: "neutral",
+      stdin: { contents: 'export { createError } from "h3"', resolveDir: root },
+      write: false,
+    })).outputFiles[0]!.text,
+  },
+];
 
 it("paginates Console usage in Cloudflare without Node compatibility", async () => {
   // Load the real usage module and its dependencies without bundling or Node shims.
@@ -40,6 +58,7 @@ it("paginates Console usage in Cloudflare without Node compatibility", async () 
       },
       await sourceModule("src/console/runtime/server/usage.ts"),
       await sourceModule("src/error-diagnostics.ts"),
+      ...await consoleHttpErrorModules(),
       { type: "ESModule", path: resolve(root, "src/console/runtime/server/valibot"), contents: await readFile(new URL(import.meta.resolve("valibot")), "utf8") },
       { type: "ESModule", path: resolve(root, "src/nostics"), contents: await readFile(new URL(import.meta.resolve("nostics")), "utf8") },
     ],
@@ -91,6 +110,7 @@ it("queries a cached usage index across concurrent D1 Worker requests", async ()
       await sourceModule("src/console/runtime/server/usage-index.ts"),
       await sourceModule("src/console/runtime/server/usage.ts"),
       await sourceModule("src/error-diagnostics.ts"),
+      ...await consoleHttpErrorModules(),
       {
         type: "ESModule",
         path: resolve(root, "src/console/runtime/server/valibot"),

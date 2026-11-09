@@ -8,7 +8,7 @@ icon: i-lucide-monitor
 ---
 
 ::product-hero{tagline="Open web pages in a cloud browser from your server, and get back HTML, screenshots, or data." hosts="Cloudflare"}
-  :::product-files
+  :::code-tree
   ```ts [server/browsers/page-html.ts]
   import { defineBrowser } from 'vite-hub/browser'
 

@@ -14,6 +14,8 @@ Use [Verification](https://vitehub.dev/raw/docs/development/verification.md) to 
 4. Inspect Provider Output for host failures.
 5. Correct the source boundary and rerun the same proof.
 
+For app tests, use `setupViteHubTest()` from `vite-hub/test` ([Testing](https://vitehub.dev/raw/docs/development/testing.md)) instead of `vi.mock()` on `vite-hub/*` modules or `_internal` imports. It gives KV, Blob, Database, Queue, Email, and Rate Limit local backends, `setEnv()` for Server Env, and `deliverChannel()` for Agent Channel webhooks.
+
 Do not add compatibility glue until the installed contract and current docs prove the missing seam is application-owned. Report upstream gaps with the exact package version, docs URL, generated state, and failing observation.
 
 ## Proof matrix

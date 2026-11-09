@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+    "id": "18f97339-c287-4872-9bdd-e2135c07ec12",
+    "number": 1,
+    "metadata": { "author_email": "dev@example.com", "author_id": "408cbcdfd4dda4617efef40b04d168a1", "created_on": "2026-11-04T08:59:50.000Z", "hasPreview": false, "modified_on": "2026-11-04T08:59:50.000Z", "source": "dash" },
+    "annotations": { "workers/triggered_by": "upload" }
+  }
+}

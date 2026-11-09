@@ -1,6 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { crc32, deflateRawSync } from "node:zlib";
 import { parse } from "yaml";
 
 import type { RunnableTutorialData, TutorialFiles } from "./steps";
@@ -200,49 +199,4 @@ export async function buildRunnableTutorial(input: {
     files,
     steps,
   };
-}
-
-/** A deflated .zip of text files, so a reader can download the starter of a tutorial. */
-export function createZip(files: TutorialFiles, folder: string): Uint8Array {
-  const local: Buffer[] = [];
-  const central: Buffer[] = [];
-  let offset = 0;
-  for (const [path, contents] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {
-    const name = Buffer.from(`${folder}/${path}`, "utf8");
-    const data = Buffer.from(contents, "utf8");
-    const compressed = deflateRawSync(data);
-    const checksum = crc32(data);
-    // DOS date 1980-01-01, so the archive is the same on every build.
-    const header = Buffer.alloc(30);
-    header.writeUInt32LE(0x04034B50, 0);
-    header.writeUInt16LE(20, 4);
-    header.writeUInt16LE(0x0800, 6);
-    header.writeUInt16LE(8, 8);
-    header.writeUInt16LE(0, 10);
-    header.writeUInt16LE(0x21, 12);
-    header.writeUInt32LE(checksum, 14);
-    header.writeUInt32LE(compressed.length, 18);
-    header.writeUInt32LE(data.length, 22);
-    header.writeUInt16LE(name.length, 26);
-    header.writeUInt16LE(0, 28);
-    local.push(header, name, compressed);
-
-    const entry = Buffer.alloc(46);
-    entry.writeUInt32LE(0x02014B50, 0);
-    entry.writeUInt16LE(20, 4);
-    entry.writeUInt16LE(20, 6);
-    header.copy(entry, 8, 6, 26);
-    entry.writeUInt16LE(name.length, 28);
-    entry.writeUInt32LE(offset, 42);
-    central.push(entry, name);
-    offset += header.length + name.length + compressed.length;
-  }
-  const directory = Buffer.concat(central);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054B50, 0);
-  end.writeUInt16LE(Object.keys(files).length, 8);
-  end.writeUInt16LE(Object.keys(files).length, 10);
-  end.writeUInt32LE(directory.length, 12);
-  end.writeUInt32LE(offset, 16);
-  return new Uint8Array(Buffer.concat([...local, directory, end]));
 }

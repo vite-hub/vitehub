@@ -161,7 +161,7 @@ Store the admin's GitHub account as `VITEHUB_ADMINS`, such as `github:22072217`.
 pnpm exec wrangler secret put VITEHUB_ADMINS --config .output/server/wrangler.json
 ```
 
-Then open `/_vitehub/sign-in` on the Worker URL and sign in with GitHub. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
+Then open `/_vitehub/sign-in` on the Worker URL and sign in with GitHub. Without GitHub sign-in, run `vitehub auth claim` and store the value it prints as `VITEHUB_ADMIN_CLAIM`. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
 
 ## Use cookie sessions without D1
 
