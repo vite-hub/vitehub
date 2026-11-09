@@ -568,6 +568,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
+      // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
       throw new Error("Blob changed repeatedly while preparing its response.")
     })
   }
