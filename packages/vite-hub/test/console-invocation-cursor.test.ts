@@ -8,12 +8,12 @@ import { consoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
-it.each([2, 3])("serializes the history once for a poll with %s retained observations", async (count) => {
+it.each([2, 3, 31, 32, 33, 63, 64, 65])("serializes the history once for a poll with %s retained observations", async (count) => {
   const store = createMemoryAgentInvocationStore()
   const timestamp = "2026-11-08T00:00:00.000Z"
-  const observations: TraceEventLogEntry[] = [1, 2, 3].map(sequence => ({
+  const observations: TraceEventLogEntry[] = Array.from({ length: 65 }, (_, index) => ({
     name: "cursor.test.observation",
-    sequence,
+    sequence: index + 1,
     timestamp,
     type: "lifecycle",
   }))
@@ -42,9 +42,9 @@ it.each([2, 3])("serializes the history once for a poll with %s retained observa
       observationCursor: complete.observationCursor,
       observations: observations.slice(count),
     })
-    expect(stringify.mock.calls.filter(([value]) => {
-      const input: unknown = value
-      return input !== null && typeof input === "object" && Reflect.get(input, "name") === "cursor.test.observation"
+    expect(stringify.mock.calls.flatMap(([value]) => {
+      const inputs: unknown[] = Array.isArray(value) ? value : [value]
+      return inputs.filter(input => input !== null && typeof input === "object" && Reflect.get(input, "name") === "cursor.test.observation")
     })).toHaveLength(observations.length)
   }
   finally {

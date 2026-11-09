@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { agentInvocationRerunInput } from "@vite-hub/agent"
 import * as v from "valibot"
@@ -31,24 +32,26 @@ interface ConsoleInvocationDetail {
   observations: readonly TraceEventLogEntry[]
 }
 
-function formatObservationCursor(count: number, fnv: number, djb: number): string {
-  return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`
+function formatObservationCursor(count: number, digest: string): string {
+  return `${count.toString(36)}-${digest}`
 }
 
+const observationCursorBatchSize = 32
+
 function observationCursors(observations: readonly TraceEventLogEntry[], prefixCount?: number): { cursor: string, prefix?: string } {
-  let fnv = 2_166_136_261
-  let djb = 5_381
-  let prefix = prefixCount === 0 ? formatObservationCursor(0, fnv, djb) : undefined
-  for (let index = 0; index < observations.length; index++) {
-    const serialized = JSON.stringify(observations[index])
-    for (let offset = 0; offset <= serialized.length; offset++) {
-      const code = offset === serialized.length ? 0 : serialized.charCodeAt(offset)
-      fnv = Math.imul(fnv ^ code, 16_777_619)
-      djb = Math.imul(djb, 33) ^ code
-    }
-    if (index + 1 === prefixCount) prefix = formatObservationCursor(index + 1, fnv, djb)
+  const hash = createHash("sha256").update("[")
+  let prefix = prefixCount === 0 ? formatObservationCursor(0, hash.copy().update("]").digest("hex")) : undefined
+  for (let start = 0; start < observations.length;) {
+    const end = Math.min(start + observationCursorBatchSize, prefixCount !== undefined && prefixCount > start ? prefixCount : observations.length)
+    if (start > 0) hash.update(",")
+    // Hash one JSON array in bounded batches, splitting at the requested prefix.
+    hash.update(JSON.stringify(observations.slice(start, end)).slice(1, -1))
+    if (end === prefixCount && end < observations.length) prefix = formatObservationCursor(end, hash.copy().update("]").digest("hex"))
+    start = end
   }
-  return { cursor: formatObservationCursor(observations.length, fnv, djb), prefix }
+  const cursor = formatObservationCursor(observations.length, hash.update("]").digest("hex"))
+  if (prefixCount === observations.length) prefix = cursor
+  return { cursor, prefix }
 }
 
 const cancelActionSchema = v.strictObject({ action: v.literal("cancel") })
