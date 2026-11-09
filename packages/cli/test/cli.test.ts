@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
+import { setupCommands } from "../src/setup/commands.ts"
+import { setupCommandNames } from "../src/setup/names.ts"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
@@ -583,6 +585,10 @@ export default ({ mode }) => ({
     expect(help).toContain("  catalog      List every ViteHub feature")
     expect(help).toContain("  status       Show the host")
     expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
+  })
+
+  it("knows the name of every setup command before it imports them", () => {
+    expect([...setupCommandNames]).toEqual(setupCommands.map(command => command.name))
   })
 
   it("dispatches setup commands before config loading", async () => {

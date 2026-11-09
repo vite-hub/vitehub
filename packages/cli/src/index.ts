@@ -13,7 +13,7 @@ import { resolve } from "pathe"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
-import { setupCommands } from "./setup/commands.ts"
+import { setupCommandNames } from "./setup/names.ts"
 
 import type { InlineConfig } from "vite"
 import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -59,6 +59,11 @@ interface ViteHubCliLoadedConfig {
 }
 
 const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
+
+// The setup commands load Babel, semver, and diff, so the CLI imports them only to run one or to print the root help.
+async function loadSetupCommands(): Promise<readonly ViteHubCliCommand[]> {
+  return (await import("./setup/commands.ts")).setupCommands
+}
 
 export interface RunViteHubCliOptions {
   args?: string[]
@@ -247,9 +252,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
-  const commands = options.commands ?? setupCommands
+  const loadCommands = async () => options.commands ?? await loadSetupCommands()
   // Setup commands never load the project config, so they work in an empty folder and on a config that throws.
-  const setupCommand = commands.find(item => item.name === args[0])
+  const setupCommand = options.commands || setupCommandNames.has(args[0] ?? "")
+    ? (await loadCommands()).find(item => item.name === args[0])
+    : undefined
   if (setupCommand) {
     return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
@@ -304,7 +311,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   if (!args.length || isRootHelp(args)) {
-    writeRootHelp(namespaces, commands, stdout)
+    writeRootHelp(namespaces, await loadCommands(), stdout)
     return 0
   }
 
@@ -315,7 +322,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     if (namespaces.length === 2 && namespaces.every(item => BUILTIN_NAMESPACE_NAMES.has(item.name))) {
       stderr.write(`No ViteHub integration contributed the "${namespaceName}" commands. Run this from a configured project and enable the matching integration in vite.config.ts or nuxt.config.ts.\n`)
     }
-    writeRootHelp(namespaces, commands, stderr)
+    writeRootHelp(namespaces, await loadCommands(), stderr)
     return 1
   }
 
