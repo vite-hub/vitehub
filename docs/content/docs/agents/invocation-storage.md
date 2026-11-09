@@ -62,6 +62,45 @@ The default journal requires Nitro-hosted Agents. For the Netlify preset or `age
 
 Set its options in `agent.invocations`:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: {
+      invocations: {
+        databaseUrl: 'file:/var/lib/my-app/agent-invocations.sqlite',
+        retention: { maxAge: '14d', maxSize: '30%' },
+        observations: { maxCount: 1024, flushTimeoutMs: 10000 },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: {
+      invocations: {
+        databaseUrl: 'file:/var/lib/my-app/agent-invocations.sqlite',
+        retention: { maxAge: '14d', maxSize: '30%' },
+        observations: { maxCount: 1024, flushTimeoutMs: 10000 },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -78,6 +117,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 - `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare preset, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
 - `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 default journal defaults to 30 days and 10,000 terminal records. It does not support `maxSize` and fails the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
@@ -102,6 +143,37 @@ The Worker rejects a selected `file:` URL at server start, including a `VITEHUB_
 
 Set `agent.invocations` in the ViteHub options to give every Agent Definition the same journal:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    database: { driver: 'd1' },
+    agent: { invocations: 'database' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    database: { driver: 'd1' },
+    agent: { invocations: 'database' },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -114,6 +186,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions from `vite-hub/agent` that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
 

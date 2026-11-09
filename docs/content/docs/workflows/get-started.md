@@ -13,29 +13,53 @@ A Workflow is a job made of steps that run in order, like a recipe. If one step 
 In this tutorial, you build a Workflow with two steps that signs up a new user. The first step creates a user, and the second step sends a welcome message. Both steps only return sample data for now. They do not use a database or send an email. Then you start the Workflow from an API route.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run every command from the app root. You need no account: on your computer, the Workflow runs inside your server. A run started this way does not survive a server restart. Pick a [durable provider](/docs/workflows/hosts) before you rely on that.
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account: on your computer, the Workflow runs inside your server. A run started this way does not survive a server restart. Pick a [durable provider](/docs/workflows/hosts) before you rely on that.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Install and enable Workflows"}
+## Install and enable Workflows
 
-Add Workflow and Nitro to your app:
+Add the Workflow package:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/runtime @vite-hub/workflow nitro h3
-pnpm add -D vite
+pnpm add @vite-hub/workflow
 ```
 
-Add the two plugins to `vite.config.ts`. Keep the other plugins of your app.
+Add `workflow: true` to the ViteHub options of your app. Keep the other options of your app.
 
-```ts [vite.config.ts]
-import { hubWorkflow } from '@vite-hub/workflow/vite'
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-
-export default defineConfig({
-  plugins: [hubWorkflow(), nitro()],
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workflow: true },
 })
 ```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workflow: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workflow: true })],
+})
+```
+::::
+:::
+
 
 ::
 
@@ -47,7 +71,7 @@ Create the folder `server/workflows/onboard-user`. The folder name is the name o
 First, create `index.ts`. It gets the input and calls the steps in order:
 
 ```ts [server/workflows/onboard-user/index.ts]
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {
   const user = await steps.createUser(payload)
@@ -89,7 +113,7 @@ Create `server/api/onboard.post.ts`. This route starts the `onboard-user` Workfl
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from '@vite-hub/workflow'
+import { runWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event)
@@ -105,29 +129,63 @@ export default defineEventHandler(async (event) => {
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Open a second terminal, and call the route:
 
 ```bash [commands/run]
-curl -X POST http://localhost:5173/api/onboard \
+curl -X POST http://localhost:3000/api/onboard \
   -H 'content-type: application/json' \
   -d '{"email":"ada@example.com"}'
 ```
 
-The response has a run id and a status. The run id identifies this run. To see the status, result, or error of the run later, pass the run id to [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run). Do not start a new run to check it.
+The response has a run id and a status. Your run id is different:
+
+```json [output/run.json]
+{"id":"wrun_mw6hmkr0_kvp6dm99","metadata":{"mode":"inline","workflow":"workflow--6f6e626f6172642d75736572"},"payload":{"email":"ada@example.com"},"provider":"vercel","status":"queued"}
+```
+
+`"mode":"inline"` means that the run executes inside your dev server. The run id identifies this run. To see the status, result, or error of the run later, pass the run id to [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run). Do not start a new run to check it.
 
 Local inline execution keeps the final result of the run. The run returned by `getWorkflowRun()` does not include step history.
 
 ## Start a run from the CLI or the Console
 
-If your app uses `vitehub()`, you can also start a run without a route. Run `pnpm vitehub workflow start onboard-user --payload '{"email":"ada@example.com"}'` while the dev server runs. Or open the Workflows page of the [Console](/docs/development/console) and click **Start**. The app in this tutorial adds only `hubWorkflow()`, so it does not have these commands.
+You can also start a run without a route. Keep the dev server running, and run:
+
+```bash [commands/cli-start]
+pnpm vitehub workflow start onboard-user --payload '{"email":"ada@example.com"}'
+```
+
+Then read the run back with its id:
+
+```bash [commands/cli-get]
+pnpm vitehub workflow get <run-id>
+```
+
+```json [output/cli-get.json]
+{
+  "run": {
+    "id": "wrun_mw6hmtp4_5y5qt0lg",
+    "provider": "vercel",
+    "result": {
+      "userId": "user:ada@example.com",
+      "email": "ada@example.com",
+      "welcomeSent": true
+    },
+    "status": "completed",
+    "workflow": "onboard-user"
+  }
+}
+```
+
+For a run that you started from the route, add `--workflow onboard-user` to `get`. Or open the Workflows page of the [Console](/docs/development/console) and click **Start**.
 
 With `vitehub()`, `pnpm vitehub workflow runs list` lists the runs that the dev server recorded. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of one run. `pnpm vitehub workflow runs clear --yes` clears that history.
 
 :::details{summary="When the Start button and the commands are available"}
-The commands call the Console RPC of the running app, so they need `vitehub()`. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
+The commands call the Console RPC of the running app. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
 :::
 
 ::
