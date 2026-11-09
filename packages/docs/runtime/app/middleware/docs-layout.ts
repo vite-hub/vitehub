@@ -1,6 +1,6 @@
-import { defineNuxtRouteMiddleware, isDocsStartLink, navigateTo, useDocsConfig } from "#imports"
+import { defineNuxtRouteMiddleware, isDocsStartLink, navigateTo, useDocsConfig, useRuntimeConfig } from "#imports"
 import manifest from "#docs/manifest"
-import { docsSectionForPath, findDocsPage } from "#docs/navigation"
+import { docsAppPath, docsSectionForPath, findDocsPage } from "#docs/navigation"
 
 // A docs page renders in the docs shell whichever app page serves its path. A page outside the docs base, such as
 // `/about`, is a plain article under the site header, and a `home` page is its own blocks under it. A page that
@@ -14,5 +14,5 @@ export default defineNuxtRouteMiddleware((to, from) => {
   // playground at `/play/`, or a file in `public/`. A client navigation would draw the docs 404 for it, so the browser
   // loads it. The first load and a reload come from the server already, so they never reach this.
   else if (import.meta.client && from.matched.length > 0 && to.name === "docs-page" && to.path !== from.path)
-    return navigateTo(to.fullPath, { external: true })
+    return navigateTo(docsAppPath(to.fullPath, useRuntimeConfig().app.baseURL), { external: true })
 })
