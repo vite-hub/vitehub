@@ -19,28 +19,40 @@ Each helper connects incoming messages or events to an Invocation. Set up the pr
 ::supported-channels
 ::
 
-Use `defineChannel()` for another transport. To send messages without an Invocation, use [Channels](/docs/channels).
+A Channel is one connection in `server/channels/<name>.ts`, defined with `defineChannel()` from `vite-hub/channels`. The same Channel also sends from server code with `useChannel(name).send()`. See [Channels](/docs/channels) for webhooks from HTTP senders, such as Stripe, that go to a handler, a Queue, or a Workflow.
 
 ## Add a Channel
 
-Add Channels to the Agent's `channels` map. Import the helpers from `vite-hub/agent/channels`.
+Define the Channel in `server/channels`, with an adapter from `vite-hub/agent/channels`. Then list its name in the Agent.
+
+```ts [server/channels/portal.ts]
+import { webChat } from 'vite-hub/agent/channels'
+import { defineChannel } from 'vite-hub/channels'
+
+export default defineChannel({ adapter: webChat() })
+```
+
+```ts [server/channels/github.ts]
+import { github } from 'vite-hub/agent/channels'
+import { defineChannel } from 'vite-hub/channels'
+
+export default defineChannel({ adapter: github() })
+```
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { github, webChat } from 'vite-hub/agent/channels'
 
 export default defineAgent({
-  channels: {
-    portal: webChat(),
-    github: github({ pullRequest: true }),
-  },
+  channels: ['portal', 'github'],
   driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 
-Each value is a Channel definition or a factory that returns one. Call the helper, such as `telegram({ allowedUserIds: ['123'] })`. A plain object such as `telegram: { ... }` is rejected. The bundle holds only the helpers you import, so an Agent with only `webChat()` ships no Discord or Teams adapter.
+The Agent answers the messages of each Channel that it lists. A Channel sends its messages to one Agent, so two Agents cannot list the same name. ViteHub reads the names from the Agent file, so write them as string literals. A Channel that adds an Agent Workspace, such as `github({ pullRequest: { workspace: true } })`, goes inline instead: `channels: { github: github({ pullRequest: { workspace: true } }) }`. Code that builds an Agent outside `server/agents`, such as a test, also passes its Channels inline, by name.
 
-The built-in helpers are `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. `defineChannel()` makes your own Channel Kind (a Channel type, such as `'telegram'`).
+The server bundle contains only the adapters that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters. Every Channel also answers webhooks at `/api/_vitehub/channels/<name>`.
+
+Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
 
 - `webChat()` adds a generated AI SDK chat route by default.
 - `http()` is a generic HTTP Channel. Its route stays off until `http({ route: true })`.
@@ -163,17 +175,18 @@ teams({
 
 Hooks let the Agent act on the message that started it, for example to label an email. The `agent:finish` and `agent:error` hooks get `event.message`, a handle for that message.
 
-1. Declare the handle's methods with `defineChannel(kind, { message })`.
+1. Declare the handle's methods with `channelAdapter(kind, { message })`.
 2. In the Trigger (the function that turns a provider event into an Invocation), return JSON `message` data that identifies the provider message.
-3. Each method gets the Channel context first, with the Trigger's data in `context.message`. A `message.data` Standard Schema validates it.
+3. Each method gets the Channel context first, with the Trigger's data in `context.message`. A `message.data` Standard Schema validates it when you set one.
 
 ```ts [server/agents/labeller.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
 import * as v from 'valibot'
 import { applyLabels, readEmail } from '../lib/mailbox'
 
-const mailbox = defineChannel('mailbox', {
+// Inline, so TypeScript types `event.message` from the methods.
+const mailbox = channelAdapter('mailbox', {
   message: {
     data: v.object({ id: v.string() }),
     methods: {
@@ -243,56 +256,58 @@ Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next
 
 ### Give a Channel its own route
 
-A Channel can own its webhook without an Agent. Put it in `server/channels/<name>/index.ts`, default-export `defineChannel()`, and set `webhooks.path`. The trigger picks the Agent with a [task](/docs/agents/triggers):
+A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/api/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
 
 ```ts [server/channels/tickets/index.ts] fragment
-import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
-import triage from '../../agents/triage'
+import { defineChannelTrigger } from 'vite-hub/agent/channels'
+import { defineChannel, webhook } from 'vite-hub/channels'
 import { ticketEvent } from './events'
 
-export default defineChannel('tickets', {
-  messages: false,
-  triggers: {
+export default defineChannel({
+  adapter: webhook({ kind: 'tickets', path: '/api/tickets/webhook', aliases: ['/webhooks/tickets'] }),
+  on: {
     webhook: defineChannelTrigger({
       input: ticketEvent,
-      tasks: { triage: { agent: triage } },
+      tasks: { triage: { agent: () => import('../../agents/triage') } },
       invoke: (context, event) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
     }),
   },
-  webhooks: { path: '/api/tickets/webhook', aliases: ['/webhooks/tickets'] },
 })
 ```
 
-- The name comes from the folder, as for [outbound Channels](/docs/channels/get-started). `server/channels/tickets.ts` also works. Other files next to an `index` module, such as `events.ts`, are helpers, never Channels.
-- An `index` module can also export `connectors`, so one folder is both the outbound and inbound `tickets` Channel.
-- `webhooks.path` and `webhooks.aliases` are read from source without running it. Use string literals or same-module `const` values, or the build fails with `AGENT_B0024`.
-- A module without `webhooks.path`, or that exports a Channel factory, is not served alone. Attach it to an Agent in `channels`, but never both.
-- The route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` owns the webhook State and queue. It is not an Agent, so no Agent may use that name.
-- Standalone Channels need a Nitro host. Restart the dev server after you add or remove one.
+- The Channel name comes from the file, or from the folder of an `index` module. In a folder with an `index` module, the other files, such as `events.ts`, are helpers.
+- ViteHub reads `path` and `aliases` from the source without running the module. Use string literals, or `const` values in the same module that hold them. Any other value fails the build with `AGENT_B0024`.
+- When an Agent lists the Channel, that Agent serves its routes. Otherwise the route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
+- Channels that receive webhooks without an Agent need a Nitro host. Restart the development server after you add or remove one.
+
+A task's `agent` can be a definition or a resolver that returns a definition or its default-export module. Use a lazy import as above when the target Agent lists this Channel. ViteHub resolves it before binding the task callbacks and stores the resolved Agent name with queued deliveries. Keep static imports of the owning Agent out of the Channel and its helpers. ViteHub reports cycles through local imports at build time.
 
 ### Keep webhook State when a Channel moves
 
-A webhook's State (saved data) and queue, including queued deliveries, provider cursors, and Channel State, live under `webhook:<agent>:<origin>:<registration>:`. Moving a Channel to another owner, such as from an Agent to `server/channels/<name>/index.ts`, changes the scope and hides the old data. Set `webhooks.stateScope` to the old scope to keep it:
+ViteHub keeps a webhook's State and queue under `webhook:<agent>:<origin>:<registration>:`. Accepted queued deliveries, provider cursors, and Channel State all use this scope. When you move a Channel to another owner, for example from an Agent to `server/channels/<name>.ts`, the scope changes, and the new owner does not see the old data.
+
+Set `stateScope` on the adapter to the old scope to keep it:
 
 ```ts [server/channels/airtable/index.ts]
-import { defineChannel } from 'vite-hub/agent/channels'
+import { defineChannel, webhook } from 'vite-hub/channels'
 
-export default defineChannel('airtable', {
-  messages: false,
-  triggers: { /* ... */ },
-  webhooks: {
+export default defineChannel({
+  adapter: webhook({
+    kind: 'airtable',
     path: '/api/airtable/webhook',
     durableState: true,
     stateScope: 'webhook:support:airtable:airtable:',
-  },
+  }),
+  on: { /* ... */ },
 })
 ```
 
-The value gets one trailing colon. A non-string or empty value makes the route throw a `TypeError`. Give each registration its own scope and remove it from the old owner: scopes are not checked for uniqueness, and a shared scope shares one queue and State.
+- ViteHub uses the value as the scope, with one trailing colon. A value that is not a string, or that is empty, makes the route throw a `TypeError`.
+- Give each Channel its own `stateScope`, and remove the Channel from the old owner. ViteHub does not check that a scope is unique. Channels with the same scope share one queue and one Channel State.
 
 ### Verify a webhook signature
 
-A signature check proves a request comes from the provider. Set `secretHeader`, `secretToken`, and `signature` on the registration. ViteHub verifies the raw body before the trigger runs, and answers `401` on failure.
+Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHeader`, `secretToken`, and `signature` on a webhook registration of `channelAdapter()`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
 
 | `signature` | The header carries |
 | --- | --- |
@@ -307,35 +322,35 @@ A signature check proves a request comes from the provider. Set `secretHeader`, 
 
 `bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When `secretToken` gives no secret, the webhook answers `500` naming the Channel, so a missing secret never leaves the route open. Return `false` from `secretToken` to turn verification off.
 
-`secretToken` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies:
+`secret` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies the request:
 
-```ts [server/utils/prefect-channel.ts]
-import { defineChannel } from 'vite-hub/agent/channels'
+```ts [server/channels/prefect.ts] fragment
+import { defineChannel, webhook } from 'vite-hub/channels'
 import { useServerEnv } from '#vitehub/env/server'
 
-export const prefect = defineChannel('prefect', {
-  messages: false,
-  triggers: { /* ... */ },
-  webhooks: {
+export default defineChannel({
+  adapter: webhook({
+    kind: 'prefect',
     path: '/api/prefect/webhook',
-    secretToken: () => useServerEnv().prefect.webhookSecret,
+    secret: () => useServerEnv().prefect.webhookSecret,
     signature: 'bearer',
-  },
+  }),
+  on: { /* ... */ },
 })
 ```
 
-```ts [server/agents/support.ts]
-import { defineChannel } from 'vite-hub/agent/channels'
+```ts [server/channels/airtable.ts]
+import { defineChannel, webhook } from 'vite-hub/channels'
 
-export const airtable = defineChannel('airtable', {
-  messages: false,
-  triggers: { /* ... */ },
-  webhooks: {
+export default defineChannel({
+  adapter: webhook({
+    kind: 'airtable',
     path: '/api/airtable/webhook',
-    secretHeader: 'x-airtable-content-mac',
-    secretToken: () => process.env.AIRTABLE_MAC_SECRET,
+    header: 'x-airtable-content-mac',
+    secret: () => process.env.AIRTABLE_MAC_SECRET,
     signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
-  },
+  }),
+  on: { /* ... */ },
 })
 ```
 
@@ -459,9 +474,9 @@ Replay runs an Agent on messages from before it existed, or again after a change
 
 To join older Invocations without `vitehub.channel.key`, add `history.invocationItem(invocation): TItem | undefined | Promise<TItem | undefined>`. This read-only hook gets the stored `AgentInvocationRecord` and rebuilds an item for `key()` and `thread()`. Existing key annotations win. The journal keeps no raw trigger input or `input.context`, so return `undefined` when observations and annotations cannot identify the item. A throwing hook also leaves the record unjoined.
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/labeller.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
 import { defineCollection } from 'vite-hub/source'
 import * as v from 'valibot'
 import { applyLabels, listEmails } from '../lib/mailbox'
@@ -477,7 +492,7 @@ const inbox = defineCollection(async ({ cursor, limit, query }) => {
   querySchema: v.object({ folder: v.optional(v.picklist(['archive', 'inbox']), 'inbox') }),
 })
 
-const mailbox = defineChannel('mailbox', {
+const mailbox = channelAdapter('mailbox', {
   history: { collection: inbox, key: message => message.id },
   message: {
     data: v.object({ id: v.string() }),
