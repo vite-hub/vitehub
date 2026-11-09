@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { Markdown } from "@vite-hub/ui";
-import { useClipboard } from "@vueuse/core";
+import { CopyButton, Markdown } from "@vite-hub/ui";
 import { computed, defineComponent, h, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { consoleBytes } from "../client/format";
@@ -19,17 +18,7 @@ const markdown = computed(() => /\.md$/i.test(props.file.path));
 // A final newline ends the last line. It does not start another one.
 const lines = computed(() => props.file.content ? props.file.content.split("\n").length - (props.file.content.endsWith("\n") ? 1 : 0) : 0);
 const route = useRoute();
-const { copy: copyContent, copied, isSupported: clipboardSupported } = useClipboard({ source: () => props.file.content });
 const copyError = ref(false);
-async function copy() {
-  try {
-    if (!clipboardSupported.value) throw new Error("Clipboard unavailable");
-    await copyContent();
-    copyError.value = false;
-  } catch {
-    copyError.value = true;
-  }
-}
 const SkillLink = defineComponent({
   inheritAttrs: false,
   props: { href: { type: String, default: "" } },
@@ -67,9 +56,8 @@ const SkillLink = defineComponent({
         <span class="min-w-0 [overflow-wrap:anywhere]">{{ file.path }}</span>
       </p>
       <UTabs v-if="markdown" v-model="view" :items="views" :content="false" class="self-end" aria-label="File view" />
-      <UButton :label="copied ? 'Copied' : 'Copy'" :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'" aria-label="Copy file contents" size="xs" variant="ghost" @click="copy" />
+      <CopyButton :value="file.content" label="Copy" aria-label="Copy file contents" size="xs" @copy="copyError = false" @error="copyError = true" />
     </header>
-    <span role="status" class="sr-only">{{ copied ? 'File contents copied' : '' }}</span>
     <p v-if="copyError" role="alert" class="px-4 pt-2 text-xs text-error">Could not copy. Select the file text to copy it.</p>
     <div class="min-h-0 flex-1 overflow-auto">
       <!-- The typeset grain would draw a box around the text column, so the preview turns it off. -->

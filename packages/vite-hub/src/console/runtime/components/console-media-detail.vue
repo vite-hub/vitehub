@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CopyButton, useCopy } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
@@ -106,15 +107,12 @@ async function setFocal(focal: ConsoleMediaFocalPoint | undefined): Promise<void
   }
 }
 
+const clipboard = useCopy();
+// The menu items have no button to show the check, so a toast confirms the copy.
 async function copy(value: string | undefined, label: string): Promise<void> {
   if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-    toast.show({ title: `${label} copied` });
-  }
-  catch {
-    toast.error(`Couldn't copy the ${label.toLowerCase()}.`);
-  }
+  if (await clipboard.copy(value)) toast.show({ title: `${label} copied` });
+  else toast.error(`Couldn't copy the ${label.toLowerCase()}.`);
 }
 
 // "Used in": the draft and published documents that reference the file.
@@ -236,14 +234,14 @@ const facts = computed(() => [
           <span class="text-xs text-dimmed">Pathname</span>
           <div class="flex min-w-0 items-center gap-1 rounded-md bg-elevated/60 py-1 ps-2 pe-1">
             <code class="min-w-0 flex-1 truncate text-xs" :title="file.pathname">{{ file.pathname }}</code>
-            <UButton variant="ghost" size="xs" icon="i-lucide-copy" aria-label="Copy pathname" @click="copy(file.pathname, 'Pathname')" />
+            <CopyButton :value="file.pathname" size="xs" aria-label="Copy pathname" />
           </div>
         </div>
         <div v-if="absoluteUrl" class="grid gap-1">
           <span class="text-xs text-dimmed">URL</span>
           <div class="flex min-w-0 items-center gap-1 rounded-md bg-elevated/60 py-1 ps-2 pe-1">
             <code class="min-w-0 flex-1 truncate text-xs" :title="absoluteUrl">{{ url }}</code>
-            <UButton variant="ghost" size="xs" icon="i-lucide-copy" aria-label="Copy URL" @click="copy(absoluteUrl, 'URL')" />
+            <CopyButton :value="absoluteUrl" size="xs" aria-label="Copy URL" />
           </div>
         </div>
       </section>

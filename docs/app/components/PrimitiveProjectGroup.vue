@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui/status";
 import type { PrimitiveFramework, PrimitiveProjectVariant } from "~/data/primitive-landings/types";
 
 const props = defineProps<{ variants: PrimitiveProjectVariant[] }>();
@@ -17,10 +18,7 @@ const fileItems = computed(() => currentVariant.value?.files.map((file) => ({ la
   <div class="overflow-hidden rounded-lg border border-default bg-muted">
     <!-- The tab strip sits on the bottom line of the header, so its line and the header line are one. -->
     <div class="flex flex-wrap items-end justify-between gap-x-3 border-b border-default px-4">
-      <div class="flex items-center gap-2 self-center py-3 text-xs text-muted">
-        <span class="size-2 rounded-full bg-primary" aria-hidden="true" />
-        <span>Project group</span>
-      </div>
+      <Status label="Project group" class="self-center py-3 text-muted" />
       <UTabs v-model="framework" :items="frameworkItems" :content="false" aria-label="Framework" />
     </div>
     <p v-if="currentVariant?.illustrative" class="border-b border-default px-4 py-3 text-xs text-muted">

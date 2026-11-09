@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ButtonProps } from "@nuxt/ui";
-import { computed, onBeforeUnmount, ref } from "vue";
+import { CopyButton } from "@vite-hub/ui";
+import { computed } from "vue";
 
 import { consoleProblem } from "../client/problem";
 import { consoleSignInURL } from "../client/sign-in";
@@ -86,24 +87,6 @@ const fix = computed(() => {
   const text = problem.value?.fix;
   return text && text.replace(/\.$/, "") === stateActions.value[0]?.label ? undefined : text;
 });
-
-const copied = ref(false);
-let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-async function copyCode(): Promise<void> {
-  if (!problem.value) return;
-  try {
-    await navigator.clipboard.writeText(problem.value.code);
-    copied.value = true;
-  } catch {
-    copied.value = false;
-    return;
-  }
-  if (copiedTimer) clearTimeout(copiedTimer);
-  copiedTimer = setTimeout(() => (copied.value = false), 2_000);
-}
-onBeforeUnmount(() => {
-  if (copiedTimer) clearTimeout(copiedTimer);
-});
 </script>
 
 <template>
@@ -122,16 +105,15 @@ onBeforeUnmount(() => {
       <div v-if="stateActions.length" class="mt-1 flex flex-wrap items-center gap-1">
         <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
       </div>
-      <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
-        <UButton
-          variant="ghost"
+      <UTooltip v-if="problem" text="Copy error code">
+        <CopyButton
+          :value="problem.code"
           size="xs"
           class="-mx-2 max-w-full justify-self-start text-start font-mono text-dimmed [overflow-wrap:anywhere]"
           :aria-label="`Copy error code ${problem.code}`"
-          @click="copyCode"
         >
           {{ problem.code }} <span v-if="problem.status" class="whitespace-nowrap">· {{ problem.status }}</span>
-        </UButton>
+        </CopyButton>
       </UTooltip>
     </div>
   </div>
@@ -152,10 +134,10 @@ onBeforeUnmount(() => {
       <slot />
       <div v-if="stateActions.length || problem" class="flex flex-wrap items-center justify-center gap-1">
         <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
-        <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
-          <UButton variant="ghost" class="font-mono text-dimmed" :aria-label="`Copy error code ${problem.code}`" @click="copyCode">
+        <UTooltip v-if="problem" text="Copy error code">
+          <CopyButton :value="problem.code" class="font-mono text-dimmed" :aria-label="`Copy error code ${problem.code}`">
             {{ problem.code }}<span v-if="problem.status"> · {{ problem.status }}</span>
-          </UButton>
+          </CopyButton>
         </UTooltip>
       </div>
     </template>

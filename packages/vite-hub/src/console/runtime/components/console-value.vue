@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed } from "vue";
 
 import { consoleStatusValue, consoleValueParts } from "../client/format";
 import ConsoleRelativeTime from "./console-relative-time.vue";
-import ConsoleStatus from "./console-status.vue";
 
 /**
  * A text value from an owner package, shown the Console way: a status word such as `Enabled` or `failed` as a status
@@ -25,9 +25,9 @@ const parts = computed(() => consoleValueParts(props.value));
 </script>
 
 <template>
-  <ConsoleStatus v-if="status" :label="status.label" :tone="status.tone" :pending="status.pending" />
+  <Status v-if="status" :label="status.label" :tone="status.tone" :pulse="status.pending" />
   <span v-else-if="statusAt" class="inline-flex min-w-0 items-center gap-1.5">
-    <ConsoleStatus :label="statusAt.status.label" :tone="statusAt.status.tone" :pending="statusAt.status.pending" />
+    <Status :label="statusAt.status.label" :tone="statusAt.status.tone" :pulse="statusAt.status.pending" />
     <span class="text-dimmed" aria-hidden="true">·</span>
     <span class="text-xs text-muted"><ConsoleRelativeTime :value="statusAt.time" /></span>
   </span>

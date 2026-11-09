@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { TableColumn, TableRow } from "@nuxt/ui";
+import { CopyButton } from "@vite-hub/ui";
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -9,7 +10,6 @@ import { queryChoice, queryInteger, queryText, useConsoleQuery } from "../client
 import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import { consoleDatabaseNumericColumns, consoleDatabaseRequestQuery, consoleDatabaseRowFields, parseConsoleDatabase } from "./console-database-model";
-import { useConsoleToast } from "../client/toast";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -54,7 +54,6 @@ const loading = ref(true);
 const error = ref<unknown>();
 /** The row open in the drawer. Grid cells cut long values, so the drawer shows each value in full. */
 const openRow = ref<Record<string, ConsoleDatabaseCell>>();
-const toast = useConsoleToast();
 let request: AbortController | undefined;
 let filterTimer: ReturnType<typeof setTimeout> | undefined;
 const defaultSort = "__vitehub_default__";
@@ -309,15 +308,6 @@ async function openSchema(): Promise<void> {
 
 function selectRow(_event: Event, row: TableRow<Record<string, string | null>>): void {
   openRow.value = database.value?.rows[row.index];
-}
-
-async function copyValue(column: string, value: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast.show({ title: `${column} copied` });
-  } catch {
-    toast.error(`Couldn't copy ${column}.`);
-  }
 }
 
 function applyFilter(): void {
@@ -595,13 +585,11 @@ onBeforeUnmount(() => {
                 <p v-if="field.truncated" class="text-xs text-muted">The Console shows only the start of this value.</p>
               </div>
               <UTooltip v-if="!field.null" text="Copy">
-                <UButton
+                <CopyButton
                   class="-my-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                  :value="field.text"
                   :aria-label="`Copy ${field.column.name}`"
-                  icon="i-lucide-copy"
                   size="xs"
-                  variant="ghost"
-                  @click="copyValue(field.column.name, field.text)"
                 />
               </UTooltip>
             </dd>

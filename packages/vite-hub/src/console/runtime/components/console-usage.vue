@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import * as v from "valibot";
 
@@ -522,9 +523,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     <h2 class="text-sm font-semibold">{{ chartTitle }}</h2>
                     <p class="mt-0.5 text-xs text-muted">
                       {{ formatPeriod(summary.from, summary.resolution) }} to {{ formatPeriod(summary.to, summary.resolution) }} UTC
-                      <span v-if="partialChart" class="ms-2 inline-flex items-center gap-1.5 text-default">
-                        <span class="size-1.5 rounded-full bg-warning" aria-hidden="true" /> Partial points
-                      </span>
+                      <Status v-if="partialChart" class="ms-2 text-default" tone="warning" label="Partial points" />
                     </p>
                   </div>
                   <UTabs v-model="metric" :items="metricOptions" :content="false" aria-label="Usage metric" />

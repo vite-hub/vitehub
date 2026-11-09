@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, onMounted, ref, shallowRef } from "vue";
 import {
   connectionApprovalResultSchema,
@@ -8,7 +9,6 @@ import {
 import type { ConsoleConnectionApproval } from "../client/connections-management";
 import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 const props = defineProps<{ endpoint: string; name: string }>();
 const emit = defineEmits<{ changed: [] }>();
 const approvals = ref<Awaited<ReturnType<typeof loadConnectionApprovals>>["history"]>([]);
@@ -146,7 +146,7 @@ onMounted(load);
         <li v-for="approval in decided" :key="approval.id" class="space-y-1 py-3 text-xs">
           <div class="flex flex-wrap justify-between gap-2">
             <span class="break-all font-mono text-highlighted">{{ approval.action }}</span
-            ><ConsoleStatus
+            ><Status
               :label="outcomes[approval.status]?.label ?? approval.status"
               :tone="outcomes[approval.status]?.tone"
             />

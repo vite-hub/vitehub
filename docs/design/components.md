@@ -21,6 +21,22 @@ Size `sm` is the default. Use `xs` in dense rows and `md` only in a form's submi
 <button class="rounded px-2 hover:bg-zinc-100 focus-visible:ring-2" @click="copy">Copy</button>
 ```
 
+## Copy
+
+`CopyButton` from `@vite-hub/ui` for every control that copies text. It is a ghost `UButton` with the theme's `copy` icon, swaps to `copyCheck` for 2 seconds, and announces "Copied". Give an icon-only one an `aria-label` that names the thing. A menu item or a toast action that copies uses `useCopy()` from the same entry and confirms with a toast. Never call `navigator.clipboard` in a component.
+
+```vue
+<CopyButton :value="run.id" size="xs" aria-label="Copy run ID" />
+```
+
+## Status
+
+`Status` from `@vite-hub/ui` for every status dot: a 6px dot in the tone's color and a label. Tones are `neutral`, `success`, `warning`, `error`, and `info`. Add `colored` only when the label is the status itself, such as "Failed", and `pulse` for a live or pending state. A dot without a visible label keeps an `sr-only` text beside it. Never draw a dot with `rounded-full` and a `bg-*` class.
+
+```vue
+<Status tone="success" label="Connected" />
+```
+
 ## Tabs
 
 `UTabs` for every set of views that share one place, from the Console to a code group in the docs. The theme makes them underline tabs: the label is `text-muted`, the active label `text-highlighted` with a 1px line under it, and the line slides. Do not pass `variant="pill"`; a segmented pill is not part of the system.

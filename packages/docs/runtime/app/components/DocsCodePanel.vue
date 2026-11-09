@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useClipboard } from "@vueuse/core"
+import { CopyButton } from "@vite-hub/ui/copy-button"
 import { buildFileTree } from "../utils/file-tree"
 
 // The sticky code panel beside a tutorial. It reads the code blocks of the article body in order.
@@ -96,14 +96,6 @@ function selectFile(path: string | undefined) {
 function selectBlock(index: number) {
   reached.value = Math.max(reached.value, index)
   selectFile(blocks.value[index]?.path)
-}
-
-const { copy, copied } = useClipboard({ copiedDuring: 1500 })
-async function copyFile() {
-  const file = selected.value
-  if (!file) return
-  await copy(file.pre.textContent ?? "")
-  announcement.value = `Copied ${file.path}`
 }
 
 // Each source block gets a class for the wide-screen styles and a click on its name bar.
@@ -217,14 +209,14 @@ onBeforeUnmount(() => {
     <div class="vh-code-panel-file">
       <div class="vh-code-panel-path">
         <p :id="`${codeId}-path`" class="vh-code-panel-path-name">{{ selected?.path }}</p>
-        <UButton
+        <!-- The key resets the check when the panel shows another file. -->
+        <CopyButton
           v-if="selected"
-          :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-          variant="ghost"
+          :key="selected.path"
+          :value="() => selected?.pre.textContent ?? ''"
           size="xs"
-          :aria-label="copied ? 'Copied' : `Copy ${selected.path}`"
+          :aria-label="`Copy ${selected.path}`"
           class="vh-code-panel-copy"
-          @click="copyFile"
         />
       </div>
       <div :id="codeId" ref="code" class="vh-code-panel-code" role="region" :aria-labelledby="`${codeId}-path`" tabindex="0" />

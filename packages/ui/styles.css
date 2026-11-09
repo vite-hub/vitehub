@@ -1379,15 +1379,6 @@
     box-shadow: 0 0 0 1px color-mix(in oklab, var(--vh-highlighted) 10%, transparent);
   }
 
-  [data-slot="code-block-copy-status"] {
-    clip-path: inset(50%);
-    height: 1px;
-    overflow: hidden;
-    position: absolute;
-    white-space: nowrap;
-    width: 1px;
-  }
-
   [data-slot="code-block-content"] {
     font-family: var(--font-mono, ui-monospace, monospace);
     line-height: 1.625;
@@ -1776,6 +1767,85 @@
 
   @media (prefers-reduced-motion: reduce) {
     :is([data-slot="connection-status-indicator"], [data-slot="sync-status-indicator"])::after {
+      animation: none;
+    }
+  }
+
+  /* Status: a 6px dot in the brighter status color and a label. A colored label uses the darker text shade of theme.css. */
+  [data-slot="status"] {
+    align-items: center;
+    display: inline-flex;
+    font-size: 0.75rem;
+    gap: 0.375rem;
+    line-height: 1rem;
+    min-width: 0;
+  }
+
+  [data-slot="status"][data-size="md"] {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  [data-slot="status-indicator"] {
+    background: var(--vh-dimmed);
+    border-radius: 9999px;
+    flex: none;
+    height: 0.375rem;
+    position: relative;
+    width: 0.375rem;
+  }
+
+  [data-slot="status"][data-tone="success"] > [data-slot="status-indicator"] {
+    background: var(--vh-success);
+  }
+
+  [data-slot="status"][data-tone="warning"] > [data-slot="status-indicator"] {
+    background: var(--vh-warning);
+  }
+
+  [data-slot="status"][data-tone="error"] > [data-slot="status-indicator"] {
+    background: var(--vh-error);
+  }
+
+  [data-slot="status"][data-tone="info"] > [data-slot="status-indicator"] {
+    background: var(--vh-info);
+  }
+
+  [data-slot="status"][data-colored][data-tone="success"] {
+    color: var(--vh-text-success, var(--vh-success));
+  }
+
+  [data-slot="status"][data-colored][data-tone="warning"] {
+    color: var(--vh-text-warning, var(--vh-warning));
+  }
+
+  [data-slot="status"][data-colored][data-tone="error"] {
+    color: var(--vh-text-error, var(--vh-error));
+  }
+
+  [data-slot="status"][data-colored][data-tone="info"] {
+    color: var(--vh-text-info, var(--vh-info));
+  }
+
+  [data-slot="status-label"] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* A live or pending status pings, as the connection dot does. */
+  [data-slot="status-indicator"][data-pulse]::after {
+    animation: vh-status-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+    background: inherit;
+    border-radius: inherit;
+    content: "";
+    inset: 0;
+    position: absolute;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="status-indicator"][data-pulse]::after {
       animation: none;
     }
   }

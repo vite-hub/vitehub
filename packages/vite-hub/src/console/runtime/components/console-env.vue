@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 import * as v from "valibot";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
@@ -13,7 +14,6 @@ import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleEnvDetails from "./console-env-details.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 
 const descriptionSchema = v.object({
   entries: v.array(
@@ -228,9 +228,9 @@ onBeforeUnmount(() => request?.abort());
             :aria-pressed="attentionOnly"
             @click="attentionOnly = !attentionOnly"
           >
-            <ConsoleStatus :label="`${plural(blockingCount, 'value')} need attention`" tone="error" />
+            <Status :label="`${plural(blockingCount, 'value')} need attention`" tone="error" />
           </UButton>
-          <ConsoleStatus v-else-if="statuses" label="All values resolve" tone="success" />
+          <Status v-else-if="statuses" label="All values resolve" tone="success" />
           <span>{{ summary }}</span>
         </div>
       </ConsolePageToolbar>
@@ -289,7 +289,7 @@ onBeforeUnmount(() => request?.abort());
                     </span>
                   </span>
                   <span class="flex items-center gap-4 text-xs">
-                    <ConsoleStatus v-if="status(row.entry)" class="w-28" v-bind="status(row.entry)" />
+                    <Status v-if="status(row.entry)" class="w-28" v-bind="status(row.entry)" />
                     <span
                       class="hidden w-24 truncate text-end font-mono text-dimmed md:block"
                       :title="row.entry.type"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useClipboard } from "@vueuse/core";
+import { CopyButton } from "@vite-hub/ui/copy-button";
 import { computed, defineAsyncComponent, ref } from "vue";
 
 const props = withDefaults(
@@ -144,9 +144,6 @@ const fileName = `${props.name}.vue`;
 // The source renders on the server and in the payload, so the client highlights only after client navigation.
 const { data: sourceLines } = await useAsyncData(`component-preview:${props.name}`, () => highlightCodeLines(source, "vue"));
 
-const { copy, copied, isSupported } = useClipboard({ copiedDuring: 1600, legacy: true });
-const copyLabel = computed(() => (copied.value ? "Copied" : `Copy ${fileName}`));
-
 const resetKey = ref(0);
 function resetExample() {
   resetKey.value++;
@@ -175,17 +172,13 @@ function resetExample() {
           class="component-preview-action"
           @click="resetExample"
         />
-        <UButton
-          v-if="isSupported"
-          :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-          :aria-label="copyLabel"
-          :title="copyLabel"
+        <CopyButton
+          :value="source"
+          :aria-label="`Copy ${fileName}`"
+          :title="`Copy ${fileName}`"
           size="xs"
-          variant="ghost"
           class="component-preview-action"
-          @click="copy(source)"
         />
-        <span class="sr-only" aria-live="polite">{{ copied ? `${fileName} copied` : "" }}</span>
       </div>
     </div>
 

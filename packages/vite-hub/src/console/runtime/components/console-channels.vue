@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inlineChannelArchiveMedia } from "@vite-hub/internal/channel-archive";
-import { ChatMessage } from "@vite-hub/ui";
+import { ChatMessage, Status } from "@vite-hub/ui";
 import type { UIMessage } from "ai";
 import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -12,7 +12,6 @@ import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 import { isSafeExternalUrl } from "./invocation/internal/url";
 
 interface Retention {
@@ -409,7 +408,7 @@ onBeforeUnmount(() => {
               <ChatMessage :message="view(message)">
                 <template #header>
                   <span class="text-xs text-muted">{{ message.author.name || (message.role === "assistant" ? "Agent" : "Unknown") }} · {{ when(message.at) }}</span>
-                  <ConsoleStatus v-if="message.source !== 'provider'" tone="neutral" :label="message.source === 'transcript' ? 'transcript' : 'from the run'" />
+                  <Status v-if="message.source !== 'provider'" tone="neutral" :label="message.source === 'transcript' ? 'transcript' : 'from the run'" />
                 </template>
                 <template #actions>
                   <ul v-if="message.attachments.length" class="flex flex-wrap gap-2 text-xs">

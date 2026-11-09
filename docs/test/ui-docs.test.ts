@@ -111,7 +111,7 @@ describe("UI documentation", () => {
     // The source highlights once on the server and reaches the client in the payload.
     expect(preview).toContain('highlightCodeLines(source, "vue")');
     expect(preview).toContain('<ProsePre language="vue" :code="source"');
-    expect(preview).toContain('@click="copy(source)"');
+    expect(preview).toContain('<CopyButton\n          :value="source"');
     expect(preview).toContain('<component :is="example" :key="resetKey" />');
     expect(preview).not.toContain("<code>{{ source }}</code>");
   });

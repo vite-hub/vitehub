@@ -172,6 +172,14 @@ app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
 
 A part uses the component given here first, then one that the app registered globally under the same name with `app.component()`, then Nuxt UI's.
 
+Parts such as `CopyButton` read their icons from Nuxt UI's `appConfig.ui.icons`. The Nuxt module passes them for you. In Vue with Vite, pass the same icons, or each part falls back to Lucide:
+
+```ts [vite/icons/src/main.ts]
+import { vitehubTheme } from "@vite-hub/ui/theme";
+
+app.use(createViteHubUI({ icons: vitehubTheme.icons }));
+```
+
 ## Theme
 
 The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any element to change one view:

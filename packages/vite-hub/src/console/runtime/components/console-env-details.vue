@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed } from "vue";
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 
 import ConsoleEnvManaged from "./console-env-managed.vue";
 import ConsolePropertyList from "./console-property-list.vue";
-import ConsoleStatus from "./console-status.vue";
 
 const props = defineProps<{
   entry: ServerEnvDescriptionEntry;
@@ -34,7 +34,7 @@ const tab = defineModel<"credential" | "activity" | "access">("tab", { default: 
 
 <template>
   <div class="grid gap-6">
-    <ConsoleStatus v-if="status" :label="status.label" :tone="status.tone" />
+    <Status v-if="status" :label="status.label" :tone="status.tone" />
     <ConsolePropertyList title="Declaration" :items="properties" />
     <p class="text-[13px] leading-5 text-pretty text-muted">
       {{

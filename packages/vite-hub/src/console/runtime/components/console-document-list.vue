@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -27,7 +28,6 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
-import ConsoleStatus from "./console-status.vue";
 import ConsoleState from "./console-state.vue";
 
 import type { ConsoleDocumentCollection, ConsoleDocumentPage, ConsoleDocumentPublishExpectation, ConsoleDocumentsClient, ConsoleDocumentSummary, ConsoleListState } from "../client/documents";
@@ -334,7 +334,7 @@ onBeforeUnmount(() => {
 <template>
   <ConsolePageHeader :title="collection.label" :description="collection.path">
     <template #right>
-      <ConsoleStatus v-if="publishing" label="Publishing…" pending />
+      <Status v-if="publishing" label="Publishing…" pulse />
       <UPopover v-if="collection.access.publish && pendingChanges" v-model:open="publishOpen">
         <UButton variant="outline" label="Publish" :loading="publishing" :disabled="loading" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
           <template #trailing>
@@ -528,23 +528,23 @@ onBeforeUnmount(() => {
             </a>
             <!-- On a phone the state follows the title instead of taking a column. -->
             <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 sm:hidden">
-              <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" />
-              <ConsoleStatus v-if="item.issues" tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" />
-              <ConsoleStatus v-if="item.conflict" tone="warning" label="Changed on the site too" />
-              <ConsoleStatus v-if="item.schedule" :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" />
+              <Status :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" />
+              <Status v-if="item.issues" tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" />
+              <Status v-if="item.conflict" tone="warning" label="Changed on the site too" />
+              <Status v-if="item.schedule" :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" />
             </span>
           </td>
           <td class="hidden px-2 sm:table-cell">
             <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
-              <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
+              <Status :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
               <UTooltip v-if="item.issues" :text="consoleFixFieldsLabel(item.issues)" :content="{ side: 'top' }">
-                <ConsoleStatus tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" class="text-[13px]" />
+                <Status tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" class="text-[13px]" />
               </UTooltip>
               <UTooltip v-if="item.conflict" text="Open it to compare with the site before you publish" :content="{ side: 'top' }">
-                <ConsoleStatus tone="warning" label="Changed on the site too" class="text-[13px]" />
+                <Status tone="warning" label="Changed on the site too" class="text-[13px]" />
               </UTooltip>
               <UTooltip v-if="item.schedule" :text="consoleDocumentScheduleHint(item.schedule, setup)" :content="{ side: 'top' }">
-                <ConsoleStatus :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />
+                <Status :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />
               </UTooltip>
             </span>
           </td>

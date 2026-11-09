@@ -1839,7 +1839,7 @@ describe("Agent Invocation UI", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await payloads[0]!.get(".vh-invocation-payload__copy").trigger("click");
     expect(writeText).toHaveBeenCalledWith('{\n  "summary": "Private query omitted."\n}');
-    expect(payloads[0]!.get(".vh-invocation-payload__copy").text()).toBe("Copied");
+    await vi.waitFor(() => expect(payloads[0]!.get(".vh-invocation-payload__copy").text()).toBe("Copied"));
 
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     const rows = inspector.findAll(".vh-invocation-timeline__row");

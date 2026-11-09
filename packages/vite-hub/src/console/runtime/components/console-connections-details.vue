@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { ConnectionInspection } from "@vite-hub/connections";
 import { onMounted, ref, watch } from "vue";
 
@@ -17,7 +18,6 @@ import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
 import { consoleDateTime } from "../client/time";
 import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 
 const props = defineProps<{
   connection: ConnectionInspection;
@@ -137,7 +137,7 @@ onMounted(async () => {
       <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-8 gap-y-4 text-sm">
         <dt class="text-muted">Status</dt>
         <dd>
-          <ConsoleStatus :label="connectionStatusLabel(current.status)" :tone="connectionStatusTone(current.status)" />
+          <Status :label="connectionStatusLabel(current.status)" :tone="connectionStatusTone(current.status)" />
         </dd>
         <dt class="text-muted">Type</dt>
         <dd>{{ connectionCredentialLabel(current.credential) }}</dd>

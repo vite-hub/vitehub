@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { useCollection } from "vite-hub/source/client";
 import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -819,16 +820,7 @@ onBeforeUnmount(() => {
     <!-- Documents lead with their state dot, as in the Content list. The label next to it is for screen readers. -->
     <template #document-leading="{ item }">
       <span class="flex size-5 shrink-0 items-center justify-center">
-        <span
-          class="size-2 rounded-full"
-          :class="{
-            success: 'bg-success',
-            warning: 'bg-warning',
-            error: 'bg-error',
-            neutral: 'ring-1 ring-(--ui-text-dimmed) ring-inset',
-          }[consoleDocumentStateColor(item.state ?? 'draft')]"
-          aria-hidden="true"
-        />
+        <Status :tone="consoleDocumentStateColor(item.state ?? 'draft')" />
         <span v-if="item.stateLabel" class="sr-only">{{ item.stateLabel }}</span>
       </span>
     </template>

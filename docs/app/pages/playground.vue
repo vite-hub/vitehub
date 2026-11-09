@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { BrowserSupportNotice } from "@vite-hub/ui/browser-support-notice";
 import { checkWebContainerSupport } from "@vite-hub/web-container";
-import { useClipboard, useMediaQuery } from "@vueuse/core";
+import { useMediaQuery } from "@vueuse/core";
+import { CopyButton } from "@vite-hub/ui/copy-button";
 import { playgroundTemplates } from "#build/playground-templates.mjs";
 import PlaygroundWorkspace from "~/components/playground/PlaygroundWorkspace.vue";
 import { decodePlayground, shareCode } from "~/utils/playground-share";
@@ -74,7 +75,6 @@ onMounted(async () => {
 onBeforeUnmount(() => window.removeEventListener("hashchange", restore));
 const workspaceShown = computed(() => ready.value && supported.value === true && (desktop.value || (tablet.value && opened.value)));
 
-const { copy, copied } = useClipboard({ copiedDuring: 1500, legacy: true });
 function download() {
   downloadZip(session.value.files, `vitehub-${session.value.template.id}`);
 }
@@ -113,7 +113,7 @@ function download() {
       <aside class="vh-playground-mobile" aria-labelledby="vh-playground-mobile-title">
         <p id="vh-playground-mobile-title" class="text-sm text-highlighted">The playground runs a ViteHub app in a desktop browser. Open this page on a desktop to edit and run the code.</p>
         <div class="mt-3 flex flex-wrap gap-2">
-          <UButton variant="outline" :icon="copied ? 'i-lucide-check' : 'i-lucide-link'" :label="copied ? 'Copied' : 'Copy link'" @click="copy(`${site.url}${route.fullPath}`)" />
+          <CopyButton :value="`${site.url}${route.fullPath}`" label="Copy link" variant="outline" />
           <UButton variant="outline" icon="i-lucide-download" label="Download files" @click="download" />
         </div>
       </aside>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { TableColumn, TableRow } from "@nuxt/ui";
 import type { ConnectionInspection } from "@vite-hub/connections";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
@@ -21,7 +22,6 @@ import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 
 type DetailsTab = "activity" | "approvals" | "details";
 
@@ -204,11 +204,11 @@ export default defineConnection({
             >
             <template #status-cell="{ row }"
               ><div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <ConsoleStatus
+                <Status
                   :label="connectionStatusLabel(row.original.status)"
                   :tone="connectionStatusTone(row.original.status)"
                 />
-                <ConsoleStatus
+                <Status
                   v-if="row.original.scopes.missing.length"
                   :label="plural(row.original.scopes.missing.length, 'missing scope')"
                   tone="warning"

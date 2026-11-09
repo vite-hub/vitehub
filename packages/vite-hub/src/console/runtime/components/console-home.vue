@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status, type StatusTone } from "@vite-hub/ui";
 import { useCollection } from "vite-hub/source/client";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -52,12 +53,12 @@ const sessionStatusLabels: Readonly<Record<AgentInvocationStatus, string>> = {
   pending: "Queued",
   running: "Working",
 };
-const sessionStatusDots: Readonly<Record<AgentInvocationStatus, string>> = {
-  cancelled: "bg-(--ui-text-dimmed)",
-  completed: "bg-success",
-  failed: "bg-error",
-  pending: "bg-warning",
-  running: "bg-info",
+const sessionStatusTones: Readonly<Record<AgentInvocationStatus, StatusTone>> = {
+  cancelled: "neutral",
+  completed: "success",
+  failed: "error",
+  pending: "warning",
+  running: "info",
 };
 
 // The search endpoint lists the newest sessions when the request has no search term, like the palette.
@@ -95,7 +96,7 @@ const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
     context: item.excerpt || item.context,
-    dot: Object.hasOwn(sessionStatusDots, item.status) ? sessionStatusDots[item.status] : "bg-(--ui-text-dimmed)",
+    tone: Object.hasOwn(sessionStatusTones, item.status) ? sessionStatusTones[item.status] : "neutral",
     id: item.id,
     status: Object.hasOwn(sessionStatusLabels, item.status) ? sessionStatusLabels[item.status] : item.status,
     time: recentTimestamp(item.updatedAt, sessionsLoadedAt.value),
@@ -327,7 +328,7 @@ onBeforeUnmount(() => {
                         @click="session.agentName && openSession(session.agentName, session.id)"
                       >
                         <span class="vitehub-console__overview-icon" aria-hidden="true">
-                          <span class="size-1.5 rounded-full" :class="session.dot" />
+                          <Status :tone="session.tone" />
                         </span>
                         <span class="vitehub-console__overview-name">{{ session.agentName || "Agent Invocation" }}</span>
                         <span class="vitehub-console__overview-description font-mono text-xs" :title="session.context">{{ session.context }}</span>

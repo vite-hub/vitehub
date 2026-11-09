@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useClipboard } from "@vueuse/core"
+import { CopyButton } from "@vite-hub/ui/copy-button"
 
 const props = defineProps<{
   code?: string
@@ -11,11 +11,7 @@ const props = defineProps<{
 }>()
 
 const pre = useTemplateRef<HTMLPreElement>("pre")
-const { copy, copied } = useClipboard({ copiedDuring: 1500 })
-
-function copyCode() {
-  copy(props.code ?? pre.value?.textContent ?? "")
-}
+const code = () => props.code ?? pre.value?.textContent ?? ""
 </script>
 
 <template>
@@ -30,16 +26,7 @@ function copyCode() {
       :data-code-filename="filename || undefined"
     ><slot /></pre>
     <!-- After the filename bar, so the tutorial code panel still finds the bar as the first child. -->
-    <UButton
-      :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-      variant="ghost"
-      size="xs"
-      aria-label="Copy code"
-      class="vh-code-copy"
-      @click="copyCode"
-    />
-    <!-- The icon confirms the copy in place. Screen readers hear it here, once. -->
-    <span class="sr-only" aria-live="polite">{{ copied ? "Code copied" : "" }}</span>
+    <CopyButton :value="code" size="xs" aria-label="Copy code" class="vh-code-copy" />
   </div>
 </template>
 

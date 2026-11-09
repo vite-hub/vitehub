@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CopyButton } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
 import type { ConsoleNavigation } from "../client/sections";
@@ -17,20 +18,6 @@ const selected = computed({
   get: () => commands.value.find(command => command.label === chosen.value)?.label ?? commands.value[0]?.label,
   set: (value: string | number | undefined) => { chosen.value = value === undefined ? undefined : String(value); },
 });
-const copied = ref<string>();
-let timer: ReturnType<typeof setTimeout> | undefined;
-
-async function copy(label: string, text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    copied.value = label;
-    clearTimeout(timer);
-    timer = setTimeout(() => (copied.value = undefined), 1500);
-  }
-  catch {
-    // The text stays on the page to select by hand.
-  }
-}
 </script>
 
 <template>
@@ -46,13 +33,7 @@ async function copy(label: string, text: string) {
       <div class="flex items-center gap-3 border-b border-default px-3 py-2">
         <span class="shrink-0 text-xs text-muted">Server URL</span>
         <code class="min-w-0 flex-1 truncate font-mono text-xs text-highlighted" :title="url">{{ url }}</code>
-        <UButton
-          variant="ghost"
-          size="xs"
-          :icon="copied === 'url' ? 'i-lucide-check' : 'i-lucide-copy'"
-          aria-label="Copy the server URL"
-          @click="copy('url', url)"
-        />
+        <CopyButton :value="url" size="xs" aria-label="Copy the server URL" />
       </div>
 
       <UTabs v-model="selected" :items="items" aria-label="Agent" class="gap-0">
@@ -60,12 +41,10 @@ async function copy(label: string, text: string) {
           <div class="grid gap-2 p-3">
             <span class="flex items-center justify-between gap-3">
               <span class="font-mono text-xs text-muted">{{ item.command.where }}</span>
-              <UButton
-                variant="ghost"
+              <CopyButton
+                :value="item.command.text"
                 size="xs"
-                :icon="copied === item.command.label ? 'i-lucide-check' : 'i-lucide-copy'"
                 :aria-label="`Copy the ${item.command.label} ${item.command.where === 'Terminal' ? 'command' : 'configuration'}`"
-                @click="copy(item.command.label, item.command.text)"
               />
             </span>
             <pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-elevated p-3 text-xs"><code>{{ item.command.text }}</code></pre>

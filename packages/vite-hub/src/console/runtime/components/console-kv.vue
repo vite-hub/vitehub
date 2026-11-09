@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -13,7 +14,6 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface KVListResponse {
@@ -480,7 +480,7 @@ onBeforeUnmount(() => {
               <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted" :title="selectedValue.key">
                 {{ selectedValue.key || "(empty key)" }}
               </h2>
-              <ConsoleStatus v-if="selectedValue.truncated" tone="warning" :label="`Truncated at ${consoleBytes(valueLimit)}`" />
+              <Status v-if="selectedValue.truncated" tone="warning" :label="`Truncated at ${consoleBytes(valueLimit)}`" />
               <span v-if="valueFormat" class="text-xs text-muted">{{ valueFormat }}</span>
               <template v-if="!editing">
                 <UTooltip :text="editable ? 'Edit value' : readOnly ? 'This access can only read KV' : reserved ? 'ViteHub keeps this key for itself' : 'Bytes and cut values are read only'">

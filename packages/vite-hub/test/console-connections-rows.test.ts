@@ -105,12 +105,8 @@ async function render(connections: ConnectionInspection[], counts: Record<string
     if (!element) throw new Error(`Expected a row for ${name}`)
     return {
       actions: [...element.querySelectorAll("[data-column=action] [data-button]")].map(button => button.getAttribute("data-button")),
-      // Each status is a ConsoleStatus: a dot whose background names the tone, then the label.
-      statuses: [...element.querySelectorAll("[data-column=status] > div > span")].map((status) => {
-        const dot = status.querySelector("[aria-hidden=true]")?.className ?? ""
-        const tone = ["success", "warning", "error"].find(name => dot.includes(`bg-${name}`)) ?? "neutral"
-        return `${tone}:${status.textContent?.trim()}`
-      }),
+      // Each status is a Status from @vite-hub/ui: a dot with the tone, then the label.
+      statuses: [...element.querySelectorAll("[data-column=status] [data-slot=status]")].map(status => `${status.getAttribute("data-tone")}:${status.textContent?.trim()}`),
       element,
       text: (column: string) => element.querySelector(`[data-column=${column}]`)?.textContent ?? "",
     }

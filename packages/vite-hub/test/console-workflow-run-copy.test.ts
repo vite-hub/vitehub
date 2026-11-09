@@ -16,15 +16,16 @@ async function renderRuns(run: ConsoleWorkflowRunView): Promise<string> {
     render: compile(template),
     setup: () => ({
       busyRun: undefined,
-      copy: () => {},
       isConsoleWorkflowRunActive: () => false,
       refresh: () => {},
       statusOf: () => ({ label: "Succeeded", tone: "success" }),
       workflowRuns: [run],
     }),
   })
-  app.component("UButton", defineComponent({ props: { ariaLabel: String }, setup: props => () => h("button", { "aria-label": props.ariaLabel }) }))
-  for (const name of ["ConsoleStatus", "UTooltip"]) {
+  const button = defineComponent({ props: { ariaLabel: String }, setup: props => () => h("button", { "aria-label": props.ariaLabel }) })
+  app.component("UButton", button)
+  app.component("CopyButton", button)
+  for (const name of ["Status", "UTooltip"]) {
     app.component(name, defineComponent({ setup: (_props, { slots }) => () => slots.default?.() }))
   }
   return renderToString(app)

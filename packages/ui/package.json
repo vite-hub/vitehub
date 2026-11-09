@@ -102,6 +102,11 @@
       "import": "./dist/connection-status.js",
       "default": "./dist/connection-status.js"
     },
+    "./copy-button": {
+      "types": "./dist/copy-button.d.ts",
+      "import": "./dist/copy-button.js",
+      "default": "./dist/copy-button.js"
+    },
     "./file-diff": {
       "types": "./dist/file-diff.d.ts",
       "import": "./dist/file-diff.js",
@@ -176,6 +181,11 @@
       "types": "./dist/prompt-input.d.ts",
       "import": "./dist/prompt-input.js",
       "default": "./dist/prompt-input.js"
+    },
+    "./status": {
+      "types": "./dist/status.d.ts",
+      "import": "./dist/status.js",
+      "default": "./dist/status.js"
     },
     "./sync-status": {
       "types": "./dist/sync-status.d.ts",

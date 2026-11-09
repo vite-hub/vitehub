@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -23,7 +24,6 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
-import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocumentActivity, ConsoleDocumentOverview, ConsoleDocumentPendingChange, ConsoleDocumentScheduledChange, ConsoleDocumentsClient, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions";
@@ -244,7 +244,7 @@ async function publishAll(): Promise<void> {
       <UCard as="section" aria-label="Documents by state">
         <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div v-for="stat in stats" :key="stat.state" class="grid gap-1">
-            <dt><ConsoleStatus :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" /></dt>
+            <dt><Status :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" /></dt>
             <dd>
               <!-- The height of the text-2xl count, so the card keeps its height when the counts arrive. -->
               <USkeleton v-if="firstLoad" class="my-1 h-6 w-10" />
@@ -298,14 +298,14 @@ async function publishAll(): Promise<void> {
                   :to="entry.change.state === 'deleted' ? collectionRoute(entry.collection.name) : documentRoute(entry.collection.name, entry.change.id)"
                   class="vitehub-dashboard-row"
                 >
-                  <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
+                  <Status class="vitehub-dashboard-row__status" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
                   <span class="vitehub-dashboard-row__title flex items-center gap-2">
                     <span class="truncate" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': entry.change.state === 'deleted' }">{{ entry.change.title }}</span>
                     <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.change.id)" :user="sessionUser" variant="row" />
                   </span>
                   <span class="vitehub-dashboard-row__meta flex items-center gap-2">
                     <UTooltip v-if="entry.change.issues" :text="consoleFixFieldsLabel(entry.change.issues)">
-                      <ConsoleStatus tone="error" :label="entry.change.issues === 1 ? '1 issue' : `${entry.change.issues} issues`" />
+                      <Status tone="error" :label="entry.change.issues === 1 ? '1 issue' : `${entry.change.issues} issues`" />
                     </UTooltip>
                     {{ entry.collection.label }}
                   </span>
@@ -332,7 +332,7 @@ async function publishAll(): Promise<void> {
                   class="vitehub-dashboard-row"
                   :title="consoleDocumentScheduleHint(entry.item.schedule, setup)"
                 >
-                  <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
+                  <Status class="vitehub-dashboard-row__status" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
                   <span class="vitehub-dashboard-row__title flex items-center gap-2">
                     <span class="truncate">{{ entry.item.title }}</span>
                     <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.item.id)" :user="sessionUser" variant="row" />
@@ -363,7 +363,7 @@ async function publishAll(): Promise<void> {
                   <span class="hidden truncate font-mono text-xs text-dimmed sm:inline">{{ collection.path }}</span>
                 </RouterLink>
                 <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
-                  <ConsoleStatus v-for="count in collectionCounts([collection.name])" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
+                  <Status v-for="count in collectionCounts([collection.name])" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
                   <span>{{ statesOf([collection.name]).published }} published</span>
                 </span>
                 <UButton
@@ -382,7 +382,7 @@ async function publishAll(): Promise<void> {
                   <span class="hidden truncate text-xs text-dimmed sm:inline">{{ singletons.length === 1 ? "1 singleton" : `${singletons.length} singletons` }}</span>
                 </RouterLink>
                 <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
-                  <ConsoleStatus v-for="count in collectionCounts(singletons.map(entry => entry.name))" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
+                  <Status v-for="count in collectionCounts(singletons.map(entry => entry.name))" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
                   <span>{{ statesOf(singletons.map(entry => entry.name)).published }} published</span>
                 </span>
               </li>

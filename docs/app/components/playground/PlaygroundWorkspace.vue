@@ -8,7 +8,7 @@ import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
 import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
 import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
 import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
-import { useClipboard } from "@vueuse/core";
+import { useCopy } from "@vite-hub/ui/copy-button";
 import { encodePlayground, shareHashKey, shareLimit } from "~/utils/playground-share";
 import WorkspacePane from "~/components/workspace/WorkspacePane.vue";
 import WorkspaceRunState from "~/components/workspace/WorkspaceRunState.vue";
@@ -153,7 +153,7 @@ function reset() {
 }
 
 const toast = useToast();
-const { copy } = useClipboard({ legacy: true });
+const { copy } = useCopy();
 async function share() {
   const code = await encodePlayground({ template: current.value.id, files: workspace.files.value }, current.value.files);
   const url = `${location.origin}${location.pathname}#${shareHashKey}=${code}`;
@@ -166,7 +166,10 @@ async function share() {
     });
     return;
   }
-  await copy(url);
+  if (!await copy(url)) {
+    toast.add({ title: "Could not copy the link", description: "Your browser blocked the clipboard.", color: "warning", icon: "i-lucide-triangle-alert" });
+    return;
+  }
   toast.add({ title: "Link copied", description: "The link holds your files. Nothing is stored on a server.", icon: "i-lucide-link" });
 }
 

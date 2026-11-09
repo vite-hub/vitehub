@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { createReusableTemplate, useClipboard, useEventListener, usePreferredReducedMotion } from "@vueuse/core"
+import { createReusableTemplate, useEventListener, usePreferredReducedMotion } from "@vueuse/core"
+import { CopyButton } from "@vite-hub/ui/copy-button"
 import { computed, nextTick, onScopeDispose, ref, useId, watch, watchEffect } from "vue"
 
 import { useAgent, useChat } from "vite-hub/agent/vue"
@@ -22,7 +23,6 @@ const draft = ref("")
 const problem = computed(() => chat.error.value ? docsAssistantProblem(chat.error.value, window.location.origin) : undefined)
 // The server reads the page path from the request body and adds it to the Agent instructions.
 const requestBody = () => ({ body: { page: route.path, appBase } })
-const { copy, copied } = useClipboard({ legacy: true, copiedDuring: 2000 })
 const reducedMotion = usePreferredReducedMotion()
 const headingId = useId()
 const [DefineBody, ReuseBody] = createReusableTemplate()
@@ -201,13 +201,12 @@ async function restart() {
         </p>
         <div v-if="problem.command" class="mt-1.5 flex items-start gap-1 bg-elevated py-1 pr-1 pl-2">
           <code class="min-w-0 flex-1 py-0.5 font-mono text-xs/5 whitespace-pre-wrap text-highlighted [overflow-wrap:anywhere]">{{ problem.command }}</code>
-          <UButton
-            :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-            :label="copied ? 'Copied' : 'Copy'"
-            variant="ghost"
+          <CopyButton
+            :value="problem.command"
+            label="Copy"
+            aria-label="Copy the command"
             size="xs"
             class="shrink-0 pointer-coarse:h-11"
-            @click="copy(problem.command)"
           />
         </div>
       </div>

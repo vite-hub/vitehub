@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Time, today } from "@internationalized/date";
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from "vue";
-import { AvatarStack, ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel } from "@vite-hub/ui";
+import { AvatarStack, ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel, CopyButton, Status, useCopy } from "@vite-hub/ui";
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 
 import {
@@ -55,7 +55,6 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSeoPanel from "./console-seo-panel.vue";
-import ConsoleStatus from "./console-status.vue";
 
 import type { CalendarDate } from "@internationalized/date";
 import type { RouteLocationRaw } from "vue-router";
@@ -318,16 +317,14 @@ function onLiveReset(reset: ConsoleLiveReset): void {
   toast.show({ action: { label: "Copy your unsaved edits", onClick: () => void copyLiveUnsaved() }, title: `This ${what} changed while you typed` });
 }
 
+const clipboard = useCopy();
+
+// The toast action and the menu items have no button to show the check, so a toast confirms the copy.
 async function copyLiveUnsaved(): Promise<void> {
   const unsaved = liveUnsaved.value;
   if (!unsaved) return;
-  try {
-    await navigator.clipboard.writeText(unsaved.body);
-    toast.show({ title: "Your edits copied" });
-  }
-  catch {
-    toast.error("Couldn't copy. Select the text and copy it.");
-  }
+  if (await clipboard.copy(unsaved.body)) toast.show({ title: "Your edits copied" });
+  else toast.error("Couldn't copy. Select the text and copy it.");
 }
 
 /** The field a focused element edits: the top-level field of its property row, or the title. */
@@ -838,28 +835,20 @@ async function compareWithHolder(): Promise<void> {
   leaseCompareOpen.value = true;
 }
 
-/** Copies the edits another tab refused, so nothing typed is lost. */
-async function copyUnsaved(): Promise<void> {
-  const text = hasBody.value ? draft.value.body : JSON.stringify(compact(draft.value.data), null, 2);
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.show({ title: "Your edits copied" });
-  }
-  catch {
-    toast.error("Couldn't copy. Select the text and copy it.");
-  }
+/** The edits another tab refused, to copy so that nothing typed is lost. */
+function unsavedText(): string {
+  return hasBody.value ? draft.value.body : JSON.stringify(compact(draft.value.data), null, 2);
 }
 
-/** Copies the local edits as the stored file would hold them: the fields as JSON, then the body. */
-async function copyLocal(): Promise<void> {
+/** The local edits as the stored file would hold them: the fields as JSON, then the body. */
+function localText(): string {
   const data = JSON.stringify(compact(draft.value.data), null, 2);
-  try {
-    await navigator.clipboard.writeText(hasBody.value ? `${data}\n\n${draft.value.body}` : data);
-    toast.show({ title: "Your local edits copied" });
-  }
-  catch {
-    toast.error("Couldn't copy. Select the text and copy it.");
-  }
+  return hasBody.value ? `${data}\n\n${draft.value.body}` : data;
+}
+
+async function copyMenuValue(value: string, label: string): Promise<void> {
+  if (await clipboard.copy(value)) toast.show({ title: `${label} copied` });
+  else toast.error(`Couldn't copy the ${label.toLowerCase()}.`);
 }
 
 /** Resolves once no save is running, such as an autosave that started just before a publish. */
@@ -1907,8 +1896,8 @@ const menuItems = computed(() => [[
   ...(canPublish.value && schedule.value
     ? [{ label: schedule.value.status === "failed" ? "Dismiss failed schedule" : "Cancel schedule", icon: "i-lucide-calendar-x", onSelect: () => void unscheduleDraft() }]
     : []),
-  { label: "Copy id", icon: "i-lucide-copy", onSelect: () => void navigator.clipboard?.writeText(id.value) },
-  ...(base.value ? [{ label: "Copy path", icon: "i-lucide-folder", onSelect: () => void navigator.clipboard?.writeText(base.value!.path) }] : []),
+  { label: "Copy id", icon: "i-lucide-copy", onSelect: () => void copyMenuValue(id.value, "Id") },
+  ...(base.value ? [{ label: "Copy path", icon: "i-lucide-folder", onSelect: () => void copyMenuValue(base.value!.path, "Path") }] : []),
 ], ...(editable.value && !local.value && base.value && !single.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
 </script>
 
@@ -1920,7 +1909,7 @@ const menuItems = computed(() => [[
   <ConsolePageHeader :title="title" :back="back" :trail="back && back.label !== title ? [back] : []">
     <template v-if="schedule" #title-trailing>
       <UTooltip :text="scheduleHint" :content="{ side: 'bottom' }">
-        <ConsoleStatus class="shrink-0" :tone="consoleDocumentScheduleTone(schedule)" :label="consoleDocumentScheduleLabel(schedule)" />
+        <Status class="shrink-0" :tone="consoleDocumentScheduleTone(schedule)" :label="consoleDocumentScheduleLabel(schedule)" />
       </UTooltip>
     </template>
     <template #right>
@@ -1935,10 +1924,10 @@ const menuItems = computed(() => [[
       </template>
       <ConsolePresenceAvatars v-else-if="sessionOthers.length" class="me-1" :sessions="sessionOthers" :user="sessionPresence?.user" />
       <UTooltip v-if="!liveActive && liveUnavailableReason && sessionOthers.length" :text="liveUnavailableReason" :content="{ side: 'bottom' }">
-        <span class="me-1 hidden lg:inline-flex"><ConsoleStatus :label="consoleLiveUnavailable" /></span>
+        <span class="me-1 hidden lg:inline-flex"><Status :label="consoleLiveUnavailable" /></span>
       </UTooltip>
       <UTooltip v-if="sessionsUnchecked" :text="sessionPresence?.reason ?? 'The Console could not reach the server. Saves still refuse to overwrite a newer version.'" :content="{ side: 'bottom' }">
-        <span class="me-1 hidden lg:inline-flex"><ConsoleStatus label="Can't check who else is editing" /></span>
+        <span class="me-1 hidden lg:inline-flex"><Status label="Can't check who else is editing" /></span>
       </UTooltip>
       <span class="me-1 inline-flex" role="status" aria-live="polite">
         <UButton
@@ -1947,15 +1936,15 @@ const menuItems = computed(() => [[
           size="xs"
           @click="onHeaderAction(headerStatus.action)"
         >
-          <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" class="underline decoration-dotted underline-offset-4" />
+          <Status :label="headerStatus.label" :tone="headerStatus.tone" class="underline decoration-dotted underline-offset-4" />
         </UButton>
         <UTooltip v-else-if="headerStatus" :text="creating ? 'Create saves the first draft' : 'Drafts save as you type. ⌘S saves now.'" :content="{ side: 'bottom' }">
           <!-- On a phone only the dot shows, so the title keeps its place. Screen readers still hear the label. -->
-          <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" :pending="headerStatus.pending">
+          <Status :label="headerStatus.label" :tone="headerStatus.tone" :pulse="headerStatus.pending">
             <span class="max-sm:sr-only">{{ headerStatus.label }}<template v-if="headerStatus.savedAt">
               · <ConsoleRelativeTime :value="headerStatus.savedAt" prefix="Saved" seconds />
             </template></span>
-          </ConsoleStatus>
+          </Status>
         </UTooltip>
       </span>
       <UDropdownMenu
@@ -2098,7 +2087,7 @@ const menuItems = computed(() => [[
             <p v-if="localStorageFailed" class="mt-1 text-error">This tab can't keep your local edits after a reload. Apply or copy them before you leave.</p>
           </template>
           <template #actions>
-            <UButton v-if="sharedGone" size="xs" variant="ghost" label="Copy" icon="i-lucide-copy" aria-label="Copy your local edits" @click="copyLocal" />
+            <CopyButton v-if="sharedGone" :value="localText" size="xs" label="Copy" aria-label="Copy your local edits" />
             <UButton size="xs" variant="ghost" label="Discard…" :disabled="(!localChanged && !sharedGone) || applyingLocal" @click="localExitOpen = true" />
             <UButton size="xs" variant="outline" label="Apply to shared draft" :disabled="!localChanged && !sharedGone" :loading="applyingLocal" @click="applyLocal()" />
           </template>
@@ -2122,7 +2111,7 @@ const menuItems = computed(() => [[
               <UButton v-else-if="!holderLive" size="xs" variant="outline" label="Take over" @click="takeOver" />
             </template>
             <template v-else-if="leaseMode === 'taken'">
-              <UButton v-if="refusedEdits" size="xs" variant="ghost" icon="i-lucide-copy" label="Copy unsaved edits" @click="copyUnsaved" />
+              <CopyButton v-if="refusedEdits" :value="unsavedText" size="xs" label="Copy unsaved edits" />
               <UButton size="xs" variant="ghost" label="Compare" @click="compareWithHolder" />
               <UButton size="xs" variant="outline" label="Take back" @click="takeOver" />
             </template>
@@ -2541,7 +2530,7 @@ const menuItems = computed(() => [[
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton variant="ghost" label="Close" @click="leaseCompareOpen = false" />
-        <UButton variant="outline" icon="i-lucide-copy" label="Copy mine" @click="copyUnsaved" />
+        <CopyButton :value="unsavedText" variant="outline" label="Copy mine" />
       </div>
     </template>
   </UModal>

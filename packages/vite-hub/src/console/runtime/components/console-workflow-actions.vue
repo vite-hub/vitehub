@@ -5,7 +5,7 @@ import { cancelConsoleWorkflow, isConsoleWorkflowRunActive, parseConsoleWorkflow
 import type { ConsoleWorkflowRunView } from "../client/workflow";
 import { consoleStatusValue } from "../client/format";
 import { useConsoleToast } from "../client/toast";
-import ConsoleStatus from "./console-status.vue";
+import { CopyButton, Status } from "@vite-hub/ui";
 
 const props = defineProps<{
   /** Console route that runs the `workflow.*` operations. */
@@ -47,15 +47,6 @@ function statusOf(run: ConsoleWorkflowRunView): { label: string; pending?: boole
 
 function replaceRun(next: ConsoleWorkflowRunView): void {
   runs.value = [next, ...runs.value.filter((run) => !(run.id === next.id && run.workflow === next.workflow))];
-}
-
-async function copy(value: string, label: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast.show({ title: `${label} copied` });
-  } catch {
-    toast.error(`Couldn't copy the ${label.toLowerCase()}.`);
-  }
 }
 
 async function start(): Promise<void> {
@@ -135,9 +126,9 @@ async function resume(): Promise<void> {
           <div class="flex min-w-0 items-center gap-2">
             <span class="min-w-0 truncate font-mono text-xs text-highlighted" :title="run.id">{{ run.id }}</span>
             <UTooltip text="Copy run ID">
-              <UButton class="-ms-1 me-auto" aria-label="Copy run ID" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.id, 'Run ID')" />
+              <CopyButton class="-ms-1 me-auto" :value="run.id" aria-label="Copy run ID" size="xs" />
             </UTooltip>
-            <ConsoleStatus :label="statusOf(run).label" :tone="statusOf(run).tone" :pending="statusOf(run).pending" />
+            <Status :label="statusOf(run).label" :tone="statusOf(run).tone" :pulse="statusOf(run).pending" />
             <UTooltip text="Refresh">
               <UButton aria-label="Refresh run" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="busyRun === run.id" @click="refresh(run)" />
             </UTooltip>
@@ -149,7 +140,7 @@ async function resume(): Promise<void> {
           <div v-if="run.result" class="relative">
             <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-elevated p-3 pe-10 font-mono text-xs leading-5 text-toned"><code>{{ run.result }}</code></pre>
             <UTooltip text="Copy result">
-              <UButton class="absolute end-1.5 top-1.5" aria-label="Copy result" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.result, 'Result')" />
+              <CopyButton class="absolute end-1.5 top-1.5" :value="run.result" aria-label="Copy result" size="xs" />
             </UTooltip>
           </div>
         </li>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useClipboard } from "@vueuse/core";
+import { CopyButton } from "@vite-hub/ui/copy-button";
 import { installOptions } from "./content";
 
 const commandTabItems = [
@@ -20,20 +20,6 @@ const selectedPackageManager = computed(
 const activeCommand = computed(() =>
   activeTab.value === "skill" ? installOptions.skill.command : selectedPackageManager.value.command,
 );
-
-const { copy, copied } = useClipboard({ copiedDuring: 1500, legacy: true });
-// The check shows only for the command that was copied, so switching tabs resets it.
-const copiedCommand = ref<string>();
-const showCopied = computed(() => copied.value && copiedCommand.value === activeCommand.value);
-const copyLabel = computed(() =>
-  showCopied.value ? "Copied install command" : "Copy install command",
-);
-
-async function copyCommand() {
-  const command = activeCommand.value;
-  await copy(command);
-  copiedCommand.value = command;
-}
 </script>
 
 <template>
@@ -67,15 +53,9 @@ async function copyCommand() {
           </code>
         </Transition>
       </span>
-      <UButton
-        :icon="showCopied ? 'i-lucide-check' : 'i-lucide-copy'"
-        variant="ghost"
-        :aria-label="copyLabel"
-        @click="copyCommand"
-      />
+      <!-- The key resets the check when the command changes, so it shows only for the command that was copied. -->
+      <CopyButton :key="activeCommand" :value="activeCommand" aria-label="Copy install command" />
     </div>
-
-    <span class="sr-only" aria-live="polite">{{ showCopied ? "Install command copied" : "" }}</span>
   </div>
 </template>
 

@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import { CopyButton } from "@vite-hub/ui";
 import { computed } from "vue";
 
 import { consoleBytes } from "../client/format";
 import { consoleMediaFormat, consoleMediaType, consoleMediaTypeIcons } from "../client/media-library";
-import { useConsoleToast } from "../client/toast";
 import ConsolePropertyList from "./console-property-list.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 
@@ -23,7 +23,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>();
 
-const toast = useConsoleToast();
 const type = computed(() => consoleMediaType(props.file.contentType));
 const facts = computed(() => [
   { label: "Format", value: consoleMediaFormat(props.file) },
@@ -41,16 +40,6 @@ const sorted = (entries: Record<string, string> | undefined) =>
   Object.entries(entries ?? {}).sort(([left], [right]) => left.localeCompare(right)).map(([label, value]) => ({ label, mono: true, value }));
 const httpMetadata = computed(() => sorted(props.object?.httpMetadata));
 const customMetadata = computed(() => sorted(props.object?.customMetadata));
-
-async function copy(value: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast.show({ title: "Pathname copied" });
-  }
-  catch {
-    toast.error("Couldn't copy the pathname. Select it and copy it instead.");
-  }
-}
 </script>
 
 <template>
@@ -80,7 +69,7 @@ async function copy(value: string): Promise<void> {
             <code class="min-w-0 flex-1 py-0.5 text-xs leading-5">
               <span v-for="(segment, index) in pathSegments" :key="index" class="inline-block max-w-full [overflow-wrap:anywhere]">{{ segment }}</span>
             </code>
-            <UButton variant="ghost" size="xs" icon="i-lucide-copy" aria-label="Copy pathname" @click="copy(file.pathname)" />
+            <CopyButton :value="file.pathname" size="xs" aria-label="Copy pathname" />
           </div>
         </div>
       </section>

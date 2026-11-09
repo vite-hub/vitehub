@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 
@@ -7,7 +8,6 @@ import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionRouteName } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
-import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection } from "../definitions";
@@ -89,13 +89,13 @@ function editorRoute(name: string) {
                 <span class="truncate font-mono text-xs text-dimmed">{{ singleton.path }}</span>
               </span>
               <span v-if="!singleton.access.write" class="shrink-0 text-xs text-dimmed">Read-only</span>
-              <ConsoleStatus
+              <Status
                 v-if="stateOf(singleton.name)"
                 class="shrink-0"
                 :tone="consoleDocumentStateColor(stateOf(singleton.name)!)"
                 :label="consoleDocumentStateLabel(stateOf(singleton.name)!)"
               />
-              <ConsoleStatus v-else-if="overview" class="shrink-0" tone="neutral" label="Not created" />
+              <Status v-else-if="overview" class="shrink-0" tone="neutral" label="Not created" />
               <span v-if="updatedAt(singleton.name)" class="hidden w-16 shrink-0 whitespace-nowrap text-right text-xs text-muted sm:inline">
                 <ConsoleRelativeTime :value="updatedAt(singleton.name)!" />
               </span>

@@ -7,6 +7,7 @@ import { Placeholder } from "@tiptap/extensions";
 import { Plugin } from "@tiptap/pm/state";
 import { EditorContent, nodeViewProps, useEditor, VueNodeViewRenderer } from "@tiptap/vue-3";
 import { createContentEditorCodec } from "@vite-hub/content/editor";
+import { useCopy } from "@vite-hub/ui";
 import { computed, defineComponent, h, markRaw, onBeforeUnmount, provide, ref, shallowRef, watch } from "vue";
 
 import {
@@ -60,6 +61,8 @@ const emit = defineEmits<{
 
 const model = defineModel<string>({ required: true });
 const toast = useConsoleToast();
+// The block menu has no button to show the check, so a toast confirms the copy.
+const clipboard = useCopy();
 const lossy = ref<string>();
 // Mirrors `editor.isEditable`, which is not reactive.
 const editable = ref(Boolean(props.live) && !props.disabled);
@@ -462,13 +465,8 @@ async function copyLink(instance: Editor, pos: number): Promise<void> {
   });
   const url = new URL(window.location.href);
   url.hash = anchor;
-  try {
-    await navigator.clipboard.writeText(url.toString());
-    toast.show({ title: anchor ? "Link to section copied" : "Link copied" });
-  }
-  catch {
-    toast.error("Couldn't copy the link.");
-  }
+  if (await clipboard.copy(url.toString())) toast.show({ title: anchor ? "Link to section copied" : "Link copied" });
+  else toast.error("Couldn't copy the link.");
 }
 
 function insertBelow(instance: Editor | undefined, onClick: () => { pos: number } | undefined): void {

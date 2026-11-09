@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -21,7 +22,6 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 import ConsoleWorkflowActions from "./console-workflow-actions.vue";
 import ConsoleValue from "./console-value.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
@@ -523,7 +523,7 @@ onBeforeUnmount(() => request?.abort());
               </div>
             </dl>
             <div v-if="selectedRun" class="grid gap-1" role="status">
-              <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+              <Status :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pulse="runStatus(selectedRun).pending" />
               <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
             </div>
           </header>
@@ -548,7 +548,7 @@ onBeforeUnmount(() => request?.abort());
         <article v-if="selectedRecord" class="grid gap-6">
           <div v-if="canRunSelected || selectedRun" class="flex flex-wrap items-start justify-between gap-3">
             <div v-if="selectedRun" class="grid gap-1" role="status">
-              <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+              <Status :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pulse="runStatus(selectedRun).pending" />
               <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
             </div>
             <UButton

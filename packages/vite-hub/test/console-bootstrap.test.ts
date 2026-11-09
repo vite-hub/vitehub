@@ -51,9 +51,10 @@ it("loads session filter values only for the filter menu or an active filter", (
 });
 
 it("copies the session link and jumps from tool rows to calls", () => {
-  expect(sessionNavbar).toContain('<UTooltip v-if="hasSelection" :text="linkCopyLabel">');
-  expect(sessionNavbar).toContain("navigator.clipboard.writeText(window.location.href)");
-  expect(sessionNavbar).toContain('role="status" aria-live="polite"');
+  // CopyButton from @vite-hub/ui shows the check and announces the result.
+  expect(sessionNavbar).toContain('<UTooltip v-if="hasSelection" text="Copy session link">');
+  expect(sessionNavbar).toContain('<CopyButton :value="sessionLink" size="xs" aria-label="Copy session link" />');
+  expect(sessionNavbar).toContain("const sessionLink = () => window.location.href;");
   expect(sessionInspector).toContain(`<AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" @select-activity="emit('focusActivity', $event)" />`);
 });
 

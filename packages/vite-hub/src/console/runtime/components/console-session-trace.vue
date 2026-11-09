@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CopyButton } from "@vite-hub/ui";
 import { useConsoleWordWrap } from "./console-wrap";
 const wordWrap = useConsoleWordWrap();
 import type { SplitterItem } from "@nuxt/ui";
@@ -49,7 +50,6 @@ const emit = defineEmits<{ focusActivity: [activityId: string] }>();
 const spanQuery = ref("");
 const fieldQuery = ref("");
 const selectedSpanId = ref<string>();
-const copied = ref(false);
 
 const spans = computed(() => buildSpans(props.invocation));
 const traceStartMs = computed(() =>
@@ -143,7 +143,6 @@ watch(
 
 watch(selectedSpanId, () => {
   fieldQuery.value = "";
-  copied.value = false;
 });
 
 function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
@@ -525,25 +524,7 @@ function displayValue(value: unknown) {
   }
 }
 
-async function copyAttributes() {
-  const value = JSON.stringify(selectedAttributes.value, null, 2);
-  try {
-    await navigator.clipboard.writeText(value);
-  } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = value;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.append(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
-  }
-  copied.value = true;
-  window.setTimeout(() => {
-    copied.value = false;
-  }, 1_500);
-}
+const selectedAttributesText = () => JSON.stringify(selectedAttributes.value, null, 2);
 </script>
 
 <template>
@@ -637,13 +618,7 @@ async function copyAttributes() {
             ><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong
           >
           <UButton icon="i-lucide-wrap-text" label="Wrap" variant="ghost" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
-          <UButton
-            :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-            :label="copied ? 'Copied' : 'Copy attributes'"
-            variant="ghost"
-            size="xs"
-            @click="copyAttributes"
-          />
+          <CopyButton :key="selectedSpan.id" :value="selectedAttributesText" label="Copy attributes" size="xs" />
         </header>
         <section class="session-trace__summary">
           <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>

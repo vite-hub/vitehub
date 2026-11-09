@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
 import { consoleMcpAccount, consoleMcpAuthLabels, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, requestConsoleMcp } from "../client/mcp-client";
@@ -157,7 +158,7 @@ async function disconnect(): Promise<void> {
             <p v-if="account.secondary" class="truncate text-xs text-muted">{{ account.secondary }}</p>
           </div>
           <UBadge :color="status.color" size="sm" class="shrink-0">
-            <span class="size-1.5 rounded-full bg-current" aria-hidden="true" />{{ status.label }}
+            <Status :tone="status.color" :label="status.label" />
           </UBadge>
         </div>
         <dl class="flex flex-wrap gap-x-6 gap-y-1.5 text-xs">

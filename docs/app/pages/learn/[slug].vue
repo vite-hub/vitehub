@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { BrowserSupportNotice } from "@vite-hub/ui/browser-support-notice";
 import { checkWebContainerSupport } from "@vite-hub/web-container";
-import { useClipboard, useMediaQuery } from "@vueuse/core";
+import { useMediaQuery } from "@vueuse/core";
+import { CopyButton } from "@vite-hub/ui/copy-button";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import TutorialCodePre from "~/components/tutorial/TutorialCodePre.vue";
 import { splitTutorialDocument } from "~/utils/runnable-tutorial";
@@ -123,7 +124,6 @@ function key(event: KeyboardEvent) {
   event.preventDefault();
 }
 
-const { copy, copied } = useClipboard({ copiedDuring: 1500 });
 const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 </script>
 
@@ -156,7 +156,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         <aside class="vh-run-mobile" aria-labelledby="vh-run-mobile-title">
           <p id="vh-run-mobile-title" class="text-sm text-highlighted">This tutorial has a live workspace. Open it on a desktop to edit and run the code.</p>
           <div class="mt-3 flex flex-wrap gap-2">
-            <UButton variant="outline" :icon="copied ? 'i-lucide-check' : 'i-lucide-link'" :label="copied ? 'Copied' : 'Copy link'" @click="copy(`${site.url}${route.fullPath}`)" />
+            <CopyButton :value="`${site.url}${route.fullPath}`" label="Copy link" variant="outline" />
             <UButton variant="outline" icon="i-lucide-download" label="Download starter" :to="starter" external download />
           </div>
         </aside>

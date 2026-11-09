@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
 import { consoleErrorMessage, consoleRevisionLabel as label, consoleRevisionTone as tone, groupConsoleRevisionRuns } from "../client/documents";
 import { dayLabel } from "../client/time";
 import ConsoleRelativeTime from "./console-relative-time.vue";
-import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocumentRevision, ConsoleRevisionRun } from "../client/documents";
 
@@ -76,7 +76,7 @@ function initials(name: string): string {
               >
                 <span class="grid min-w-0 gap-0.5">
                   <span class="flex min-w-0 items-center gap-1.5">
-                    <ConsoleStatus :label="label(run.revisions[0]!)" :tone="tone(run.revisions[0]!)" class="text-[13px] text-highlighted" />
+                    <Status :label="label(run.revisions[0]!)" :tone="tone(run.revisions[0]!)" class="text-[13px] text-highlighted" />
                     <span v-if="run.revisions.length > 1" class="shrink-0 text-xs text-muted tabular-nums">· {{ run.revisions.length }} edits</span>
                   </span>
                   <span v-if="run.revisions[0]!.author" class="flex min-w-0 items-center gap-1.5 text-xs text-muted">
