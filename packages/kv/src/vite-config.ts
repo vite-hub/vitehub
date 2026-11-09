@@ -18,6 +18,6 @@ export function resolveKVViteConfig(
 ): KVViteRuntimeConfig {
   const env = input.env || process.env
   const hosting = resolveHostPreset({ env, hosting: input.hosting })
-  const resolved = normalizeKVOptions(kv, { dev: input.dev, env, hosting })
+  const resolved = normalizeKVOptions(kv, { dev: input.dev, env, hosting, postgresDatabase: input.postgresDatabase })
   return { hosting, kv: resolved ?? false }
 }

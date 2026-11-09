@@ -3681,6 +3681,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         "#vitehub/env/description": "/tmp/vitehub-nuxt/.vitehub/env/description.mjs",
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
         "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
+        "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/[\\/]kv[\\/]runtime[\\/]disabled-redis\.(?:ts|js)$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/[\\/]kv[\\/]runtime[\\/]disabled-upstash\.(?:ts|js)$/),
       },
       cloudflare: {
@@ -3715,7 +3716,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         ],
       },
       sandbox: true,
-      virtual: { "#vitehub/kv/config": "export const hosting = undefined\nexport const kv = false\nexport default { hosting, kv }\n" },
+      virtual: { "#vitehub/kv/config": "export const hosting = undefined\nexport const kv = false\nexport const loadDatabases = undefined\nexport default { hosting, kv }\n" },
       workflows: true,
     })
   })

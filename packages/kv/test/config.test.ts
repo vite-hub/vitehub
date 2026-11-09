@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { normalizeKVOptions, warnVercelKVFallback } from "../src/config.ts"
+import { normalizeKVOptions, resolveInferredStore, warnVercelKVFallback } from "../src/config.ts"
 import { configureCloudflareKV } from "../src/integrations/cloudflare.ts"
 
 describe("normalizeKVOptions", () => {
-  it("falls back to fs-lite locally", () => {
+  it("falls back to fs-lite locally, and lets REDIS_URL select Redis on the server", () => {
     expect(normalizeKVOptions(undefined, {
       env: {},
       hosting: "",
@@ -12,9 +12,73 @@ describe("normalizeKVOptions", () => {
       store: {
         base: ".vitehub/data/kv",
         driver: "fs-lite",
+        inferred: true,
       },
     })
   })
+
+  it("infers the database driver on Node when the app has a Postgres Default Database", () => {
+    expect(normalizeKVOptions(undefined, { env: {}, hosting: "node-server", postgresDatabase: true })).toEqual({
+      store: { database: "default", driver: "database", inferred: true, namespace: "default" },
+    })
+  })
+
+  it("keeps an inferred store local in development, also with REDIS_URL and a Postgres Database", () => {
+    expect(normalizeKVOptions(undefined, { dev: true, env: { REDIS_URL: "redis://localhost:6379" }, hosting: "node-server", postgresDatabase: true })).toEqual({
+      store: { base: ".vitehub/data/kv", driver: "fs-lite" },
+    })
+  })
+
+  it("ignores REDIS_URL and the Database at build time on hosted presets", () => {
+    const env = { REDIS_URL: "redis://localhost:6379" }
+    expect(normalizeKVOptions(undefined, { env, hosting: "cloudflare-module", postgresDatabase: true })?.store.driver).toBe("cloudflare-kv-binding")
+    expect(normalizeKVOptions(undefined, { env, hosting: "vercel", postgresDatabase: true })?.store.driver).toBe("upstash")
+    expect(normalizeKVOptions(undefined, { env, hosting: "deno-deploy", postgresDatabase: true })?.store.driver).toBe("deno-kv")
+  })
+
+  it("lets Upstash env at build time beat the Database", () => {
+    const env = { KV_REST_API_TOKEN: "token", KV_REST_API_URL: "https://example.upstash.io" }
+    expect(normalizeKVOptions(undefined, { env, hosting: "node-server", postgresDatabase: true })?.store.driver).toBe("upstash")
+  })
+
+  it("resolves explicit redis and database stores, with a runtime URL and a namespace per store", () => {
+    expect(normalizeKVOptions({ stores: {
+      default: { driver: "redis" },
+      cache: { driver: "redis", url: "env:CACHE_REDIS_URL" },
+      sessions: { driver: "database", database: "auth" },
+    } }, { env: { REDIS_URL: "redis://build-host:6379" } })).toEqual({
+      store: { base: "", driver: "redis", url: "env:REDIS_URL" },
+      stores: {
+        cache: { base: "cache", driver: "redis", url: "env:CACHE_REDIS_URL" },
+        default: { base: "", driver: "redis", url: "env:REDIS_URL" },
+        sessions: { database: "auth", driver: "database", namespace: "sessions" },
+      },
+    })
+  })
+})
+
+describe("resolveInferredStore", () => {
+  const inferredFsLite = { base: ".vitehub/data/kv", driver: "fs-lite" as const, inferred: true as const }
+  const inferredDatabase = { database: "default", driver: "database" as const, inferred: true as const, namespace: "default" }
+
+  it("selects Redis when REDIS_URL is set on the server", () => {
+    const redis = { base: "", driver: "redis", url: "env:REDIS_URL" }
+    expect(resolveInferredStore(inferredFsLite, { REDIS_URL: "redis://localhost:6379" })).toEqual(redis)
+    expect(resolveInferredStore(inferredDatabase, { REDIS_URL: "redis://localhost:6379" })).toEqual(redis)
+  })
+
+  it("keeps the build store without REDIS_URL", () => {
+    expect(resolveInferredStore(inferredDatabase, {})).toBe(inferredDatabase)
+    expect(resolveInferredStore(inferredFsLite, { REDIS_URL: " " })).toBe(inferredFsLite)
+  })
+
+  it("never changes an explicit store", () => {
+    const explicit = { base: ".data", driver: "fs-lite" as const }
+    expect(resolveInferredStore(explicit, { REDIS_URL: "redis://localhost:6379" })).toBe(explicit)
+  })
+})
+
+describe("normalizeKVOptions existing behavior", () => {
 
   it("lets explicit config beat hosting defaults", () => {
     expect(normalizeKVOptions({
@@ -229,6 +293,7 @@ describe("normalizeKVOptions", () => {
       store: {
         base: ".vitehub/data/kv",
         driver: "fs-lite",
+        inferred: true,
       },
     })
   })

@@ -30,7 +30,7 @@ import { mergeConfig } from "vite"
 import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
 import { vitehub, type ViteHubOptions } from "./index.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
-import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
+import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
@@ -1763,6 +1763,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const kv = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
     if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
+    if (!hasRedisStore(kv)) alias[redisDriverSpecifier] ??= disabledRedisDriver
     if (effectiveKV) addNitroImports(config, "vite-hub/kv", ["kv"])
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
     if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])

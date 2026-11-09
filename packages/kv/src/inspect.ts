@@ -14,7 +14,15 @@ function describeDevelopment(store: ResolvedKVStoreConfig): string {
       : `Remote. \`vite dev\` uses the real Cloudflare KV namespace through the \`${store.binding}\` binding, so writes change real data.`
     case "deno-kv": return "Local. Deno KV."
     case "fs-lite": return `Local. \`fs-lite\` in \`${store.base}\`.`
+    case "redis": return `The Redis server of \`${store.url.startsWith("env:") ? store.url.slice(4) : "url"}\`, the same as in production when it points there.`
+    case "database": return `The table \`vitehub_kv\` in the Database "${store.database}" of \`vite dev\`.`
   }
+}
+
+/** The build driver. An inferred Node store names the driver that `REDIS_URL` selects at runtime. */
+function describeDriver(store: ResolvedKVStoreConfig): string {
+  if (!("inferred" in store) || !store.inferred) return store.driver
+  return `${store.driver}, or redis when REDIS_URL is set at runtime`
 }
 
 /** One summary per KV store: the build driver and what `vite dev` uses. */
@@ -24,7 +32,7 @@ export function inspectKVStores(build: ResolvedKVModuleOptions, dev: ResolvedKVM
     const devStore = devStores[name]
     return {
       fields: [
-        { label: "Driver", value: store.driver },
+        { label: "Driver", value: describeDriver(store) },
         ...devStore ? [{ label: "Development", value: describeDevelopment(devStore) }] : [],
       ],
       file,

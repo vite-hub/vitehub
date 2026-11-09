@@ -198,6 +198,11 @@
       "import": "./dist/_internal/kv/operations.js",
       "default": "./dist/_internal/kv/operations.js"
     },
+    "./_internal/kv/runtime/disabled-redis": {
+      "types": "./dist/_internal/kv/runtime/disabled-redis.d.ts",
+      "import": "./dist/_internal/kv/runtime/disabled-redis.js",
+      "default": "./dist/_internal/kv/runtime/disabled-redis.js"
+    },
     "./_internal/kv/runtime/disabled-upstash": {
       "types": "./dist/_internal/kv/runtime/disabled-upstash.d.ts",
       "import": "./dist/_internal/kv/runtime/disabled-upstash.js",

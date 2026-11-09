@@ -7,17 +7,21 @@ import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 
 import type {
   CloudflareKVStoreConfig,
+  DatabaseKVStoreConfig,
   DenoKVStoreConfig,
   FsLiteKVStoreConfig,
   InferredKVStoreConfig,
   KVModuleOptions,
   KVStoreConfig,
   KVStoresConfig,
+  RedisKVStoreConfig,
   ResolvedCloudflareKVStoreConfig,
+  ResolvedDatabaseKVStoreConfig,
   ResolvedDenoKVStoreConfig,
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
   ResolvedKVStoreConfig,
+  ResolvedRedisKVStoreConfig,
 } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -29,7 +33,15 @@ export interface KVResolutionInput {
   dev?: boolean
   env?: Record<string, string | undefined>
   hosting?: string
+  /**
+   * The app has a Default Database on Postgres. A build without a KV driver then infers the `database` driver on Node.
+   * The KV Vite plugin finds it in the Database Definitions.
+   */
+  postgresDatabase?: boolean
 }
+
+/** The variable that a `redis` store reads at runtime when it sets no `url`. */
+export const redisUrlEnvName = "REDIS_URL"
 
 /** Where a Cloudflare KV store keeps its keys in `vite dev` when the runtime has no binding. */
 export function cloudflareKVLocalBase(binding: string): string {
@@ -51,6 +63,18 @@ function resolveDevStore(store: ResolvedKVStoreConfig, remote: boolean | undefin
 
 function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}): ResolvedFsLiteKVStoreConfig {
   return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: ".vitehub/data/kv" })
+}
+
+export function resolveRedisStore(config: Partial<RedisKVStoreConfig>, name: string): ResolvedRedisKVStoreConfig {
+  return {
+    driver: "redis",
+    base: trimmed(config.base) ?? (name === "default" ? "" : name),
+    url: trimmed(config.url) ?? `env:${redisUrlEnvName}`,
+  }
+}
+
+function resolveDatabaseStore(config: Partial<DatabaseKVStoreConfig>, name: string): ResolvedDatabaseKVStoreConfig {
+  return { driver: "database", database: trimmed(config.database) ?? "default", namespace: name }
 }
 
 function resolveCloudflareStore(
@@ -78,16 +102,18 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
   if (dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
     throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver, remote, store: name })
   }
-  const resolved = resolveStoreDriver(store, env)
+  const resolved = resolveStoreDriver(store, env, name)
   return dev ? resolveDevStore(resolved, remote) : resolved
 }
 
-function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>): ResolvedKVStoreConfig {
+function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>, name: string): ResolvedKVStoreConfig {
   switch (store.driver) {
     case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
+    case "database": return resolveDatabaseStore(store, name)
     case "deno-kv": return resolveDenoStore(store)
-    case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)
+    case "redis": return resolveRedisStore(store, name)
+    case "upstash": return resolveUpstashStore(store)
     // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
     default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
   }
@@ -144,7 +170,19 @@ export function normalizeKVOptions(
   if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore())
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
-  return inferred(resolveFsLiteStore())
+  if (input.dev) return inferred(resolveFsLiteStore())
+  // Node and other servers. The server picks `redis` when `REDIS_URL` is set at runtime, see `resolveInferredStore()`.
+  if (input.postgresDatabase) return inferred({ ...resolveDatabaseStore({}, "default"), inferred: true })
+  return inferred({ ...resolveFsLiteStore(), inferred: true })
+}
+
+/**
+ * The store that an inferred build store uses on this server: `redis` when `REDIS_URL` is set now, else the build
+ * store. Explicit stores do not change.
+ */
+export function resolveInferredStore(store: ResolvedKVStoreConfig, env: Record<string, string | undefined>): ResolvedKVStoreConfig {
+  if (!("inferred" in store) || !store.inferred || !readEnv(env, redisUrlEnvName)) return store
+  return resolveRedisStore({}, "default")
 }
 
 export function warnVercelKVFallback(

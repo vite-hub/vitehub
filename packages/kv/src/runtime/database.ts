@@ -1,0 +1,234 @@
+import type { KVListOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
+import type { KVRuntimeDriver } from "./driver.ts"
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+
+/** The table that keeps the keys of every `database` store. Each store has its rows under its own `namespace`. */
+export const kvTable = "vitehub_kv"
+
+export type KVSqlParam = string | number | null
+
+/**
+ * Runs one statement and resolves its rows as objects keyed by column name. `postgresql` SQL uses `$1`, `$2`, ... and
+ * `sqlite` SQL uses `?`.
+ */
+export interface KVSqlClient {
+  dialect: "postgresql" | "sqlite"
+  query(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]>
+}
+
+/** The databases of the app, as `@vite-hub/database/drizzle` exports them. */
+export type KVDatabases = Record<string, { db: object } | undefined>
+
+interface PostgresClient {
+  unsafe(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]>
+}
+
+interface LibsqlClient {
+  execute(statement: { sql: string, args: KVSqlParam[] }): Promise<{ rows: readonly Record<string, unknown>[] }>
+}
+
+function hasMethod(value: unknown, name: string): boolean {
+  if ((typeof value !== "object" || value === null) && typeof value !== "function") return false
+  return typeof Reflect.get(value, name) === "function"
+}
+
+/**
+ * A SQL client over the Drizzle database of the app. It reads `$client` on each query, because a Postgres Database on
+ * Cloudflare has a client per request.
+ */
+export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClient {
+  const client = (): unknown => Reflect.get(db, "$client")
+  const first = client()
+  const dialect = hasMethod(first, "unsafe") ? "postgresql" : hasMethod(first, "execute") ? "sqlite" : undefined
+  if (!dialect) throw kvErrorDiagnostics.KV_DATABASE_UNAVAILABLE({ database, problem: "unsupported" })
+  return {
+    dialect,
+    async query(sql, params) {
+      // SAFETY: The dialect check above found the method that each branch calls.
+      if (dialect === "postgresql") return await (client() as PostgresClient).unsafe(sql, params)
+      // SAFETY: As above, a libSQL client has `execute()`.
+      return (await (client() as LibsqlClient).execute({ sql, args: params })).rows
+    },
+  }
+}
+
+/** Expired keys mean nothing, so a store deletes them at most once per this interval. */
+const sweepIntervalMs = 60_000
+
+function ttlMilliseconds(ttl: number): number {
+  if (!Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  const ms = Math.ceil(ttl * 1000)
+  if (!Number.isSafeInteger(ms)) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  return ms
+}
+
+function decodeCursor(cursor: string | undefined): string | undefined {
+  if (!cursor) return undefined
+  try {
+    const value: unknown = JSON.parse(decodeURIComponent(cursor))
+    const after: unknown = typeof value === "object" && value !== null ? Reflect.get(value, "after") : undefined
+    if (typeof after === "string") return after
+  }
+  catch {}
+  throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
+}
+
+/**
+ * KV in a table of the app's Database. Each atomic operation is one statement, so two servers that write one key at
+ * the same time get one winner. Expiry uses the clock of the Database. Works on Postgres and on SQLite 3.35 or later,
+ * such as libSQL.
+ */
+export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreConfig, connect: () => Promise<KVSqlClient>): KVRuntimeDriver {
+  const table = kvTable
+  const namespace = options.namespace
+  let pending: Promise<KVSqlClient> | undefined
+  let sweptAt = 0
+
+  async function ready(): Promise<KVSqlClient> {
+    pending ??= (async () => {
+      const client = await connect()
+      const columns = `(namespace text not null, "key" text not null, value text not null, expires_at bigint, primary key (namespace, "key"))`
+      const index = `create index if not exists ${table}_expires_at on ${table} (expires_at)`
+      try {
+        // A table that exists needs no DDL. Postgres prints a notice for each `if not exists` that skips.
+        await client.query(`select 1 from ${table} limit 0`, [])
+        return client
+      }
+      catch {}
+      // Postgres sessions that create the same missing table at once can fail on its catalog, so one statement takes a
+      // transaction lock first. SQLite runs DDL under its write lock already.
+      if (client.dialect === "postgresql") {
+        await client.query(`do $$ begin perform pg_advisory_xact_lock(hashtext('${table}')); create table if not exists ${table} ${columns}; ${index}; end $$`, [])
+      }
+      else {
+        await client.query(`create table if not exists ${table} ${columns}`, [])
+        await client.query(index, [])
+      }
+      return client
+    })()
+    pending.catch(() => {
+      pending = undefined
+    })
+    return pending
+  }
+
+  /** Runs SQL written with `?` placeholders, which become `$1`, `$2`, ... on Postgres. `{now}` is the Database clock in ms. */
+  async function query(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]> {
+    const client = await ready()
+    const now = client.dialect === "postgresql"
+      ? "(extract(epoch from clock_timestamp()) * 1000)::bigint"
+      : "cast((julianday('now') - 2440587.5) * 86400000 as integer)"
+    let index = 0
+    const text = sql.replaceAll("{now}", now)
+    return client.query(client.dialect === "postgresql" ? text.replace(/\?/g, () => `$${++index}`) : text, params)
+  }
+
+  const live = `(expires_at is null or expires_at > {now})`
+
+  async function sweep(): Promise<void> {
+    if (Date.now() - sweptAt < sweepIntervalMs) return
+    sweptAt = Date.now()
+    await query(`delete from ${table} where expires_at <= {now}`, [])
+  }
+
+  /** Matches keys that start with `prefix`. `substr()` counts characters on both dialects, unlike `LIKE` on SQLite, which ignores case. */
+  function prefixFilter(prefix: string | undefined): [string, KVSqlParam[]] {
+    if (!prefix) return ["", []]
+    return [` and substr("key", 1, ?) = ?`, [[...prefix].length, prefix]]
+  }
+
+  async function keys(prefix: string | undefined): Promise<string[]> {
+    const [filter, params] = prefixFilter(prefix)
+    const rows = await query(`select "key" from ${table} where namespace = ? and ${live}${filter} order by "key"`, [namespace, ...params])
+    return rows.map(row => String(row.key))
+  }
+
+  const driver: KVRuntimeDriver = {
+    name: "vitehub-kv-database",
+    options,
+    async hasItem(key) {
+      return (await query(`select 1 as found from ${table} where namespace = ? and "key" = ? and ${live}`, [namespace, key])).length > 0
+    },
+    async getItem(key) {
+      const [row] = await query(`select value from ${table} where namespace = ? and "key" = ? and ${live}`, [namespace, key])
+      return row ? String(row.value) : null
+    },
+    async setItem(key, value, setOptions?: { ttl?: unknown }) {
+      await sweep()
+      const ttl = setOptions?.ttl
+      // Like other unstorage drivers, no TTL or 0 keeps the key.
+      if (ttl !== undefined && ttl !== null && ttl !== 0 && typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
+      const ms = typeof ttl === "number" && ttl !== 0 ? ttlMilliseconds(ttl) : undefined
+      await query(
+        `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, ?, ${ms === undefined ? "null" : "{now} + cast(? as bigint)"})
+         on conflict (namespace, "key") do update set value = excluded.value, expires_at = excluded.expires_at`,
+        ms === undefined ? [namespace, key, value] : [namespace, key, value, ms],
+      )
+    },
+    async removeItem(key) {
+      await query(`delete from ${table} where namespace = ? and "key" = ?`, [namespace, key])
+    },
+    getKeys: base => keys(base),
+    async clear(base) {
+      const [filter, params] = prefixFilter(base)
+      await query(`delete from ${table} where namespace = ?${filter}`, [namespace, ...params])
+    },
+    async listKeys({ cursor, limit, prefix }: KVListOptions): Promise<KVListPage> {
+      const after = decodeCursor(cursor)
+      const [filter, params] = prefixFilter(prefix)
+      const rows = await query(
+        `select "key" from ${table} where namespace = ? and ${live}${filter}${after === undefined ? "" : ` and "key" > ?`} order by "key" limit ?`,
+        [namespace, ...params, ...after === undefined ? [] : [after], limit + 1],
+      )
+      const page = rows.slice(0, limit).map(row => String(row.key))
+      if (rows.length <= limit) return { keys: page }
+      return { keys: page, cursor: encodeURIComponent(JSON.stringify({ after: page.at(-1) })) }
+    },
+    async setIfAbsentItem(key, value, ttl) {
+      await sweep()
+      const ms = ttl === undefined ? undefined : ttlMilliseconds(ttl)
+      // One statement: a missing key inserts, an expired key is replaced, and a live key returns no row.
+      const rows = await query(
+        `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, ?, ${ms === undefined ? "null" : "{now} + cast(? as bigint)"})
+         on conflict (namespace, "key") do update set value = excluded.value, expires_at = excluded.expires_at
+         where ${table}.expires_at is not null and ${table}.expires_at <= {now}
+         returning "key"`,
+        ms === undefined ? [namespace, key, value] : [namespace, key, value, ms],
+      )
+      return rows.length > 0
+    },
+    // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This implements the caller-typed driver read, like getItem().
+    async getAndDeleteItem<T = unknown>(key: string): Promise<T | null> {
+      const [row] = await query(`delete from ${table} where namespace = ? and "key" = ? returning value, ${live} as live`, [namespace, key])
+      // An expired key is deleted too, but it had no value. Postgres returns a boolean, SQLite 1 or 0.
+      if (!row || !(row.live === true || Number(row.live) === 1)) return null
+      // SAFETY: The KV runtime decodes the stored text into the caller's type, as it does for getItem().
+      return String(row.value) as T
+    },
+    async incrementItem(key, ttl) {
+      const ms = ttlMilliseconds(ttl)
+      // One statement: a missing or expired counter starts at 1 with the TTL, a live one keeps its expiry.
+      const expired = `${table}.expires_at is not null and ${table}.expires_at <= {now}`
+      const [row] = await query(
+        `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, '1', {now} + cast(? as bigint))
+         on conflict (namespace, "key") do update set
+           value = case when ${expired} then '1' else cast(cast(${table}.value as bigint) + 1 as text) end,
+           expires_at = case when ${expired} then excluded.expires_at else ${table}.expires_at end
+         returning value`,
+        [namespace, key, ms],
+      )
+      const counter = Number(row?.value)
+      if (!Number.isSafeInteger(counter)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
+      return counter
+    },
+    async deleteIfEqualsItem(key, expected) {
+      const rows = await query(`delete from ${table} where namespace = ? and "key" = ? and value = ? and ${live} returning "key"`, [namespace, key, expected])
+      return rows.length > 0
+    },
+    async dispose() {
+      // The Database owns the connection.
+      pending = undefined
+    },
+  }
+  return driver
+}

@@ -28,7 +28,7 @@ The type of `error.code` is the union of the codes that the method can return. F
 
 `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`. It does not include `cause` or `stack`, because provider errors can contain credentials or private data. Log `cause` only on the server.
 
-Configuration errors throw instead. They mean that the code or the deployment must change, so a retry cannot help. Examples are an unknown store name and a missing Upstash environment variable.
+Configuration errors throw instead. They mean that the code or the deployment must change, so a retry cannot help. Examples are an unknown store name and a missing `REDIS_URL` or Upstash environment variable.
 
 | Code | Returned by | Thrown |
 | --- | --- | --- |
@@ -38,8 +38,8 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 | `KV_KEY_TOO_LONG` | `del()`, `get()`, `has()`, `set()` | |
 | `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
-| `KV_UNSUPPORTED_OPERATION` | `getAndDelete()`, `increment()`, `setIfAbsent()` | |
-| `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
+| `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `setIfAbsent()` | |
+| `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
 | `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_MISSING_DEFAULT_STORE` | | When Vite reads the config |
 
 ## Limits
@@ -92,15 +92,19 @@ The `expirationTtl` option of `kv.set()` is less than 60 seconds, or its `expira
 
 ### KV_UNSUPPORTED_OPERATION
 
-`getAndDelete()` and `increment()` need atomic operations. Only the `upstash` driver supports them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).
+`deleteIfEquals()`, `getAndDelete()`, and `increment()` need atomic operations. The `redis`, `database`, and `upstash` drivers support them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).
 
-`setIfAbsent()` works on `upstash`, `deno-kv`, and `fs-lite`. Cloudflare KV returns this code, because Workers KV is eventually consistent and cannot write a key only when it is missing. On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object.
+`setIfAbsent()` works on `redis`, `database`, `upstash`, `deno-kv`, and `fs-lite`. Cloudflare KV returns this code, because Workers KV is eventually consistent and cannot write a key only when it is missing. On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object.
 
 ### KV_VALUE_TOO_LARGE
 
 The value is larger than 25 MiB after ViteHub serializes it, the Cloudflare KV limit. Store large files in [Blob](/docs/blob), and keep the Blob pathname in KV.
 
 ## Configuration errors
+
+### KV_DATABASE_UNAVAILABLE
+
+A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is on D1. The `database` driver works on Postgres and libSQL. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver. On Cloudflare, use `cloudflare-kv-binding`.
 
 ### KV_DENO_KV_UNAVAILABLE
 
@@ -116,7 +120,7 @@ The runtime has no KV configuration. Add `hubKv()` to the Vite config, and do no
 
 ### KV_INVALID_DRIVER
 
-`kv.driver` is not `cloudflare-kv-binding`, `deno-kv`, `upstash`, or `fs-lite`.
+`kv.driver` is not `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`.
 
 ### KV_INVALID_REMOTE
 
@@ -133,6 +137,8 @@ A config with `kv.stores` must have a `default` store.
 ### KV_MISSING_ENV
 
 The `upstash` driver needs `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, in the runtime environment.
+
+The `redis` driver needs the variable of its `url`, `REDIS_URL` by default, in the server environment when the store starts.
 
 ### KV_REMOTE_CONFLICT
 

@@ -2,14 +2,16 @@ import { destr } from "destr"
 import { normalizeKey } from "unstorage"
 
 import type { KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
+import { resolveInferredStore } from "../config.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
-import { createLazyKVRuntimeDriver } from "./driver.ts"
+import { createLazyKVRuntimeDriver, type KVDatabasesLoader } from "./driver.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { createKVStorage } from "./create-storage.ts"
 
 export interface RuntimeStorage {
   dispose(): Promise<void>
   clear(base?: string, options?: unknown): Promise<void>
+  deleteIfEqualsItem?<T = unknown>(key: string, expected: T): Promise<boolean>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract.
   getItem<T = unknown>(key: string, options?: unknown): Promise<T | null>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
@@ -39,16 +41,16 @@ function isPrimitive(value: unknown) {
 }
 
 // Matches the serializer of unstorage's setItem(), so get() reads the value back as it reads a set() value.
-function serializeValue(value: unknown): string {
+function serializeValue(value: unknown, operation = "setIfAbsent"): string {
   // set() removes a key for `undefined`; a conditional write cannot mean that.
-  if (value === undefined) throw new TypeError("kv.setIfAbsent() needs a value. Use kv.del() to remove a key.")
+  if (value === undefined) throw new TypeError(`kv.${operation}() needs a value. Use kv.del() to remove a key.`)
   if (isPrimitive(value)) return String(value)
   if (Array.isArray(value)) return JSON.stringify(value)
   if (value && typeof value === "object") {
     const prototype: unknown = Object.getPrototypeOf(value)
     if (prototype === null || prototype === Object.prototype) return JSON.stringify(value)
     const toJSON: unknown = Reflect.get(value, "toJSON")
-    if (typeof toJSON === "function") return serializeValue(toJSON.call(value))
+    if (typeof toJSON === "function") return serializeValue(toJSON.call(value), operation)
   }
   throw new TypeError("KV cannot serialize this value.")
 }
@@ -72,11 +74,15 @@ export function resolveHostedKVStore(config: false | ResolvedKVModuleOptions | u
   return store
 }
 
-export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
-  const store = resolveHostedKVStore(config, name)
+/**
+ * Creates the storage of one store. An inferred Node store becomes `redis` here when `REDIS_URL` is set, so the
+ * variable is read on the server, not at build time.
+ */
+export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default", loadDatabases?: KVDatabasesLoader): RuntimeStorage {
+  const store = resolveInferredStore(resolveHostedKVStore(config, name), globalThis.process?.env ?? {})
   const notice = kvRemoteNotice(name, store)
   if (notice) console.warn(notice)
-  const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } })
+  const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } }, loadDatabases)
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createKVStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
   // SAFETY: createKVStorage supplies the base methods, and this boundary installs the required listKeys method before returning.
   const storage = createKVStorage(driver) as unknown as RuntimeStorage
@@ -94,5 +100,7 @@ export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | 
   if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)
   const setIfAbsentItem = driver.setIfAbsentItem
   if (setIfAbsentItem) storage.setIfAbsentItem = async (key, value, ttl) => setIfAbsentItem(normalizeKey(key), serializeValue(value), ttl)
+  const deleteIfEqualsItem = driver.deleteIfEqualsItem
+  if (deleteIfEqualsItem) storage.deleteIfEqualsItem = async (key, expected) => deleteIfEqualsItem(normalizeKey(key), serializeValue(expected, "deleteIfEquals"))
   return storage
 }

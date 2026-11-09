@@ -15,7 +15,7 @@
 pnpm add @vite-hub/kv
 ```
 
-Add `@upstash/redis` when you use the Upstash driver.
+Add `@upstash/redis` when you use the Upstash driver. The `redis` driver uses `ioredis`, which KV installs.
 
 ## Minimal API
 
@@ -52,7 +52,21 @@ export default defineConfig({
 
 Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
-Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
+Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted), Redis over TCP (`redis`), and a table in the app's Database (`database`). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
+
+## Shared stores on Node
+
+Several Node processes share keys only through a shared store. Without a `driver`, a Node build picks:
+
+1. `redis` when `REDIS_URL` is set. The server reads it when the store starts, not at build time.
+2. `database` when the app has a Default Database on Postgres (the `@vite-hub/database` plugin with a `dialect: "postgresql"` Definition).
+3. `fs-lite` in `.vitehub/data/kv` otherwise.
+
+`{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key; a named store uses its name by default.
+
+`{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. It works on Postgres and libSQL, not on D1.
+
+This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`, and of any Node server with `REDIS_URL` to `redis`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
 
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 
@@ -80,9 +94,9 @@ Cursors are opaque and provider-specific. Pass a returned cursor back to the sam
 
 KV operations return `[error, value]`. `error.code` is one of the codes of the method, for example `KV_INVALID_CURSOR` for `list()`, and `error.why`, `error.fix`, and `error.docs` explain it. Provider failures use the code `KV_OPERATION_FAILED` and keep the provider failure in `cause`. A Cloudflare KV store checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, in production and in `vite dev`: a key above 512 bytes returns `KV_KEY_TOO_LONG`, a value above 25 MiB returns `KV_VALUE_TOO_LARGE`, `metadata` above 1024 bytes returns `KV_METADATA_TOO_LARGE`, and an `expirationTtl` below 60 seconds or an `expiration` less than 60 seconds in the future returns `KV_TTL_TOO_SHORT`. See [KV limits and errors](https://vitehub.dev/docs/kv/limits-and-errors). Configuration errors, for example an unknown named store, throw.
 
-`kv.setIfAbsent(key, value, { ttl })` writes the value only when the key has no value, in one atomic step. Its value is `true` for the one call that wrote it and `false` for the others. Use it for upload tickets, invite codes, and nonces instead of `get()` then `set()`, which two requests can race. Upstash runs `SET NX`. Deno KV commits an atomic check that the key is missing; it deletes expired keys some time after the TTL. `fs-lite` creates the file exclusively, which is atomic on one disk, and never expires keys. Cloudflare KV returns `KV_UNSUPPORTED_OPERATION`, because Workers KV is eventually consistent; use D1 or a Durable Object there.
+`kv.setIfAbsent(key, value, { ttl })` writes the value only when the key has no value, in one atomic step. Its value is `true` for the one call that wrote it and `false` for the others. Use it for upload tickets, invite codes, and nonces instead of `get()` then `set()`, which two requests can race. Redis runs `SET NX` with `PX`, the `database` driver one `INSERT ... ON CONFLICT` that also replaces an expired key, and Upstash `SET NX`. Deno KV commits an atomic check that the key is missing; it deletes expired keys some time after the TTL. `fs-lite` creates the file exclusively, which is atomic on one disk, and never expires keys. Cloudflare KV returns `KV_UNSUPPORTED_OPERATION`, because Workers KV is eventually consistent; use D1 or a Durable Object there.
 
-Upstash also supports `kv.getAndDelete(key)` and `kv.increment(key, ttl)`. These operations are atomic in the provider. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` because they cannot provide the same contract without extra storage or non-atomic calls.
+`redis`, `database`, and Upstash also support `kv.getAndDelete(key)`, `kv.increment(key, ttl)`, and `kv.deleteIfEquals(key, expected)`. These operations are atomic in the provider. `deleteIfEquals()` deletes the key only when its stored text equals `expected` serialized as `set()` stores it, and returns `true` when this call deleted it. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` because they cannot provide the same contract without extra storage or non-atomic calls. The type `KVDriverAtomicOperations` lists the atomic operations of each driver, and `KVDriversWith<"deleteIfEquals">` the drivers of one operation.
 
 ## Read-only handles
 
@@ -101,7 +115,7 @@ The mode limits this API, not the host. The KV binding or provider token keeps f
 
 Call `disposeKVStores()` from `@vite-hub/kv` (or `vite-hub/kv`) after stopping new application work. It disposes every initialized default and named store, waits for pending store initialization and cleanup, and reports cleanup failures with an `AggregateError`. Concurrent teardown calls share one promise. Later operations create fresh stores; old process-local cursors cannot resume.
 
-For Nitro, register the cleanup in a server plugin:
+When a store can use Redis (a `redis` store, or an inferred Node store), `hubKv()` registers this cleanup on Nitro's `close` hook, so the Redis connection does not keep the process alive after a stop signal. For other stores, register the cleanup in a server plugin:
 
 ```ts fragment
 // server/plugins/kv-cleanup.ts

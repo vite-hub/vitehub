@@ -61,7 +61,7 @@ const integrationMocks = vi.hoisted(() => ({
   resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
     kv: kv?.stores
       ? { stores: kv.stores }
-      : { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
+      : { store: kv?.driver ? { driver: kv.driver } : input?.hosting === "cloudflare-module" ? { driver: "cloudflare-kv-binding" } : { driver: "fs-lite", inferred: true } },
   })),
   resolveAuthViteConfig: vi.fn(),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
@@ -834,6 +834,7 @@ describe("vitehub", () => {
       kvImport: "vite-hub/_internal/kv",
       processDiscordGateway: true,
       providerImportAliases: {
+        "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-redis\.js$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
       runtimeCapabilityImports: {
@@ -869,7 +870,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
     // hubKv() infers the driver itself, so `vite dev` can keep the store local.
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "cloudflare-module" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -878,6 +879,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
       providerImportAliases: {
+        "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-redis\.js$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
       runtimeImport: "vite-hub/_internal/schedule/runtime/static",
@@ -887,6 +889,7 @@ describe("vitehub", () => {
       hosting: "node-server",
       importBase: "vite-hub/_internal/workflow",
       providerImportAliases: {
+        "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-redis\.js$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
       includeUserAppEntry: true,
@@ -1352,12 +1355,17 @@ describe("vitehub", () => {
     expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
   })
 
-  it("passes the unused Upstash fallback only to provider bundlers", () => {
+  it("passes the unused Upstash and Redis fallbacks only to provider bundlers", () => {
     vitehub({ agent: true, preset: "node", workflow: true })
     const defaultAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
     expect(defaultAliases).toEqual({
+      "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-redis\.js$/),
       "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
     })
+
+    // An inferred Node store uses Redis when `REDIS_URL` is set at runtime, so the build keeps the driver.
+    vitehub({ agent: true, preset: "node", kv: true })
+    expect(providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))).not.toHaveProperty("@vite-hub/kv/runtime/redis-driver")
 
     const upstashPlugins = vitehub({ agent: true, preset: "node", kv: true, workflow: true })
     const upstashAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
@@ -1366,6 +1374,7 @@ describe("vitehub", () => {
     callHook(dependency.configResolved, [{ kv: { driver: "upstash" } satisfies KVModuleOptions }])
 
     expect(upstashAliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
+    expect(upstashAliases["@vite-hub/kv/runtime/redis-driver"]).toMatch(/disabled-redis\.js$/)
     expect(providerAliasesFromCall(integrationMocks.hubWorkflow.mock.calls.at(-1), 1)).toBe(upstashAliases)
   })
 

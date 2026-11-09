@@ -6,6 +6,7 @@ import { redactInspectionText } from "@vite-hub/internal/inspect"
 // Cloudflare KV runtime. A relative import would bypass that selection.
 import { kv } from "@vite-hub/kv"
 
+import { resolveInferredStore } from "../config.ts"
 import { inspectKVValue, kvValueType } from "./inspect-value.ts"
 
 import { previewKVValue } from "./preview.ts"
@@ -134,7 +135,8 @@ function unwrap<TResult>(result: Result<TResult>): TResult {
 function resolvedStores(config: false | ResolvedKVModuleOptions): KVDevStore[] {
   if (!config) return []
   const stores = Object.entries(config.stores ?? { default: config.store })
-    .map(([name, store]) => ({ driver: store.driver, name }))
+    // An inferred Node store runs on Redis when `REDIS_URL` is set, so report the driver that the store uses now.
+    .map(([name, store]) => ({ driver: resolveInferredStore(store, globalThis.process?.env ?? {}).driver, name }))
   return [
     ...stores.filter(store => store.name === "default"),
     ...stores.filter(store => store.name !== "default").sort((left, right) => left.name.localeCompare(right.name)),

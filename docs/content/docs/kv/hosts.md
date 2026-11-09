@@ -39,7 +39,7 @@ For a preview Worker of its own, set `KV_NAMESPACE_ID` in its build with `namesp
 
 KV prefixes are conventions, not relational models. Move data to Database when you need constraints, joins, migrations, history, or complex queries.
 
-Do not build coordination locks on top of basic `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, and counters; they are not a general compare-and-swap API.
+Do not build coordination locks on top of basic `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
 
 ## Related guides
 

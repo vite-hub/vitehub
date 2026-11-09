@@ -108,11 +108,11 @@ icon: i-lucide-database-zap
   :::
 
   :::product-feature-item{title="Same code on every host" icon="i-lucide-server" to="/docs/kv/configure#providers"}
-  Values stay on your disk while you develop. On Cloudflare, Deno, or Upstash, your routes do not change.
+  Values stay on your disk while you develop. On Cloudflare, Deno, Redis, Postgres, or Upstash, your routes do not change.
   :::
 
   :::product-feature-item{title="Counters and one-time values" icon="i-lucide-circle-plus" to="/docs/kv/server-api#use-it-at-runtime"}
-  `setIfAbsent()` writes a single-use token only once. With Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
+  `setIfAbsent()` writes a single-use token only once. With Redis, a Database, or Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
   :::
 
   :::product-feature-item{title="Know when to use a database" icon="i-lucide-database" to="/docs/kv/hosts#production-checks"}
