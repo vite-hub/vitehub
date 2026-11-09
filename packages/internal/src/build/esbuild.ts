@@ -388,7 +388,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
     setup(build) {
       build.onResolve({ filter: /^@vite-hub\/markdown-template$/, namespace: viteMarkdownTemplateNamespace }, async (args) => {
         if (!frameworkRuntime) return { path: fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier)) }
-        return build.resolve("vite-hub/_internal/markdown-template", {
+        return build.resolve("vite-hub/markdown-template", {
           importer: args.importer,
           kind: args.kind,
           resolveDir: args.resolveDir,

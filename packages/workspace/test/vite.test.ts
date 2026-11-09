@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -357,7 +358,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const entries = plugin.vitehub?.operations ?? []
-    expect(entries.map(entry => ({ export: entry.export, module: entry.module }))).toEqual([{ export: "workspaceOperations", module: "@vite-hub/workspace/operations" }])
+    expect(entries.map(entry => ({ export: entry.export, module: entry.module }))).toEqual([{ export: "workspaceOperations", module: ownModule(import.meta.url, "operations") }])
     const { workspaceOperations } = await import("../src/operations.ts")
     await expect(entries[0]?.load?.()).resolves.toBe(workspaceOperations)
 
@@ -731,19 +732,19 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toContain(`import { installHostedWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
+    expect(pluginSource).toContain(`import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted-vercel-blob"))}`)
+    expect(pluginSource).toContain(`import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(ownModule(import.meta.url, "runtime"))}`)
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
     expect(pluginSource).toContain('"provider": "local"')
   })
 
-  it("uses a configured package base in physical Nitro imports", async () => {
+  it("imports Workspace runtime files by path in the Nitro plugin", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ importBase: "vite-hub/_internal/workspace" } as never)
+    const plugin = hubWorkspace()
     const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string },
       env: { command: "serve", mode: string },
@@ -756,9 +757,9 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("from 'vite-hub/_internal/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("from 'vite-hub/_internal/workspace/internal/runtime/hosted-vercel-blob'")
-    expect(pluginSource).toContain("from 'vite-hub/_internal/workspace/runtime'")
+    expect(pluginSource).toContain(`from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
+    expect(pluginSource).toContain(`from ${JSON.stringify(ownModule(import.meta.url, "hosted-vercel-blob"))}`)
+    expect(pluginSource).toContain(`from ${JSON.stringify(ownModule(import.meta.url, "runtime"))}`)
     expect(pluginSource).not.toContain("@vite-hub/workspace")
   })
 
@@ -850,9 +851,9 @@ describe("hubWorkspace", () => {
     expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
-    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
+    expect(pluginSource).toContain(`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(ownModule(import.meta.url, "runtime"))}`)
+    expect(pluginSource).toContain(`import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
+    expect(pluginSource).toContain(`import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted-vercel-blob"))}`)
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
@@ -1015,9 +1016,9 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
-    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toContain(`import { configureHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted-vercel-blob"))}`)
+    expect(pluginSource).toContain(`import { installHostedWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
+    expect(pluginSource).toContain(`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(ownModule(import.meta.url, "runtime"))}`)
     expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain('"provider": "vercel-blob"')
@@ -1044,9 +1045,9 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
-    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toContain(`import { configureHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted-vercel-blob"))}`)
+    expect(pluginSource).toContain(`import { installHostedWorkspaceRuntime } from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
+    expect(pluginSource).toContain(`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(ownModule(import.meta.url, "runtime"))}`)
     expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")

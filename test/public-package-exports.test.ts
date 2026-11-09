@@ -39,7 +39,7 @@ describe("public package export contracts", () => {
     expect(published).toEqual(publicPackageExportAllowlist)
     for (const subpaths of Object.values(publicPackageExportAllowlist)) expect(subpaths.filter(subpath => subpath.includes("*"))).toEqual([])
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
-    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit|schedule))(?:\/|$)/.test(subpath))).toEqual([])
+    expect(publicPackageExportAllowlist["vite-hub"]?.filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("classifies every public root and subpath exactly once", () => {
@@ -95,7 +95,7 @@ describe("public package export contracts", () => {
     expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
     expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
     expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
-    for (const subpath of ["database", "database/postgres", "operations", "server"]) {
+    for (const subpath of ["database", "database/postgres", "server"]) {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments/${subpath}`)
       expect(contract?.optionalRuntimePeers).toEqual([])
       expect(contract?.optionalDeclarationPeers).toEqual([])
@@ -152,7 +152,6 @@ describe("public package export contracts", () => {
   it("keeps lazy optional peer exports runnable without their declaration peers", () => {
     const lazyPeerExports = new Map<string, string>([
       ["@vite-hub/agent", "@vite-hub/workflow"],
-      ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
       ["@vite-hub/browser/internal/chromium", "playwright-core"],

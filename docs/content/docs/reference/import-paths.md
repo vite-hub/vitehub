@@ -214,7 +214,6 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/connections/chatgpt` | Connections Package | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
 | `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
 | `@vite-hub/comments/client`, `@vite-hub/comments/rpc`, `@vite-hub/comments/server`, and `@vite-hub/comments/database/postgres` | Comments Package | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
-| `@vite-hub/comments/operations` | Comments Package | The `comments.*` operations. The framework distribution imports them for you. |
 | `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
 | `@vite-hub/cms` and `@vite-hub/cms/vite` | CMS Package | The `cms` preset that stores document collections on a contributed Workspace, and `hubCms()`, the Vite plugin that adds that Workspace, its tables, and a Database when the app has none. |
 | `@vite-hub/cms/access` | CMS Package | The CMS roles for the Better Auth `admin` plugin and the policies from those roles. It needs `better-auth`. |
@@ -320,7 +319,6 @@ or `files`, its `include` must retain the generated Source declarations:
 | `.netlify/v1/**` | Generated Provider Output | Deploy or inspect as Netlify function output. |
 | `dist/**/wrangler.json` | Generated Provider Output | Deploy or inspect as Cloudflare output. |
 | Vite virtual module ids with `\0` prefixes | Internal | Never import directly. |
-| `vite-hub/_internal/*` | Internal | Generated ViteHub code only; application imports are unsupported. |
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
 
 The Agent Package does not expose an `@vite-hub/agent/netlify` application import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.

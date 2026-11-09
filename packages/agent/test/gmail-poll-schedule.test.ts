@@ -156,7 +156,7 @@ it("installs configured workspace dependency loaders in the retained polling hos
       providers: { state: { provider: "libsql", url: "libsql://state.example.com" } },
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     } as never)
@@ -176,7 +176,7 @@ it("installs configured workspace dependency loaders in the retained polling hos
     const handler = await readFile(handlers[0]!, "utf8")
     expect(handler).toContain("vitehubSetWorkspaceDependencyRuntimeLoaders({")
     expect(handler).toContain('sandboxTask: () => import("vite-hub/sandbox/task")')
-    expect(handler).toContain('sandboxTaskRuntimeState: () => import("vite-hub/_internal/sandbox/task/runtime/state")')
+    expect(handler).toContain('sandboxTaskRuntimeState: () => import("/sandbox/dist/task/runtime/state.js")')
     expect(handler).toContain('shellWorkspace: () => import("vite-hub/shell/workspace")')
   }
   finally {

@@ -1,6 +1,7 @@
-import { statSync } from "node:fs"
+import { readFileSync, realpathSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import type { NuxtServerDirOptions } from "./paths.ts"
 import type { ConfigEnv, EnvironmentOptions } from "vite"
@@ -131,6 +132,28 @@ export function createProviderOutputEnvironmentOwner(name: string): ProviderOutp
  */
 export function loadsViteHubPackagesNatively(name: string, env: { command: string }): boolean {
   return env.command === "serve" && name === "nitro"
+}
+
+// The installed dist files of the packages that Node loads in `vite dev`. A linked workspace package is outside
+// `node_modules`, and Vite inlines it, so its files keep loading through Vite.
+const nativePackageDistFile = /\/node_modules\/@vite-hub\/(?:agent|connections|runtime|workspace)\/dist\/.+\.js$/
+
+/**
+ * Generated code imports the runtime files of its owner by path. Vite gives Node only bare package names, so in the
+ * Nitro environment of `vite dev` it would inline a second copy of a package that Node already loaded, with its own
+ * registries. This returns a module that lets Node load the file instead, so the app and the generated code share one
+ * instance. Use it as the `load` hook result for the file. It returns nothing for other files and environments.
+ */
+export function loadNativePackageModule(id: string, environmentName: string | undefined, command: string): string | undefined {
+  if (!environmentName || !loadsViteHubPackagesNatively(environmentName, { command })) return
+  // A dynamic import that Vite cannot analyze reaches the hook as a `file:` URL.
+  const file = id.startsWith("file:") ? fileURLToPath(id) : id
+  if (!nativePackageDistFile.test(file.replace(/\\/g, "/"))) return
+  const url = JSON.stringify(pathToFileURL(realpathSync(file)).href)
+  const hasDefault = /\bexport default\b|\bas default\b/.test(readFileSync(file, "utf8"))
+  // Vite's module runner gives a `data:` import to Node unchanged, and Node resolves its absolute `file:` import.
+  const native = JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${url}${hasDefault ? `\nexport { default } from ${url}` : ""}`)}`)
+  return `export * from ${native}\n${hasDefault ? `export { default } from ${native}\n` : ""}`
 }
 
 /** A generated module, and the package export that receives it when Node loads the package in `vite dev`. */

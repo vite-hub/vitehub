@@ -54,11 +54,6 @@
       "import": "./dist/database/postgres.js",
       "default": "./dist/database/postgres.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
@@ -88,11 +83,6 @@
       "types": "./dist/runtime/connect/node.d.ts",
       "import": "./dist/runtime/connect/node.js",
       "default": "./dist/runtime/connect/node.js"
-    },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
