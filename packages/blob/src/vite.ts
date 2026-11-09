@@ -573,15 +573,21 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       if (!resolved || !siblingRuntime) return
       contributeProviderRuntime(useProviderOutputCatalog(resolved), siblingRuntime, siblingRuntimeGenerations.get(this))
     },
-    load(id) {
-      if (id === RESOLVED_BLOB_VIRTUAL_CONFIG_ID) {
-        return serializeVirtualConfig(getConfig())
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/blob\/config$/ },
+      handler(id) {
+        if (id === RESOLVED_BLOB_VIRTUAL_CONFIG_ID) {
+          return serializeVirtualConfig(getConfig())
+        }
+      },
     },
-    resolveId(id) {
-      if (id === BLOB_VIRTUAL_CONFIG_ID) {
-        return RESOLVED_BLOB_VIRTUAL_CONFIG_ID
-      }
+    resolveId: {
+      filter: { id: /^#vitehub\/blob\/config$/ },
+      handler(id) {
+        if (id === BLOB_VIRTUAL_CONFIG_ID) {
+          return RESOLVED_BLOB_VIRTUAL_CONFIG_ID
+        }
+      },
     },
   }
 }
