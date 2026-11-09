@@ -59,7 +59,7 @@ Available namespaces:
   env         Server Env inspection workflows.
   secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
-  schedule    Run Static Schedule Definitions and inspect their recorded runs.
+  schedule    Run Static Schedule Definitions, start Schedules from the CLI, and inspect their recorded runs.
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
@@ -75,11 +75,13 @@ Available namespaces:
 | --- | --- | --- | --- |
 | `vitehub init` | Available | ViteHub CLI | Create a Vite or Nuxt app, or adopt an existing app, with a host and features. Does not load the project config. |
 | `vitehub add` | Available | ViteHub CLI | Turn on features: edit the `vitehub()` options, install the owner packages, and create a starter Definition. Does not load the project config. |
+| `vitehub remove` | Available | ViteHub CLI | Turn off features: edit the `vitehub()` options, delete unchanged starter Definitions, and uninstall packages that nothing else uses. Does not load the project config. |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
 | `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
-| `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret. Does not load the project config. |
+| `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret and pushes the checkout folders of `vitehub.lock`. Does not load the project config. |
+| `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -139,6 +141,9 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
+| `vitehub schedule list` | Available | Schedule Package | List the Schedules that code started with `startSchedule()`. |
+| `vitehub schedule start` | Available | Schedule Package | Start a Schedule Definition without `cron`, once with `--at` or on `--cron`. |
+| `vitehub schedule cancel` | Available | Schedule Package | Cancel a started Schedule. |
 | `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
 | `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
@@ -234,6 +239,7 @@ pnpm vitehub status --json
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
 - `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
+- `live`: the deployment that receives production traffic, with its commit and how many commits it is `behind` and `ahead` of HEAD. See [List deployments](#list-deployments).
 - `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
 
 With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
@@ -278,7 +284,7 @@ The command needs more input, such as a feature name or the provider option that
 
 ### `SETUP_CONFIG_MANUAL`
 
-`vitehub add` cannot edit the config safely: there is no `vitehub()` call, there are two, or the options are not an object literal. The error gives the keys to paste into the `vitehub()` options, and the JSON output has them in `snippet`.
+`vitehub add` or `vitehub remove` cannot edit the config safely: there is no `vitehub()` call, there are two, or the options are not an object literal. The error gives the keys to paste into the `vitehub()` options, and the JSON output has them in `snippet`.
 
 ### `SETUP_FILE_EXISTS`
 
@@ -303,6 +309,39 @@ The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Ru
 ### `SETUP_CONFIG_NOT_LITERAL`
 
 The `vitehub()` options are not an object literal, for example a variable, a function call, or `mergeConfig()`. ViteHub does not run the config to read them. Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand. `vitehub status` reports this case as `config.manual` and exits with `0`.
+
+## Remove a feature
+
+`vitehub remove` undoes `vitehub add`. It plans the change first, then edits the config, deletes the starter files, and uninstalls the packages last, so the app stops using the feature before its files go. It parses the config and never runs it.
+
+```bash [Terminal]
+pnpm vitehub remove queue --dry-run
+pnpm vitehub remove queue --yes
+pnpm vitehub remove workflow --force --yes --json
+```
+
+- `--dry-run`, `--yes`, and `--json` work as they do for `add`. Without a terminal and without `--yes`, the command exits with `2` and a `rerun` command.
+- `--keep-files` keeps the starter Definitions.
+- `--no-uninstall` keeps the packages. `nextSteps` has the uninstall command.
+- `--force` turns the feature off while the app still uses it. It writes `<feature>: false` when another feature turns it on, and it keeps every file that the app wrote.
+
+The command deletes the `vitehub()` key. A feature that is on without a key, such as Env, gets `<feature>: false`. A feature that only the removed feature turned on, such as Workflow for Agent, goes off too and is listed in `turnedOff`. When `add` was the last change, `remove` gives back the original bytes of the config, the starter files, and package.json.
+
+`remove` deletes a file only when it is exactly a starter that `add` writes. It refuses with `3` while the app still uses the feature: an import of `vite-hub/<feature>` or of a package that only this feature needs, a changed or extra file in the Definition folder, such as `server/queues/`, or a discovered file, such as `server/comments.ts`. The error lists each file and line in `references`. It uninstalls a package only when no enabled feature declares it and no source file imports it.
+
+`remove` never deletes host resources, such as a D1 database or a KV namespace, the local data in `.vitehub/data`, host credentials, or `.vitehub/link.json`. `nextSteps` names the host resources to delete by hand.
+
+### `SETUP_FEATURE_IMPLIED`
+
+Another enabled feature turns the feature on, such as Agent for Workflow, so deleting its key changes nothing. Remove the other feature too, or pass `--force` to write `<feature>: false`. The JSON output names the other features in `impliedBy`.
+
+### `SETUP_FEATURE_IN_USE`
+
+The app still uses the feature. `references` lists each file, with the line and the module for an import. Delete or move them and run the command again, or pass `--force` to turn the feature off and keep the files.
+
+### `SETUP_UNINSTALL_FAILED`
+
+The package manager exited with an error after ViteHub changed the config and deleted the starter files. Run the uninstall command by hand to see the error.
 
 ## Link a project to its host
 
@@ -366,8 +405,9 @@ pnpm vitehub deploy --preview
 pnpm vitehub deploy --temporary --yes --json
 ```
 
-- `--preview`: a preview deploy instead of production. Deno has none.
+- `--preview`: a preview deploy instead of production. Deno has none. A preview does not push the checkout folders of `vitehub.lock`.
 - `--no-build`: deploy the build output that is there.
+- `--no-push`: do not check or push the checkout folders of `vitehub.lock`.
 - `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
 - `--yes`: deploy without the question. Without a terminal, the command needs it and exits with `2` and a `rerun`.
 
@@ -398,6 +438,28 @@ When `vitehub init --console` left a pending Console link, `deploy` sets `VITEHU
 A temporary deploy has no account to hold a secret. The hash is SHA-256 of a 256-bit random token, so it is not secret by itself. It goes into the build output as a plain runtime var: `vars` in the generated `wrangler.json` on Cloudflare, `environment` in each `.vc-config.json` on Vercel. `console.secret` is then `var`. The command prints the claim link: claim a Cloudflare Worker within 60 minutes. `--json` returns it in `temporary.claimUrl`. Do not share the claim link.
 
 After a first deploy, `.vitehub/link.json` gets the host project with `verified: false`, so `vitehub status` finds it. Run `vitehub link` to verify it.
+
+### Push the checkout folders
+
+When `vitehub.lock` has checkout folders, a production deploy also pushes them, as `vitehub push` does. The project must install `@vite-hub/workspace` or `vite-hub`, which read the lock. Without a lock or a checkout, the deploy does not push. Without that package, it does not push and prints one warning when the lock has checkout folders.
+
+1. After the deploy question and before the build, the command checks each folder for conflicts, pulls remote changes, and checks for conflicts again. The build uses the pulled files. A declined question loads no project code. A file with unresolved conflicts stops the deploy with `SETUP_DEPLOY_CHECKOUT_CONFLICT`. A failed pull stops it before the build or deploy. An installed package that does not load stops it with `SETUP_DEPLOY_CHECKOUT_MODULE_FAILED`.
+2. After the deploy, it pushes each folder to the app that `remote` of its lock entry names. A folder without `remote` goes to the dev server, as with `vitehub push`.
+3. The push pulls again, so it can change `vitehub.lock` and files in the folders. The command lists the files changed by both pulls and the push. Commit them.
+
+A `--preview` deploy does not push, so a preview never writes the shared Workspace ref. `--json` returns the push in `checkouts`:
+
+```json [vitehub deploy --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "url": "https://my-app.example.workers.dev",
+  "checkouts": {
+    "results": [{ "workspace": "docs", "ref": "main", "revision": "r3", "pushed": ["guide.md"], "pull": { "ref": "main", "from": "r1", "head": "r2", "files": [{ "path": "news.md", "action": "added" }] } }],
+    "changed": ["vitehub.lock", "content/news.md"]
+  }
+}
+```
 
 ### `SETUP_DEPLOY_HOST_UNSUPPORTED`
 
@@ -446,6 +508,75 @@ The host does not list `VITEHUB_CONSOLE_TOKEN_SHA256` after the command set it, 
 ### `SETUP_DEPLOY_SECRET_UNSUPPORTED`
 
 On Windows, the Deno secret has no stdin path. Set the variable in the host dashboard. The command exits with `3`.
+
+### `SETUP_DEPLOY_CHECKOUT_CONFLICT`
+
+A checkout folder of `vitehub.lock` has a file with conflict markers or an open binary conflict. Nothing was built or deployed. Remove the markers, or run `vitehub resolve` for a binary file, then deploy again. `--no-push` deploys without the push. The command exits with `1`.
+
+### `SETUP_DEPLOY_CHECKOUT_MODULE_FAILED`
+
+The project installs `@vite-hub/workspace/checkout` or `vite-hub/workspace/checkout`, but the module does not load: it has a syntax error, a missing dependency, an error when it starts, or no `localCheckoutStatus` and `pushWorkspaces` exports. Nothing was built or deployed. Reinstall the dependencies and use the same version of the Workspace package as the CLI. `--no-push` deploys without the push. The command exits with `1`.
+
+### `SETUP_DEPLOY_PUSH_FAILED`
+
+The app is deployed, but the Workspace push failed. `checkouts.error` has the code, message, and fix of the push. Fix the cause and run `vitehub push`. Do not deploy again. The command exits with `1`.
+
+## List deployments
+
+`vitehub deployments` reads the deployments of the linked project from the host each time. ViteHub keeps no local deploy log. It needs a host link in `.vitehub/link.json` (from `vitehub link` or a first `vitehub deploy`) and the credentials that `vitehub link` reads.
+
+```bash [Terminal]
+pnpm vitehub deployments
+pnpm vitehub deployments --limit 20 --json
+```
+
+Each deployment has `id`, `url`, `createdAt`, `state` (`ready`, `building`, `error`, `canceled`, or `unknown`), `target` (`production` or `preview`), `live` (true for the one that receives production traffic), `source` (`cli`, `git`, `dashboard`, `api`, or `unknown`), and `commit`. `commit.from` is `vitehub` for the marker that `vitehub deploy` writes, and `host` for the commit of a Git integration build. `--limit` is 1 to 100, and the default is 10.
+
+```json [vitehub deployments --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "project": { "name": "my-app" },
+  "deployments": [
+    {
+      "id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
+      "url": "https://my-app.example.workers.dev",
+      "createdAt": "2026-11-05T18:11:19.117Z",
+      "state": "ready",
+      "target": "production",
+      "live": true,
+      "version": "bcf48806-b317-4351-9ee7-36e7d557d4de",
+      "commit": { "sha": "4f2a9c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39", "dirty": false, "from": "vitehub" },
+      "source": "cli"
+    }
+  ]
+}
+```
+
+| Host | Deployments | Live | Commit |
+| --- | --- | --- | --- |
+| Cloudflare | Workers API `.../workers/scripts/{name}/deployments` and `.../versions`. A version in no deployment is a preview. | The newest deployment | The `workers/message` annotation of the version |
+| Vercel | `GET /v6/deployments?projectId=` | `targets.production` of the project | `meta.vitehubCommit`, else `meta.githubCommitSha` |
+| Netlify | `GET /api/v1/sites/{site_id}/deploys` | `published_deploy` of the site | The deploy `title`, else `commit_ref` |
+| Deno | `deno deploy deployments list --json` | `productionRevisionId` of `deno deploy apps get --json` | None. Deno Deploy keeps no deploy message. |
+
+`vitehub status` adds a `live` field and a `live` line, such as `live  4f2a9c0 (3 commits behind)`. `behind` and `ahead` come from `git rev-list --left-right --count <sha>...HEAD` when the commit is in the local repository. Otherwise `live.unknownReason` is `commit-not-local`, `no-marker`, or `no-git`. `status` asks the host only when the project is linked and the credentials resolve, and gives credential discovery and deployment lookup a shared 5-second budget. It follows the host’s production pointer even when that deployment is older than the recent history page. When it cannot read the host, `live` is `null` and `liveReason` is `offline`, `not-linked`, `no-credentials`, `no-live-deployment`, `timeout`, or `host-error`. The exit code stays `0`. Pass `--offline` to skip host requests and credential CLI discovery; the credential summary then uses environment variables only.
+
+### `SETUP_DEPLOYMENTS_NOT_LINKED`
+
+The project has no host link. Run `vitehub link`. The command exits with `2`.
+
+### `SETUP_DEPLOYMENTS_CREDENTIALS_MISSING`
+
+No token was found for the linked host. Run the login command or set the variable that the `fix` names. The command exits with `2`.
+
+### `SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED`
+
+The Cloudflare account is not known. Set `CLOUDFLARE_ACCOUNT_ID`, or run `vitehub link --host cloudflare --account <id>`. The command exits with `2`.
+
+### `SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED`
+
+The Netlify link has no site id. Run `vitehub link --host netlify`. The command exits with `2`.
 
 ## Read and write blobs
 
@@ -886,7 +1017,7 @@ pnpm vitehub invocations list --url https://app.example.com
 
 The generated commands need the Console RPC. `vitehub()` installs it, and standalone `hubKv()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` plugins install a local development RPC for their storage commands. Other standalone package plugins, such as `hubWorkflow()`, `hubSchedule()`, and `hubQueue()`, need a running app with an operation RPC to run their generated commands.
 
-An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
+An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
 The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
@@ -944,6 +1075,16 @@ pnpm vitehub schedule attempts srun_static_digest_2026-05-22T07:00:00.000Z
 ```txt [Output]
 RUN                                          STATUS     SCHEDULED AT              ATTEMPTS  ERROR
 srun_static_digest_2026-05-22T07:00:00.000Z  succeeded  2026-05-22T07:00:00.000Z  1         -
+```
+
+`list`, `start`, and `cancel` work on the Schedules that code starts with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). The Definition has no `cron`. `start` takes `--at` for one run, or `--cron` and `--time-zone` for a repeating one. To pass a payload, give the whole input as JSON with `--input`.
+
+```bash [Terminal]
+pnpm vitehub schedule start reminder --at 2026-11-08T09:00:00Z
+pnpm vitehub schedule start reminder --input '{"name":"reminder","cron":"0 9 * * 1-5","timeZone":"Europe/Madrid","payload":{"text":"Stand-up"}}'
+pnpm vitehub schedule list
+pnpm vitehub schedule runs sched_mh1x2y3z_ab12cd34
+pnpm vitehub schedule cancel sched_mh1x2y3z_ab12cd34 --yes
 ```
 
 Every command accepts `--json`, `--url <origin>`, and `--timeout <ms>`. `runs` accepts `--limit <n>`. Errors go to stderr, or into the JSON body with `--json`. `schedule.runs` and `schedule.attempts` are `read` operations of the Schedules section.

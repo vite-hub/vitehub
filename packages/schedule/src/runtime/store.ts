@@ -45,11 +45,11 @@ function trimPrefix(prefix: string): string {
  * Decoded trailing segments of a listed key. Some KV stores, such as unstorage, list keys with `:` instead of `/`.
  * Encoded parts contain neither, so both separators are safe to split on.
  */
-function keySegments(key: string, count: number): string[] {
+export function keySegments(key: string, count: number): string[] {
   return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
 }
 
-function joinKey(prefix: string, ...parts: string[]): string {
+export function joinKey(prefix: string, ...parts: string[]): string {
   const base = trimPrefix(prefix)
   const suffix = parts.map(encodeURIComponent).join("/")
   return base ? `${base}/${suffix}` : suffix

@@ -721,6 +721,8 @@ async function takeTheirs(context: WorkspaceCheckoutContext, workspace: string, 
 interface WorkspacePushOptions {
   workspace?: string
   message?: string
+  /** Write files that someone else holds an edit lease on, such as a Content document open in the Console. */
+  overrideLease?: boolean
 }
 
 /** Pulls, then commits the local changes of each checkout folder to its ref. Refuses while a conflict is open. */
@@ -731,7 +733,7 @@ export async function pushWorkspaces(context: WorkspaceCheckoutContext, options:
   try {
     for (const name of selected(lock, options.workspace)) {
       touched.push(name)
-      results.push(await pushEntry(context, name, lock.workspaces[name]!, options.message))
+      results.push(await pushEntry(context, name, lock.workspaces[name]!, options))
     }
   }
   finally {
@@ -740,7 +742,8 @@ export async function pushWorkspaces(context: WorkspaceCheckoutContext, options:
   return results
 }
 
-async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, entry: WorkspaceCheckout, message: string | undefined): Promise<WorkspacePushResult> {
+async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, entry: WorkspaceCheckout, options: Pick<WorkspacePushOptions, "message" | "overrideLease">): Promise<WorkspacePushResult> {
+  const { message, overrideLease } = options
   const folder = folderOf(context.rootDir, entry.dir)
   // Another push can land between the pull and the commit. Pull and try again, a few times.
   for (let attempt = 0; ; attempt++) {
@@ -760,10 +763,12 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
       ...(Object.keys(putFiles).length ? { put: putFiles } : {}),
       ...(local.deleted.length ? { delete: local.deleted } : {}),
       ...(message ? { message } : {}),
+      ...(overrideLease ? { lease: "override" } : {}),
     }
     assertCommitSize(workspace, input, putFiles)
     const called = await context.call("workspace.commit", input, entry.remote)
     if (!called.ok) {
+      // Only a moved head is worth a retry. Any other refusal, such as a held edit lease, fails the same way again.
       if (called.code === "WORKSPACE_CONFLICT" && attempt < 3) continue
       throw new WorkspaceCheckoutError(called.code ?? "WORKSPACE_CHECKOUT_FAILED", called.message, called.fix)
     }

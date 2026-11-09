@@ -78,6 +78,13 @@ describe("docs parser", () => {
 })
 
 describe("docs search sections", () => {
+  it("keeps example headings out of page search and the outline", async () => {
+    const { nodes, toc } = await parse("## Install\n\n::examples\n:::example{label=First}\n```md\n## Install\n\n### Preview details\n```\n:::\n:::example{label=Second}\n```md\n## Install\n```\n:::\n::\n\n## Continue\n")
+
+    expect(docsSearchSections("/guide", "Guide", nodes).map(section => section.id)).toEqual(["/guide", "/guide#install", "/guide#continue"])
+    expect(toc.map(link => link.id)).toEqual(["install", "continue"])
+  })
+
   it("splits a page by h2 and h3 and skips agent-only blocks", async () => {
     const { nodes } = await parse(source)
     const sections = docsSearchSections("/docs/kv", "KV", nodes)
@@ -146,6 +153,26 @@ describe("comark-ui blocks", () => {
     expect(example).toHaveLength(4)
     expect(example?.[2]).toEqual(["example-preview", {}, ["p", {}, "Site preview"]])
     expect(find([example?.[3] as ComarkNode], "pre")?.[1]).toMatchObject({ language: "md" })
+  })
+
+  it("isolates a site's preview headings and keeps fragment links inside that preview", async () => {
+    const plugin: ComarkPlugin = {
+      name: "site-examples",
+      post({ tree }) {
+        find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {},
+          ["h2", { id: "install" }, "Preview install"],
+          ["p", {}, ["a", { href: "#install" }, "Jump to install"]],
+        ])
+      },
+    }
+    const { nodes } = await createDocsParser({ plugins: [plugin] })("::example\n```md\nSource\n```\n::\n\n## Install\n\n## Reserved {#docs-example-1-install}\n")
+    const preview = find(nodes, "example-preview")!
+    const heading = find([preview], "h2")!
+
+    expect(heading[1].id).not.toBe("install")
+    expect(heading[1].id).not.toBe("docs-example-1-install")
+    expect(find([preview], "a")?.[1].href).toBe(`#${heading[1].id}`)
+    expect(docsSearchSections("/guide", "Guide", nodes).map(section => section.id)).toEqual(["/guide", "/guide#install", "/guide#docs-example-1-install"])
   })
 
   it("keeps the site's plugin when it has a built-in name", async () => {
