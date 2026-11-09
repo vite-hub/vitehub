@@ -27,6 +27,9 @@ import { vitehub } from "../src/index.ts"
 import type { AgentInvocationStore } from "@vite-hub/agent/server"
 import type { Plugin } from "vite"
 
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/_internal/agent/invocations/default-libsql.ts")
+
 const driver = { run: () => "done" }
 const context = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
 // SAFETY: ConsoleInvocationScope adds only optional symbol-keyed state to the global object.
@@ -149,7 +152,7 @@ describe("Default Agent journal", () => {
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "")
     try {
       // The generated server installs the same journal with the Console on or off. Here the Console is off.
-      installAgentInvocations({ journal: { projectRoot } })
+      installAgentInvocations({ journal: { libsql, projectRoot } })
       const agent = defineAgent({ driver: { run: () => "recorded" }, name: "support" })
       await runAgentWithContext(agent, { ...context(), run: { runId: "console-off" } }, { prompt: "Record me" })
       await vi.waitFor(async () => {
@@ -160,7 +163,7 @@ describe("Default Agent journal", () => {
 
       // A new server process with the Console on: it installs the same default journal and the Console reads it.
       Reflect.deleteProperty(globalThis, Symbol.for("vitehub.agent.invocations.default"))
-      installAgentInvocations({ journal: { projectRoot } })
+      installAgentInvocations({ journal: { libsql, projectRoot } })
       const restarted = defineAgent({ driver: { run: () => "recorded" }, name: "support" })
       installConsoleAgentDefinitions([{ definition: { default: restarted }, fallbackName: "support" }], { projectRoot })
       const consoleJournal = resolveConsoleInvocations()
@@ -179,7 +182,7 @@ describe("Default Agent journal", () => {
   it("rejects the old Console journal URL variable", () => {
     vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:/var/lib/app/console.sqlite")
     try {
-      expect(() => installAgentInvocations({ journal: { projectRoot: process.cwd() } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0139", message: expect.stringContaining("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL") }))
+      expect(() => installAgentInvocations({ journal: { libsql, projectRoot: process.cwd() } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0139", message: expect.stringContaining("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL") }))
     }
     finally {
       vi.unstubAllEnvs()
@@ -248,9 +251,9 @@ describe("vitehub({ agent: { invocations } })", () => {
   })
 
   it("renders the default journal for an app that sets no journal", () => {
-    expect(renderAgentInvocationsNitroPlugin({ database: false, projectRoot: "/app" })).toContain(`installAgentInvocations({ journal: { projectRoot: "/app" } })`)
+    expect(renderAgentInvocationsNitroPlugin({ database: false, projectRoot: "/app" })).toContain(`installAgentInvocations({ journal: { projectRoot: "/app", libsql: () => import("vite-hub/_internal/agent/invocations/default-libsql") } })`)
     expect(renderAgentInvocationsNitroPlugin({ database: false, d1Binding: "DB", default: { retention: { maxAge: "14d" } }, projectRoot: "/app" }))
-      .toContain(`installAgentInvocations({ default: {"retention":{"maxAge":"14d"}}, journal: { projectRoot: "/app", d1: { binding: "DB", env: async () => (await import("cloudflare:workers")).env } } })`)
+      .toContain(`installAgentInvocations({ default: {"retention":{"maxAge":"14d"}}, journal: { projectRoot: "/app", d1: { binding: "DB", env: async () => (await import("cloudflare:workers")).env }, libsql: () => import("vite-hub/_internal/agent/invocations/default-libsql") } })`)
     // A store setting needs no default journal location.
     expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory", projectRoot: "/app" })).toContain(`installAgentInvocations({ default: "memory" })`)
   })

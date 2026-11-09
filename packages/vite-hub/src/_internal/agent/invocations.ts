@@ -1,11 +1,11 @@
-import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "@vite-hub/agent/invocations/default-core"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 import { isDefaultAgentJournal } from "../../agent-invocations-setting.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
-import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
+import type { DefaultAgentInvocationsD1, DefaultAgentInvocationsLibsql } from "@vite-hub/agent/invocations/default-core"
 import type { AgentInvocationObservationOptions, AgentInvocationsOptions, AgentInvocationStore, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { DatabaseAgentInvocationStoreOptions } from "../../agent/invocations/database.ts"
 
@@ -156,6 +156,11 @@ export function resolveDefaultAgentInvocations(): AgentInvocations | undefined {
 export interface DefaultAgentJournalLocation {
   /** Store the journal in this D1 binding. A Cloudflare production build sets it from the default Database Definition. */
   d1?: DefaultAgentInvocationsD1
+  /**
+   * The libSQL driver for a local SQLite file or a libSQL URL. A Cloudflare production build without
+   * `agent.invocations.databaseUrl` omits it, so the Worker does not ship the libSQL client.
+   */
+  libsql?: DefaultAgentInvocationsLibsql
   /** The ViteHub project root. The default journal file and relative `file:` URLs resolve from it. */
   projectRoot: string
 }
@@ -181,10 +186,11 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     if (globalThis.process?.env?.VITEHUB_CONSOLE_DATABASE_URL?.trim()) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0139({ message: "[vitehub] VITEHUB_CONSOLE_DATABASE_URL was renamed. Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, and VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN for an authenticated libSQL endpoint." })
     }
-    const { d1, projectRoot } = options.journal
+    const { d1, libsql, projectRoot } = options.journal
     const key = JSON.stringify({
       d1: d1?.binding,
       databaseUrl: setting?.databaseUrl,
+      libsql: libsql !== undefined,
       observations: setting?.observations,
       projectRoot,
       retention: setting?.retention,
@@ -192,7 +198,7 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     })
     // Keep one journal per location and options when development reloads the generated plugin.
     if (state[defaultInvocationsKey]?.key === key) return
-    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, projectRoot }), key }
+    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, libsql, projectRoot }), key }
     return
   }
   const key = JSON.stringify(setting)

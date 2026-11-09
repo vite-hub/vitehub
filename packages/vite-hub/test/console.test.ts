@@ -84,6 +84,9 @@ import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.t
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { consoleEvent } from "./console-event.ts"
 
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/_internal/agent/invocations/default-libsql.ts")
+
 const agentsHandler = allowed(agentsHandlerRoute)
 const invocationHandler = allowed(invocationHandlerRoute)
 const agentInvocationsHandler = allowed(agentInvocationsHandlerRoute)
@@ -166,7 +169,7 @@ function runtime(runId: string): AgentRuntimeContext {
 
 /** Installs the default Agent journal, as the generated server does with the Console on or off, and lets the Console read it. */
 function installDefaultJournal(projectRoot: string, setting?: AgentInvocationsDefault): AgentInvocations {
-  installAgentInvocations({ default: setting, journal: { projectRoot } })
+  installAgentInvocations({ default: setting, journal: { libsql, projectRoot } })
   return installConsoleInvocations(projectRoot)
 }
 
@@ -2425,7 +2428,7 @@ describe("Agent invocation console", () => {
         },
         name,
       })
-      installAgentInvocations({ journal: { projectRoot: root } })
+      installAgentInvocations({ journal: { libsql, projectRoot: root } })
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
@@ -2463,7 +2466,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-legacy-invoke-"))
     try {
       const definition = defineAgent({ driver: { run: () => "done" }, name })
-      installAgentInvocations({ journal: { projectRoot: root } })
+      installAgentInvocations({ journal: { libsql, projectRoot: root } })
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
@@ -2498,7 +2501,7 @@ describe("Agent invocation console", () => {
       const url = `http://localhost/_vitehub/api/invocations/${id}`
       return consoleEvent({ body, method, remoteAddress: "127.0.0.1", url })
     }
-    installAgentInvocations({ journal: { projectRoot: root } })
+    installAgentInvocations({ journal: { libsql, projectRoot: root } })
     const install = (invoke: boolean) => installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
     ], { invoke, projectRoot: root })

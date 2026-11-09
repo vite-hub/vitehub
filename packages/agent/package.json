@@ -120,6 +120,16 @@
       "import": "./dist/invocations/default.js",
       "default": "./dist/invocations/default.js"
     },
+    "./invocations/default-core": {
+      "types": "./dist/invocations/default-core.d.ts",
+      "import": "./dist/invocations/default-core.js",
+      "default": "./dist/invocations/default-core.js"
+    },
+    "./invocations/default-libsql": {
+      "types": "./dist/invocations/default-libsql.d.ts",
+      "import": "./dist/invocations/default-libsql.js",
+      "default": "./dist/invocations/default-libsql.js"
+    },
     "./invocations/sqlite": {
       "types": "./dist/invocations/sqlite.d.ts",
       "import": "./dist/invocations/sqlite.js",

@@ -1,4 +1,4 @@
-import { defaultAgentInvocationsDatabase } from "@vite-hub/agent/invocations/default"
+import { defaultAgentInvocationsDatabase } from "@vite-hub/agent/invocations/default-core"
 
 import { resolveDefaultAgentInvocations } from "../../_internal/agent/invocations.ts"
 import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"

@@ -1279,6 +1279,11 @@
       "import": "./dist/_internal/agent/invocations.js",
       "default": "./dist/_internal/agent/invocations.js"
     },
+    "./_internal/agent/invocations/default-libsql": {
+      "types": "./dist/_internal/agent/invocations/default-libsql.d.ts",
+      "import": "./dist/_internal/agent/invocations/default-libsql.js",
+      "default": "./dist/_internal/agent/invocations/default-libsql.js"
+    },
     "./console/documents": {
       "types": "./dist/console/runtime/server/documents.d.ts",
       "import": "./dist/console/runtime/server/documents.js",

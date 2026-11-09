@@ -10,6 +10,9 @@ import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
 import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
 import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
 
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/_internal/agent/invocations/default-libsql.ts")
+
 const opens = vi.hoisted(() => ({ count: 0 }))
 
 vi.mock("@libsql/client", async (importOriginal) => {
@@ -58,7 +61,7 @@ describe("Default Agent journal open", () => {
   })
 
   it("shares the open journal with Drizzle", async () => {
-    installAgentInvocations({ default: { databaseUrl: "file:journal.sqlite" }, journal: { projectRoot: directory } })
+    installAgentInvocations({ default: { databaseUrl: "file:journal.sqlite" }, journal: { libsql, projectRoot: directory } })
     expect(opens.count).toBe(0)
     const [database, other] = await Promise.all([getAgentInvocationsDatabase(), getAgentInvocationsDatabase()])
     expect(other).toBe(database)
