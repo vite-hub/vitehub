@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 import { createClient } from "@libsql/client"
 import postgres from "postgres"
@@ -10,6 +13,7 @@ import { createMemoryLeaseStore, createSqlLeaseStore, leaseTable } from "../src/
 
 import type { LeaseSqlClient, LeaseStore } from "../src/lease.ts"
 
+const execFileAsync = promisify(execFile)
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 /** Unwraps a `[error, data]` result, so a store failure fails the test with its cause. */
@@ -47,16 +51,24 @@ const postgresClient = (url: string): LeaseSqlClient => {
 
 const targets: Target[] = [
   { name: "memory", store: async () => createMemoryLeaseStore() },
-  {
-    name: "libSQL",
-    async store() {
-      const client = createClient({ url: `file:${join(sqliteRoot, `leases-${++sqliteFiles}.db`)}` })
-      cleanups.push(async () => client.close())
-      return createSqlLeaseStore({ dialect: "sqlite", query: async (sql, args) => (await client.execute({ sql, args })).rows })
-    },
-  },
+  libsqlTarget(),
   ...(postgresUrl ? [postgresTarget(postgresUrl)] : []),
 ]
+
+function libsqlClient(file: string): LeaseSqlClient {
+  // The same busy timeout as the README asks for: libSQL loses writes when it runs again after SQLITE_BUSY.
+  const client = createClient({ url: `file:${file}`, timeout: 30_000 })
+  cleanups.push(async () => client.close())
+  return { dialect: "sqlite", query: async (sql, args) => (await client.execute({ sql, args })).rows }
+}
+
+function libsqlTarget(): Target {
+  async function stores(count: number) {
+    const file = join(sqliteRoot, `leases-${++sqliteFiles}.db`)
+    return Array.from({ length: count }, () => createSqlLeaseStore(libsqlClient(file)))
+  }
+  return { name: "libSQL", store: async () => (await stores(1))[0]!, stores }
+}
 
 function postgresTarget(url: string): Target {
   async function stores(count: number) {
@@ -125,7 +137,7 @@ describe.each(targets)("$name lease store", (target) => {
     const winners = attempts.map(ok).filter(lease => lease !== null)
     expect(winners).toHaveLength(1)
     expect(ok(await stores[0]!.get("schedule:nightly:2026-11-09"))).toMatchObject({ id: winners[0]!.id })
-  })
+  }, 30_000)
 
   it("gives an expired lease to exactly one of many concurrent callers", async () => {
     const stores = target.stores ? await target.stores(8) : [await target.store()]
@@ -139,7 +151,7 @@ describe.each(targets)("$name lease store", (target) => {
     expect(winners).toHaveLength(1)
     expect(ok(await expired.release())).toBe(false)
     expect(ok(await stores[0]!.get("leader"))).toMatchObject({ id: winners[0]!.id })
-  })
+  }, 30_000)
 
   it("rejects a TTL that is not a positive number of seconds", async () => {
     const store = await target.store()
@@ -150,6 +162,42 @@ describe.each(targets)("$name lease store", (target) => {
     const lease = ok(await store.acquire("job", { ttl: 30 }))!
     expect((await lease.renew({ ttl: 0 }))[0]).toMatchObject({ code: "RUNTIME_LEASE_INVALID_TTL" })
   })
+})
+
+describe.each(["node", "libsql"] as const)("SQLite lease store across processes (%s)", (driver) => {
+  // A libSQL file client runs each statement synchronously, so only separate processes contend for the SQLite lock.
+  type Outcome = { error: string, cause: string } | { id: string } | null
+  const fixture = fileURLToPath(new URL("./fixtures/lease-sqlite-process.ts", import.meta.url))
+
+  async function race(file: string, key: string): Promise<Outcome[]> {
+    const startAt = Date.now() + 1_500
+    const outputs = await Promise.all(Array.from({ length: 8 }, async () => {
+      const { stdout } = await execFileAsync(process.execPath, [fixture, driver, file, key, "4", String(startAt), "30"])
+      return JSON.parse(stdout) as Outcome[]
+    }))
+    return outputs.flat()
+  }
+
+  it("gives a free key and an expired lease to exactly one of 8 processes, with no busy errors", async () => {
+    const file = join(sqliteRoot, `processes-${driver}.db`)
+    const store = createSqlLeaseStore(libsqlClient(file))
+
+    const free = await race(file, "nightly")
+    expect(free.filter(outcome => outcome && "error" in outcome)).toEqual([])
+    const first = free.filter(outcome => outcome && "id" in outcome)
+    expect(first).toHaveLength(1)
+    // Read the committed row from another connection, so a write that SQLite rolled back cannot pass.
+    expect(ok(await store.get("nightly"))).toMatchObject(first[0]!)
+
+    const crashed = ok(await store.acquire("leader", { ttl: 0.2, owner: "crashed" }))!
+    await sleep(400)
+    const expired = await race(file, "leader")
+    expect(expired.filter(outcome => outcome && "error" in outcome)).toEqual([])
+    const winners = expired.filter(outcome => outcome && "id" in outcome)
+    expect(winners).toHaveLength(1)
+    expect(ok(await crashed.release())).toBe(false)
+    expect(ok(await store.get("leader"))).toMatchObject(winners[0]!)
+  }, 60_000)
 })
 
 describe("SQL lease store", () => {
