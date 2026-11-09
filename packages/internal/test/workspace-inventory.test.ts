@@ -26,6 +26,7 @@ describe("workspace inventory", () => {
       "email",
       "env",
       "forge",
+      "forms",
       "gateways",
       "i18n",
       "kv",

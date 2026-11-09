@@ -8,7 +8,7 @@ icon: i-lucide-files
 ---
 
 ::product-hero{tagline="Save uploads and other files from your server, then read or serve them on any host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files{feature="blob"}
+  :::code-tree{feature="blob"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'

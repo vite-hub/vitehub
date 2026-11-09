@@ -1,6 +1,7 @@
 import { withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { readConsoleDocumentSection } from "./documents.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { copyConsoleRecords, getConsoleDefinitions, getConsoleSchedules } from "./definitions.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
@@ -10,7 +11,7 @@ import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 function requestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }))
 }
 
 async function readRuntimeRecords(reader: () => readonly ConsoleRecord[] | Promise<readonly ConsoleRecord[]>): Promise<ConsoleRecord[]> {

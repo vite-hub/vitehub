@@ -56,6 +56,15 @@ pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
+> [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
+> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
+>
+> ```bash [commands/approve-esbuild]
+> pnpm approve-builds esbuild
+> ```
+>
+> Then run `pnpm add -D vite@^8 typescript@^6 @types/node@^24` before you continue.
+
 Add `vitehub()` to `vite.config.ts`. It includes the Nitro plugin, so you do not add Nitro yourself. Keep your other plugins.
 
 ```ts [vite.config.ts]
@@ -104,6 +113,13 @@ In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers expl
 ```bash pm [commands/install-nuxt]
 pnpm add vite-hub h3@^2.0.8
 ```
+
+> [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
+> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
+>
+> ```bash [commands/approve-esbuild-nuxt]
+> pnpm approve-builds esbuild
+> ```
 
 Add the module to `nuxt.config.ts`. Keep your other options.
 

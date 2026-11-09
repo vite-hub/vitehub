@@ -28,6 +28,7 @@ const [
   databaseConfig,
   databaseVite,
   emailVite,
+  formsVite,
   i18nNuxt,
   i18nVite,
   kvVite,
@@ -53,6 +54,7 @@ const [
   importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config")),
   importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/vite")),
   importOptionalOwner("@vite-hub/email", () => import("@vite-hub/email/vite")),
+  importOptionalOwner("@vite-hub/forms", () => import("@vite-hub/forms/vite")),
   importOptionalOwner("@vite-hub/i18n", () => import("@vite-hub/i18n/nuxt")),
   importOptionalOwner("@vite-hub/i18n", () => import("@vite-hub/i18n/vite")),
   importOptionalOwner("@vite-hub/kv", () => import("@vite-hub/kv/vite")),
@@ -80,6 +82,7 @@ export const ownerModules = {
   databaseConfig,
   databaseVite,
   emailVite,
+  formsVite,
   i18nNuxt,
   i18nVite,
   kvVite,
@@ -100,6 +103,11 @@ function findServerEntry(projectRoot: string, serverDirs: readonly string[] | un
       if (existsSync(file)) return file
     }
   }
+}
+
+/** Whether the app has a `server/forms/` folder. Forms then needs its package. */
+export function hasFormsDirectory(projectRoot: string, serverDirs: readonly string[] | undefined): boolean {
+  return (serverDirs ?? ["server"]).some(directory => existsSync(resolve(projectRoot, directory, "forms")))
 }
 
 /** Follow the relative Content re-exports accepted by CMS discovery, without loading an optional owner. */
@@ -125,10 +133,10 @@ function importsCmsPreset(file: string, seen = new Set<string>()): boolean {
 }
 
 /**
- * Comments, Content, and the `cms` preset are on when the app has `server/comments.ts` or `server/content.ts`. This
- * plugin fails the build when such a file exists but its package is not installed.
+ * Comments, Forms, Content, and the `cms` preset are on when the app has `server/comments.ts`, `server/forms/`, or
+ * `server/content.ts`. This plugin fails the build when such a file exists but its package is not installed.
  */
-export function optionalOwnerEntriesPlugin(): Plugin {
+export function optionalOwnerEntriesPlugin(options: { database?: boolean } = {}): Plugin {
   return {
     name: "vite-hub/optional-owner-entries",
     async configResolved(config) {
@@ -139,6 +147,10 @@ export function optionalOwnerEntriesPlugin(): Plugin {
       const content = await findContentEntry({ projectRoot, serverDirs: serverDirs?.slice() })
       const features: OptionalFeature[] = []
       if (findServerEntry(projectRoot, serverDirs, "comments")) features.push("comments", "database")
+      if (hasFormsDirectory(projectRoot, serverDirs)) {
+        features.push("forms")
+        if (options.database !== false) features.push("database")
+      }
       if (content) features.push("content")
       if (content && importsCmsPreset(content)) features.push("cms", "database", "workspace")
       assertFeaturePackages([...new Set(features)])
@@ -169,6 +181,7 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "console/ui": "console ui",
   "decisions": "decisions",
   "email": "email",
+  "forms": "forms",
   "gateways": "gateways",
   "kv": "kv",
   "markdown-template": "markdown-template",
