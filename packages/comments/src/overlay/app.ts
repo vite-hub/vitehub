@@ -699,6 +699,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         if (page.value !== next) return
         const mapped = !error && answer.subject ? answer.subject : { kind: "page", id: next }
         if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
+        // The same subject lists no threads again, so the new page joins its room here.
+        else if (!room && state.status.value === "ready") void joinRoom()
         resolving.value = false
         state.active.value = paused
         paused = false
