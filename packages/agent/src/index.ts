@@ -3285,7 +3285,6 @@ function inheritsDisabledInvocations(parent: unknown): boolean {
 // SAFETY: The journal setting is resolved before the Agent definition normalization above.
 export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) => {
   const setting: AgentInvocationsSetting | undefined = options.invocations
-  const disabled = setting === false || (setting === undefined && "extends" in options && inheritsDisabledInvocations(options.extends))
   const invocations = resolveAgentInvocationsSetting(setting)
   let agentOptions = options
   if (setting !== invocations) {
@@ -3293,7 +3292,13 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
     agentOptions = invocations ? { ...rest, invocations } : rest
   }
   const agent = defineAgentDefinition(agentOptions as never)
-  if (!disabled && agent.invocations !== undefined) return agent
+  const disabled = setting === false || (setting === undefined && agent.invocations === undefined
+    && (inheritsDisabledInvocations(agent) || ("extends" in options && inheritsDisabledInvocations(options.extends))))
+  if (!disabled) Reflect.deleteProperty(agent, agentInvocationsDisabledKey)
+  if (!disabled && agent.invocations !== undefined) {
+    Reflect.deleteProperty(agent, agentInvocationsFallbackKey)
+    return agent
+  }
 
   // Without its own journal, the Agent records in the app-wide journal that the generated server installs.
   let assignedInvocations: AgentInvocations | undefined

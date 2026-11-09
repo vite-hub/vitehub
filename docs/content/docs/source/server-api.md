@@ -175,7 +175,7 @@ await cachedRecaps.get('2026-07')
 
 A Source describes where data comes from. A Collection describes the paginated object shape an application exposes to a client. For a discovered Drizzle database, let the database adapter own the keyset query:
 
-```ts [server/collections/articles.ts]
+```ts [server/collections/articles.ts] fragment
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
 import { useDatabase } from 'vite-hub/database/drizzle'
