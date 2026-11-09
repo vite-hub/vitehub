@@ -146,7 +146,7 @@ describe("Static Schedule runtime", () => {
 
   it("gives timestamp-free deliveries within the same host cron interval the same key", async () => {
     const keys: string[] = []
-    const definition: ScheduleDefinition = { cron: "0 4 * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) }
+    const definition = { cron: "0 4 * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) } satisfies ScheduleDefinition
     for (const now of ["2026-06-12T04:00:02Z", "2026-06-12T04:03:40Z"]) {
       await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt: scheduledWakeTime(definition.cron, new Date(now)) })
     }
@@ -155,7 +155,7 @@ describe("Static Schedule runtime", () => {
 
   it("estimates timestamp-free deliveries from the latest host match across cron boundaries", async () => {
     const keys: string[] = []
-    const definition: ScheduleDefinition = { cron: "* * * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) }
+    const definition = { cron: "* * * * *", handler: async ({ idempotencyKey }) => keys.push(idempotencyKey) } satisfies ScheduleDefinition
     for (const now of ["2026-06-12T12:00:59Z", "2026-06-12T12:01:00Z"]) {
       await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt: scheduledWakeTime(definition.cron, new Date(now)) })
     }
