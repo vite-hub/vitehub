@@ -135,6 +135,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
   "@vite-hub/ui/playground",
+  "@vite-hub/ui/playground-render",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/ui/browser-support-notice",
   "@vite-hub/ui/connect-panel",
