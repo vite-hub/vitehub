@@ -6,7 +6,8 @@ import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { connect, createTestRuntime, mailConnection, testProvider } from "../../connections/test/helpers.ts"
 import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { mcp } from "../src/capabilities/mcp.ts"
-import { defineAgent, runAgent, streamAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import { streamAgentOutputToEvents } from "../src/output.ts"
 
 import type { ConnectionsRuntime } from "../../connections/src/runtime.ts"
@@ -115,8 +116,8 @@ it.each(["run", "stream"] as const)("registers the child Agent identity before %
   }
 
   const result = mode === "stream"
-    ? await streamAgent(agent, context, {}, { output: "events" })
-    : await runAgent(agent, context, {})
+    ? await streamAgentInline(agent, context, {}, { output: "events" })
+    : await runAgentWithContext(agent, context, {})
   for await (const _event of streamAgentOutputToEvents(result)) { /* Drain to close the MCP client. */ }
 
   expect(client).toHaveBeenCalledWith("mail", expect.objectContaining({

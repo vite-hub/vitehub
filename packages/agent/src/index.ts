@@ -9,7 +9,7 @@ export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition }
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { hasChatMessageHeaders, stripEchoedChatMessageMetadata } from "./internal/chat-message-header.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
-import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { readDiscoveredAgentIdentity, readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -27,7 +27,7 @@ import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityMask, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
-import { agentErrorDetails, agentErrorMessage, isError, toAgentPublicError } from "./agent-error.ts"
+import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
 import { channelDeliveryHandlers, channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import {
@@ -49,6 +49,9 @@ export { defineFinishEffect } from "./delivery-effects.ts"
 import { createExecutionBudget, createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { withAgentRuntimeMemo } from "./runtime/context.ts"
+import { installAgentRunners, type RunAgentInlineOptions } from "./internal/agent-run.ts"
+import { agentRunError, type AgentErrorCode } from "./run-errors.ts"
+import type { Result } from "@vite-hub/runtime"
 import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
@@ -828,7 +831,6 @@ interface AgentWorkflowRun<TOutput = unknown> {
   status: "cancelled" | "completed" | "failed" | "queued" | "running" | "unknown"
 }
 type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
-type AgentDrainedOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
   activity?: ActiveAgentActivity
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
@@ -855,14 +857,25 @@ export interface RunAgentOptions<TTools extends Record<string, AgentToolDefiniti
    */
   capabilities?: readonly AgentCapabilityDefinition[]
   /**
-   * Runtime context values supplied by trusted standalone callers. Inside a running host, a standalone run
-   * already gets the runtime capabilities that the generated routes give Agents; `runtimeContext.capabilities`
-   * overrides them key by key.
+   * Host Runtime Context for this Invocation, such as `getRuntimeContext(event)` in a route. It is not
+   * `input.context`, which holds the Invocation context values that instructions and hooks read.
+   * Inside a running host, an Invocation already gets the runtime capabilities that the generated routes give
+   * Agents; `runtimeContext.capabilities` overrides them key by key. When `runtimeContext.waitUntil` is set, the
+   * host keeps background work alive. Otherwise `runAgent()` waits for background work before it returns.
    */
-  runtimeContext?: Partial<AgentRuntimeContext>
+  runtimeContext?: Partial<AgentRuntimeContextInput>
   schedule?: ScheduleRunContextLike
-  /** Consume streamed output and finish its lifecycle before resolving. */
-  output?: "drained"
+}
+
+/** Options of `streamAgent()`. */
+export interface StreamAgentOptions {
+  /** `"events"` (default) returns typed Agent events. `"ui-message-stream"` returns an AI SDK UI message stream `Response`. */
+  output?: "events" | "ui-message-stream"
+  /**
+   * Host Runtime Context for this Invocation, such as `getRuntimeContext(event)` in a route. Set its `waitUntil`
+   * so that the host keeps background work alive while the caller reads the stream.
+   */
+  runtimeContext?: Partial<AgentRuntimeContextInput>
 }
 
 type InvocationToolSchemaOutput<TSchema> = TSchema extends StandardSchemaV1<unknown, infer TOutput> ? TOutput : unknown
@@ -919,8 +932,11 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   // Only reuse identity for the same Definition. An unnamed child cannot inherit its parent's grants.
   const owner = context[agentIdentityOwner]
   if (owner === agent) return context
+  // A caller outside the host routes, such as a developer route, runs a discovered Agent with its host identity.
+  const hostIdentity = owner || context.agentIdentity ? undefined : readDiscoveredAgentIdentity(agent)
+  if (hostIdentity) context = { ...context, agentIdentity: hostIdentity }
   // Keep host discovery separate from the identity minted for Connection access.
-  const discovered = context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
+  const discovered = hostDiscovered(context)
   context = { ...context, [agentWorkflowDiscovery]: discovered }
   const name = agent.name || readDiscoveredAgentName(agent)
   if (!name) return { ...context, agentIdentity: !owner ? context.agentIdentity : undefined, [agentIdentityOwner]: agent, [agentEnvIdentity]: undefined }
@@ -954,12 +970,16 @@ function resolveAgentWorkflowRuntimeBinding<
   return agent.runtime && agent.runtime.kind === "workflow" ? agent.runtime : undefined
 }
 
+/** Whether the host discovered the running Agent, so its Workflow name selects the discovered Workflow. */
+function hostDiscovered(context: IdentityRuntimeContext): boolean {
+  return context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
+}
+
 function canDispatchAgentWorkflow(
   binding: AgentWorkflowRuntimeBinding | undefined,
   context: IdentityRuntimeContext,
 ): binding is AgentWorkflowRuntimeBinding {
-  const discovered = context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
-  return Boolean(binding && (!("discoveryDefault" in binding) || (discovered && context.agentIdentity)))
+  return Boolean(binding && (!("discoveryDefault" in binding) || (hostDiscovered(context) && context.agentIdentity)))
 }
 
 function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1010,7 +1030,12 @@ async function getAgentWorkflowHandle<
 
   const { createWorkflow } = await loadAgentWorkflowModule()
   const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, loadWorkflowDefinition, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
-  const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  const registry = getWorkflowRuntimeRegistry()
+  const discoveredWorkflow = registry && Object.hasOwn(registry, name) ? registry[name] : undefined
+  if (discoveredWorkflow && !reuseRegistry && !recovery) {
+    throw agentDiagnostics.AGENT_R0422({ message: `[vitehub] Workflow name ${JSON.stringify(name)} belongs to a discovered Agent. Another Agent cannot use it. Give this Agent its own name with workflow("other-name"), or run the discovered Agent.` })
+  }
+  const registered = (reuseRegistry && discoveredWorkflow) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
   if (registered) {
     const definition = await loadWorkflowDefinition(name)
     if (Boolean(definition?.internalAgentInvocationRecovery) !== recovery) {
@@ -1023,7 +1048,7 @@ async function getAgentWorkflowHandle<
       handler: async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
+        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInlineWithContext as never) as AgentWorkflowOutput<TOutput>
       },
       options: { rootStep: false },
     })
@@ -1034,7 +1059,7 @@ async function getAgentWorkflowHandle<
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
+        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInlineWithContext as never) as AgentWorkflowOutput<TOutput>
       }, { rootStep: false })
   agentWorkflowNames.add(name)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -1128,7 +1153,7 @@ export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntim
       // is disabled. There is no provider run to inspect in this case, so keep
       // the claimed reservation for the inline retry path.
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
-      const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, Boolean(context.agentIdentity))
+      const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
       // Legacy reservations lack dispatch intent and may already have been accepted.
       if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw new AgentInvocationClaimConflict()
       if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.provider) || dispatch.name !== workflowName)) {
@@ -1269,7 +1294,7 @@ async function runAgentAsWorkflow<
   let parsedInputData = false
   try {
     workflowName = resolveAgentWorkflowName(agent, binding, context)
-    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, hostDiscovered(context))
     // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
     parsedInput = hasAgentDefinition(agent)
       ? await withParsedAgentMessageMeta<TRuntimeConfig, CALL_OPTIONS>(agent, input, context.run)
@@ -1362,7 +1387,7 @@ async function runAgentAsWorkflow<
       const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
         agent,
         getAgentInvocationRecoveryWorkflowName(handle.name),
-        Boolean(context.agentIdentity),
+        hostDiscovered(context),
         true,
       )
       await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {
@@ -2078,6 +2103,7 @@ export {
   readAgentInvocationStream,
 } from "./invocation-stream.ts"
 export type { AgentInvocationStreamErrorEvent, AgentInvocationStreamEvent } from "./invocation-stream.ts"
+export type { AgentErrorCode } from "./run-errors.ts"
 export type { AgentDevLoopAgentSummary, AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
 
 export type {
@@ -3431,7 +3457,7 @@ export async function runAgentTrigger<
   triggerId: string,
   input: TInput,
 ): Promise<Response | AgentRunResult | unknown> {
-  return await runAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(runAgent, agent, createResolvedRuntimeContext(context), triggerId, input)
+  return await runAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(runAgentWithContext, agent, createResolvedRuntimeContext(context), triggerId, input)
 }
 
 export async function streamAgentTrigger<
@@ -3448,7 +3474,7 @@ export async function streamAgentTrigger<
     output?: "events" | "ui-message-stream"
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  return await streamAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(streamAgent, agent, createResolvedRuntimeContext(context), triggerId, input, options)
+  return await streamAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(streamAgentInlineWithContext, agent, createResolvedRuntimeContext(context), triggerId, input, options)
 }
 
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -3486,12 +3512,6 @@ function deliveryReminderUsageAttributes(result: unknown): Record<string, number
     if (typeof value === "number") attributes[`channel.delivery.reminder.previous.usage.${key}`] = value
   }
   return attributes
-}
-
-interface RunAgentInlineOptions {
-  capabilities?: readonly AgentCapabilityDefinition[]
-  output?: "raw" | "rendered"
-  tools?: AgentToolSet
 }
 
 type AgentInvocationContext<
@@ -6952,7 +6972,7 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = options.holdOutput === true || shouldWrapInvocationOutput(context)
   try {
     result = normalizeUIMessageStreamResponse(result) ?? result
-    if (result instanceof Response) {
+    if (isResponse(result)) {
       const finalized = await options.finalizeResponse?.(result)
       if (finalized) {
         if (!finalized.deferFinish) {
@@ -7516,7 +7536,7 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   if (options.kind === "run") {
-    return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
+    const finalized = await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
       const driverUsageRecord = rawDriverUsageObserved ? rawDriverUsageRecord : (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
@@ -8057,7 +8077,7 @@ async function executeAgentInvocationWithCapacityLease<
           })
         : customRun
           ? hasEagerFinishExtension ? finishResult : final
-          : options.renderOutput ? toAgentRunResult(finishResult) : final
+          : options.renderOutput ? renderedAgentRunResult(toAgentRunResult(finishResult)) : final
       return {
         finishResult: invocation.output ? value : finishResult,
         finishUsage: structuredUsageRecord,
@@ -8075,6 +8095,8 @@ async function executeAgentInvocationWithCapacityLease<
           }
         : {}),
     })
+    if (!customRun && !invocation.output && isRuntimeRecord(finalized)) renderedAgentRunResults.add(finalized)
+    return finalized
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
@@ -8617,42 +8639,20 @@ async function executeAgentInvocation<
   }
 }
 
-export function runAgentInline<
+/** Installed as the internal `runAgentInline()` runner. Returns the raw output and throws failures. */
+async function runAgentInlineWithContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: { output: "raw" },
-): Promise<unknown>
-export function runAgentInline<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options?: RunAgentInlineOptions,
-): Promise<TOutput | Response>
-export async function runAgentInline<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentInlineOptions = {},
 ): Promise<TOutput | Response> {
-  context = withAgentIdentityOwner(agent, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  return await executeAgentInvocation(agent, context, input, {
+  return await executeAgentInvocation(agent, withAgentIdentityOwner(agent, withAgentRuntimeMemo(context)), input, {
     kind: "run",
     renderOutput: options.output !== "raw",
     tools: options.tools,
@@ -8799,37 +8799,12 @@ export async function startAgentInvocation<
   return createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
 }
 
-export function runAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-): Promise<[Error, null] | [null, TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>]>
-export function runAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
-  const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { output: "drained", tools: SchemaOwnedInvocationTools<TSchemas> },
-): Promise<[Error, null] | [null, string]>
-export function runAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
-  const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: RunAgentOptions<TTools> & { output: "drained", tools?: TTools & CheckedInvocationTools<TTools> },
-): Promise<[Error, null] | [null, string]>
+/**
+ * Runs an Agent in this process and waits for its output. It returns `[error, result]`: `result.text` has the final
+ * text, and `result.output` has the Agent output. Streams are consumed before it returns. Pass the host Runtime
+ * Context, such as `getRuntimeContext(event)`, as `runtimeContext`. To start a Workflow run that you inspect or cancel
+ * later, use `startAgentInvocation()`.
+ */
 export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -8838,34 +8813,9 @@ export function runAgent<
   const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContextInput<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { output: "drained", tools: SchemaOwnedInvocationTools<TSchemas> },
-): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
-export function runAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
-  const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContextInput<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: RunAgentOptions<TTools> & { output: "drained", tools?: TTools & CheckedInvocationTools<TTools> },
-): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
-export function runAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
-  const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { tools: SchemaOwnedInvocationTools<TSchemas> },
-): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
+): Promise<Result<AgentRunResult<TOutput>, AgentErrorCode>>
 export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -8874,10 +8824,9 @@ export function runAgent<
   const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions<TTools> & { tools?: TTools & CheckedInvocationTools<TTools> },
-): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
+): Promise<Result<AgentRunResult<TOutput>, AgentErrorCode>>
 export function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -8885,21 +8834,9 @@ export function runAgent<
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContextInput<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: Omit<RunAgentOptions, "tools"> & { output: "drained", tools?: Record<string, never> },
-): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
-export function runAgent<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TOutput = unknown,
-  TData = unknown,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options?: Omit<RunAgentOptions, "tools"> & { tools?: Record<string, never> },
-): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
+): Promise<Result<AgentRunResult<TOutput>, AgentErrorCode>>
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -8907,80 +8844,162 @@ export async function runAgent<
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  contextOrInput: AgentRuntimeContextInput<TRuntimeConfig> | AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  inputOrOptions?: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>> | RunAgentOptions,
+  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions = {},
-): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>> | [Error, null] | [null, string | TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>]> {
-  const standaloneDrainedOptions = inputOrOptions !== undefined
-    && hasRuntimeType(inputOrOptions, "object")
-    && "output" in inputOrOptions
-    && inputOrOptions.output === "drained"
-  // Preserve standalone precedence for ambiguous drained options. A memo-less context
-  // with option-like input can use the explicit four-argument form.
-  const runtimeContextShape = hasRuntimeType(contextOrInput, "object")
-    && "runtime" in contextOrInput
-    && "memo" in contextOrInput
-    && "waitUntil" in contextOrInput
-  const hasContext = arguments.length === 4
-    || (inputOrOptions !== undefined && (
-      runtimeContextShape
-      || !standaloneDrainedOptions
-    ))
-  if (hasContext) {
-    // SAFETY: The three-argument overload requires a Runtime Context as its second argument.
-    const context = withAgentRuntimeMemo(contextOrInput as AgentRuntimeContextInput<TRuntimeConfig>)
-    return runAgentWithContext(agent, context, inputOrOptions as AgentRunInput<CALL_OPTIONS>, options)
-  }
-  // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
-  const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
-  const schedule = standaloneOptions?.schedule
-  let runtime: ReturnType<typeof createRuntimeContext> | undefined
+): Promise<Result<AgentRunResult<TOutput>, AgentErrorCode>> {
+  let runtime: ReturnType<typeof createInvocationRuntimeContext<TRuntimeConfig>> | undefined
+  const invocationInput = options.schedule ? withScheduleInput(input, options.schedule) : input
   try {
-    // The host routes load on their first request. A run that starts first, such as one in a Schedule, loads them here,
-    // so it gets their capabilities, Workflow loaders, and Workspaces.
     await loadAgentHost()
-    // Preserve the caller's runtime-config subtype through standalone context creation.
-    const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
-    // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
-    // that the generated routes give Agents. Capabilities from the caller override them key by key.
-    const hostCapabilities = agentHostCapabilities()
-    const runtimeContext = hostCapabilities
-      ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
-      : callerContext
-    runtime = createRuntimeContext({
-      ...runtimeContext,
-      runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
-      runtime: runtimeContext?.runtime || "unknown",
-      run: {
-        ...runtimeContext?.run,
-        runId: schedule?.runId || schedule?.id || runtimeContext?.run?.runId || createTraceId(),
-      },
+    runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext, options.schedule)
+    const output = await runAgentInlineWithContext(agent, runtime.context, invocationInput, {
+      capabilities: options.capabilities,
+      tools: options.tools,
     })
-    const context: AgentRuntimeContext<TRuntimeConfig> = {
-      ...runtimeContext,
-      memo: runtime.memo,
-      run: runtime.run,
-      runtime: runtime.runtime,
-      waitUntil: schedule?.waitUntil ?? runtime.waitUntil,
-    }
-    const binding = resolveAgentWorkflowRuntimeBinding(agent)
-    const runsInline = requiresInlineInvocation(standaloneOptions)
-    if (binding && "discoveryDefault" in binding && !runsInline) {
-      throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Standalone runAgent() cannot discover an Agent Workflow without a host context. Set runtime: false for inline execution, configure an explicit workflow(\"name\") binding, or use runAgent(agent, runtimeContext, input)." })
-    }
-    if (binding && standaloneOptions?.output === "drained" && !runsInline) {
-      throw new Error("[vitehub] Drained output requires inline execution; a Workflow returns a run handle.")
-    }
-    // SAFETY: The two-argument overload requires invocation input as its second argument.
-    const result = await runAgentWithContext(agent, context, contextOrInput as AgentRunInput<CALL_OPTIONS>, standaloneOptions)
+    const result = await toPublicAgentRunResult<TOutput>(output)
     await runtime.flushWaitUntil()
-    return [null, standaloneOptions?.output === "drained" ? toAgentRunResult(result).text ?? "" : result]
+    return [undefined, result]
   }
   catch (error) {
     // Finish owned background work without replacing the invocation's original failure.
     await runtime?.flushWaitUntil().catch(() => {})
-    return [isError(error) ? error : new Error(agentErrorMessage(error), { cause: error }), null]
+    return [agentRunError(error, invocationFailureWasCancelled(error, input.abortSignal)), undefined]
   }
+}
+
+/**
+ * Streams an Agent in this process. The default output is an async iterable of typed Agent events.
+ * `output: "ui-message-stream"` returns an AI SDK UI message stream `Response` that a route can return.
+ * The tuple covers the start of the Invocation; errors during stream consumption reach the reader.
+ */
+export function streamAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TData = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> & AgentDataCarrier<TData>,
+  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
+  options: StreamAgentOptions & { output: "ui-message-stream" },
+): Promise<Result<Response, AgentErrorCode>>
+export function streamAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TData = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> & AgentDataCarrier<TData>,
+  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
+  options?: StreamAgentOptions & { output?: "events" },
+): Promise<Result<AsyncIterable<StreamEvent>, AgentErrorCode>>
+export async function streamAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TData = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> & AgentDataCarrier<TData>,
+  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
+  options: StreamAgentOptions = {},
+): Promise<Result<Response | AsyncIterable<StreamEvent>, AgentErrorCode>> {
+  try {
+    await loadAgentHost()
+    const runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext)
+    const output = await streamAgentInlineWithContext(agent, runtime.context, input, { output: options.output })
+    return [undefined, options.output === "ui-message-stream" ? toUIMessageStreamResponse(output) : toAgentEventStream(output)]
+  }
+  catch (error) {
+    return [agentRunError(error, invocationFailureWasCancelled(error, input.abortSignal)), undefined]
+  }
+}
+
+/**
+ * Creates the Runtime Context of a `runAgent()` or `streamAgent()` Invocation from the caller's host values.
+ * Without a caller `waitUntil`, the Invocation owns its background work and `flushWaitUntil()` waits for it.
+ */
+function createInvocationRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>(
+  callerContext: Partial<AgentRuntimeContextInput> | undefined,
+  schedule?: ScheduleRunContextLike,
+): { context: AgentRuntimeContext<TRuntimeConfig>, flushWaitUntil: () => Promise<void> } {
+  // Inside a running host, an Invocation, such as one a Schedule starts, gets the runtime capabilities
+  // that the generated routes give Agents. Capabilities from the caller override them key by key.
+  const hostCapabilities = agentHostCapabilities()
+  const capabilities = hostCapabilities
+    ? { ...hostCapabilities, ...callerContext?.capabilities }
+    : callerContext?.capabilities
+  // The Schedule owns Invocation work even when the caller also provides a host lifetime.
+  const hostWaitUntil = schedule?.waitUntil ?? callerContext?.waitUntil
+  const runtime = createRuntimeContext({
+    ...callerContext,
+    ...(capabilities ? { capabilities } : {}),
+    // SAFETY: The caller's Runtime Context carries the runtime config of the Agent it runs.
+    runtimeConfig: callerContext?.runtimeConfig as TRuntimeConfig | undefined,
+    runtime: callerContext?.runtime || "unknown",
+    run: {
+      ...callerContext?.run,
+      runId: schedule?.runId || schedule?.id || callerContext?.run?.runId || createTraceId(),
+    },
+    waitUntil: hostWaitUntil,
+  })
+  return {
+    context: {
+      ...callerContext,
+      ...(capabilities ? { capabilities } : {}),
+      // SAFETY: The caller's Runtime Context carries the runtime config of the Agent it runs.
+      runtimeConfig: callerContext?.runtimeConfig as TRuntimeConfig | undefined,
+      memo: runtime.memo,
+      run: runtime.run,
+      runtime: runtime.runtime,
+      waitUntil: runtime.waitUntil,
+    },
+    flushWaitUntil: hostWaitUntil ? async () => {} : async () => await runtime.flushWaitUntil(),
+  }
+}
+
+/** Adds the Schedule run to the Invocation context, where hooks and instructions read `context.schedule`. */
+function withScheduleInput<CALL_OPTIONS, TData>(
+  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, TData>,
+  schedule: ScheduleRunContextLike,
+): AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, TData> {
+  return copyAgentInvocationCallerAbortSignal(input, {
+    ...input,
+    context: {
+      ...input.context,
+      schedule: {
+        id: schedule.id,
+        kind: "schedule",
+        runId: schedule.runId || schedule.id,
+        scheduleId: schedule.scheduleId,
+        scheduledAt: schedule.scheduledAt,
+        target: schedule.target,
+      },
+    },
+  })
+}
+
+/**
+ * Streams and Responses are consumed into a run result with their final text, and a model Driver renders its own
+ * run result. Any other value is the Agent output, such as a `driver.output` schema value, and becomes `output`.
+ */
+async function toPublicAgentRunResult<TOutput>(value: unknown): Promise<AgentRunResult<TOutput>> {
+  if (isDrainableAgentOutput(value)) {
+    // SAFETY: Draining collects the run result while preserving the Driver's output value.
+    const result = await drainAgentRunOutput(value) as AgentRunResult<TOutput>
+    if (isRuntimeRecord(value) && renderedAgentRunResults.has(value)) return result
+    return { ...result, output: value as TOutput }
+  }
+  if (isRuntimeRecord(value) && renderedAgentRunResults.has(value)) return value
+  // SAFETY: A rendered inline Invocation that is not a stream or a Response returns the Agent's TOutput value.
+  return { ...toAgentRunResult(value), output: value as TOutput }
+}
+
+function toAgentEventStream(output: unknown): AsyncIterable<StreamEvent> {
+  // SAFETY: The events output mode emits normalized Agent stream events.
+  return isAsyncIterable(output) ? output as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(output)
+}
+
+function toUIMessageStreamResponse(output: unknown): Response {
+  if (isResponse(output)) return output
+  if (output instanceof ReadableStream) return createAgentUIMessageStreamResponse({ stream: output })
+  if (isAsyncIterable(output)) return createAgentUIMessageStreamResponse({ stream: ReadableStream.from(output) })
+  throw new TypeError("[vitehub] The Agent did not return a UI message stream.")
 }
 
 /** Invocation tools and Capabilities hold functions that a Workflow cannot serialize, so they need an inline run. */
@@ -8994,11 +9013,12 @@ async function runAgentWithContext<
   TOutput = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  runtimeContext: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: RunAgentOptions = {},
+  options: Omit<RunAgentOptions, "runtimeContext"> & { output?: "drained" } = {},
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
   await loadAgentHost()
+  let context = withAgentRuntimeMemo(runtimeContext)
   if (options.schedule) {
     const schedule = options.schedule
     const runId = schedule.runId || schedule.id
@@ -9013,20 +9033,7 @@ async function runAgentWithContext<
       run: { ...context.run, runId },
       waitUntil: context.waitUntil ?? schedule.waitUntil ?? (() => {}),
     }
-    input = copyAgentInvocationCallerAbortSignal(input, {
-      ...input,
-      context: {
-        ...input.context,
-        schedule: {
-          id: schedule.id,
-          kind: "schedule",
-          runId,
-          scheduleId: schedule.scheduleId,
-          scheduledAt: schedule.scheduledAt,
-          target: schedule.target,
-        },
-      },
-    })
+    input = withScheduleInput(input, schedule)
   }
   const invocationContext = withAgentIdentityOwner(agent, context)
   const binding = resolveAgentWorkflowRuntimeBinding(agent)
@@ -9049,15 +9056,27 @@ async function runAgentWithContext<
     await activity?.update(invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed", error)
     throw error
   }
-  const result = await runAgentInline(agent, invocationContext, input, { tools: runsInline ? options.tools : undefined, capabilities: options.capabilities })
+  const result = await runAgentInlineWithContext(agent, invocationContext, input, { tools: runsInline ? options.tools : undefined, capabilities: options.capabilities })
   // SAFETY: The caller requested the rendered output contract, including a collected stream result.
   return options.output === "drained" ? await drainAgentRunOutput(result) as TOutput : result
+}
+
+// Model Driver outputs without a schema do not become typed Agent output.
+const renderedAgentRunResults = new WeakSet<AgentRunResult>()
+
+function renderedAgentRunResult(result: AgentRunResult): AgentRunResult {
+  renderedAgentRunResults.add(result)
+  return result
+}
+
+function isDrainableAgentOutput(result: unknown): boolean {
+  return isResponse(result) || isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
 }
 
 async function drainAgentRunOutput(result: unknown): Promise<unknown> {
   // Draining gives callers the final result only after stream-driven lifecycle
   // work and capacity release complete.
-  if (result instanceof Response) {
+  if (isResponse(result)) {
     return { raw: result, text: await result.text() }
   }
   if (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)) {
@@ -9074,24 +9093,7 @@ async function drainAgentRunOutput(result: unknown): Promise<unknown> {
 
 }
 
-export async function streamAgentInline<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TData = unknown,
->(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: { output?: "events" | "ui-message-stream" } = {},
-): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  context = withAgentIdentityOwner(agent, context)
-  return await executeAgentInvocation(agent, context, input, {
-    kind: "stream",
-    output: options.output || "events",
-  })
-}
-
-export async function streamAgent<
+async function streamAgentInlineWithContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TData = unknown,
@@ -9100,9 +9102,18 @@ export async function streamAgent<
   context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: { output?: "events" | "ui-message-stream" } = {},
-): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  return await streamAgentInline(agent, withAgentRuntimeMemo(context), input, options)
+): Promise<unknown> {
+  return await executeAgentInvocation(agent, withAgentIdentityOwner(agent, withAgentRuntimeMemo(context)), input, {
+    kind: "stream",
+    output: options.output || "events",
+  })
 }
+
+installAgentRunners({
+  runAgentInline: runAgentInlineWithContext,
+  runAgentWithContext,
+  streamAgentInline: streamAgentInlineWithContext,
+})
 
 export async function getAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,

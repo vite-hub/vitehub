@@ -1,5 +1,10 @@
 import { invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
 
+/** The idempotency key of one Schedule occurrence. Two runs of the same Schedule for the same time share it. */
+export function scheduleIdempotencyKey(name: string, scheduledAt: Date): string {
+  return `schedule:${name}:${scheduledAt.toISOString()}`
+}
+
 export function isScheduleDate(value: unknown): value is Date {
   try {
     // `getTime` checks the internal Date slot in every realm. Do not read

@@ -9,7 +9,7 @@ describe("Schedule definition property ownership", () => {
       handler: () => "inherited",
     })
 
-    expect(() => defineSchedule(inherited)).toThrow(/expects an object with `cron` and `handler`/)
+    expect(() => defineSchedule(inherited)).toThrow(/expects an object with `handler`/)
   })
 
   it("rejects positional options inherited from a prototype", () => {
