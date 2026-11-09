@@ -22,6 +22,11 @@ describe("Connection errors that need a person", () => {
     expect(error.fix).toContain("`vitehub connections set-key stripe`")
   })
 
+  it("quotes a Connection name with spaces so the CLI reads it as one argument", () => {
+    const error = connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: "team/客户 it's" })
+    expect(error.fix).toContain("`vitehub connections connect 'team/客户 it'\\''s'`")
+  })
+
   it("names the definition of an instance in an access rule fix", () => {
     const error = connectionsErrorDiagnostics.CONNECTIONS_DENIED({ action: "POST /repos", actor: "agent:triage", connection: "t3:alice" })
     expect(error.fix).toBe("Allow this action for \"agent:triage\" in the `access` rules of the Connection Definition \"t3\".")

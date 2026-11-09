@@ -1,6 +1,10 @@
 import { defineErrors, type ErrorCatalog } from "@vite-hub/runtime"
 
-const connect = (connection: string): string => `Run \`vitehub connections connect ${connection}\`.`
+/** A CLI command for one Connection. Names may contain spaces, so quote any name that is not a plain word. */
+const cli = (command: "connect" | "set-key", connection: string): string =>
+  `vitehub connections ${command} ${/^[\w.:@/-]+$/.test(connection) ? connection : `'${connection.replaceAll("'", "'\\''")}'`}`
+
+const connect = (connection: string): string => `Run \`${cli("connect", connection)}\`.`
 
 /** The Console page of one Connection. It shows the next step and, when the definition has them, its setup notes. */
 const consolePage = (connection: string, tab?: "approvals"): string =>
@@ -68,20 +72,20 @@ const codes = {
     },
     fix: ({ connection, problem }: { connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => problem === "mutation"
       ? `Check at the provider if the last token change of Connection "${connection}" completed. Then open its Console page (${consolePage(connection)}) and select Reconnect.`
-      : `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Reconnect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${connection}\`.`,
+      : `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Reconnect. Follow the setup notes on that page, if it has them. Or run \`${cli("connect", connection)}\`.`,
   },
   CONNECTIONS_NOT_CONNECTED: {
     why: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
       if (login === "connect") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no connect flow.`
       if (login === "credentials") return `Connection "${connection}" has no login credentials.`
-      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${connection}\` or in the Console.`
+      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`${cli("set-key", connection)}\` or in the Console.`
       return `Connection "${connection}" is not connected. ${connect(connection)}`
     },
     fix: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
       if (login === "connect") return `Do not connect Connection "${connection}". Call it, and it signs in by itself once its \`credentials\` resolve.`
       if (login === "credentials") return `Make the \`credentials\` of the \`oauthLogin()\` provider of Connection "${connection}" resolve, for example set the Env keys that it reads.`
-      if (apiKey) return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Set key. Or run \`vitehub connections set-key ${connection}\`.`
-      return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${connection}\`.`
+      if (apiKey) return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Set key. Or run \`${cli("set-key", connection)}\`.`
+      return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`${cli("connect", connection)}\`.`
     },
   },
   CONNECTIONS_ORIGIN_NOT_ALLOWED: {
@@ -241,7 +245,7 @@ const codes = {
       if (problem === "instances") return `Connection "${connection}" has instances. Use ${(instances ?? []).map(instance => `"${connection}:${instance}"`).join(", ")}.`
       if (problem === "login-key") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no key.`
       if (problem === "not-pending") return `Approval "${approval}" is not pending.`
-      if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`vitehub connections connect ${connection}\`.`
+      if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`${cli("connect", connection)}\`.`
       if (problem === "redirect-uri") return "The redirect URI must use HTTPS or a loopback address."
       if (problem === "name") return "The Connection name is invalid."
       if (problem === "start") return "Start the connection from this application."
