@@ -1988,12 +1988,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     get(id, options) {
       const record = records.get(id)
       if (!record) return undefined
-      const cloned = cloneRecord(record)
-      if (options?.observationNames) {
-        const names = new Set(options.observationNames)
-        cloned.observations = cloned.observations.filter(observation => names.has(observation.name))
-      }
-      return cloned
+      if (!options?.observationNames) return cloneRecord(record)
+      const names = new Set(options.observationNames)
+      return cloneRecord({ ...record, observations: record.observations.filter(observation => names.has(observation.name)) })
     },
     getSummary(id) {
       const record = records.get(id)
