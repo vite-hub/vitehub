@@ -161,10 +161,10 @@ describe("hubDb", () => {
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
     await mkdir(join(rootDir, "server/databases/migrations"), { recursive: true })
     await writeFile(join(rootDir, "server/databases/migrations/0001_init.sql"), "create table notes (title text);\n")
-    const compiledHooks: Array<() => Promise<void>> = []
+    const compiledHooks: Array<(...args: never[]) => unknown> = []
     const createNitro = (preset: string) => {
       const options: { cloudflare?: { wrangler?: { d1_databases?: unknown } }, output: { serverDir: string }, preset: string } = { output: { serverDir }, preset }
-      return { hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => void compiledHooks.push(callback) }, options }
+      return { hooks: { hook: (name: string, callback: (...args: never[]) => unknown) => { if (name === "compiled") compiledHooks.push(callback) } }, options }
     }
     const cloudflareNitro = createNitro("cloudflare-module")
     cloudflareNitro.options.cloudflare = {
