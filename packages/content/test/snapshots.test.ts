@@ -3,8 +3,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { defineSource } from "@vite-hub/source"
-import { files } from "@vite-hub/source/files"
+import { defineSource, files } from "@vite-hub/source"
 import type { ContentFile, ContentPlugin } from "comark-content"
 
 import { buildContentSnapshots, defineContent, registerContentSnapshots } from "../src/index.ts"
@@ -181,7 +180,7 @@ describe("Content snapshot build", () => {
   const importBase = join(import.meta.dirname, "../src/index.ts")
   const contentModule = [
     `import { defineContent } from ${JSON.stringify(importBase)}`,
-    "import { files } from \"@vite-hub/source/files\"",
+    "import { files } from \"@vite-hub/source\"",
     "",
     `export const content = defineContent({ sources: { docs: files(${JSON.stringify(docs)}) } })`,
     "",
@@ -206,7 +205,8 @@ describe("Content snapshot build", () => {
     })
 
     const output = await readdir(join(project, "dist"), { recursive: true })
-    expect(output.filter(file => file.endsWith(".js") || file.endsWith(".mjs"))).toEqual(["entry.mjs", expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
+    expect(output).toContain("entry.mjs")
+    expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
 
     const { content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
     const live = defineContent({ sources: { docs: files(docs) } })

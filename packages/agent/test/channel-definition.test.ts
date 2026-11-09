@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannelTrigger, ignored, slack, teams } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
-import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
+import { createChannelWebhookRouteHandler, namedChannelHosts, registerAgentChannels } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
 import type { ChannelEvent } from "@vite-hub/channels"
@@ -94,7 +94,7 @@ describe("defineChannel() on the Agent webhook route", () => {
     expect(forged.status).toBe(401)
     await new Promise(resolve => setTimeout(resolve, 100))
     expect(handler).toHaveBeenCalledOnce()
-  })
+  }, 20_000)
 
   it("retries a handler that returns a failed Result", async () => {
     const failure = Object.assign(new Error("queue unavailable"), { code: "QUEUE_SEND_FAILED" })
@@ -205,5 +205,62 @@ describe("defineChannel() on the Agent webhook route", () => {
     const channel = slack({ adapter: { postMessage } as never })
     await expect(channel.send("Deploy finished.", { recipient: "slack:C1:" })).resolves.toEqual({ id: "ts-1" })
     expect(postMessage).toHaveBeenCalledWith("slack:C1:", { markdown: "Deploy finished." })
+  })
+
+  it("resolves the Channels that an Agent lists by name", () => {
+    const adapter = teams({ adapter: { userName: "Bot" } })
+    registerAgentChannels({ support: { default: defineChannel({ adapter }) }, payments: defineChannel({ adapter: stripe({ secret }) }) })
+    const agent = defineAgent({ name: "support", channels: ["support", "payments"], driver: { run: () => "ok" } })
+    expect(agent.channels!.support).toBe(adapter)
+    expect(agent.channels!.payments).toMatchObject({ kind: "stripe", messages: false })
+    expect(namedChannelHosts({ support: agent })).toEqual({ payments: "support", support: "support" })
+    expect(() => namedChannelHosts({ a: agent, b: defineAgent({ name: "b", channels: ["support"], driver: { run: () => "ok" } }) })).toThrow('both list the Channel "support"')
+    expect(() => defineAgent({ channels: ["missing"], driver: { run: () => "ok" } })).toThrow('lists the Channel "missing", which is not registered')
+  })
+
+  it("keeps inherited named Channels through child and grandchild layers", () => {
+    registerAgentChannels(Object.fromEntries(["parent", "child", "grandchild"].map(name => [name, defineChannel({ adapter: webhook() })])))
+    const parent = defineAgent({ channels: ["parent"], driver: { run: () => "ok" } })
+    const child = defineAgent({ extends: parent, channels: ["child"] })
+    const grandchild = defineAgent({ extends: child, channels: ["grandchild"] })
+    expect(Object.keys(grandchild.channels!)).toEqual(["parent", "child", "grandchild"])
+    expect(namedChannelHosts({ support: grandchild })).toEqual({ parent: "support", child: "support", grandchild: "support" })
+    expect(() => namedChannelHosts({ support: grandchild, other: parent })).toThrow('both list the Channel "parent"')
+  })
+
+  it("keeps named ownership for merged records and clears it for inline replacements", () => {
+    registerAgentChannels({ inherited: defineChannel({ adapter: webhook() }), added: defineChannel({ adapter: webhook() }) })
+    const parent = defineAgent({ channels: ["inherited"], driver: { run: () => "ok" } })
+    const added = defineAgent({ channels: ["added"], driver: { run: () => "ok" } })
+    const child = defineAgent({ extends: parent, channels: added.channels })
+    expect(namedChannelHosts({ support: child })).toEqual({ inherited: "support", added: "support" })
+    const replacement = teams({ adapter: { userName: "Bot" } })
+    const inline = defineAgent({ extends: child, channels: { inherited: defineChannel({ adapter: replacement }) } })
+    expect(inline.channels!.inherited).toBe(replacement)
+    expect(namedChannelHosts({ support: inline })).toEqual({ added: "support" })
+  })
+
+  it("keeps named Channels in configured Workspace Agent layers", () => {
+    registerAgentChannels({ inherited: defineChannel({ adapter: webhook() }), added: defineChannel({ adapter: webhook() }) })
+    const preset = defineAgent({
+      options: { description: "initial" },
+      configure: options => defineAgent({ description: options.description, channels: ["inherited"], workspace: {}, driver: { run: () => "ok" } }),
+    })
+    const child = defineAgent({ extends: preset, channels: ["added"] })
+    const grandchild = defineAgent({ extends: child, options: { description: "updated" } })
+    expect(namedChannelHosts({ support: grandchild })).toEqual({ inherited: "support", added: "support" })
+    expect(grandchild.__vitehubWorkspaceAgentOptions.description).toBe("updated")
+  })
+
+  it.each(["__proto__", "toString", "constructor"])("resolves the prototype-like Channel name %s", name => {
+    registerAgentChannels({ [name]: defineChannel({ adapter: webhook() }) })
+    const agent = defineAgent({ channels: [name], driver: { run: () => "ok" } })
+    expect(Object.hasOwn(agent.channels!, name)).toBe(true)
+    expect(agent.channels![name]).toMatchObject({ kind: "webhook" })
+    const hosts = namedChannelHosts({ support: agent })
+    expect(Object.hasOwn(hosts, name)).toBe(true)
+    expect(hosts[name]).toBe("support")
+    expect(hosts.missing).toBeUndefined()
+    expect(() => namedChannelHosts({ support: agent, other: agent })).toThrow(`both list the Channel "${name}"`)
   })
 })

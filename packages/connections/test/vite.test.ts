@@ -261,7 +261,7 @@ describe("hubConnections", () => {
         { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true },
         { command: "build", mode: "production" },
       ),
-    ).rejects.toThrow("requires management");
+    ).rejects.toMatchObject({ code: "CONNECTIONS_AUTH_REQUIRED", fix: expect.stringContaining("management: { actor") });
     const managed = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
     await (
       hubConnections({ management: { actor: "./server/connections-auth.ts" } })

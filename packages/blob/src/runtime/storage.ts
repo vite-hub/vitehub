@@ -247,4 +247,4 @@ function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions)
   return mode === "read" ? readonlyBlobStorage(storage) : storage
 }
 
-export const blob: BlobStorage = createRuntimeBlobStorage()
+export const blob: BlobStorage = /* @__PURE__ */ createRuntimeBlobStorage()
