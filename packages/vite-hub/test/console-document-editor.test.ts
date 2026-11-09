@@ -14,7 +14,7 @@ import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/
 
 const claimLease = vi.hoisted(() => vi.fn(async () => true))
 const beforeRouteLeave = vi.hoisted(() => vi.fn<(guard: () => Promise<false | undefined>) => void>())
-const beforeRouteUpdate = vi.hoisted(() => vi.fn<(guard: (to: { path: string }, from: { path: string }) => Promise<false | undefined> | undefined) => void>())
+const beforeRouteUpdate = vi.hoisted(() => vi.fn<(guard: (to: { path: string, query: Record<string, unknown> }, from: { path: string, query: Record<string, unknown> }) => Promise<false | undefined> | undefined) => void>())
 const window: EventTarget & { readonly parent: unknown } = Reflect.get(globalThis, "window")
 
 vi.mock("vue-router", () => ({
@@ -575,7 +575,7 @@ describe("Leaving Local only with pending body edits", () => {
       expect(await beforeRouteLeave.mock.calls.at(-1)![0]()).toBe(false)
     }
     else {
-      expect(await beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination === "collection" ? "/content/posts" : "/content/posts/other" }, { path: "/content/posts/hello" })).toBe(false)
+      expect(await beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination === "collection" ? "/content/posts" : "/content/posts/other", query: {} }, { path: "/content/posts/hello", query: {} })).toBe(false)
     }
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual(start)
     expect(client.save).not.toHaveBeenCalled()
@@ -685,13 +685,13 @@ describe("Shared changes while Local only", () => {
       await pending.promise
       if (changed) body.vm.$emit("update:modelValue", "Pending local body")
     })
-    const current = { path: "/content/posts/hello" }
+    const current = { path: "/content/posts/hello", query: {} }
     // History/outline query changes keep this document open and do not flush or block editing.
     await beforeRouteUpdate.mock.calls.at(-1)![0](current, current)
     expect(commit).not.toHaveBeenCalled()
     const navigate = () => destination === "leave"
       ? beforeRouteLeave.mock.calls.at(-1)![0]()
-      : beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination }, current)
+      : beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination, query: {} }, current)
     const leave = navigate()
     pending.resolve()
     expect(await leave).toBe(changed ? false : undefined)
