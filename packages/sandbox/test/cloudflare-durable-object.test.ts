@@ -14,6 +14,15 @@ import {
 
 afterEach(() => vi.useRealTimers());
 
+function gnuTimeout() {
+  for (const command of ["timeout", "gnutimeout", "gtimeout"]) {
+    try {
+      if (execFileSync(command, ["--version"], { encoding: "utf8" }).includes("GNU coreutils")) return command;
+    } catch {}
+  }
+  throw new Error("Install GNU coreutils to test the Debian Sandbox image's process-group timeout.");
+}
+
 class FileError extends Error {
   constructor(readonly code: string) {
     super(code);
@@ -294,11 +303,12 @@ describe("Cloudflare Sandbox Durable Object", () => {
     "sleep 600 >&2 & exit 0",
     "bash -c 'trap \"\" TERM; sleep 600' & exit 0",
   ])("times out descendants and drains output for %s", async (command) => {
+    const timeout = gnuTimeout();
     const { container, objects, runtime } = setup();
     const session = await (await resolveSandbox({ runtime }, {})).open();
     const children: ReturnType<typeof spawn>[] = [];
     container.exec = async (command, options) => {
-      const child = spawn(command[0]!, command.slice(1), { detached: true });
+      const child = spawn(command[0] === "timeout" ? timeout : command[0]!, command.slice(1), { detached: true });
       children.push(child);
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];

@@ -574,6 +574,29 @@ function readDefinitionConnectionConfig(file: string) {
   return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
 }
 
+/**
+ * Whether the build can read the whole `connection` of a Database Definition. False when the Definition is not an
+ * object literal, has a spread, repeats `connection` or `connection.url`, or sets them with an expression that the
+ * build cannot read. The runtime can then get any URL.
+ */
+export function readDatabaseDefinitionConnectionIsStatic(file: string): boolean {
+  const body = readDefinitionObjectBody(file)
+  if (!body) return false
+  const entries = readObjectEntries(body)
+  if (entries.some(entry => entry.key === undefined)) return false
+  const connections = entries.filter(entry => entry.key === "connection")
+  if (!connections.length) return true
+  if (connections.length !== 1) return false
+  const connection = resolveObjectLiteral(connections[0]!.raw, file)
+  if (!connection) return false
+  const properties = readObjectEntries(connection)
+  if (properties.some(entry => entry.key === undefined)) return false
+  const urls = properties.filter(entry => entry.key === "url")
+  if (urls.length > 1) return false
+  const url = urls[0]?.raw
+  return url === undefined || readConfigExpression(resolveModuleExpression(url, file)) !== undefined
+}
+
 /** Reads the static `dialect` of a Database Definition. A Definition without one uses SQLite. */
 export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
   const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")

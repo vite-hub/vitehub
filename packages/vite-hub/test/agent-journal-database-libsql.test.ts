@@ -6,6 +6,20 @@ import { describe, expect, it } from "vitest"
 const packageRoot = join(import.meta.dirname, "..")
 
 describe("Agent Invocation journal Drizzle", () => {
+  it("keeps the published Agent runtime independent of the optional Database package", async () => {
+    const { metafile } = await build({
+      bundle: true,
+      entryPoints: [join(packageRoot, "dist/agent.js")],
+      format: "esm",
+      metafile: true,
+      packages: "external",
+      platform: "node",
+      write: false,
+    })
+    const imports = Object.values(metafile.outputs).flatMap(output => output.imports.map(item => item.path))
+    expect(imports.filter(path => /^@vite-hub\/database(?:\/|$)/.test(path))).toEqual([])
+  })
+
   // `getAgentInvocationsDatabase()` loads this module in every Agent app, also in a Cloudflare Worker whose journal is D1.
   it("bundles no libSQL client", async () => {
     const { metafile } = await build({
