@@ -88,8 +88,8 @@ icon: i-lucide-list-ordered
   A job that fails can run again. Write each job so that a second run is safe.
   :::
 
-  :::product-feature-item{title="Cloudflare or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
-  Jobs run on Cloudflare Queues or Vercel Queues. They do not run on your own machine.
+  :::product-feature-item{title="Cloudflare, Vercel, or your server" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
+  Jobs run on Cloudflare Queues, Vercel Queues, or the `local` provider in your own Node server. The `local` provider works on one instance only.
   :::
 ::
 

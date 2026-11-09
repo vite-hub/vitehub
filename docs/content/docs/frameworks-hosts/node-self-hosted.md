@@ -61,13 +61,27 @@ native binaries.
 
 ## Defaults on the node preset
 
-| Feature | Default provider | Durability |
+"Several instances" means two or more Node processes behind one load balancer,
+on one host or on many. Today most Node defaults keep state in one process or on
+one disk, so they do not work across several instances.
+
+| Primitive | Node default | Works across several instances today |
 | --- | --- | --- |
-| Blob | `fs` under `.vitehub/data/blob` | Local files on one host. |
-| KV | `fs-lite` | Local files on one host. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. |
-| Rate Limit | `memory` | One process. Counters reset on restart. |
-| Queue | None | `queue: true` fails the build. |
+| Blob | `fs` under `.vitehub/data/blob` | Only with the `s3` driver, or one shared volume. |
+| KV | `fs-lite` under `.vitehub/data/kv`. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. | Only with Upstash. |
+| Cache | `fs-lite` under `.vitehub/data/cache` | Only with `cache: { driver: 'kv' }` and KV on Upstash. |
+| Database | SQLite file `file:.vitehub/data/database/sqlite.db` | Only with a remote database, such as Postgres or remote libSQL. |
+| Database `migrateOnStart` | Off. It applies migrations only to a local SQLite `file:` URL, and fails the build for Postgres. | No. Run `vitehub db migrate` once from the deploy step. |
+| Queue | The `local` provider. Jobs are files under `.vitehub/data/queue` and survive a restart. Each process keeps its job list and running jobs in memory. | No. Two instances read the same jobs and can run a job twice. |
+| Rate Limit | `memory`. Counters reset on restart. The only other driver is `cloudflare`. | No. Each instance counts alone. |
+| Realtime | None. A build needs `realtime: { authority: 'memory' }`, which keeps rooms in memory. | No. Peers on other instances do not see the room. |
+| Schedule | None. A build needs `schedule: { runtime: { driver: 'process' } }`, or `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
+| Workflow | `vercel`, which runs inline in the request off Vercel. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow. | Only with OpenWorkflow and `postgres.url`. |
 | Sandbox | None | `sandboxTask: true` fails the build. |
+
+A multi-instance deploy today needs one instance that owns Queue, Rate Limit,
+Realtime, and Schedule. Run those on that one instance, or run the whole app as
+one instance.
 
 Set `dataDir` in `vitehub()` to put local state in one persistent directory, for
 example `dataDir: '/var/lib/app'`. ViteHub then stores KV `fs-lite` data, Blob
@@ -113,7 +127,9 @@ Do not import a generated Nitro route.
 
 Local files and memory belong to one process on one host. Two replicas with the
 same configuration do not share them. Use a persistent volume for `dataDir`, or
-select remote stores when you run more than one process.
+select remote stores when you run more than one process. The
+[table above](#defaults-on-the-node-preset) shows which primitives have a remote
+store today.
 
 Keep runtime secrets in [Server Env](/docs/env). Verify the
 deployed application by starting the built server, not only by typechecking
