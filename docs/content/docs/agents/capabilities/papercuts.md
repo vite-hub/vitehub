@@ -1,19 +1,19 @@
 ---
 title: Papercuts
-description: Let an Agent report small failures and wasted work to an application-owned sink.
+description: Let an Agent report small problems and wasted work to a store that your application owns.
 navigation.title: Papercuts
 navigation.order: 227
 navigation.group: Capabilities
 icon: i-lucide-bandage
 ---
 
-`papercuts()` gives the Agent a `report_papercut` tool. The Agent records small, non-blocking friction and then continues the user's task.
-It does not wrap a Server Primitive. Your application owns storage and review through a `report` callback or a `backend`.
-With `cli: true`, the Agent also receives a `papercuts report` Capability CLI command.
+`papercuts()` gives the Agent a `report_papercut` tool for papercuts: small problems that do not stop the work, such as a failed step or missing guidance. The Agent reports one and continues the task.
+
+Your app stores reports through a `report` callback or a `backend`. No Server Primitive is wrapped. `cli: true` also adds a `papercuts report` Capability CLI command.
 
 ## Configure papercut reports
 
-Pass a callback that writes each report to your store:
+Pass a callback that stores each report:
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -30,7 +30,7 @@ export default defineAgent({
 })
 ```
 
-To send reports to PostHog, pass the built-in backend instead of a callback:
+Or send them to PostHog with the built-in backend:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -48,24 +48,25 @@ export default defineAgent({
 
 ## Agent-visible tool contract
 
-This definition is resolved from the real Capability during the docs build.
+This comes from the real Capability at docs build time.
 
 ::agent-capability-tools{name="papercuts"}
 ::
 
 ## How papercut reports work
 
-ViteHub trims the message and rejects empty text or more than 1,000 characters.
-It then creates a `Papercut` with an ID, a timestamp, and the Agent, run, and trace metadata of the current invocation.
+ViteHub trims the message and rejects it if empty or over 1,000 characters. It then creates a `Papercut` with an ID, timestamp, and the Agent, run, and trace metadata of the current Invocation (one Agent run).
 
-With `report`, ViteHub awaits the callback. A rejected callback fails the tool call.
-With `backend`, delivery is best effort. ViteHub tries up to 3 times with exponential backoff that starts at 100 ms. If all attempts fail, the tool call still succeeds. By default, a backend also skips a report when the same run already reported the same message.
+Delivery:
 
-When both are set, `report` is used and `backend` is ignored.
+- **`report`**: awaited. A rejection fails the tool call.
+- **`backend`**: best effort, up to 3 tries with a delay that starts at 100 ms and doubles. If all fail, the call still succeeds. By default, it skips a message the same run already reported.
+
+With both set, `report` wins.
 
 ### Report contract
 
-Each `PapercutReportEvent` contains the Capability runtime context and a `papercut` value. The Capability fills these fields:
+Each `PapercutReportEvent` has the Capability runtime context and a `papercut` with these fields:
 
 ```ts
 import type { TraceContext } from 'vite-hub/runtime'
@@ -82,17 +83,23 @@ interface Papercut {
 }
 ```
 
-The type also has optional `title`, `description`, `severity`, `category`, `consoleUrl`, `sourceMetadata`, and `reproduction` fields for custom backends.
-The tool returns only `{ id, reported: true }`. Generic telemetry records the tool's owning `capability.id`, timing, and outcome. It does not add the papercut message to telemetry attributes.
+Optional `title`, `description`, `severity`, `category`, `consoleUrl`, `sourceMetadata`, and `reproduction` fields serve custom backends.
+The tool returns only `{ id, reported: true }`. Telemetry records the owning `capability.id`, timing, and result, never the message.
 
 ### Durable delivery
 
-`createPapercutReporter()` from `vite-hub/agent/capabilities` journals each report in persistent Agent Invocations before delivery. It replays pending reports after a restart, so delivery is at least once. The destination must deduplicate on the stable delivery `uuid`.
-Pass `report: event => reporter.report(event)` to `papercuts()`, call `reporter.start()` when the server starts, and await `reporter.stop()` on shutdown.
+`createPapercutReporter()` from `vite-hub/agent/capabilities` saves each report to persistent Agent Invocations before delivery and resends pending ones after a restart, so each arrives at least once.
+
+> [!NOTE]
+> Reports can repeat. De-duplicate by the delivery `uuid`, which is stable across tries.
+
+1. Pass `report: event => reporter.report(event)` to `papercuts()`.
+2. Call `reporter.start()` when the server starts.
+3. Await `reporter.stop()` when the server shuts down.
 
 ### Tell the Agent when to report
 
-Add a Capability directive to Agent Driver Instructions. ViteHub warns when a configured model-facing Capability has no instruction coverage.
+Add a Capability directive to the Driver Instructions so the model knows when to report. ViteHub warns when a tool has no covering instruction.
 
 ```md [server/agents/support/instructions.md]
 ::capability{key="papercuts"}
@@ -102,16 +109,18 @@ Report unexpected failures, stale or missing guidance, and wasted turns when the
 
 ## Requirements
 
-`papercuts()` requires a `report` callback or a `backend` with a `report` function.
-`cli` must be a boolean when set.
-`posthogPapercuts()` requires an `apiKey`.
+- A `report` callback or a `backend` with a `report` function.
+- `cli`, when set, is a boolean.
+- `posthogPapercuts()` needs an `apiKey`.
 
 ## Security and approval
 
-The Agent can only send a short text message. It cannot read earlier reports or choose the destination.
-The tool description asks the Agent to leave out secrets and customer data, but ViteHub does not filter the message content. Apply your own retention and access policy in the store.
-`papercuts()` has no `policy` option. Reports run without an approval step.
-`posthogPapercuts()` sends the full `Papercut` as PostHog event properties.
+The Agent only sends short text. It cannot read reports or pick the destination. There is no `policy` option, so reports need no approval.
+
+> [!WARNING]
+> The tool description forbids secrets and customer data, but ViteHub does not filter messages. Set retention and access rules in your store.
+
+`posthogPapercuts()` sends the full `Papercut` as event properties.
 
 ## Driver support
 
@@ -119,33 +128,33 @@ The tool description asks the Agent to leave out secrets and customer data, but 
 | --- | --- |
 | Model-backed | Receives `report_papercut`. |
 | Provider-backed | Receives `report_papercut` through the private MCP bridge. |
-| Custom-run-backed | Receives the tool in the prepared run context; `driver.run` decides whether to call it. |
+| Custom-run-backed | Receives the tool in the run context. `driver.run` decides whether to call it. |
 
-With `cli: true`, ViteHub exposes the `papercuts` CLI to compatible Agent Drivers and the Agent Dev Loop. See [Add a Capability CLI](/docs/agents/capabilities/custom#add-a-capability-cli).
+With `cli: true`, compatible Drivers and the Agent Dev Loop get the `papercuts` CLI. See [Add a Capability CLI](/docs/agents/capabilities/custom#add-a-capability-cli).
 
 ## Verify papercut reports
 
-Run `vitehub agent info --agent <name> --json` and confirm that `tools` contains a `papercuts` entry. Entries use the Capability id, not the tool name.
-Ask the Agent to report one papercut, then confirm that your store or PostHog project received a record with the same `id` that the tool returned.
+1. `vitehub agent info --agent <name> --json` has a `papercuts` entry in `tools` (keyed by Capability id, not tool name).
+2. Report one papercut and find a record with the returned `id` in your store or PostHog.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `report` | `(event) => void \| Promise<void>` | none | Stores each report. A rejection fails the tool call. Required unless `backend` is set. |
-| `backend` | `PapercutBackend` | none | Best-effort delivery target, such as `posthogPapercuts()`. Used only when `report` is not set. |
+| `report` | `(event) => void \| Promise<void>` | none | Stores reports. A rejection fails the call. Required without `backend`. |
+| `backend` | `PapercutBackend` | none | Best-effort target, such as `posthogPapercuts()`. Ignored when `report` is set. |
 | `retry.attempts` | `number` | `3` | Backend delivery attempts. |
-| `retry.delayMs` | `number` | `100` | First backend retry delay in milliseconds. Each retry doubles it. |
-| `dedupe` | `boolean` | `true` | Skips repeated backend reports with the same message in the same run. |
-| `cli` | `boolean` | `false` | Adds the `papercuts report <message>` Capability CLI command. |
+| `retry.delayMs` | `number` | `100` | First retry delay in milliseconds, doubled each retry. |
+| `dedupe` | `boolean` | `true` | Skip repeated backend messages in one run. |
+| `cli` | `boolean` | `false` | Add the `papercuts report <message>` CLI command. |
 
 ### `posthogPapercuts()` options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `apiKey` | `string` | required | Sent as the `Authorization` bearer token, and as the project key unless `projectApiKey` is set. |
-| `projectApiKey` | `string` | `apiKey` | PostHog project API key for the `api_key` field. |
-| `host` | `string` | `"https://us.i.posthog.com"` | PostHog host. ViteHub posts to `<host>/capture/`. |
+| `apiKey` | `string` | required | `Authorization` bearer token, and project key unless `projectApiKey` is set. |
+| `projectApiKey` | `string` | `apiKey` | Project key for the `api_key` field. |
+| `host` | `string` | `"https://us.i.posthog.com"` | Posts to `<host>/capture/`. |
 | `distinctId` | `string` | Agent name, then `"vitehub-agent"` | PostHog `distinct_id`. |
 | `fetch` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. |
 

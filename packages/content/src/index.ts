@@ -17,7 +17,10 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import { contentSourceUrl, createContentInstance } from "./content-source.ts"
+import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
+import { contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
+import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
@@ -63,6 +66,12 @@ import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
+export { defineContentTypesPlugin, generateContentTypes } from "./types.ts"
+export type { ContentTypesHost, ContentTypesOptions } from "./types.ts"
+/** Comark's registry interfaces. Generated Content types extend them through this module. */
+export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBase } from "comark-content"
+export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
+export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
@@ -378,9 +387,18 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
 }
 
+/**
+ * `content.list()` with one name or a list of names. Generated Content types in `.vitehub/types/content.d.ts` type the
+ * `data` of a named source or collection.
+ */
+export interface ContentRuntimeList {
+  <TName extends keyof ContentRegistry & string>(names: TName | readonly TName[]): Promise<ContentListFile<SourceData<TName>>[]>
+  (names?: string | readonly string[]): Promise<ContentListFile<RegistryData>[]>
+}
+
 /** Named-source operations retained across the Comark instance API migration. */
 export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search" | "media"> & {
-  list(names?: string | string[]): ReturnType<ContentHub["list"]>
+  list: ContentRuntimeList
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
@@ -446,9 +464,15 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
+  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
+  const snapshots = takeContentSnapshots()
+  const snapshotTargets: ContentSnapshotTarget[] = []
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
-    return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
+    const kind = contentSourceKind(input)
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined)
+    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance })
+    return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   const createCollections = collectionEntries[0] && documentsRuntimeOf(collectionEntries[0][1])
@@ -627,7 +651,8 @@ export function defineContent<
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts)) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
     handler: fresh((target, request: Request) => target.handler(request)),
-    list: fresh((target, names?: string | string[]) => target.list(Array.isArray(names) ? names : names ? [names] : undefined)),
+    // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
+    list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat())) as ContentRuntimeList,
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
     async dispose() {
       documentsRuntime?.dispose()
@@ -655,6 +680,7 @@ export function defineContent<
       },
     },
   }
+  setContentSnapshotTargets(runtime, snapshotTargets)
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {

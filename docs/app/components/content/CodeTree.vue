@@ -1,7 +1,10 @@
 <script setup lang="ts">
-// `::product-files` shows example code as a project file tree. Each child code block names its file
+// The app override keeps product-specific host selection out of the package tree.
+// `::code-tree` shows example code as a project file tree. Each child code block names its file
 // with a path, such as ```ts [server/workspaces/docs.ts]```. The tree lists folders first, like an
-// editor, and the first code block opens first. In a narrow panel, such as a hero beside its copy, the
+// editor, and the first code block opens first. Code blocks inside `::framework{name}` show only for the
+// framework that the reader picked, and the header then shows the framework switch.
+// In a narrow panel, such as a hero beside its copy, the
 // tree becomes one row of file tabs above the code, so the code keeps the width.
 //
 // With `feature`, a catalog id such as `kv`, a "Deploy on" row lists the hosts. Picking one rewrites the
@@ -12,6 +15,8 @@ import type { FeatureId } from "@vite-hub/internal/features";
 import { useElementSize } from "@vueuse/core";
 import { isVNode } from "vue";
 import type { VNode } from "vue";
+import { isFramework } from "~/utils/framework";
+import type { Framework } from "~/utils/framework";
 
 import { hostConfigs } from "../../data/host-configs";
 import type { PickerHost } from "../../utils/host-config";
@@ -19,20 +24,40 @@ import type { PickerHost } from "../../utils/host-config";
 const props = defineProps<{
   /** The catalog id of the primitive, such as `kv` or `rateLimit`. It adds the host picker. */
   feature?: FeatureId;
+  /** The path of the file that opens first. */
+  defaultValue?: string;
 }>();
 const slots = defineSlots<{ default?: () => VNode[] }>();
 const id = useId();
 const selected = ref(0);
 const tree = useTemplateRef<HTMLElement>("tree");
+const framework = useFramework();
 const frame = useTemplateRef<HTMLElement>("frame");
 // The tree is a column from 44rem of panel width, the same width as the container query below.
 const { width } = useElementSize(frame);
 const orientation = computed(() => (width.value === 0 ? undefined : width.value >= 704 ? "vertical" : "horizontal"));
 
-function flatten(nodes: VNode[]): VNode[] {
-  return nodes.flatMap((node) =>
-    typeof node.type === "symbol" && Array.isArray(node.children) ? flatten(node.children as VNode[]) : [node],
-  );
+// A `::framework{name}` block is the node whose `name` prop is a framework. Content components resolve lazily, so the
+// node type differs between the server and the browser and cannot tell. Code blocks have a `filename`, never a `name`.
+function frameworkOf(node: VNode): Framework | undefined {
+  const name: unknown = node.props?.name;
+  return isFramework(name) ? name : undefined;
+}
+
+function slotNodes(node: VNode): VNode[] {
+  const children: unknown = node.children;
+  if (typeof children !== "object" || children === null || !("default" in children)) return [];
+  const slot: unknown = children.default;
+  return typeof slot === "function" ? slot() : [];
+}
+
+function flatten(nodes: VNode[], all = false): VNode[] {
+  return nodes.flatMap((node) => {
+    if (typeof node.type === "symbol" && Array.isArray(node.children)) return flatten(node.children as VNode[], all);
+    const name = frameworkOf(node);
+    if (name === undefined) return [node];
+    return all || name === framework.value ? [node, ...flatten(slotNodes(node), all)] : [];
+  });
 }
 
 // The text of a rendered code block. Nuxt Content does not pass the source as a `code` prop, so this joins the
@@ -49,8 +74,17 @@ const files = computed(() =>
     .map((node) => ({ code: textOf(node.children), node, path: String(node.props?.filename ?? "") }))
     .filter((file) => file.path),
 );
+const switchable = computed(() => flatten(slots.default?.() ?? [], true).some((node) => frameworkOf(node) !== undefined));
+
+// A framework switch keeps the open file when the other framework has a file with the same path.
+watch(files, (next, previous) => {
+  const path = previous[selected.value]?.path;
+  const index = next.findIndex((file) => file.path === path);
+  selected.value = index >= 0 ? index : 0;
+});
 
 const rows = computed(() => buildFileTree(files.value.map((file) => file.path)));
+if (props.defaultValue) selected.value = Math.max(0, files.value.findIndex((file) => file.path === props.defaultValue));
 
 // The row of tabs hides the folders, so two files with the same name also show their folder.
 const sharedNames = computed(() => {
@@ -89,21 +123,22 @@ const providerName = computed(() => {
   return support.value.display === hostLabel.value ? support.value.detail.replace(/\.$/, "") : support.value.display;
 });
 
-const rewrite = shallowRef<{ code: string; host: PickerHost; html: string }>();
-// The rewrite that matches the picked host. Until it is highlighted, the panel keeps the authored code.
-const shownRewrite = computed(() => (rewrite.value?.host === host.value ? rewrite.value : undefined));
+const rewrite = shallowRef<{ code: string; host: PickerHost; html: string; source: string }>();
+// The rewrite must match both the host and the framework's source. Until it is highlighted, show the authored code.
+const shownRewrite = computed(() => (rewrite.value?.host === host.value && rewrite.value?.source === config.value?.code ? rewrite.value : undefined));
 let rewriteRequest = 0;
-watch(host, async (next) => {
+watch([host, config], async ([next]) => {
   const request = ++rewriteRequest;
+  const source = config.value?.code;
   const code = config.value && configs.value && next && next !== config.value.host
     ? rewriteHostConfig(config.value.code, configs.value, next)
     : undefined;
-  if (!code || !config.value) {
+  if (!code || !source) {
     rewrite.value = undefined;
     return;
   }
-  const html = await highlightCodeLines(code, "ts", changedLines(config.value.code, code));
-  if (request === rewriteRequest) rewrite.value = { code, host: next!, html };
+  const html = await highlightCodeLines(code, "ts", changedLines(source, code));
+  if (request === rewriteRequest) rewrite.value = { code, host: next!, html, source };
 });
 
 function isSupported(option: PickerHost) {
@@ -155,14 +190,10 @@ function pathNote(index: number) {
   return shownRewrite.value ? `Changed for ${hostLabel.value}` : "";
 }
 
-// The file rows are tabs. Arrow keys move through them in tree order. A column of tabs takes Up and Down, and a row
-// takes Left and Right, so the other pair still scrolls the page.
-const treeKeys = { horizontal: { ArrowRight: 1, ArrowLeft: -1 }, vertical: { ArrowDown: 1, ArrowUp: -1 } };
-
+// Both arrow pairs move through the files in tree order.
 function onTreeKeydown(event: KeyboardEvent) {
   const order = rows.value.flatMap((row) => (row.kind === "file" ? [row.index] : []));
-  const keys: Record<string, number> = orientation.value ? treeKeys[orientation.value] : { ...treeKeys.horizontal, ...treeKeys.vertical };
-  const step = keys[event.key];
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
   const target = event.key === "Home" ? order[0] : event.key === "End" ? order.at(-1)
     : step ? order[(order.indexOf(selected.value) + step + order.length) % order.length] : undefined;
   if (target === undefined) return;
@@ -196,7 +227,7 @@ function onTreeKeydown(event: KeyboardEvent) {
           :tabindex="selected === row.index ? 0 : -1"
           @click="selected = row.index"
         >
-          <UIcon name="i-lucide-file" class="size-3.5 shrink-0" aria-hidden="true" />
+          <span class="vh-files-icon" aria-hidden="true"><ProseCodeIcon :filename="row.path" /></span>
           <span><span v-if="folderOf(row.path)" class="vh-files-folder">{{ folderOf(row.path) }}</span>{{ row.name }}</span>
           <span v-if="shownRewrite && row.index === config?.index" class="vh-files-changed-dot" aria-hidden="true" />
         </button>
@@ -212,11 +243,12 @@ function onTreeKeydown(event: KeyboardEvent) {
       :data-state="selected === index ? 'active' : 'inactive'"
       :aria-labelledby="`${id}-tab-${index}`"
     >
-      <p class="vh-files-path">
+      <div class="vh-files-path">
         <span class="vh-files-path-name">{{ file.path }}</span>
         <span v-if="pathNote(index)" class="vh-files-path-note" :class="{ 'is-changed': index === config?.index }">{{ pathNote(index) }}</span>
-      </p>
-      <div class="vh-files-body">
+        <FrameworkSwitch v-if="switchable" />
+      </div>
+      <div class="vh-files-body" data-code-header>
         <ProsePre
           v-if="shownRewrite && index === config?.index"
           :code="shownRewrite.code"
@@ -417,6 +449,7 @@ function onTreeKeydown(event: KeyboardEvent) {
   min-height: 2.75rem;
   flex: none;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
   margin: 0;
   border-bottom: 1px solid var(--ui-border);
@@ -617,5 +650,29 @@ function onTreeKeydown(event: KeyboardEvent) {
   .vh-files-row.is-file {
     transition: none;
   }
+}
+.vh-files-icon {
+  display: grid;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  place-items: center;
+}
+
+.vh-files-icon > * {
+  width: 100%;
+  height: 100%;
+}
+
+.vh-files-body :deep(.ck) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.vh-files-body :deep(.ck-bar) {
+  display: none;
 }
 </style>
