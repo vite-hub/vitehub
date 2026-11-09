@@ -65,6 +65,7 @@ export interface DatabaseIntegrationOptions {
     export?: false
     generate?: false
     migrate?: false
+    up?: false
   }
   /**
    * Applies pending migrations of local SQLite databases when a Node server build starts, before it handles requests.

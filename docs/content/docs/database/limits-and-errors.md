@@ -40,6 +40,7 @@ export default defineEventHandler(async () => {
 | `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub db migrate`, which then exits with code 1 |
+| `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub db generate` and `vitehub db migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub db export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | With `migrateOnStart`, when the Node server starts. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
@@ -121,7 +122,11 @@ Run `vitehub inspect definitions --kind database` to see the database names.
 
 ### DATABASE_MIGRATION_CHECK_FAILED
 
-ViteHub cannot read which migrations the database has applied. `error.why` has the reason, such as missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, a migrations folder from Drizzle Kit 0.x that needs `npx drizzle-kit up`, or a Drizzle Kit 0.x migrations table with rows that match no migration folder. Make the database reachable with the connection that `vitehub db migrate` uses. To skip the check, run `vitehub db migrate --allow-data-loss`.
+ViteHub cannot read which migrations the database has applied. `error.why` has the reason, such as missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, or a Drizzle Kit 0.x migrations table with rows that match no migration folder. Make the database reachable with the connection that `vitehub db migrate` uses. To skip the check, run `vitehub db migrate --allow-data-loss`.
+
+### DATABASE_MIGRATIONS_OLD_LAYOUT
+
+A migrations folder has the layout of Drizzle Kit 0.x: flat `.sql` files and `meta/_journal.json`. Drizzle Kit 1.0 and ViteHub read one `<YYYYMMDDHHmmss>_<name>/migration.sql` folder per migration. Run `vitehub db up` once, and commit the new folders. Migrations that the database applied stay applied. See [Upgrade to Drizzle 1.0](/docs/database/configure#upgrade-to-drizzle-10).
 
 ### DATABASE_MIGRATION_DATA_LOSS
 

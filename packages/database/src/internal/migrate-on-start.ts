@@ -35,7 +35,7 @@ interface RenderMigrateOnStartOptions extends MigrateOnStartSettings {
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string {
   assertMigrateOnStartSupported(config, options.host)
   const databases = config.databaseNames
-    .map(name => ({ migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir)), name }))
+    .map(name => ({ migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name), name }))
     .filter(database => database.migrations.length)
   return [
     `import { useDatabase } from ${JSON.stringify(options.drizzleImport)}`,
@@ -68,8 +68,8 @@ export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | und
   }
 }
 
-function readStartMigrations(migrationsDir: string): StartMigration[] {
-  const entries = readMigrations(migrationsDir)
+function readStartMigrations(migrationsDir: string, database: string): StartMigration[] {
+  const entries = readMigrations(migrationsDir, database)
   return entries.map((entry) => {
     const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
