@@ -268,6 +268,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
+  // `vite dev` writes the generated schemas in the background. The Database virtual modules wait for them.
+  let generatedArtifacts: Promise<unknown> = Promise.resolve()
   let serverDirs: string[] | undefined
   let contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] }
   let contributionFiles = new Set<string>()
@@ -305,6 +307,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     return {
       alias: viteStringAliases(resolved?.resolve?.alias),
       onFallback: strict ? undefined : message => logger ? logger.warn(message) : console.warn(message),
+      worker: !strict && resolved?.command === "serve",
     }
   }
 
@@ -317,11 +320,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
-    if (runtimeConfig) {
-      await writeGeneratedDatabaseArtifacts(runtimeConfig, tableNameOptions(options.strict))
-    } else {
-      await removeGeneratedDatabaseTypes(databaseRoot())
-    }
+    generatedArtifacts = runtimeConfig
+      ? writeGeneratedDatabaseArtifacts(runtimeConfig, tableNameOptions(options.strict))
+      : removeGeneratedDatabaseTypes(databaseRoot())
+    await generatedArtifacts
     return runtimeConfig
   }
 
@@ -498,7 +500,19 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         // edits to regenerate the database during development.
         contributionDirectories.add(dirname(file))
       }
-      await refreshRuntimeConfig()
+      const refresh = refreshRuntimeConfig()
+      // `vite dev` lists the tables of each Definition in a worker thread and starts meanwhile. The Database virtual
+      // modules wait for the generated schemas. A failure shows now and again on that import.
+      if (config.command === "serve") {
+        refresh.catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error)
+          // SAFETY: Vite always sets `logger`. Tests that call this hook pass a partial config without it.
+          const logger = config.logger as ResolvedConfig["logger"] | undefined
+          if (logger) logger.error(message)
+          else console.error(message)
+        })
+      }
+      else await refresh
       mergeNitroCloudflareD1Bindings()
       installNitroPostgresRequestScope()
       installNitroRequestStats()
@@ -595,8 +609,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
     },
     load(id) {
-      if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
-      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined)
+      if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return generatedArtifacts.then(() => renderSchemaModule(runtimeConfig))
+      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return generatedArtifacts.then(() => renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined))
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
         return `export default ${serializeGeneratedRegistry({

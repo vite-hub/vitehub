@@ -495,6 +495,8 @@ describe("hubDb", () => {
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
     let proxyRequest: { authorization?: string, body?: unknown, method?: string, path?: string } = {}
     const proxy = createHttpServer(async (request, response) => {
+      // Other local tools can probe a new port with `GET /`. D1 HTTP calls always send a token.
+      if (!request.headers.authorization) return response.end()
       let body = ""
       for await (const chunk of request) body += chunk
       proxyRequest = {
@@ -678,7 +680,9 @@ describe("hubDb", () => {
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
     const requests: string[] = []
     const proxy = createHttpServer((request, response) => {
-      requests.push(request.url!)
+      // Other local tools can probe a new port with `GET /`. D1 HTTP calls always send a token.
+      if (!request.headers.authorization) return response.end()
+      requests.push(`${request.method} ${request.url}`)
       response.setHeader("Content-Type", "application/json")
       response.end(JSON.stringify({ success: true, result: [{ success: true, results: { rows: [["application note"]] } }] }))
     })
@@ -733,7 +737,7 @@ describe("hubDb", () => {
 
       await expect(query()).resolves.toEqual({ definition: [{ title: "application note" }], registry: [{ title: "application note" }] })
       expect(nativeQueries).toEqual([])
-      expect(requests).toEqual(["/application/raw", "/application/raw"])
+      expect(requests).toEqual(["POST /application/raw", "POST /application/raw"])
     }
     finally {
       await Promise.all([server.close(), closeHttpServer(proxy)])

@@ -33,6 +33,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/connect.ts",
       "src/connect/node.ts",
+      "src/internal/schema-worker.ts",
       "src/runtime/agent.ts",
       "src/runtime/chunk-parameters.ts",
       "src/runtime/d1.ts",
@@ -53,7 +54,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports({
           ...Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters"),
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters" && key !== "./internal/schema-worker"),
           ),
           "./virtual": {
             types: "./dist/virtual.d.ts",
