@@ -123,9 +123,12 @@ export default defineConfig({
 | Rate Limit | One atomic KV increment per request, so it follows KV | None |
 | Queue | The `vitehub_queue_jobs` table. Every instance claims jobs with `FOR UPDATE SKIP LOCKED` | `QUEUE_POSTGRES_URL` overrides the Database |
 | Schedule | One lease per occurrence in the `vitehub_leases` table, so one instance runs it | None |
-| Workflow | OpenWorkflow in the `openworkflow` schema. Each server starts one worker | `OPENWORKFLOW_POSTGRES_URL` overrides the Database |
+| Workflow | OpenWorkflow in the `openworkflow` schema. Each server starts one worker | `OPENWORKFLOW_POSTGRES_URL` comes before the Database |
 | Realtime | Each instance keeps its rooms in memory and shares them through Redis pub/sub with `REDIS_URL`, else Postgres `LISTEN`/`NOTIFY` | `REDIS_URL`, `REALTIME_POSTGRES_URL` |
 | Blob | Not shared by default. Use `driver: 's3'` or another [S3-compatible driver](/docs/blob/hosts#s3-compatible-object-storage) | The driver's credentials |
+
+Queue, Realtime, and Workflow do not read `DATABASE_URL` themselves. They use
+the connection of the Default Database, whatever variable its Definition reads.
 
 Give every instance the same environment. An instance without `REDIS_URL`
 keeps KV and Realtime in Postgres while the others use Redis, so the data
@@ -202,7 +205,7 @@ Each instance opens its own connections:
 
 | Client | Connections per instance | Used by |
 | --- | --- | --- |
-| The Database pool | Up to 10, the postgres.js default | Your queries, KV, leases, Queue claims and jobs, Realtime saves (up to 3 at a time), migrations on start |
+| The Database pool | Up to 10, the postgres.js default | Your queries, KV, leases, Queue claims and jobs, Realtime saves and room opens, migrations on start |
 | One `LISTEN` connection on the Database client | 1 | Queue wake-ups and Realtime messages share it |
 | The OpenWorkflow pool | Up to 10 | Workflow runs |
 | At start | Up to 2 more, for a short time | The OpenWorkflow schema setup |
@@ -215,7 +218,12 @@ which is enough for about four instances. For more instances, set
 to the URL: postgres.js reads it as text and opens only one connection.
 
 A pooler in transaction mode, such as PgBouncer, does not keep a `LISTEN`
-connection. Use Redis for Realtime behind it.
+connection. Use Redis for Realtime behind it. The OpenWorkflow schema setup
+needs two connections at once. When it gets no second connection in 10
+seconds, for example behind a pooler with one server connection, the server
+does not start the worker and reports `WORKFLOW_R0037`. Raise the pool size,
+or set up the schema once through a direct connection and then set
+`workflow: { postgres: { runMigrations: false } }`.
 
 ## Redis is optional
 
@@ -224,8 +232,70 @@ Rate Limit counters, and Realtime messages out of the Database. Queue, Schedule
 leases, Workflow, and migrations stay in Postgres.
 
 Set `REDIS_URL` on every instance. The server reads it when it starts, so one
-build runs with or without Redis. KV keys use the prefix `vitehub:kv:<store>`,
-so a Redis that other apps use is safe.
+build runs with or without Redis.
+
+KV keys use the prefix `vitehub:kv:<store>`, which has no app name. Two
+ViteHub apps on one Redis database share `vitehub:kv:default`, and with it the
+Nitro cache and the Rate Limit counts. Give each app its own Redis database in
+the URL, such as `redis://redis:6379/1`, or set its own `base`:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    kv: { driver: 'redis', base: 'shop:kv' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      kv: { driver: 'redis', base: 'shop:kv' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      kv: { driver: 'redis', base: 'shop:kv' },
+    }),
+  ],
+})
+```
+:::
+::
+
+An explicit `driver: 'redis'` turns off the Postgres fallback, so every
+instance then needs `REDIS_URL`, and `vite dev` uses that Redis too.
+
+Realtime keeps apps apart by itself. Its namespace is `realtime.namespace`,
+else the `name` of `vitehub()`, else the `name` in your `package.json`. Two
+deploys of one app, such as staging and production, have the same name. To run
+them on one Redis or one Postgres, set `REALTIME_NAMESPACE` on each deploy,
+such as `REALTIME_NAMESPACE=shop-staging`. KV needs its own Redis database or
+`base` for each deploy too.
 
 ## Run three instances with Docker Compose
 
@@ -360,7 +430,8 @@ address. For Auth, set
 - Without a Postgres Default Database or `REDIS_URL`, KV uses `fs-lite`, Rate
   Limit and Realtime count and relay in memory, Queue keeps job files on one
   host, each instance runs every Schedule occurrence, and Workflow keeps runs
-  in a SQLite file.
+  in a SQLite file and logs that at boot. A `DATABASE_URL` alone does not
+  change this.
 - Queue `concurrency` counts the jobs of one process.
 - `vite dev` stays local on purpose. KV, Queue, Realtime, and Workflow keep
   their state on your computer, and nothing migrates on start.
