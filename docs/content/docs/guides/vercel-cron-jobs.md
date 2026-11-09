@@ -19,6 +19,29 @@ ViteHub writes the cron path, the cron entry, and the function that runs your ha
 
 ### Enable Schedule with the Vercel preset
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', schedule: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', schedule: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -27,6 +50,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', schedule: true })],
 })
 ```
+:::
+::
 
 The `vercel` preset writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for every option.
 
@@ -74,7 +99,7 @@ Vercel reads every cron expression in UTC. ViteHub checks each cron at build tim
 
 - The cron must have five fields that use only digits, `*`, `,`, `/`, and `-`. Names such as `MON` or `JAN` fail.
 - The day of the month and the day of the week cannot both have a value. One of them must be `*`.
-- A Definition that sets a `timeZone` other than `UTC` fails. Write the cron in UTC, or run the schedule with the [process driver](/docs/schedule/configure#run-a-static-schedule-in-a-time-zone) on a long-lived Node host.
+- A Definition with a [`timeZone`](/docs/schedule/configure#run-a-static-schedule-in-a-time-zone) gets a UTC cron that covers each offset, such as `0 6,7 * * *` for 08:00 in `Europe/Madrid`. Vercel Hobby runs a cron job at most once a day, so it rejects that cron. Set a UTC `cron` override for Hobby, or use Pro.
 
 These rules match the [Vercel cron expression limits](https://vercel.com/docs/cron-jobs#cron-expression-limitations).
 
@@ -135,4 +160,4 @@ The schedule file stays the same. Change the preset, and the build writes the cr
 | `cloudflare` | A Cloudflare Cron Trigger in the generated `wrangler.json`. |
 | `node` | The Process Runtime, with `schedule: { runtime: { driver: 'process' } }`. Use one long-lived process, and enable `kv` to keep Schedule Runs across restarts. |
 
-Cloudflare also reads cron in UTC only. The Process Runtime is the only driver that reads `timeZone`. Read [Schedule hosts](/docs/schedule/hosts#provider-output) for each output.
+Cloudflare also reads cron in UTC only, and ViteHub handles `timeZone` there the same way. Read [Schedule hosts](/docs/schedule/hosts#provider-output) for each output.

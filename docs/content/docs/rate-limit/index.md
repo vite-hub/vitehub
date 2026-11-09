@@ -9,7 +9,20 @@ icon: i-lucide-gauge
 ---
 
 ::product-hero{tagline="Cap how many requests each client or user can make, and reject the extra ones with a 429 error." hosts="Node, Docker, Cloudflare"}
-  :::product-files{feature="rateLimit"}
+  :::code-tree{feature="rateLimit"}
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // On Node, counts stay in memory
+      rateLimit: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { vitehub } from 'vite-hub'
   import { defineConfig } from 'vite'
@@ -26,6 +39,23 @@ icon: i-lucide-gauge
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { vitehub } from 'vite-hub'
+  import { defineConfig } from 'vite'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'node',
+        // On Node, counts stay in memory
+        rateLimit: true,
+      }),
+    ],
+  })
+  ```
+  ::::
 
   ```ts [server/api/upload.post.ts]
   import { defineEventHandler } from 'h3'

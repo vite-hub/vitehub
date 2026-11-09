@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 
 import { contentSource, defineContent, defineContentTypesPlugin, generateContentTypes } from "../src/index.ts"
 
@@ -10,6 +10,13 @@ const directories: string[] = []
 afterEach(async () => {
   await Promise.all(directories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
 })
+
+function writeTypes(file: string) {
+  return async (declarations: string) => {
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, declarations, "utf8")
+  }
+}
 
 function docs(items: Array<{ key: string, content: string }>) {
   return { async items() { return items } }
@@ -56,7 +63,7 @@ it("writes the types in the background and again after Content changes", async (
   const items = [{ key: "about.md", content: "---\ntitle: About\n---\n# About\n" }]
   const content = defineContent({ sources: { docs: docs(items) } })
 
-  defineContentTypesPlugin(async () => content, file)()
+  defineContentTypesPlugin(async () => content, writeTypes(file))()
   await expect.poll(async () => await readFile(file, "utf8").catch(() => ""), { timeout: 5_000 }).toContain("'/about': DocsData")
 
   items.push({ key: "guide.md", content: "---\ntitle: Guide\n---\n# Guide\n" })
@@ -71,7 +78,7 @@ it("reports a Source that fails to load once and keeps the server running", asyn
   const warn = console.warn
   console.warn = (...args: unknown[]) => void warnings.push(args.join(" "))
   try {
-    defineContentTypesPlugin(async () => { throw new Error("broken content module") }, join(directory, "content.d.ts"))()
+    defineContentTypesPlugin(async () => { throw new Error("broken content module") }, writeTypes(join(directory, "content.d.ts")))()
     await expect.poll(() => warnings.length, { timeout: 5_000 }).toBe(1)
     await delay(50)
     expect(warnings).toEqual(["[vitehub] Could not generate Content types: broken content module"])
@@ -79,4 +86,34 @@ it("reports a Source that fails to load once and keeps the server running", asyn
   finally {
     console.warn = warn
   }
+})
+
+it("keeps changes received after a generation has read the Source", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "vitehub-content-types-"))
+  directories.push(directory)
+  const file = join(directory, "content.d.ts")
+  const items = [{ key: "about.md", content: "---\ntitle: About\n---\n" }]
+  const started = Promise.withResolvers<void>()
+  const resume = Promise.withResolvers<void>()
+  const content = defineContent({ sources: {
+    docs: docs(items),
+    blog: { async items() {
+      started.resolve()
+      await resume.promise
+      return [{ key: "hello.md", content: "---\ntitle: Hello\n---\n" }]
+    } },
+  } })
+  const write = vi.fn(writeTypes(file))
+  defineContentTypesPlugin(async () => content, write)()
+  await started.promise
+  try {
+    items.push({ key: "guide.md", content: "---\ntitle: Guide\n---\n" })
+    await content.cache.refresh("docs")
+  }
+  finally {
+    resume.resolve()
+  }
+  await expect.poll(async () => await readFile(file, "utf8").catch(() => ""), { timeout: 2_000 }).toContain("'/guide': DocsData")
+  await delay(650)
+  expect(write).toHaveBeenCalledTimes(2)
 })

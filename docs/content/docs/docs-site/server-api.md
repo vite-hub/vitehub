@@ -29,13 +29,13 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`. Canonical links, raw Markdown links, llms.txt, and the sitemap use it. |
 | `site.description` | `string` | `''` | Description of llms.txt. |
-| `site.logo` | `string` | None | Path of a one-color SVG beside the name. |
+| `site.logo` | `string \| { light: string, dark?: string }` | None | A string is a one-color SVG mask. The object shows images in their original colors, with `dark` in dark mode when set. |
 | `site.badge` | `{ label, tooltip? }` | None | A short label after the name, such as `beta`. |
 | `categories` | `string[]` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `string[]` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `DocsGroup[]` | `[]` | Rail items that hold several sections. A `DocsGroup` is `{ title, icon?, sections? }`: `sections` lists section ids, and a section can also join with `group` in its `.navigation.yml`. See [Groups](/docs/docs-site/configure#groups). |
 | `start` | `{ section, links? }` | None | The section that new readers open first, and site pages listed at its top. The header and the error page link to them. |
-| `socials` | `DocsLink[]` | `[]` | Community links in the header on every page, or in its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
+| `socials` | `DocsLink[]` | `[]` | Community links at the foot of the docs sidebar, in the header of other pages, or in its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
 | `footer` | `DocsLink[]` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy, so each one has a link to it. |
 | `banner` | `string` | None | One line above every docs page. |
 | `sitemap` | `string[]` | `[]` | More paths for `/sitemap.xml`. Every docs page is in it already. |
@@ -43,7 +43,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
 | `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
-| `seoAudit` | `boolean` | `false` | `true` checks every prerendered page as a site audit does, and stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror) on a problem. Pages with `noindex` or a canonical link to another page are left out. |
+| `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |

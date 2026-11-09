@@ -761,9 +761,14 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/content/types.mjs"), "utf8")).resolves.toBe(
       [
         `import { defineContentTypesPlugin } from "vite-hub/content"`,
+        `import { useRuntimeConfig } from "nitro/runtime-config"`,
         ``,
         `// A production build drops this branch, so the server does not load Content at startup.`,
-        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).content, ${JSON.stringify(join(root, ".vitehub/types/content.d.ts"))}, { moduleName: "vite-hub/content" }) : () => {}`,
+        `const write = async (declarations) => {`,
+        `  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })`,
+        '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
+        `}`,
+        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).content, write, { moduleName: "vite-hub/content" }) : () => {}`,
         ``,
       ].join("\n"),
     )
@@ -1511,6 +1516,31 @@ export const content = defineContent(${options})
 
     await listeners.get("unlink")?.(collection)
     expect(restartHost).toHaveBeenCalledTimes(2)
+  })
+
+  it("restores Content declarations when removing Content fails to restart the host", async () => {
+    const { root } = await createNestedProject()
+    const definition = join(root, "server/content.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, "export const content = defineContent({})")
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const types = join(root, ".vitehub/types/content.d.ts")
+    const declarations = "// Existing Content declarations\nexport {}\n"
+    await writeFile(types, declarations)
+    const restartHost = vi.fn().mockRejectedValueOnce(new Error("host restart failed")).mockResolvedValue(undefined)
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+    await rm(definition)
+    await listeners.get("unlink")?.(definition)
+    await expect(readFile(types, "utf8")).resolves.toBe(declarations)
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
+    await expect(readFile(types, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("retries when Vite fulfills a failed restart without replacing the server", async () => {

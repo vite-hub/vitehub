@@ -154,7 +154,7 @@ function renderAuthServerModule(options: { importBase?: string } = {}): string {
   const serverImport = `${options.importBase ?? authPackageName}/server`
   return [
     `export * from ${JSON.stringify(serverImport)}`,
-    `export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
+    `export { default } from ${JSON.stringify(serverImport)}`,
     "",
   ].join("\n")
 }
@@ -222,7 +222,7 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
   return [
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
     `  export * from ${JSON.stringify(serverImport)}`,
-    `  export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
+    `  export { default } from ${JSON.stringify(serverImport)}`,
     "}",
     "",
   ].join("\n")
@@ -511,13 +511,19 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
         context.server.moduleGraph.invalidateModule(serverModule)
       }
     },
-    resolveId(id) {
-      if (id === AUTH_DEFINITION_ID) return RESOLVED_AUTH_DEFINITION_ID
-      if (id === AUTH_SERVER_ID) return RESOLVED_AUTH_SERVER_ID
+    resolveId: {
+      filter: { id: /^#vitehub\/auth\/(?:definition|server)$/ },
+      handler(id) {
+        if (id === AUTH_DEFINITION_ID) return RESOLVED_AUTH_DEFINITION_ID
+        if (id === AUTH_SERVER_ID) return RESOLVED_AUTH_SERVER_ID
+      },
     },
-    load(id) {
-      if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv })
-      if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase })
+    load: {
+      filter: { id: /^\0#vitehub\/auth\/(?:definition|server)$/ },
+      handler(id) {
+        if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv })
+        if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase })
+      },
     },
   }
 }

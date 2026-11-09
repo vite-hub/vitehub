@@ -9,8 +9,9 @@ import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { basename, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
+import { checkoutPushError, formatDeployCheckouts, prepareDeployCheckouts, pushDeployCheckouts } from "./deploy/checkouts.ts"
 import { cloudflareAdapter } from "./deploy/cloudflare.ts"
-import { denoAdapter } from "./deploy/deno.ts"
+import { denoAdapter, denoOrganization } from "./deploy/deno.ts"
 import { createDeployRun, isRecord, optionalString, readDeployCommit } from "./deploy/host.ts"
 import { netlifyAdapter } from "./deploy/netlify.ts"
 import { hasVercelLogin, vercelAdapter } from "./deploy/vercel.ts"
@@ -21,6 +22,7 @@ import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
+import type { DeployCheckouts, DeployCheckoutsOutput } from "./deploy/checkouts.ts"
 import type { DeployAdapter, DeployCommit, DeployContext, DeployHost, DeployResult } from "./deploy/host.ts"
 import type { SetupConsoleLink, SetupLink } from "./link.ts"
 import type { SetupProject } from "./project.ts"
@@ -34,11 +36,18 @@ const consoleLinkPage = "https://console.vitehub.dev/link"
 const deployHosts: readonly DeployHost[] = ["cloudflare", "vercel", "netlify", "deno"]
 const temporaryHosts: readonly DeployHost[] = ["cloudflare", "vercel"]
 
-const usage = "vitehub deploy [--preview] [--no-build] [--temporary] [--yes] [--json]"
+const usage = "vitehub deploy [--preview] [--no-build] [--no-push] [--temporary] [--yes] [--json]"
+
+const help = `With checkout folders in vitehub.lock, a production deploy pulls them and checks for conflicts before the build, and
+pushes them after the deploy, as \`vitehub push\` does. A --preview deploy does not push, so a preview never writes
+the shared Workspace ref. --no-push skips the pull, the check and the push.
+`
 
 export interface SetupDeployArgs {
   preview: boolean
   build: boolean
+  /** False with --no-push. A preview deploy never pushes. */
+  push: boolean
   temporary: boolean
   yes: boolean
   json: boolean
@@ -54,6 +63,8 @@ export interface SetupDeployOutput {
   temporary?: { claimUrl: string, expiresAt?: string }
   console?: { linkUrl: string, secret: "set" | "var" }
   commit?: DeployCommit
+  /** The Workspace push of the checkout folders of `vitehub.lock`. Missing when the deploy did not push. */
+  checkouts?: DeployCheckoutsOutput
 }
 
 export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
@@ -64,13 +75,14 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
         "help": { short: "h", type: "boolean", default: false },
         "json": { type: "boolean", default: false },
         "no-build": { type: "boolean", default: false },
+        "no-push": { type: "boolean", default: false },
         "preview": { type: "boolean", default: false },
         "temporary": { type: "boolean", default: false },
         "yes": { short: "y", type: "boolean", default: false },
       },
       strict: true,
     })
-    return { build: !values["no-build"], help: values.help, json: values.json, preview: values.preview, temporary: values.temporary, yes: values.yes }
+    return { build: !values["no-build"], help: values.help, json: values.json, preview: values.preview, push: !values["no-push"], temporary: values.temporary, yes: values.yes }
   }
   catch (error: unknown) {
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
@@ -78,7 +90,7 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
 }
 
 function rerunCommand(args: SetupDeployArgs, extra: { temporary?: boolean } = {}): string {
-  return ["vitehub deploy", ...(args.preview ? ["--preview"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
+  return ["vitehub deploy", ...(args.preview ? ["--preview"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.push ? [] : ["--no-push"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
 }
 
 function deployHost(project: SetupProject, link: SetupLink | undefined, env: NodeJS.ProcessEnv): DeployHost {
@@ -160,12 +172,6 @@ async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOut
   return { outputDir, ...(identityName ? { identityName } : {}) }
 }
 
-function denoOrganization(link: SetupLink | undefined, env: NodeJS.ProcessEnv): string {
-  const organization = (link?.host === "deno" ? link.account?.id : undefined) ?? env.DENO_DEPLOY_ORG?.trim()
-  if (!organization) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
-  return organization
-}
-
 async function hostAdapter(host: DeployHost, context: DeployContext): Promise<DeployAdapter> {
   switch (host) {
     case "cloudflare": return await cloudflareAdapter(context)
@@ -226,6 +232,22 @@ function writeDeployed(output: SetupDeployOutput, name: string, context: ViteHub
   if (output.console) context.stdout.write(`Open this link to finish the Console link:\n${output.console.linkUrl}\n`)
 }
 
+/** Pushes the checkout folders after the deploy. A failed push does not undo the deploy, so it exits with 1 and says so. */
+async function pushCheckouts(checkouts: DeployCheckouts, deployed: SetupDeployOutput, args: SetupDeployArgs, context: ViteHubCliContext): Promise<SetupDeployOutput> {
+  try {
+    const pushed = await pushDeployCheckouts(checkouts, context)
+    if (!args.json) context.stdout.write(formatDeployCheckouts(pushed))
+    return { ...deployed, checkouts: pushed }
+  }
+  catch (error: unknown) {
+    const failure = checkoutPushError(error)
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PUSH_FAILED({ fix: failure.fix, message: `${failure.code}: ${failure.message}`, url: deployed.url }), setupExitCodes.error, {
+      data: { ...deployed, checkouts: { error: failure } },
+      rerun: "vitehub push",
+    })
+  }
+}
+
 async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Promise<number> {
   const project = await readSetupProject(context.rootDir, context.env)
   const link = await readSetupLink(project.root)
@@ -247,6 +269,9 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     }
   }
 
+  // A preview must not write the shared Workspace ref, so only a production deploy pushes. This imports project code,
+  // so it runs only after the confirmation.
+  const checkouts = args.push && !args.preview ? await prepareDeployCheckouts(project.root, context) : undefined
   if (args.build) await build(project, context)
   const output = await readBuildOutput(project.root, host)
   const projectName = link?.project.name ?? output.identityName
@@ -283,21 +308,22 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     ...(linkUrl && secret ? { console: { linkUrl, secret } } : {}),
     ...(deployContext.commit ? { commit: deployContext.commit } : {}),
   }
-  if (args.json) writeSetupJson(context, deployed)
-  else writeDeployed(deployed, projectName, context)
+  if (!args.json) writeDeployed(deployed, projectName, context)
   if (linkUrl && interactive) openInBrowser(linkUrl, context)
+  const final = checkouts ? await pushCheckouts(checkouts, deployed, args, context) : deployed
+  if (args.json) writeSetupJson(context, final)
   return setupExitCodes.done
 }
 
 export const deployCommand: ViteHubCliCommand = {
-  description: "Build the app and deploy it to its host with your local login. Sets the Console link secret when `vitehub init --console` left one.",
+  description: "Build the app and deploy it to its host with your local login. Sets the Console link secret when `vitehub init --console` left one, and pushes the checkout folders of vitehub.lock.",
   name: "deploy",
   run: async (args, context) => {
     const json = args.includes("--json")
     try {
       const parsed = readDeployArgs(args)
       if (parsed.help) {
-        context.stdout.write(`Usage: ${usage}\n\n${deployCommand.description}\n`)
+        context.stdout.write(`Usage: ${usage}\n\n${deployCommand.description}\n\n${help}`)
         return setupExitCodes.done
       }
       return await runDeploy(parsed, context)

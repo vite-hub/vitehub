@@ -50,16 +50,39 @@ Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/
 
 Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, Teams, and Telegram Channels in `vite dev` before you create any bot or token:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: { channels: { simulate: true } } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', agent: { channels: { simulate: true } } }),
-  ],
+  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } })],
 })
 ```
+:::
+::
 
 Each simulated Channel replaces its provider with the Chat SDK [web adapter](https://chat-sdk.dev/adapters/official/web). Its webhook route accepts an AI SDK chat request and streams the reply as an AI SDK UI message stream:
 
@@ -71,7 +94,7 @@ curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
 
 Open the Channel's webhook URL in a browser, such as `http://localhost:3000/api/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
 
-`pnpm vitehub channels list` marks each simulated Channel and prints the path of its chat page. The `channels.list` operation returns them as `simulated: true` and `simulator`.
+`pnpm vitehub channels list` marks each simulated Channel and prints the path of its chat page. The `channels.list` operation returns them as `simulated: true` and `simulator`. The Console Channels page marks them too, and shows the chat page of the selected one with an **Open chat** button.
 
 Point an AI SDK `useChat` client at the same route to chat from a page. The Agent still runs as that Channel, with its instructions and message settings. Simulated delivery runs inline within the HTTP request, even with `messages.durable: true` or an active Workflow runtime. A simulated Channel is a direct message with one user: mentions, threads, cards, and buttons are not simulated. Webhook verification, Telegram polling, and the Discord Gateway are off.
 
@@ -652,21 +675,24 @@ Select the Channel and its destination when the application starts the invocatio
 ```ts fragment
 import { runAgent } from 'vite-hub/agent'
 
-await runAgent(agent, {
-  runtime: 'vite',
-  waitUntil: schedule.waitUntil ?? (() => {}),
-  run: {
-    activity: {
-      links: [
-        { label: 'Session', url: sessionUrl },
-        { label: 'Memory', url: memoryUrl },
-      ],
-      target: { repository: 'acme/storefront', issue: 42 },
+const [error] = await runAgent(agent, { prompt: 'Converge this pull request.' }, {
+  runtimeContext: {
+    runtime: 'vite',
+    run: {
+      activity: {
+        links: [
+          { label: 'Session', url: sessionUrl },
+          { label: 'Memory', url: memoryUrl },
+        ],
+        target: { repository: 'acme/storefront', issue: 42 },
+      },
+      channelId: 'github',
+      runId: schedule.runId,
     },
-    channelId: 'github',
-    runId: schedule.runId,
   },
-}, { prompt: 'Converge this pull request.' }, { schedule, output: 'drained' })
+  schedule,
+})
+if (error) throw error
 ```
 
 The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.
@@ -743,6 +769,32 @@ export default defineAgent({
 
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'node', agent: true }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -753,6 +805,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Use the Vue client from the application:
 

@@ -1,4 +1,4 @@
-import { runAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { eq } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
@@ -66,7 +66,7 @@ describe("Default Agent D1 journal read by the Console", () => {
     await expect(db.select().from(schema.invocations)).resolves.toEqual([])
     await expect(db.select().from(schema.invocations).get()).resolves.toBeUndefined()
 
-    await expect(runAgent(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("done")
 
     // Each journal write is bounded to one second and retried in the background, so wait for the terminal state.
     await vi.waitFor(async () => {

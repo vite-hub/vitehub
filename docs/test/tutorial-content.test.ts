@@ -3,6 +3,8 @@ import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { frameworks, frameworkView } from "../modules/tutorials/build"
+
 const docsRoot = resolve(import.meta.dirname, "..")
 
 async function markdownFiles(directory: string): Promise<string[]> {
@@ -64,9 +66,12 @@ describe("multi-file tutorial examples", () => {
       const source = await readFile(path, "utf8")
       if (!isTutorial(source)) continue
 
-      const virtualLabels = labels(source).filter(label => label.startsWith("commands/") || label.startsWith("output/"))
-      expect(labels(source).filter(label => /^(Terminal|Response|Output)(?::|$)/.test(label)), path).toEqual([])
-      expect(new Set(virtualLabels).size, path).toBe(virtualLabels.length)
+      for (const framework of frameworks) {
+        const view = frameworkView(source, framework)
+        const virtualLabels = labels(view).filter(label => label.startsWith("commands/") || label.startsWith("output/"))
+        expect(labels(view).filter(label => /^(Terminal|Response|Output)(?::|$)/.test(label)), path).toEqual([])
+        expect(new Set(virtualLabels).size, `${path} (${framework})`).toBe(virtualLabels.length)
+      }
     }
   })
 
@@ -77,8 +82,10 @@ describe("multi-file tutorial examples", () => {
       const source = await readFile(path, "utf8")
       if (!isTutorial(source)) continue
 
-      const tutorialLabels = labels(source)
-      expect(new Set(tutorialLabels).size, path).toBe(tutorialLabels.length)
+      for (const framework of frameworks) {
+        const tutorialLabels = labels(frameworkView(source, framework))
+        expect(new Set(tutorialLabels).size, `${path} (${framework})`).toBe(tutorialLabels.length)
+      }
     }
   })
 

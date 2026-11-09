@@ -14,9 +14,7 @@ import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
-import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
-import { forgeAccessKey } from "@vite-hub/agent/server/internal";
-import { activeProviderSandbox, resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
+import { activeProviderSandbox, agentSettings, createMessage, defineAgent, runAgent, publishAgentActivity, withoutForgeAccess } from "@vite-hub/agent";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
@@ -34,7 +32,6 @@ import { parseEvidence } from "./inbox/types.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
-import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "@vite-hub/agent/server/internal";
 import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
@@ -1539,8 +1536,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // remain in the evidence hash; any external reopen revokes it.
                 ownedResolutions.set(id, reopens);
               });
-              const settings = getAgentLayerOptions(baseAgent);
-              const driver = settings?.driver;
+              const baseSettings = agentSettings(baseAgent);
+              const driver = baseSettings?.driver;
               if (
                 !driver ||
                 typeof driver !== "object" ||
@@ -1556,7 +1553,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 | ClaudeCodeDriver<unknown, BabysitterPassResult>;
               const activityEnabled = !!verifiedHostIdentity;
               const workerName = `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`;
-              const baseSettings = getAgentLayerOptions(baseAgent);
               if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
               // Build the worker from the base settings while replacing only
               // its GitHub Channel. Extending the base Agent would preserve
@@ -1572,11 +1568,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               if (workerSettings.sandbox) providerDirectory = checkout;
               const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
               const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-                if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
-                const sanitized = { ...channel };
                 // A GitHub channel under any key can otherwise reintroduce host credentials.
-                Reflect.deleteProperty(sanitized, forgeAccessKey);
-                return [name, sanitized];
+                if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
+                return [name, withoutForgeAccess(channel)];
               }));
               const baseCapabilities = workerSettings.capabilities;
               const repair = repairCapability(operations, merge.mode === "auto", presetOptions.mentionAllowlist, async (context) => {
@@ -1625,21 +1619,19 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               });
               const workerCapabilities = typeof baseCapabilities === "function"
                 ? async (context: Parameters<AgentCapabilitiesResolver>[0]) => [
-                  ...(await resolveAgentCapabilityDefinitions(baseCapabilities, context)).filter(capability => capability.id !== "babysitter.github"),
+                  ...(await baseCapabilities(context)).filter(capability => capability.id !== "babysitter.github"),
                   repair,
                 ]
                 : [
                   ...(Array.isArray(baseCapabilities) ? baseCapabilities : []).filter(capability => capability.id !== "babysitter.github"),
                   repair,
                 ];
-              copyDefinitionDecorations(asMetadataTarget(baseAgent), asMetadataTarget(workerSettings));
-              const workerChannel = { ...github.channel({
-                activity: activityEnabled,
-                pullRequest: { filter, workspace: false },
-              }) };
               // Preserve host-owned activity and delivery closures without
               // exposing their forge access to provider credential resolution.
-              Reflect.deleteProperty(workerChannel, forgeAccessKey);
+              const workerChannel = withoutForgeAccess(github.channel({
+                activity: activityEnabled,
+                pullRequest: { filter, workspace: false },
+              }));
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.
               let baseWorkspace: Record<string, unknown> = {};
@@ -1751,21 +1743,22 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   // provider runtime; setup and admission may have taken time.
                   await assertLease();
                   modelDispatched = true;
-                  return await runAgent(
+                  const [error, result] = await runAgent(
                     agent,
-                    {
-                      runtime: "vite",
-                      run: githubRun,
-                      memo: (_key, create) => create(),
-                      waitUntil: () => {},
-                    },
                     {
                       abortSignal,
                       context,
                       messages: [createMessage({ role: "user", text: userMessage })],
                     },
-                    { schedule: { ...schedule, runId }, output: "drained" },
+                    {
+                      // The pass does not keep background work alive after it returns.
+                      runtimeContext: { runtime: "vite", run: githubRun, waitUntil: () => {} },
+                      schedule: { ...schedule, runId },
+                    },
                   );
+                  // Provider retry and abort handling read the original failure.
+                  if (error) throw error.cause ?? error;
+                  return result.output;
                 } finally {
                   releaseModelSlot();
                 }
@@ -1947,7 +1940,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
 function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAgent {
   if (
-    !getAgentLayerOptions(agent) ||
+    !agentSettings(agent) ||
     !("options" in agent) ||
     !agent.options ||
     !hasRuntimeType(agent.options, "object") ||

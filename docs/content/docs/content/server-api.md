@@ -78,7 +78,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-A path or name that the file does not list has `data` typed as `Record<string, any>`. `.vitehub` is not committed, so a fresh checkout, such as in CI, has no file: `get()` and `list()` use that type, and `query()` rows use `Record<string, unknown>`. To type check with the file there, write the output of `generateContentTypes(content)` from `vite-hub/content` to `.vitehub/types/content.d.ts` in a script that loads your Content. Generation reads every Source and the `published` ref of every collection in the background. A failure prints one `Could not generate Content types` warning.
+A path or name that the file does not list has `data` typed as `Record<string, any>`. `.vitehub` is not committed, so a fresh checkout, such as in CI, has no file: `get()` and `list()` use that type, and `query()` rows use `Record<string, unknown>`. To type check with the file there, write the output of `generateContentTypes(content, { moduleName: "vite-hub/content" })` from `vite-hub/content` to `.vitehub/types/content.d.ts` in a script that loads your Content. Generation reads every Source and the `published` ref of every collection in the background. A failure prints one `Could not generate Content types` warning.
 
 In development, Content lists a new or renamed Source file after a restart or `content.cache.refresh(name)`, and the types follow the same list.
 

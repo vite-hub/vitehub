@@ -16,6 +16,24 @@ export function isIsolatedPath(path: string): boolean {
   return isIsolatedTutorialPath(path) || path === playgroundRoute;
 }
 
+/**
+ * The nodes as a reader of one framework sees them: each `::tabs{sync="framework"}` block becomes the content of that
+ * framework's tab. A runnable tutorial runs a Vite workspace, so its lesson shows the Vite tab, whatever the reader picked.
+ */
+export function frameworkNodes(nodes: readonly DocsNode[], framework: string): DocsNode[] {
+  return nodes.flatMap((node): DocsNode[] => {
+    if (!Array.isArray(node) || node[0] === null) return [node]
+    const [tag, props, ...children] = node
+    if (tag === "tabs" && props?.sync === "framework") {
+      const item = children.find(child => Array.isArray(child) && child[0] === "tabs-item" && child[1]?.label === framework)
+      if (!Array.isArray(item)) return []
+      const [, , ...content] = item
+      return frameworkNodes(content, framework)
+    }
+    return [[tag, props, ...frameworkNodes(children, framework)]]
+  })
+}
+
 function isStep(node: DocsNode): boolean {
   return Array.isArray(node) && node[0] === "tutorial-step";
 }

@@ -4,8 +4,9 @@ import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
-import { isScheduleDate, validateScheduledAt } from "./date.ts"
+import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
+import { isScheduleDue, latestCronMinute } from "./due.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -21,6 +22,11 @@ export interface ExecuteMatchingStaticSchedulesOptions {
   cronOverrides?: Readonly<Record<string, string>>
   registry: ScheduleDefinitionRegistry
   scheduledAt?: Date
+  /**
+   * UTC cron that the host registered for each Schedule with a `timeZone`. A wake runs such a Schedule only when its
+   * own cron is due in its time zone at that minute. `cronOverrides` wins over this map.
+   */
+  timeZoneCrons?: Readonly<Record<string, string>>
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
@@ -28,6 +34,8 @@ export interface ExecuteCloudflareStaticSchedulesOptions {
   /** Cron per Schedule name that the host registered in place of the Definition's cron. */
   cronOverrides?: Readonly<Record<string, string>>
   registry: ScheduleDefinitionRegistry
+  /** UTC cron that the host registered for each Schedule with a `timeZone`. */
+  timeZoneCrons?: Readonly<Record<string, string>>
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
@@ -128,6 +136,24 @@ function isScheduleRuntimeError(error: unknown): error is Error {
   }
 }
 
+/**
+ * Estimates a wake minute from callback time when the host supplies no scheduled timestamp. This is the newest UTC
+ * cron match within one day, or the current minute when none matches. It cannot identify a delayed or retried wake
+ * after another cron match; callers must not treat it as the provider's occurrence identity.
+ */
+export function scheduledWakeTime(cron: string, now: Date = new Date()): Date {
+  return latestCronMinute(normalizeCron(cron), now)
+}
+
+/**
+ * Returns `true` when a host wake at `scheduledAt` is an occurrence of the Definition's cron in its `timeZone`. The host
+ * runs a wider UTC cron for a time-zoned Schedule, so the runtime skips the wakes that are not local occurrences.
+ */
+export function isTimeZoneWakeDue(definition: ScheduleDefinition & { cron: string }, name: string, scheduledAt: Date): boolean {
+  const minute = new Date(Math.floor(scheduledAt.getTime() / 60_000) * 60_000)
+  return isScheduleDue({ cron: definition.cron, id: name, ...(definition.timeZone ? { timeZone: definition.timeZone } : {}) }, minute)
+}
+
 export function createStaticScheduleRun(
   options: Omit<ExecuteStaticScheduleOptions, "definition" | "waitUntil"> & { waitUntil: NonNullable<ExecuteStaticScheduleOptions["waitUntil"]> },
 ): StaticScheduleRun {
@@ -135,6 +161,7 @@ export function createStaticScheduleRun(
   return {
     cron: options.cron,
     id: `run_${options.name}_${scheduledAt.toISOString()}`,
+    idempotencyKey: scheduleIdempotencyKey(options.name, scheduledAt),
     scheduleId: options.name,
     scheduledAt,
     waitUntil: options.waitUntil,
@@ -160,8 +187,10 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
     if (!definition) continue
-    const scheduleCron = (options.cronOverrides && Object.hasOwn(options.cronOverrides, name) ? options.cronOverrides[name] : undefined) ?? definition.cron
-    if (normalizeCron(scheduleCron) !== cron) continue
+    const override = options.cronOverrides && Object.hasOwn(options.cronOverrides, name) ? options.cronOverrides[name] : undefined
+    const timeZoneCron = override === undefined && options.timeZoneCrons && Object.hasOwn(options.timeZoneCrons, name) ? options.timeZoneCrons[name] : undefined
+    if (normalizeCron(override ?? timeZoneCron ?? definition.cron) !== cron) continue
+    if (timeZoneCron !== undefined && !isTimeZoneWakeDue(definition, name, scheduledAt)) continue
     runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
   }
   // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
@@ -189,6 +218,7 @@ export async function executeCloudflareStaticSchedules(
       cronOverrides: options.cronOverrides,
       registry: options.registry,
       scheduledAt: scheduled.scheduledAt,
+      timeZoneCrons: options.timeZoneCrons,
       waitUntil,
     })
   }, hostWaitUntil)
@@ -316,7 +346,7 @@ function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<str
   return isRecord(runtimeCloudflare?.env) ? runtimeCloudflare.env : undefined
 }
 
-function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition & { cron: string } {
   return isRecord(value)
     && Object.hasOwn(value, "cron")
     && hasRuntimeType(value.cron, "string")
@@ -325,7 +355,7 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && typeof value.handler === "function"
 }
 
-export function unwrapScheduleDefinition(loaded: unknown): ScheduleDefinition | undefined {
+export function unwrapScheduleDefinition(loaded: unknown): (ScheduleDefinition & { cron: string }) | undefined {
   const candidate = isRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
   return isStaticScheduleDefinition(candidate) ? candidate : undefined
 }

@@ -33,7 +33,7 @@ export default defineAgent({
 })
 ```
 
-Create the route. The two-argument `runAgent()` call returns an error tuple.
+Create the route. `runAgent()` returns an `[error, result]` tuple.
 
 ```ts [server/api/greet.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -45,7 +45,7 @@ export default defineEventHandler(async (event) => {
 	const name = typeof body?.name === 'string' ? body.name : 'friend'
 	const [error, result] = await runAgent(greeting, { prompt: name })
 	if (error) throw error
-	return result
+	return { text: result.text }
 })
 ```
 
@@ -54,6 +54,41 @@ export default defineEventHandler(async (event) => {
 Select the Cloudflare preset. Disable Workflow because this Agent finishes
 inside the request. Disable Console so this check needs no invocation journal.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	name: 'vitehub-greeting',
+  	preset: 'cloudflare',
+  	agent: true,
+  	workflow: false,
+  	console: false,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+	plugins: [vitehub({
+		name: 'vitehub-greeting',
+		preset: 'cloudflare',
+		agent: true,
+		workflow: false,
+		console: false,
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -68,6 +103,8 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
 Build the app and confirm that it writes the Worker configuration:
 

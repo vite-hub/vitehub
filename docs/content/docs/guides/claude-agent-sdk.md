@@ -29,6 +29,37 @@ The SDK installs one native Claude Code package for your OS and CPU. ViteHub fin
 
 ### Enable Agents on the Node preset
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: true,
+    workflow: false,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    agent: true,
+    workflow: false,
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -41,6 +72,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 `workflow: false` is correct here because the Agent finishes inside the HTTP request. A provider Driver starts a local process, so it needs a Node.js host. See [Where the Claude Agent SDK can run](#where-the-claude-agent-sdk-can-run).
 
@@ -99,13 +132,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Send a non-empty prompt.' })
   }
 
-  const [error, text] = await runAgent(coder, { prompt: body.prompt }, { output: 'drained' })
+  const [error, result] = await runAgent(coder, { prompt: body.prompt })
   if (error) throw error
-  return { text }
+  return { text: result.text }
 })
 ```
 
-`{ output: 'drained' }` waits for the run to end and returns `[error, text]`. Read [Invocations](/docs/agents/invocations) to stream the events instead.
+`runAgent()` waits for the run to end and returns `[error, result]`. Read [Invocations](/docs/agents/invocations) to stream the events instead.
 
 This route has no sign-in. Each request starts Claude Code on your server and uses your API key. Add [Auth](/docs/auth) before you deploy it.
 

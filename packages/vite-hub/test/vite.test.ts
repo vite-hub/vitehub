@@ -136,6 +136,7 @@ import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub, type ViteHubOptions } from "../src/index.ts"
+import { ownerModules } from "../src/internal/owner-modules.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
@@ -741,6 +742,7 @@ describe("vitehub", () => {
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "@vite-hub/forms/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
@@ -776,6 +778,7 @@ describe("vitehub", () => {
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
       "vite-hub/unavailable-services",
+      "vite-hub/cloudflare-sh-syntax",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -797,6 +800,7 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "@vite-hub/forms/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
@@ -864,7 +868,8 @@ describe("vitehub", () => {
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
+    // hubKv() infers the driver itself, so `vite dev` can keep the store local.
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -959,6 +964,20 @@ describe("vitehub", () => {
       provider: "cloudflare",
       scanDirs: ["rules"],
     })
+  })
+
+  it("checks Forms entries when only the Forms owner is absent", () => {
+    expect(ownerModules.commentsVite).toBeDefined()
+    expect(ownerModules.contentVite).toBeDefined()
+    expect(ownerModules.cmsVite).toBeDefined()
+    const forms = ownerModules.formsVite
+    try {
+      ownerModules.formsVite = undefined
+      expect(pluginNames(vitehub({ database: false, preset: "node" }))).toContain("vite-hub/optional-owner-entries")
+    }
+    finally {
+      ownerModules.formsVite = forms
+    }
   })
 
   it("keeps the request error logger when evlog is disabled", () => {
