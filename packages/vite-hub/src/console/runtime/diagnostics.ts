@@ -121,13 +121,13 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_TOKEN_INVALID: code(
       "The request has no Console token, or the token is not correct.",
-      "Send Authorization: Bearer with the token whose SHA-256 is in VITEHUB_CONSOLE_TOKEN_SHA256. For the CLI, set VITEHUB_CONSOLE_AUTHORIZATION=\"Bearer <token>\".",
+      "Send `Authorization: Bearer <token>` with the token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION=\"Bearer <token>\"`.",
       `${consoleGuide}#use-a-console-token`,
       "docs",
     ),
     CONSOLE_TOKEN_NOT_CONFIGURED: code(
-      "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment.",
-      "Create a token with openssl rand -hex 32. Set VITEHUB_CONSOLE_TOKEN_SHA256 to its SHA-256 as 64 hex characters, the output of printf %s \"$TOKEN\" | sha256sum. On Cloudflare, run wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256. Do not store the token itself. Then restart or deploy the server.",
+      "`console: { auth: \"token\" }` needs `VITEHUB_CONSOLE_TOKEN_SHA256` in the server environment.",
+      "Create a token with `openssl rand -hex 32`. Set `VITEHUB_CONSOLE_TOKEN_SHA256` to its SHA-256 as 64 hex characters, the output of `printf %s \"$TOKEN\" | sha256sum`. On Cloudflare, run `wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256`. Do not store the token itself. Then restart or deploy the server.",
       `${consoleGuide}#use-a-console-token`,
       "docs",
     ),

@@ -2,7 +2,7 @@ import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, l
 import MagicString from "magic-string"
 
 import { CodemodError } from "../types.ts"
-import { findModuleEntry, literalValue, nitroPreset } from "./nuxt-config.ts"
+import { findModuleEntry, literalValue, nitroPreset, staticOptionsObject, unwrapExpression } from "./nuxt-config.ts"
 
 import type { ObjectExpression, ObjectProperty, Statement } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -99,10 +99,25 @@ export class ConfigEditor {
   }
 
   /** Inserts properties before the closing brace of `object`, after its last kept property. */
+  /** Indentation of the properties of `object`. A one-line object gets the indentation it would have on several lines. */
+  propertyIndent(object: ObjectExpression): string {
+    const firstProperty = object.properties[0]
+    if (firstProperty && this.code.slice(start(object), start(firstProperty)).includes("\n")) return indentAt(this.code, start(firstProperty))
+    return `${indentAt(this.code, start(object))}${this.style.indent}`
+  }
+
   insertProperties(object: ObjectExpression, entries: string[], removedProperties: ReadonlySet<Node>): void {
     const kept = object.properties.filter(property => !removedProperties.has(property))
     const last = kept.at(-1)
     const closing = end(object) - 1
+    // A one-line object such as `{ preset: 'node' }` goes on several lines, so the new entries can span lines.
+    if (last && kept.length === object.properties.length && !this.code.slice(start(object), end(object)).includes("\n")) {
+      const indent = this.propertyIndent(object)
+      this.output.overwrite(start(object) + 1, start(kept[0]!), `\n${indent}`)
+      kept.slice(1).forEach((property, index) => this.output.overwrite(end(kept[index]!), start(property), `,\n${indent}`))
+      this.output.overwrite(end(last), closing, `,\n${entries.map(entry => `${indent}${entry},\n`).join("")}${indentAt(this.code, start(object))}`)
+      return
+    }
     const firstProperty = object.properties[0]
     const indent = firstProperty ? indentAt(this.code, start(firstProperty)) : `${indentAt(this.code, start(object))}${this.style.indent}`
     const closingIndent = indentAt(this.code, closing)
@@ -172,7 +187,8 @@ export class ConfigEditor {
     }
   }
 
-  private removeStatement(statement: Statement): void {
+  /** Removes a top-level statement with its leading comments and line break. */
+  removeStatement(statement: Statement): void {
     const from = Math.min(start(statement), ...(statement.leadingComments ?? []).map(comment => comment.start ?? start(statement)))
     let to = end(statement)
     while (to < this.code.length && /[ \t]/.test(this.code[to] ?? "")) to++
@@ -203,23 +219,34 @@ export function findViteHubEntry(config: NuxtConfigFile): Node | undefined {
   const viteHubImports = new Set(config.program.program.body.flatMap(statement => statement.type === "ImportDeclaration" && statement.source.value === vitehubModule
     ? statement.specifiers.map(specifier => specifier.local.name)
     : []))
-  return modules?.elements.find((element) => {
-    if (!element) return false
-    const head = element.type === "ArrayExpression" ? element.elements[0] : element
-    if (!head) return false
-    return literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))
-  }) ?? undefined
+  for (const element of modules?.elements ?? []) {
+    if (!element) continue
+    const entry = unwrapExpression(element)
+    const first = entry.type === "ArrayExpression" ? entry.elements[0] : entry
+    if (!first) continue
+    const head = unwrapExpression(first)
+    if (literalValue(head) === vitehubModule || (head.type === "Identifier" && viteHubImports.has(head.name))) return entry
+  }
+  return undefined
 }
 
 export function objectPropertyArray(object: ObjectExpression, name: string) {
   const property = findProperty(object, name)
-  return property?.value.type === "ArrayExpression" ? property.value : undefined
+  const value = property ? unwrapExpression(property.value) : undefined
+  return value?.type === "ArrayExpression" ? value : undefined
 }
 
-export function hasInlinePreset(entry: Node | undefined): boolean {
-  if (entry?.type !== "ArrayExpression") return false
-  const options = entry.elements[1]
-  return options?.type === "ObjectExpression" && Boolean(findProperty(options, "preset"))
+/** Reads an explicit ViteHub option. Rejects opaque objects; inline options take precedence over `vitehub`. */
+export function findViteHubOption(config: NuxtConfigFile, name: string): ObjectProperty | undefined {
+  const entry = findViteHubEntry(config)
+  const inline = entry?.type === "ArrayExpression" ? entry.elements[1] : undefined
+  const inlineOptions = inline ? staticOptionsObject(inline) : undefined
+  if (inline && !inlineOptions) throw new CodemodError(`${config.fileName} sets inline vite-hub/nuxt options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  const existing = findProperty(config.root, "vitehub")
+  const rootOptions = existing ? staticOptionsObject(existing.value) : undefined
+  if (existing && !rootOptions) throw new CodemodError(`${config.fileName} sets vitehub options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  return (inlineOptions ? findProperty(inlineOptions, name) : undefined)
+    ?? (rootOptions ? findProperty(rootOptions, name) : undefined)
 }
 
 /** Returns the line of the property at `path` from the config root in `code`, or of its nearest parent. */
@@ -310,6 +337,34 @@ export interface ViteHubOptionsResult {
   presetNote?: string
 }
 
+/** The ViteHub deployment preset an app builds for, and the preset that `addViteHubOptions()` adds when the app sets none. */
+export interface PresetPlan {
+  /** The preset the app will build for, when the codemod can tell. */
+  preset?: string
+  /** The preset to add under `vitehub`. */
+  add?: string
+  note?: string
+}
+
+export function planPreset(config: NuxtConfigFile): PresetPlan {
+  const existingPreset = findViteHubOption(config, "preset")
+  if (existingPreset) {
+    const value = literalValue(existingPreset.value)
+    return { preset: typeof value === "string" ? value : undefined }
+  }
+  const preset = nitroPreset(config)
+  if (preset.property && preset.value === undefined) {
+    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
+  }
+  if (preset.value) {
+    const mapped = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
+    return mapped
+      ? { preset: mapped, add: mapped }
+      : { note: `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
+  }
+  return { preset: "node", add: "node", note: `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.` }
+}
+
 /**
  * Adds `options` under `vitehub`, and a deployment preset when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
@@ -318,25 +373,9 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
-  const existingPreset = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "preset") : undefined
-  const inlinePreset = hasInlinePreset(findViteHubEntry(config))
-  const preset = nitroPreset(config)
-  if (preset.property && preset.value === undefined && !inlinePreset && !existingPreset) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
-  }
-  let vitehubPreset: string | undefined = "node"
-  let presetNote: string | undefined = `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
-  if (preset.value) {
-    vitehubPreset = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
-    presetNote = vitehubPreset
-      ? undefined
-      : `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.`
-  }
-  if (inlinePreset) {
-    vitehubPreset = undefined
-    presetNote = undefined
-  }
-
+  const planned = planPreset(config)
+  let vitehubPreset = planned.add
+  let presetNote = planned.note
   const unit = style.indent
   const baseIndent = config.root.properties[0] ? indentAt(config.code, start(config.root.properties[0])) : unit
   if (existingOptions) {
@@ -345,10 +384,13 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
     for (const option of input.options) {
       if (findProperty(existing, option.key)) throw new CodemodError(`${config.fileName} already sets vitehub.${option.key}. Merge ${option.label} by hand.`)
     }
-    const innerIndent = existing.properties[0] ? indentAt(config.code, start(existing.properties[0])) : `${baseIndent}${unit}`
+    const innerIndent = existing.properties.length ? editor.propertyIndent(existing) : `${baseIndent}${unit}`
     const entries = input.options.map(option => `${option.key}: ${option.value(innerIndent)}`)
     if (vitehubPreset && !findProperty(existing, "preset")) entries.unshift(`preset: ${quoteString(vitehubPreset, style)}`)
-    else if (findProperty(existing, "preset")) presetNote = undefined
+    else if (findProperty(existing, "preset")) {
+      vitehubPreset = undefined
+      presetNote = undefined
+    }
     editor.insertProperties(existing, entries, new Set())
   }
   else {

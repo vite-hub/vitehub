@@ -105,6 +105,16 @@ const appDeclarations = [
     file: join(docsRoot, ".snippets/vue-shim.d.ts"),
   },
   {
+    // `hubAuth()` writes this declaration for the stable Auth alias that manual hosts mount.
+    code: [
+      `declare module "#vitehub/auth/server" {`,
+      `  export * from "@vite-hub/auth/server"`,
+      `  export { default } from "@vite-hub/auth/server"`,
+      `}`,
+    ].join("\n"),
+    file: join(docsRoot, ".snippets/vitehub-auth-server.d.ts"),
+  },
+  {
     // Nuxt writes these options into `.nuxt/types/modules.d.ts` for the modules that an app installs.
     code: [
       `declare module "@nuxt/schema" {`,

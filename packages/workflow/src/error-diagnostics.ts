@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
     WORKFLOW_C0001: dynamicError,
     WORKFLOW_C0002: dynamicError,

@@ -1,5 +1,3 @@
-import { getBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
-
 import { consoleAccessAllows, type ConsoleAccess } from "./access.ts"
 import { getConsoleBlob } from "./blob.ts"
 import { consoleActionError, consoleDocumentActionContext, loadConsoleDocumentActions, runConsoleDocumentAction, type ConsoleMediaAccess } from "./documents.ts"
@@ -211,6 +209,8 @@ function joinUrl(base: string, route: string): string {
 /** The served Blob Store, or `default` when `blob.serve` is off. */
 async function mediaStore(): Promise<{ served: string | null, storage: BlobStorage, store: string }> {
   const inspection = getConsoleBlob()
+  // Blob is an optional peer. The Console RPC route loads this module in apps without it.
+  const { getBlobRuntimeConfig } = await import("@vite-hub/blob/runtime/state")
   const config = await getBlobRuntimeConfig().catch(() => false as const)
   const serve = config ? config.serve : undefined
   const store = serve && inspection.stores.includes(serve.store) ? serve.store : "default"

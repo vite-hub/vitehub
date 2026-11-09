@@ -48,7 +48,7 @@ describe("D1 limits on local SQLite in a dev server for Cloudflare", () => {
     await expect(db.select().from(schema.notes).where(inArray(schema.notes.id, ids(100)))).resolves.toEqual([])
     expect(await rejection(db.select().from(schema.notes).where(inArray(schema.notes.id, ids(101))))).toMatchObject({
       code: "DATABASE_D1_TOO_MANY_PARAMETERS",
-      docs: "https://vitehub.dev/docs/database/limits-and-errors#database_d1_too_many_parameters",
+      docs: "https://vitehub.dev/docs/database/diagnostics/database_d1_too_many_parameters",
       why: "The query binds 101 parameters. Cloudflare D1 accepts at most 100 bound parameters per query.",
     })
   })
