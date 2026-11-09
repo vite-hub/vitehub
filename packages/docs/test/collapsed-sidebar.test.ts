@@ -47,7 +47,8 @@ it("collapses the sidebar to a strip on pages that opt in, from frontmatter or p
     const strip = (html: string) => html.includes('aria-label="Show navigation"')
     const hide = (html: string) => html.includes('aria-label="Hide navigation"')
     const pages = (html: string) => /<nav[^>]*aria-label="Docs pages"/.test(html)
-    const headerHidden = (html: string) => /class="sticky top-0 z-50 lg:hidden"/.test(html)
+    // The site header hides on wide screens beside a sidebar that carries its controls, as the attribute marks.
+    const headerHidden = (html: string) => /<div[^>]*data-docs-sidebar-head/.test(html)
 
     // A page with `sidebar: collapsed` starts as the strip, with no page list, and the site header hides beside it.
     const wide = await page("guide/wide")

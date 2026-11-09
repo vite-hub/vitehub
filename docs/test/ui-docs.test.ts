@@ -195,7 +195,7 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
-    expect(layout).toContain('<LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel head />');
+    expect(layout).toContain('<LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" :panel="sidebar.state === \'open\'" head :collapsible="sidebar.collapsible" />');
     expect(layout).toContain(".vh-docs-shell.has-sidebar:has([data-docs-sidebar-head])");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     // The aside container is a flex column. The sidebars must grow into it, or the panel collapses to its header.
