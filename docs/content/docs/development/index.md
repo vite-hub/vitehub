@@ -19,7 +19,7 @@ and in production builds.
 | [ViteHub CLI](/docs/development/cli) | Package-owned commands such as `inspect`, `agent dev`, `agent eval`, and `provision` | Exit code, terminal output, and optional JSON |
 | [ViteHub Console](/docs/development/console) | Discovered Agents, retained sessions, invocation events, and stored data | The `/_vitehub` page in the browser |
 | [Generated files](/docs/development/generated-files) | Registries, generated types, Provision State, and host output | `.vitehub/**` and the preset's output directory |
-| Application tests | Server API behavior and application regressions | Test output |
+| [Application tests](/docs/development/testing) | Server API behavior and application regressions with `vite-hub/test` | Test output |
 
 ## Run the local app
 

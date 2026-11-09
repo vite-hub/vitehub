@@ -2,8 +2,10 @@ import { redactInspectionText } from "@vite-hub/internal/inspect"
 
 import { runSchedule } from "./execute.ts"
 import { getScheduleRunStore } from "./state.ts"
+import { cancelSchedule, listSchedules, startSchedule } from "../started.ts"
 
-import type { ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunAttemptStatus, ScheduleRunError, ScheduleRunRecord, ScheduleRunStatus } from "../types.ts"
+import type { ResultError } from "@vite-hub/runtime"
+import type { ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunAttemptStatus, ScheduleRunError, ScheduleRunRecord, ScheduleRunStatus, StartedSchedule, StartScheduleOptions } from "../types.ts"
 
 /** Error of a run or attempt. The stack is not included. */
 export interface ScheduleRunErrorSummary {
@@ -213,4 +215,69 @@ export async function runScheduleNow(input: { at?: string, name: string }, regis
     throw new ScheduleOperationError(404, "SCHEDULE_DEFINITION_NOT_FOUND", "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).")
   }
   return await attempt(async () => ({ run: summarizeManualScheduleRun(await runSchedule(input.name, { registry, scheduledAt: input.at })) }))
+}
+
+/** Serializable view of one started Schedule, as `vitehub schedule list` prints it. */
+export interface StartedScheduleSummary {
+  at?: string
+  createdAt: string
+  cron?: string
+  id: string
+  name: string
+  payload?: unknown
+  timeZone?: string
+}
+
+function summarizeStartedSchedule(schedule: StartedSchedule): StartedScheduleSummary {
+  return {
+    ...(schedule.at ? { at: schedule.at.toISOString() } : {}),
+    createdAt: schedule.createdAt.toISOString(),
+    ...(schedule.cron === undefined ? {} : { cron: schedule.cron }),
+    id: schedule.id,
+    ...(schedule.payload === undefined ? {} : { payload: schedule.payload }),
+    name: schedule.name,
+    ...(schedule.timeZone === undefined ? {} : { timeZone: schedule.timeZone }),
+  }
+}
+
+const startedErrorStatus: Readonly<Record<string, number>> = {
+  SCHEDULE_INVALID_OPTIONS: 400,
+  SCHEDULE_NOT_FOUND: 404,
+  SCHEDULE_NOT_STARTABLE: 404,
+  SCHEDULE_STORE_FAILED: 503,
+  SCHEDULE_STORE_MISSING: 503,
+}
+
+function operationError(error: ResultError): ScheduleOperationError {
+  return new ScheduleOperationError(startedErrorStatus[error.code] ?? 500, error.code, redactInspectionText(error.why), error.fix)
+}
+
+/** Result of `schedule.list`. */
+export interface ScheduleListResult {
+  schedules: StartedScheduleSummary[]
+}
+
+/** Result of `schedule.start` and `schedule.cancel`. */
+export interface StartedScheduleResult {
+  schedule: StartedScheduleSummary
+}
+
+export async function runScheduleList(input: { name?: string }): Promise<ScheduleListResult> {
+  const [error, schedules] = await listSchedules(input.name === undefined ? {} : { name: input.name })
+  if (error) throw operationError(error)
+  return { schedules: schedules.map(summarizeStartedSchedule) }
+}
+
+export async function runScheduleStart(input: { at?: string, cron?: string, name: string, payload?: unknown, timeZone?: string }): Promise<StartedScheduleResult> {
+  const { name, ...options } = input
+  // SAFETY: startSchedule() validates the options, including at/cron exclusivity, and returns an error for bad input.
+  const [error, schedule] = await startSchedule(name, options as StartScheduleOptions)
+  if (error) throw operationError(error)
+  return { schedule: summarizeStartedSchedule(schedule) }
+}
+
+export async function runScheduleCancel(input: { id: string }): Promise<StartedScheduleResult> {
+  const [error, schedule] = await cancelSchedule(input.id)
+  if (error) throw operationError(error)
+  return { schedule: summarizeStartedSchedule(schedule) }
 }
