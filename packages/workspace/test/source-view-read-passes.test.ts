@@ -1,4 +1,4 @@
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { custom } from "../src/index.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
@@ -70,4 +70,42 @@ it("keeps another Workspace's root startup file outside this Workspace's ownersh
   await expect(first.readFile("shared.md")).resolves.toBe("first")
   await expect(second.readFile("shared.md")).resolves.toBe("second")
   await expect(first.readFile("shared.md")).resolves.toBe("first")
+})
+
+it.each([false, true])("reads a mounted startup file without inspecting sibling files with snapshot reuse=%s", async (reuseStartupSnapshots) => {
+  const store = createMemoryWorkspaceStore()
+  const view = createWorkspaceSourceView({
+    name: "docs",
+    sources: {
+      docs: custom({
+        materialize: "startup",
+        mount: "docs",
+        files: [
+          { content: "first", path: "first.md" },
+          { content: "second", path: "second.md" },
+        ],
+      }),
+    },
+  }, store, { reuseStartupSnapshots })
+  await expect(view.readFile("docs/first.md")).resolves.toBe("first")
+  const readFile = vi.spyOn(store, "readFile")
+  const list = vi.spyOn(store, "list")
+
+  await expect(view.readFile("docs/first.md")).resolves.toBe("first")
+
+  expect(readFile.mock.calls.map(([path]) => path)).not.toContain("docs/second.md")
+  expect(list).not.toHaveBeenCalled()
+
+  const other = createWorkspaceSourceView({
+    name: "other",
+    sources: { docs: custom({ files: [{ content: "other", path: "second.md" }], materialize: "startup", mount: "docs" }) },
+  }, store)
+  await expect(other.readFile("docs/second.md")).resolves.toBe("other")
+  await expect(view.readFile("docs/first.md")).resolves.toBe("first")
+  await expect(store.readFile("docs/second.md")).resolves.toMatchObject({ content: "other" })
+  await expect(view.readFile("docs/second.md")).resolves.toBe("second")
+
+  await other.materializeSources()
+  await view.list("docs")
+  await expect(store.readFile("docs/second.md")).resolves.toMatchObject({ content: "second" })
 })
