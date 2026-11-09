@@ -6,7 +6,7 @@ import * as v from "valibot"
 import { describe, expect, it } from "vitest"
 
 import { defineForm } from "../src/index.ts"
-import { createFormsHandler, installedForms, memoryFormRateLimit } from "../src/runtime.ts"
+import { addressKey, createFormsHandler, installedForms, memoryFormRateLimit } from "../src/runtime.ts"
 import { discoverForms, renderFormsHandler } from "../src/vite.ts"
 
 function app(files: Record<string, string>): string {
@@ -43,6 +43,14 @@ describe("renderFormsHandler", () => {
     expect(full).toContain("import { databases } from \"vite-hub/database/drizzle\"")
     expect(full).toContain("sendEmail: message => email.send(message),")
     expect(full).toContain("getAuthForRequest(request)")
+  })
+})
+
+describe("addressKey", () => {
+  it("counts an IPv6 address as its /64 network and keeps IPv4 as it is", () => {
+    expect(addressKey("2001:db8:1:2::1")).toBe(addressKey("2001:0db8:0001:0002:aaaa::5"))
+    expect(addressKey("2001:db8:1:2::1")).not.toBe(addressKey("2001:db8:1:3::1"))
+    expect(addressKey("1.2.3.4")).toBe("1.2.3.4")
   })
 })
 
