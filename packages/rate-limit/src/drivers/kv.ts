@@ -45,14 +45,17 @@ function keySegment(value: string): string {
   return encodeURIComponent(value).replaceAll(".", "%2E")
 }
 
-/** One counter for each Rate Limit, key, and window start. A new window uses a new key, so no reset is necessary. */
+/**
+ * One counter for each Rate Limit, window duration, key, and window start. A new window uses a new key, so no reset is
+ * necessary. The duration keeps a `1m` and a `1h` limiter of one name apart when their window starts align.
+ */
 function fixedWindow(input: RateLimitDriverInput, timestamp: number): FixedWindow {
   const start = Math.floor(timestamp / input.windowMs) * input.windowMs
   const resetAt = start + input.windowMs
   if (!Number.isFinite(resetAt) || resetAt <= 0 || resetAt > 8.64e15) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0045({ message: "[vitehub] KV Rate Limit fixed-window end must be a positive timestamp at most 8640000000000000 milliseconds." })
   }
-  const key = `rate-limit:${keySegment(input.name ?? "default")}:${keySegment(input.key)}:${start}`
+  const key = `rate-limit:${keySegment(input.name ?? "default")}:${input.windowMs}:${keySegment(input.key)}:${start}`
   return { key, resetAt, start }
 }
 

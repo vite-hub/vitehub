@@ -67,7 +67,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 
 ## KV limits
 
-The `kv` provider counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
+The `kv` provider counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<window ms>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
 
 - Rejected requests also increment the counter, so `used` can be larger than `limit`. The manifest says `rejectedAttempts: "counted"`.
 - Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.

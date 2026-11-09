@@ -2080,6 +2080,11 @@ describe("vitehub", () => {
       rateLimit: { provider: "memory" },
     })
 
+    // Off Node, no KV store has a shared atomic increment that ViteHub selects.
+    for (const preset of ["cloudflare", "vercel"] as const) {
+      expect(() => vitehub({ kv: true, preset, rateLimit: { provider: "kv" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0142" }))
+    }
+
     integrationMocks.hubRateLimit.mockClear()
     vitehub({ kv: true, preset: "node", rateLimit: true })
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))

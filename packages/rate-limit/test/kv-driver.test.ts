@@ -51,7 +51,7 @@ describe("kvRateLimitDriver", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, remaining: 0, used: 2 })
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, reason: "limited", remaining: 0, resetAt: windowStart + 60_000, retryAfter: 45, used: 3 })
     expect(limiter.capabilities).toEqual({ enforcement: "strict", rejectedAttempts: "counted", scope: "global" })
-    expect([...kv.ttls]).toEqual([[`rate-limit:uploads:user:${windowStart}`, 60]])
+    expect([...kv.ttls]).toEqual([[`rate-limit:uploads:60000:user:${windowStart}`, 60]])
   })
 
   it("starts a new counter in the next window", async () => {
@@ -72,14 +72,27 @@ describe("kvRateLimitDriver", () => {
 
     await expect(limiter.consume({ key: "::1" })).resolves.toMatchObject({ allowed: true })
     await expect(other.consume({ key: "b:::1" })).resolves.toMatchObject({ allowed: true })
-    expect([...kv.values.keys()]).toEqual([`rate-limit:a%3Ab:%3A%3A1:${windowStart}`, `rate-limit:a:b%3A%3A%3A1:${windowStart}`])
+    expect([...kv.values.keys()]).toEqual([`rate-limit:a%3Ab:60000:%3A%3A1:${windowStart}`, `rate-limit:a:60000:b%3A%3A%3A1:${windowStart}`])
   })
 
   it("encodes dots, because KV rejects a `.` or `..` key segment", async () => {
     const kv = fakeKV()
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ now: () => windowStart, storage: kv }), limit: 1, name: "api.upload", window: "1m" })
     await limiter.consume({ key: ".." })
-    expect([...kv.values.keys()]).toEqual([`rate-limit:api%2Eupload:%2E%2E:${windowStart}`])
+    expect([...kv.values.keys()]).toEqual([`rate-limit:api%2Eupload:60000:%2E%2E:${windowStart}`])
+  })
+
+  it("keeps windows of different lengths apart, each with its own TTL", async () => {
+    const kv = fakeKV()
+    // windowStart is a full hour, so a minute window and an hour window start together.
+    const minute = createRateLimiter({ driver: kvRateLimitDriver({ now: () => windowStart, storage: kv }), limit: 1, window: "1m" })
+    const hour = createRateLimiter({ driver: kvRateLimitDriver({ now: () => windowStart, storage: kv }), limit: 1, window: "1h" })
+
+    await expect(minute.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+    await expect(hour.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+    expect([...kv.ttls]).toEqual([[`rate-limit:default:60000:user:${windowStart}`, 60], [`rate-limit:default:3600000:user:${windowStart}`, 3600]])
+    await hour.reset({ key: "user" })
+    await expect(minute.peek({ key: "user" })).resolves.toMatchObject({ used: 1 })
   })
 
   it("reads and deletes the counter of the current window", async () => {

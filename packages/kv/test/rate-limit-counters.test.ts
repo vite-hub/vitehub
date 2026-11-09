@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createRateLimiter } from "../../rate-limit/src/limiter.ts"
 import { kvRateLimitDriver } from "../../rate-limit/src/drivers/kv.ts"
 import { kvResult } from "../src/errors.ts"
+import { kvTable } from "../src/runtime/database.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 import { getKVStoreDriver, kv } from "../src/runtime/storage.ts"
 
@@ -141,6 +142,21 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
     await expect(limiter.consume({ key: ".." })).resolves.toMatchObject({ allowed: false, reason: "limited" })
   })
 
+  it("keeps a 1m and a 1h counter of one name apart when their windows start together", async () => {
+    // 12:00:00 starts a minute window and an hour window.
+    const now = Date.UTC(2026, 10, 9, 12, 0, 0)
+    const [storage] = target.stores(1)
+    const minute = createRateLimiter({ driver: kvRateLimitDriver({ now: () => now, storage: counterStorage(storage!) }), limit: 1, window: "1m" })
+    const hour = createRateLimiter({ driver: kvRateLimitDriver({ now: () => now, storage: counterStorage(storage!) }), limit: 1, window: "1h" })
+    const key = randomUUID()
+    await expect(minute.consume({ key })).resolves.toMatchObject({ allowed: true, used: 1 })
+    await expect(hour.consume({ key })).resolves.toMatchObject({ allowed: true, used: 1 })
+    await expect(minute.peek({ key })).resolves.toMatchObject({ used: 1 })
+    await expect(hour.reset({ key })).resolves.toEqual({ status: "reset" })
+    await expect(minute.peek({ key })).resolves.toMatchObject({ used: 1 })
+    await expect(hour.peek({ key })).resolves.toMatchObject({ used: 0 })
+  })
+
   it("resets the counter for every client", async () => {
     const name = `reset-${randomUUID()}`
     const now = Date.now()
@@ -149,6 +165,58 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
     await expect(second!.consume({ key: "user" })).resolves.toMatchObject({ allowed: false })
     await expect(second!.reset({ key: "user" })).resolves.toEqual({ status: "reset" })
     await expect(first!.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+  })
+})
+
+describe("Rate Limit kv driver on the database KV driver", () => {
+  const config = (): Extract<ResolvedKVStoreConfig, { driver: "database" }> => ({ driver: "database", database: "default", namespace: `sweep-${randomUUID()}` })
+  const rawTargets: { name: string, create: () => { rows: () => Promise<number>, storage: RuntimeStorage } }[] = [
+    {
+      name: "libSQL",
+      create() {
+        const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
+        cleanups.push(async () => client.close())
+        const store = config()
+        const storage = track(createHostedKVStorage({ store }, "default", async () => ({ default: { db: { $client: client } } })))
+        const rows = async () => Number((await client.execute({ sql: `select count(*) as count from ${kvTable} where namespace = ?`, args: [store.namespace] })).rows[0]!.count)
+        return { rows, storage }
+      },
+    },
+    ...postgresUrl
+      ? [{
+          name: "Postgres",
+          create() {
+            const sql = postgres(postgresUrl, { max: 2, onnotice: () => {} })
+            cleanups.push(() => sql.end())
+            const store = config()
+            const storage = track(createHostedKVStorage({ store }, "default", async () => ({ default: { db: { $client: sql } } })))
+            const rows = async () => Number((await sql.unsafe(`select count(*) as count from ${kvTable} where namespace = $1`, [store.namespace]))[0]!.count)
+            return { rows, storage }
+          },
+        }]
+      : [],
+  ]
+
+  it.each(rawTargets)("does not grow the table over many windows on $name", async (target) => {
+    const { rows, storage } = target.create()
+    let window = Math.floor(Date.now() / 1_000) * 1_000
+    const limiter = createRateLimiter({ driver: kvRateLimitDriver({ now: () => window, storage: counterStorage(storage) }), limit: 5, name: "sweep", window: "1s" })
+    const start = Date.now()
+    for (let round = 0; round < 3; round++) {
+      // The database sweeps expired rows at most once a minute, so each round moves that clock past the next sweep.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(start + round * 61_000)
+      try {
+        for (const client of ["a", "b", "c"]) await expect(limiter.consume({ key: client })).resolves.toMatchObject({ allowed: true, used: 1 })
+      }
+      finally {
+        clock.mockRestore()
+      }
+      // Only the counters of the current window stay: one for each client.
+      expect(await rows()).toBe(3)
+      // The TTL is the window, so the Database clock expires these counters before the next round.
+      await sleep(1_300)
+      window += 1_000
+    }
   })
 })
 

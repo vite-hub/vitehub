@@ -667,10 +667,14 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
  * runtime checks it at boot and counts in memory, with a warning, when the store cannot share counts.
  */
 function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): "cloudflare" | "kv" | "memory" {
+  const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.provider : undefined
+  // Only Node has a KV store with a shared atomic increment that ViteHub selects. Cloudflare KV has none.
+  if (configured === "kv" && plan.preset !== "node") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0142({ message: `[vitehub] rateLimit.provider "kv" works with the "node" preset only. The "${plan.preset}" preset uses its own Rate Limit. Remove rateLimit.provider, or use the "node" preset.` })
+  }
   const policy = plan.services.rateLimit
   if (!policy.supported) return "memory"
   if (plan.preset !== "node") return policy.adapter
-  const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.provider : undefined
   if (configured === "kv" || configured === "memory") return configured
   const kvEnabled = options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")
   return kvEnabled ? "kv" : "memory"
