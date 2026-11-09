@@ -77,6 +77,8 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       }
       return {
         ...options,
+        // The host claim code belongs to Primary Auth, not this independent database.
+        adminClaim: false,
         ...(runtime ? { runtime: pluginsInRuntime && oauth.length ? { ...resolvedRuntime, plugins: [...resolved.plugins ?? [], ...oauth] } : runtime } : {}),
         ...(oauth.length && !pluginsInRuntime ? { plugins: [...options.plugins ?? [], ...oauth] } : {}),
         access: {
