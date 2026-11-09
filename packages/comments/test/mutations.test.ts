@@ -3,7 +3,8 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { commentsSchema } from "../src/database.ts"
-import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
+import { defineComments, defineCommentSubject } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { ada, anchor, commentsMigration, grace } from "./harness.ts"
 
 import type { CommentsDatabase } from "../src/operations-core/store.ts"

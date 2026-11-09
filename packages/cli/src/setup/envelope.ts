@@ -118,3 +118,9 @@ export function readSetupArgs(args: readonly string[], usage: string): SetupArgs
   if (unknown !== undefined) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown argument ${JSON.stringify(unknown)}. Usage: ${usage}` })
   return { help: args.includes("-h") || args.includes("--help"), json: args.includes("--json") }
 }
+
+/** Rows as plain text columns, two spaces apart. */
+export function table(rows: readonly (readonly string[])[]): string {
+  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  return rows.map(row => row.map((cell, column) => cell.padEnd(widths[column]!)).join("  ").trimEnd()).join("\n")
+}

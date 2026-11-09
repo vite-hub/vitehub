@@ -7,7 +7,7 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { resolveCommentsRuntime } from "../index.ts"
+import { resolveCommentsRuntime } from "../installed.ts"
 import { commentActions, commentAnchorSchema, commentInputSchemas } from "../operations-core/operations.ts"
 import { deniedForMissingPolicy } from "../operations-core/define.ts"
 import { can as policyCan, contextSchema, deniedError, mentionedPeople } from "../operations-core/service.ts"
