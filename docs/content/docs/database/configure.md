@@ -180,7 +180,7 @@ The check reads the database that Drizzle Kit migrates:
 
 A native D1 binding is migrated with `wrangler d1 migrations apply`, not `vitehub db migrate`, so this check does not run.
 
-For D1 HTTP, `vitehub db migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied file, so Wrangler and ViteHub can take turns. Wrangler reads flat `.sql` files, so the folder `<tag>/migration.sql` counts as `<tag>.sql`, and a Cloudflare build writes it as that file next to the Wrangler config. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
+For D1 HTTP, `vitehub db migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied file, so Wrangler and ViteHub can take turns. Wrangler reads flat `.sql` files, so each migration folder counts as `NNNN_<name>.sql`, numbered in folder order, and a Cloudflare build writes it as that file next to the Wrangler config. These are the names that Drizzle Kit 0.x used, so a folder that `drizzle-kit up` converted keeps its row in `d1_migrations` and does not run again. A new folder must sort after the applied ones: when a folder renumbers applied migrations, `vitehub db migrate` fails the check with `DATABASE_MIGRATION_CHECK_FAILED`. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
 
 ## Migrate when the server starts
 
@@ -222,7 +222,7 @@ export default defineConfig({
 
 The build copies each migrations folder into a Nitro plugin. At startup, the plugin reads Drizzle Kit's `__drizzle_migrations` table and applies pending migrations before the first request, in one transaction per database, and logs each one. It writes the same rows as `vitehub db migrate`, so either can migrate next.
 
-Definitions that share a SQLite file share one transaction. Their migrations run in folder timestamp order, and each folder name runs once. A migrations table from Drizzle Kit 0.x gets the `name` column first, as `vitehub db migrate` adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
+Definitions that share a SQLite file share one transaction. Their migrations run in folder timestamp order, and each folder name runs once. Two Definitions on one file must not have one folder name with different SQL, and a folder name that the file already applied must keep its SQL: startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change, because the migrations table keys a migration by its name. A migrations table from Drizzle Kit 0.x gets the `name` column first, as `vitehub db migrate` adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
 
 A migration that loses data, by the `vitehub db migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it.
 

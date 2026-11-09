@@ -3,7 +3,6 @@ import { copyFile, mkdir } from "node:fs/promises"
 
 import { join } from "pathe"
 
-import { migrationSqlFile } from "./migration-journal.ts"
 import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
 
 import type { MigrationEntry } from "./migration-journal.ts"
@@ -63,37 +62,77 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
   }
 }
 
+/** A migration as Wrangler applies it: its `.sql` file name in the ledger, and the SQL file it comes from. */
+export interface D1MigrationFile {
+  name: string
+  source: string
+  /** The Drizzle Kit folder, or the flat file name without `.sql`. */
+  tag: string
+}
+
+const folderTag = /^\d{14}_(.+)$/
+
 /**
- * Lists the migrations of a directory as the `.sql` file names that Wrangler applies, in Wrangler's order. A Drizzle Kit
- * folder `<tag>/migration.sql` is `<tag>.sql`, the flat file that the build writes beside the Wrangler config. A flat
- * `.sql` file, such as one from `wrangler d1 migrations create`, keeps its name.
+ * Lists the migrations of a directory with the `.sql` file names that Wrangler applies, in Wrangler's order.
+ *
+ * A Drizzle Kit folder gets the name that Drizzle Kit 0.x gave the same migration: `NNNN_<name>.sql`, numbered by the
+ * folder order. `drizzle-kit up` keeps that order and name, so a converted migration keeps its row in Wrangler's
+ * `d1_migrations`, and Wrangler does not apply it again. A flat `.sql` file, such as one from
+ * `wrangler d1 migrations create`, keeps its name.
  */
-export function listD1MigrationFiles(migrationsDir: string): string[] {
+export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
   if (!existsSync(migrationsDir)) return []
-  return readdirSync(migrationsDir, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.isFile() && entry.name.endsWith(".sql")) return [entry.name]
-    if (entry.isDirectory() && existsSync(join(migrationsDir, entry.name, "migration.sql"))) return [`${entry.name}.sql`]
-    return []
-  }).sort((a, b) => {
-    const aNumber = Number.parseInt(a.split("_")[0]!, 10)
-    const bNumber = Number.parseInt(b.split("_")[0]!, 10)
+  const entries = readdirSync(migrationsDir, { withFileTypes: true })
+  const folders = entries
+    .filter(entry => entry.isDirectory() && existsSync(join(migrationsDir, entry.name, "migration.sql")))
+    .map(entry => entry.name)
+    .sort((a, b) => a.localeCompare(b))
+  const files: D1MigrationFile[] = folders.map((tag, index) => ({
+    name: `${String(index).padStart(4, "0")}_${folderTag.exec(tag)?.[1] ?? tag}.sql`,
+    source: join(migrationsDir, tag, "migration.sql"),
+    tag,
+  }))
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".sql")) continue
+    const folder = files.find(file => file.name === entry.name)
+    if (folder) {
+      throw new Error(`${join(migrationsDir, entry.name)} has the Wrangler name of the migration folder ${folder.tag}. Rename the file, for example with the next free number.`)
+    }
+    files.push({ name: entry.name, source: join(migrationsDir, entry.name), tag: entry.name.slice(0, -".sql".length) })
+  }
+  return files.sort((a, b) => {
+    const aNumber = Number.parseInt(a.name.split("_")[0]!, 10)
+    const bNumber = Number.parseInt(b.name.split("_")[0]!, 10)
     if (aNumber !== bNumber) {
       if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber
       if (Number.isFinite(aNumber)) return -1
       if (Number.isFinite(bNumber)) return 1
     }
-    return a < b ? -1 : a > b ? 1 : 0
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
   })
 }
 
-/**
- * Writes the migrations of `migrationsDir` into `outputDir` as the flat `.sql` files that Wrangler reads from
- * `migrations_dir`. Each Drizzle Kit folder becomes `<tag>.sql`.
- */
+/** Writes the migrations of `migrationsDir` into `outputDir` as the flat `.sql` files that Wrangler reads from `migrations_dir`. */
 export async function copyD1MigrationFiles(migrationsDir: string, outputDir: string): Promise<void> {
-  const files = listD1MigrationFiles(migrationsDir)
+  const files = listD1Migrations(migrationsDir)
   await mkdir(outputDir, { recursive: true })
-  await Promise.all(files.map(name => copyFile(migrationSqlFile(migrationsDir, name.slice(0, -".sql".length)), join(outputDir, name))))
+  await Promise.all(files.map(file => copyFile(file.source, join(outputDir, file.name))))
+}
+
+/**
+ * Fails when a ledger row has the name part of a migration under another number. The numbers follow the folder order,
+ * so a folder that sorts before applied ones renumbers them, and Wrangler would apply them again.
+ */
+function assertNumbering(applied: ReadonlySet<string>, files: readonly D1MigrationFile[]) {
+  const names = new Set(files.map(file => file.name))
+  for (const name of applied) {
+    if (names.has(name)) continue
+    const suffix = /^\d+_(.+)$/.exec(name)?.[1]
+    const moved = suffix && files.find(file => file.name.endsWith(`_${suffix}`))
+    if (moved) {
+      throw new Error(`Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). A migration folder sorts before migrations that are already applied, so Wrangler would apply them again. Give the new folder a later timestamp.`)
+    }
+  }
 }
 
 /**
@@ -110,7 +149,9 @@ export async function readD1Ledger(
     .map(row => readRowValue(row, "name", 0)))
   if (tables.has(migrationsTable)) {
     const rows = await query(`SELECT name FROM ${quoteIdentifier(migrationsTable)}`)
-    return { applied: new Set(rows.map(row => String(readRowValue(row, "name", 0)))), table: migrationsTable }
+    const applied = new Set(rows.map(row => String(readRowValue(row, "name", 0))))
+    assertNumbering(applied, listD1Migrations(migrationsDir))
+    return { applied, table: migrationsTable }
   }
   let adopted: string[] = []
   if (tables.has(drizzleMigrationsTable)) {
@@ -121,8 +162,7 @@ export async function readD1Ledger(
       hash: readRowValue(row, "hash", 1),
       id: readRowValue(row, "id", 0),
     })), migrations)
-    const files = new Set(listD1MigrationFiles(migrationsDir))
-    adopted = migrations.filter(entry => applied.has(entry.tag)).map(entry => `${entry.tag}.sql`).filter(name => files.has(name))
+    adopted = listD1Migrations(migrationsDir).filter(file => applied.has(file.tag)).map(file => file.name)
   }
   return { applied: new Set(adopted), missing: { adopted }, table: migrationsTable }
 }
@@ -146,11 +186,11 @@ export async function applyD1Migrations(
       ...ledger.missing.adopted.map(insert),
     ].join("\n"))
   }
-  for (const name of listD1MigrationFiles(migrationsDir)) {
-    if (ledger.applied.has(name)) continue
-    const sql = normalizeSqlLineEndings(readFileSync(migrationSqlFile(migrationsDir, name.slice(0, -".sql".length)), "utf8"))
-    await query(`${sql}\n;\n${insert(name)}`)
-    onApplied(name)
+  for (const file of listD1Migrations(migrationsDir)) {
+    if (ledger.applied.has(file.name)) continue
+    const sql = normalizeSqlLineEndings(readFileSync(file.source, "utf8"))
+    await query(`${sql}\n;\n${insert(file.name)}`)
+    onApplied(file.name)
   }
 }
 

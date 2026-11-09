@@ -312,7 +312,7 @@ apply any new migration to an existing D1 database:
 6. Run `pnpm nuxt build` to generate `.output/server/wrangler.json`. Check that
    its D1 resource identity and `migrations_dir` refer to the existing database
    and the copied migrations, and that it has no `migrations_table`. The build
-   writes each migration folder there as one `<folder>.sql` file, because
+   writes each migration folder there as one `NNNN_<name>.sql` file, because
    Wrangler reads flat files. ViteHub writes
    the D1, KV, and R2 bindings, so you can remove them from the project's
    Wrangler config; if you keep one, it must name the same resource (see

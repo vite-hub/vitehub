@@ -1,13 +1,15 @@
 import { spawn as spawnProcess } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDbCliContributor } from "../src/cli.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
+import { copyD1MigrationFiles } from "../src/internal/d1-migrations.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 
 import type { InArgs } from "@libsql/client"
@@ -205,8 +207,8 @@ describe("readMigrationPlan", () => {
 
   it("reads Wrangler's migrations table of D1 over HTTP", async () => {
     const { database, init, rootDir } = await d1Project()
-    // The build writes the folder `<tag>/migration.sql` as `<tag>.sql` for Wrangler, so Wrangler's ledger has that name.
-    const d1 = await createFakeD1(rootDir, `CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO d1_migrations (name) VALUES ('${init}.sql');`)
+    // Wrangler names the first migration folder `0000_init.sql`, as Drizzle Kit 0.x named it.
+    const d1 = await createFakeD1(rootDir, "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');")
 
     const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: d1.fetch, projectRoot: rootDir })
 
@@ -376,7 +378,7 @@ describe("vitehub db migrate with D1 over HTTP", () => {
   it("applies only the migrations that Wrangler's ledger lacks", async () => {
     const project = await d1MigrateProject()
     // `wrangler d1 migrations apply` applied the first migration.
-    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL); INSERT INTO d1_migrations (name) VALUES ('${project.initTag}.sql');`)
+    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL); INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');`)
     vi.stubGlobal("fetch", d1.fetch)
 
     const dryRun = await project.migrate(["--dry-run"])
@@ -386,8 +388,8 @@ describe("vitehub db migrate with D1 over HTTP", () => {
 
     const applied = await project.migrate()
     expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
-    expect(applied.stdout).toContain(`[vitehub] Database "default": applied ${project.addBodyTag}.sql.`)
-    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([[`${project.initTag}.sql`], [`${project.addBodyTag}.sql`]])
+    expect(applied.stdout).toContain(`[vitehub] Database "default": applied 0001_add_body.sql.`)
+    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
     await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"], ["body"]])
     await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = '__drizzle_migrations'")).resolves.toEqual([])
 
@@ -402,10 +404,67 @@ describe("vitehub db migrate with D1 over HTTP", () => {
 
     await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
 
-    await expect(d1.rows("SELECT name FROM custom_migrations ORDER BY id")).resolves.toEqual([[`${project.initTag}.sql`], [`${project.addBodyTag}.sql`]])
+    await expect(d1.rows("SELECT name FROM custom_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
     await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'd1_migrations'")).resolves.toEqual([])
     d1.client.close()
   }, 120_000)
+
+  it("keeps the Wrangler names of migrations that drizzle-kit up converted, so they do not run again", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
+    // Drizzle Kit 0.31 wrote these, and Wrangler applied them as `0000_init.sql` and `0001_add_body.sql`.
+    await cp(join(import.meta.dirname, "fixtures/drizzle-kit-0x-migrations"), migrationsDir, { recursive: true })
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+    await expect(realSpawn(process.execPath, [kit, "up", "--dialect", "sqlite", "--out", migrationsDir], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
+    expect(existsSync(join(migrationsDir, "meta"))).toBe(false)
+    await project.writeSchema(["title", "body", "tags"])
+    await nextSecond()
+    await expect(project.run("generate", ["--name", "add_tags"])).resolves.toMatchObject({ exitCode: 0 })
+
+    const staged = join(project.rootDir, "staged")
+    await copyD1MigrationFiles(migrationsDir, staged)
+    expect((await readdir(staged)).sort()).toEqual(["0000_init.sql", "0001_add_body.sql", "0002_add_tags.sql"])
+    await expect(readFile(join(staged, "0000_init.sql"), "utf8")).resolves.toBe(await readFile(join(import.meta.dirname, "fixtures/drizzle-kit-0x-migrations/0000_init.sql"), "utf8"))
+
+    const d1 = await createFakeD1(project.rootDir, [
+      "CREATE TABLE notes (id integer PRIMARY KEY NOT NULL, title text, body text);",
+      "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+      "INSERT INTO d1_migrations (name) VALUES ('0000_init.sql'), ('0001_add_body.sql');",
+    ].join("\n"))
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      const applied = await project.run("migrate", [], { ...process.env, ...d1Env })
+      expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+      expect(applied.stdout).toContain("applied 0002_add_tags.sql.")
+      expect(applied.stdout).not.toContain("applied 0000_init.sql.")
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"], ["0002_add_tags.sql"]])
+      await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"], ["body"], ["tags"]])
+    }
+    finally {
+      d1.client.close()
+    }
+  }, 120_000)
+
+  it("refuses a migration folder that renumbers migrations Wrangler applied", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
+    for (const [tag, sql] of [["20261109120000_init", "CREATE TABLE notes (id integer);"], ["20261001000000_early", "SELECT 1;"]]) {
+      await mkdir(join(migrationsDir, tag!), { recursive: true })
+      await writeFile(join(migrationsDir, tag!, "migration.sql"), sql!)
+    }
+    // `0000_init.sql` was applied when init was the only folder. The early folder now takes number 0000.
+    const d1 = await createFakeD1(project.rootDir, "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');")
+    try {
+      const [error] = await readMigrationPlan(project.database, { env: d1Env, fetch: d1.fetch, projectRoot: project.rootDir })
+      expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
+      expect(error?.why).toContain("lists 0000_init.sql, but that migration is now 0001_init.sql (20261109120000_init)")
+    }
+    finally {
+      d1.client.close()
+    }
+  })
 
   it("keeps the migrations that Drizzle Kit applied before", async () => {
     const project = await d1MigrateProject()
@@ -417,7 +476,7 @@ describe("vitehub db migrate with D1 over HTTP", () => {
 
     await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
 
-    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([[`${project.initTag}.sql`], [`${project.addBodyTag}.sql`]])
+    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
     d1.client.close()
   }, 120_000)
 

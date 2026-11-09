@@ -738,7 +738,7 @@ describe("Database Nuxt integration", () => {
       await writeFile(definition, "export default defineDatabase({ schema: {} })")
       ;(nuxt.options.vite as { plugins: unknown[] }).plugins.push({ name: "late-module", vitehub: { databases: [{ name: "default", definition }] } })
       await writeFile(join(directory, "migrations/0001.sql"), "SELECT 1;")
-      // Drizzle Kit 1.0 writes a folder per migration. Wrangler reads flat files, so the build writes `<tag>.sql`.
+      // Drizzle Kit 1.0 writes a folder per migration. Wrangler reads flat files, so the build writes `0000_init.sql`, the name that Drizzle Kit 0.x gave it.
       await mkdir(join(directory, "migrations/20261109120000_init"), { recursive: true })
       await writeFile(join(directory, "migrations/20261109120000_init/migration.sql"), "CREATE TABLE notes (id integer);")
       await writeFile(join(directory, "migrations/20261109120000_init/snapshot.json"), "{}")
@@ -754,8 +754,8 @@ describe("Database Nuxt integration", () => {
       const finalBinding = (config.cloudflare as { wrangler: { d1_databases: Array<{ migrations_dir: string }> } }).wrangler.d1_databases[0]!
       expect(finalBinding.migrations_dir).toBe(migrationsDir ?? ".vitehub/database/migrations/DB")
       await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0001.sql"), "utf8")).resolves.toBe("SELECT 1;")
-      expect((await readdir(join(rootDir, ".output/server", finalBinding.migrations_dir))).toSorted()).toEqual(["0001.sql", "20261109120000_init.sql"])
-      await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "20261109120000_init.sql"), "utf8")).resolves.toBe("CREATE TABLE notes (id integer);")
+      expect((await readdir(join(rootDir, ".output/server", finalBinding.migrations_dir))).toSorted()).toEqual(["0000_init.sql", "0001.sql"])
+      await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0000_init.sql"), "utf8")).resolves.toBe("CREATE TABLE notes (id integer);")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })

@@ -186,6 +186,38 @@ describe("database.migrateOnStart", () => {
     }
   })
 
+  it("refuses one migration name with different SQL in Definitions that share a file, and in the shared ledger", async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "shared.sqlite")}`
+    const first = createClient({ url })
+    const second = createClient({ url })
+    const users = { dataLoss: [], hash: "users", name: "20261109120000_init", statements: ["CREATE TABLE users (id integer PRIMARY KEY)"], when: 1_794_052_800_000 }
+    const posts = { ...users, hash: "posts", statements: ["CREATE TABLE posts (id integer PRIMARY KEY)"] }
+    try {
+      await expect(migrateOnStart([
+        { db: drizzle({ client: first }), migrations: [users], name: "default" },
+        { db: drizzle({ client: second }), migrations: [posts], name: "blog" },
+      ], { log: () => {} })).rejects.toThrow("It and the Database \"default\" share one SQLite file, and both have the migration \"20261109120000_init\" with different SQL.")
+      expect((await first.execute("SELECT name FROM sqlite_master WHERE name IN ('users', 'posts')")).rows).toEqual([])
+
+      // The first Definition applied its migration when it was alone on the file. The second joins with the same name.
+      await migrateOnStart([{ db: drizzle({ client: first }), migrations: [users], name: "default" }], { log: () => {} })
+      await expect(migrateOnStart([
+        { db: drizzle({ client: first }), migrations: [users], name: "default" },
+        { db: drizzle({ client: second }), migrations: [{ ...posts, name: "20261109120000_init" }], name: "blog" },
+      ], { log: () => {} })).rejects.toThrow("It and the Database \"default\" share one SQLite file")
+      await expect(migrateOnStart([
+        { db: drizzle({ client: second }), migrations: [posts], name: "blog" },
+        { db: drizzle({ client: first }), migrations: [], name: "default" },
+      ], { log: () => {} })).rejects.toThrow("Its shared SQLite file has already applied a migration \"20261109120000_init\" with other SQL")
+      expect((await first.execute("SELECT name FROM sqlite_master WHERE name = 'posts'")).rows).toEqual([])
+    }
+    finally {
+      first.close()
+      second.close()
+    }
+  })
+
   it.each([false, true])("orders interleaved migrations of a shared file (reverse Definitions: %s)", async (reverse) => {
     const root = await createProject()
     const url = `file:${join(root, "shared.sqlite")}`

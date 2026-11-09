@@ -7,7 +7,7 @@ import { join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
-import { applyD1Migrations, createD1Query, listD1MigrationFiles, readD1Ledger } from "./d1-migrations.ts"
+import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
@@ -178,9 +178,9 @@ export async function readMigrationPlan(
     const entries = readMigrations(database.migrationsDir)
     if (target.kind === "d1-http") {
       const ledger = await readD1Ledger(createD1Query(target, options.fetch), database, entries)
-      const pending = listD1MigrationFiles(database.migrationsDir)
-        .filter(file => !ledger.applied.has(file))
-        .map(file => readPendingMigration(database.migrationsDir, file.slice(0, -".sql".length), entries))
+      const pending = listD1Migrations(database.migrationsDir)
+        .filter(file => !ledger.applied.has(file.name))
+        .map(file => readPendingMigration(database.migrationsDir, file.tag, entries))
       return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     // Drizzle 1.0 applies each migration folder whose name the ledger does not list.

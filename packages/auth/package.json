@@ -156,7 +156,7 @@
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },
