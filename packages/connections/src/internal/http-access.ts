@@ -1,5 +1,6 @@
 import * as v from "valibot"
 
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
 import { managementErrorBody } from "./http-diagnostics.ts"
 
 import type { ConnectionsRuntime } from "../runtime.ts"
@@ -16,7 +17,7 @@ export type ConnectionsActor = (request: Request) => string | Response | undefin
  *
  * - A {@link ConnectionsActor} function checks every request.
  * - `"development"` allows every request as `user:local` on a development server
- *   (`NODE_ENV=development`). Any other runtime gets `500` with `CONNECTION_AUTH_REQUIRED`.
+ *   (`NODE_ENV=development`). Any other runtime gets `500` with `CONNECTIONS_AUTH_REQUIRED`.
  */
 export type ConnectionsAccessPolicy = ConnectionsActor | "development"
 
@@ -41,9 +42,9 @@ export type ConnectionsAccessCheck =
 
 const grants = new WeakMap<ConnectionsAccess, () => ConnectionsRuntime>()
 
-function reject(status: number, code: string, message: string): ConnectionsAccessCheck {
+function reject(status: number, code: string, message: string, fix?: string): ConnectionsAccessCheck {
   return {
-    rejection: new Response(JSON.stringify({ error: managementErrorBody(code, message) }), {
+    rejection: new Response(JSON.stringify({ error: managementErrorBody(code, message, undefined, undefined, fix) }), {
       headers: { "cache-control": "no-store", "content-type": "application/json" },
       status,
     }),
@@ -68,7 +69,7 @@ export async function checkConnectionsAccess(
   let actor: unknown
   if (policy === "development") {
     if (!v.is(developmentProcessSchema, globalThis.process)) {
-      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires Auth outside local development. Configure an actor module or Console Auth.")
+      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires Auth outside local development. Configure an actor module or Console Auth.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
     }
     actor = "user:local"
   }
@@ -77,7 +78,7 @@ export async function checkConnectionsAccess(
     if (actor instanceof Response) return { rejection: actor }
   }
   else {
-    return reject(500, "CONNECTIONS_AUTH_REQUIRED", "createConnectionsHandler() requires an actor policy.")
+    return reject(500, "CONNECTIONS_AUTH_REQUIRED", "createConnectionsHandler() requires an actor policy.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "actor-policy" }).fix)
   }
   const manager = v.safeParse(managerSchema, actor)
   if (!manager.success) {

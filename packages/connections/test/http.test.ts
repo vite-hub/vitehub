@@ -1,6 +1,7 @@
 import { Request as WorkerRequest } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { connectionsErrorDiagnostics } from "../src/error-diagnostics.ts";
 import { createConnectionsRuntime } from "../src/runtime.ts";
 import { createConnectionsHandler } from "../src/http.ts";
 import { ACCESS_TOKEN, createTestRuntime, REFRESH_TOKEN, mailConnection } from "./helpers.ts";
@@ -110,6 +111,20 @@ describe("createConnectionsHandler", () => {
 
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("Connection name is invalid");
+  });
+
+  it("keeps the thrown error's recovery guidance on Fetchable error pages", async () => {
+    const handler = createConnectionsHandler({
+      actor: () => { throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: "t3:alice" }); },
+    });
+
+    const response = await handler.fetch(new Request(`${origin}/_vitehub/connections/connect/t3:alice`));
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const html = await response.text();
+    expect(html).toContain("/_vitehub/connections?connection=t3%3Aalice");
+    expect(html).toContain("vitehub connections connect t3:alice");
   });
 
   it("runs JSON actions for same-origin requests", async () => {
