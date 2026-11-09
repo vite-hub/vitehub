@@ -58,6 +58,8 @@ const runtimeEntries = [
   // Keep shared Console declarations separate from the optional Better Auth entry.
   "src/console/auth-pages.ts",
   "src/console/auth-types.ts",
+  // `server/console-authorize.ts` imports defineConsoleAuthorize() at startup. Its own chunk keeps Better Auth out.
+  "src/console/authorize.ts",
   "src/console/runtime/console-route.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/build.ts",
@@ -475,6 +477,7 @@ export default defineConfig({
         customExports(exports) {
           delete exports["./console/auth-pages"];
           delete exports["./console/auth-types"];
+          delete exports["./console/authorize"];
           delete exports["./console/runtime/console-route"];
           delete exports["./console/runtime/client/sections"];
           delete exports["./console/runtime/client/appearance"];
