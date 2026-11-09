@@ -150,5 +150,4 @@ The same callback protects [Blob serve routes](/docs/blob/configure#protect-serv
 
 The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
-
 [Console](/docs/development/console#protect-the-console-route) covers its page, RPC endpoint, provider status route, and disabled behavior. The Console can use its own Console Auth instead of these access routes. On Cloudflare Workers, the [Cloudflare Access provider](/docs/development/console#protect-the-console-route) protects it without a Better Auth database.
