@@ -10,16 +10,41 @@ Configure where Workspace stores files, what each Workspace Definition contains,
 
 ## Configure the Vite Integration
 
-```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { workspace: true },
 })
 ```
+:::
 
-The Vite config key is `workspace`.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ workspace: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ workspace: true })],
+})
+```
+:::
+::
+
+`workspace` takes `true` or an object with these options:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |

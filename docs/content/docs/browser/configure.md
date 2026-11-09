@@ -10,6 +10,44 @@ icon: i-lucide-sliders-horizontal
 
 `browser: true` enables Cloudflare Browser Run actions. Use an object only to change the binding, the session engine, or to connect local development to the hosted service.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    browser: {
+      binding: 'RENDER_BROWSER',
+      remote: true,
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      browser: {
+        binding: 'RENDER_BROWSER',
+        remote: true,
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -26,6 +64,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -48,14 +88,48 @@ export default defineConfig({
 
 Keep the default `'kitesurf'` unless an Agent or a route must keep one page open across requests or hand a session to another process.
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: 'cloudflare',
-  browser: { engine: 'chromium' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    browser: { engine: 'chromium' },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    browser: { engine: 'chromium' },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    browser: { engine: 'chromium' },
+  })],
+})
+```
+:::
+::
 
 ## What the build writes
 

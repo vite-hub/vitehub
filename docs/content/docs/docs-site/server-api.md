@@ -29,13 +29,13 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`. Canonical links, raw Markdown links, llms.txt, and the sitemap use it. |
 | `site.description` | `string` | `''` | Description of llms.txt. |
-| `site.logo` | `string` | None | Path of a one-color SVG beside the name. |
+| `site.logo` | `string \| { light: string, dark?: string }` | None | A string is a one-color SVG mask. The object shows images in their original colors, with `dark` in dark mode when set. |
 | `site.badge` | `{ label, tooltip? }` | None | A short label after the name, such as `beta`. |
 | `categories` | `string[]` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `string[]` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `DocsGroup[]` | `[]` | Rail items that hold several sections. A `DocsGroup` is `{ title, icon?, sections? }`: `sections` lists section ids, and a section can also join with `group` in its `.navigation.yml`. See [Groups](/docs/docs-site/configure#groups). |
 | `start` | `{ section, links? }` | None | The section that new readers open first, and site pages listed at its top. The header and the error page link to them. |
-| `socials` | `DocsLink[]` | `[]` | Community links in the header on every page, or in its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
+| `socials` | `DocsLink[]` | `[]` | Community links at the foot of the docs sidebar, in the header of other pages, or in its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
 | `footer` | `DocsLink[]` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy, so each one has a link to it. |
 | `banner` | `string` | None | One line above every docs page. |
 | `sitemap` | `string[]` | `[]` | More paths for `/sitemap.xml`. Every docs page is in it already. |

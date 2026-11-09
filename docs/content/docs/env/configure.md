@@ -8,14 +8,44 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure Env
 
-Add `hubEnv()` and declare values in the Vite config. `env.public` becomes browser-safe Public Env, `env.define` becomes Vite replacements, and `env.server` becomes Server Env for server runtime code.
+Declare values in `env`: at the top level of the Vite config, or in `vitehub.env` in Nuxt. `env.public` becomes browser-safe Public Env, `env.define` becomes Vite replacements, and `env.server` becomes Server Env for server runtime code.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      define: {
+        __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: {
     public: {
       appName: env({ default: 'Acme', mode: 'build' }),
@@ -31,10 +61,37 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    define: {
+      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  },
+})
+```
+:::
+::
 
 ## Integration options
 
-Pass Integration Options to `hubEnv()`.
+Pass Integration Options to the `env` option of `vitehub({ preset: 'node' })`. In Nuxt, put them in `vitehub.env` next to the declarations.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -72,12 +129,39 @@ Pass Integration Options to `hubEnv()`.
 
 Host variables and provider values are strings. Use a typed declaration when server code needs another type. ViteHub parses the value when Server Env resolves, generates the exact TypeScript type, and rejects an invalid value with `ENV_RUNTIME_VALUE_INVALID`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        labeller: {
+          dryRun: env.boolean({ default: true }),
+          minConfidence: env.number({ default: 0.6 }),
+          mode: env.enum(['draft', 'send'], { default: 'draft' }),
+          apiKey: env({ secret: true }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: {
     server: {
       labeller: {
@@ -90,6 +174,30 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    server: {
+      labeller: {
+        dryRun: env.boolean({ default: true }),
+        minConfidence: env.number({ default: 0.6 }),
+        mode: env.enum(['draft', 'send'], { default: 'draft' }),
+        apiKey: env({ secret: true }),
+      },
+    },
+  },
+})
+```
+:::
+::
 
 ```ts [server/labeller.ts]
 import { useServerEnv } from '#vitehub/env/server'
@@ -117,15 +225,48 @@ The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
 
 Use `envSchema()` to make a committed `.env.example` the contract for both typed accessors and runtime checks. This is an explicit opt-in. Existing declarations remain available when a code-first schema fits better.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { envSchema } from '@vite-hub/env/vite'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: envSchema(new URL('./.env.example', import.meta.url)),
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { envSchema, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: envSchema(new URL('./.env.example', import.meta.url)),
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { envSchema } from '@vite-hub/env/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: envSchema(new URL('./.env.example', import.meta.url)),
+})
+```
+:::
+::
 
 ```dotenv [.env.example]
 # @public
@@ -191,14 +332,69 @@ Every env-backed declaration reads two kinds of variable name, in this order:
 1. The canonical name: `VITEHUB_` and the declaration path in upper snake case. `env.server.cliproxy.apiKey` reads `VITEHUB_CLIPROXY_API_KEY`, and `env.public.appName` reads `VITEHUB_PUBLIC_APP_NAME`.
 2. The conventional names: the names in `env.source()`, or the path name without a prefix, such as `CLIPROXY_API_KEY`.
 
-```ts [vite.config.ts] fragment
-server: {
-  // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
-  github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
-  // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
-  logLevel: env({ default: 'info' }),
-}
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      server: {
+        // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+        github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+        // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+        logLevel: env({ default: 'info' }),
+      },
+    },
+  },
+})
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' }), nitro()],
+  env: {
+    server: {
+      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+      logLevel: env({ default: 'info' }),
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+  env: {
+    server: {
+      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+      logLevel: env({ default: 'info' }),
+    },
+  },
+})
+```
+:::
+::
 
 Use the conventional name for values that a vendor documents, such as `OPENAI_API_KEY`. Use the canonical name when the conventional name is taken by something else, for example `GITHUB_TOKEN` in CI, or when you want to set any declared value without reading the config. The canonical name always wins.
 
@@ -206,12 +402,12 @@ Built-in Channels and gateway presets follow the same rule: their vendor names a
 
 - `env.provider()`, Git, `package.json`, and custom sources have no canonical name.
 - A key that is not a JavaScript identifier, such as `'api-key'` or `'nested.token'`, has no canonical name.
-- Two declarations that produce the same canonical name, such as `apiKey` and `api_key`, fail with `ENV_DECLARATION_INVALID`. Rename one, or set `hubEnv({ prefix: false })`.
-- `hubEnv({ prefix: 'APP_' })` changes the prefix. `hubEnv({ prefix: false })` reads only the conventional names.
+- Two declarations that produce the same canonical name, such as `apiKey` and `api_key`, fail with `ENV_DECLARATION_INVALID`. Rename one, or set `prefix: false` in the `env` option.
+- `prefix: 'APP_'` in the `env` option changes the prefix. `prefix: false` reads only the conventional names.
 
 Inspection reports `via: 'canonical'` or `via: 'conventional'` for each available value. It reports `conflict: true` when the canonical name and a conventional name hold different values; the canonical value is used. `describeServerEnv()` includes `canonicalName`. Conventional names stay out of inspection output.
 
-On Cloudflare, a required secret is listed in the Wrangler config only when it accepts one exact name. Canonical and conventional alternatives remain runtime-only because Wrangler cannot express fallback names. Use `hubEnv({ prefix: false })` or an explicit source equal to the canonical name when an exact Wrangler requirement is needed.
+On Cloudflare, a required secret is listed in the Wrangler config only when it accepts one exact name. Canonical and conventional alternatives remain runtime-only because Wrangler cannot express fallback names. Use `prefix: false` in the `env` option or an explicit source equal to the canonical name when an exact Wrangler requirement is needed.
 
 ## Env sources
 
@@ -232,7 +428,7 @@ On Cloudflare, a required secret is listed in the Wrangler config only when it a
 
 ## Provider output
 
-`hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `#vitehub/env/public` and `#vitehub/env/server` from application code, not generated file paths or integration virtual modules.
+Env writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `#vitehub/env/public` and `#vitehub/env/server` from application code, not generated file paths or integration virtual modules.
 
 Add the generated type directory to `tsconfig.json` when the app wants field-level types for generated Env access.
 
