@@ -5,6 +5,7 @@ import { join, relative, resolve } from "node:path"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
 import { formsDiagnostics } from "./errors.ts"
 import { formsTableNames } from "./table-names.ts"
@@ -146,7 +147,7 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
       },
     },
     config: {
-      async handler(config: UserConfig) {
+      async handler(config: UserConfig, env) {
         const configuredRoot: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         projectRoot = typeof configuredRoot === "string" ? resolve(configuredRoot) : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
         const dirs: unknown = Reflect.get(config, VITEHUB_SERVER_DIRS)
@@ -165,7 +166,11 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
         // Not lazy: the handler installs the inbox when the server starts, so server code reads it before any submission.
         kit.addHandler({ handler, lazy: false, route: `${mount}${formsRoute}/**` })
         Reflect.set(config, "nitro", kit.config)
+        await installStandaloneOperationRpc(config, env?.command ?? "build", imports.operations)
       },
+    },
+    configureServer(server) {
+      publishStandaloneOperationServer(server)
     },
   }
 }

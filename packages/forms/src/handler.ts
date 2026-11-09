@@ -1,5 +1,7 @@
 import { back, fail, guardRequest, json } from "./guard.ts"
 
+import { coerceFormFields } from "./schema.ts"
+
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { FormDefinition, FormEmailMessage, FormIssue, FormServices, FormSubmission, FormUser } from "./types.ts"
 
@@ -48,7 +50,7 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     ...(options.honeypot !== undefined ? { honeypot: options.honeypot } : {}),
     ...(options.maxBytes ? { maxBytes: options.maxBytes } : {}),
     ...(options.rateLimit !== undefined ? { rateLimit: options.rateLimit } : {}),
-    // Before the rate limit and the body: a refused sender uses no budget, and `authorize` can still read the body.
+    // Before the rate limit and body parsing: a refused sender uses no budget, and `authorize` can read the bounded body.
     check: async (incoming) => {
       caller.user = services.identify ? await services.identify(incoming) : null
       if (!options.authorize || await options.authorize({ request: incoming, user: caller.user })) return undefined
@@ -61,6 +63,7 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
   const stop = (status: number, message: string) => html ? back(request, page, "error") : fail(status, message)
 
+  if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") coerceFormFields(options.schema, fields)
   const result = await options.schema["~standard"].validate(fields)
   if (result.issues) {
     if (html) return back(request, page, "error")

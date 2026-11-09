@@ -133,6 +133,33 @@ describe("handleFormRequest", () => {
     expect((await ada.store.list())[0]?.user).toEqual({ id: "ada", name: "Ada" })
   })
 
+  it.each(["identify", "authorize"])("bounds the body before %s can read it, without using rate budget", async (consumer) => {
+    const read = vi.fn(async (request: Request) => request.text())
+    const form = defineForm({
+      schema: v.object({ text: v.string() }),
+      maxBytes: 2048,
+      authorize: async ({ request }) => {
+        if (consumer === "authorize") await read(request)
+        return false
+      },
+    })
+    const rateLimit = vi.fn(async () => ({ allowed: true }))
+    const { store, all } = services({
+      identify: async (request) => {
+        if (consumer === "identify") await read(request)
+        return null
+      },
+      rateLimit,
+    })
+    expect((await handleFormRequest("issue", form, post({ text: "x".repeat(8192) }), all)).status).toBe(413)
+    expect(read).not.toHaveBeenCalled()
+    expect(rateLimit).not.toHaveBeenCalled()
+    expect(await store.list()).toEqual([])
+    expect((await handleFormRequest("issue", form, post({ text: "Hi" }), all)).status).toBe(401)
+    expect(read).toHaveBeenCalledOnce()
+    expect(rateLimit).not.toHaveBeenCalled()
+  })
+
   it("answers with the Response that onSubmit returns and stores nothing", async () => {
     const form = defineForm({
       schema: v.object({ target: v.string() }),
@@ -184,6 +211,41 @@ describe("handleFormRequest", () => {
     const limited = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), { ...all, rateLimit: async () => ({ allowed: false }) })
     expect(limited.status).toBe(303)
     expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+  })
+
+  it.each(["urlencoded", "multipart"])("decodes supported Valibot fields in a native %s post", async (encoding) => {
+    enum Size { Small = 1, Large = 2 }
+    const schema = v.object({
+      count: v.pipe(v.number(), v.minValue(1), v.transform(value => value + 1)),
+      size: v.enum(Size),
+      choice: v.optional(v.picklist([1, 2])),
+      extra: v.optional(v.number()),
+      newsletter: v.boolean(),
+      terms: v.optional(v.boolean()),
+    })
+    const form = defineForm({ schema })
+    const { store, all } = services()
+    const values = { count: "2", size: "2", choice: "1", extra: "", terms: "on" }
+    const body = encoding === "multipart" ? new FormData() : new URLSearchParams()
+    for (const [key, value] of Object.entries(values)) body.set(key, value)
+    const response = await handleFormRequest("contact", form, new Request(`${origin}/api/_vitehub/forms/contact`, {
+      method: "POST",
+      headers: { origin, referer: `${origin}/pricing?plan=pro`, accept: "text/html" },
+      body,
+    }), all)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/pricing?plan=pro&form=sent")
+    expect((await store.list()).map(row => row.data)).toEqual([{ count: 3, size: 2, choice: 1, extra: undefined, newsletter: false, terms: true }])
+  })
+
+  it("keeps JSON input strict and rejects invalid native values", async () => {
+    const form = defineForm({ schema: v.object({ count: v.number(), terms: v.boolean(), choice: v.optional(v.picklist([1, 2])) }) })
+    const { store, all } = services()
+    expect((await handleFormRequest("contact", form, post({ count: "2", terms: "on" }), all)).status).toBe(400)
+    for (const values of [{ count: "nope", terms: "on" }, { count: "", terms: "on" }, { count: "2", terms: "wrong" }, { count: "2", terms: "on", choice: "3" }]) {
+      expect((await handleFormRequest("contact", form, post(values, { type: "application/x-www-form-urlencoded" }), all)).status).toBe(400)
+    }
+    expect(await store.list()).toEqual([])
   })
 
   it("trusts the origin of a TLS proxy, keeps redirects on the site, and rejects a broken multipart body", async () => {

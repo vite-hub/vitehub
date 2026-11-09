@@ -26,9 +26,9 @@ For each `POST`, `handleFormRequest()`:
 
 1. Accepts JSON, URL-encoded, and multipart bodies. It answers 415 for other bodies.
 2. Answers 403 when the `Origin` is not the app's origin or one of `origins`. Behind a proxy that ends TLS, the app's origin comes from `X-Forwarded-Proto` and `X-Forwarded-Host`. `origins` is for HTML forms on other sites: the route sends no CORS headers, so `fetch` works only from the app's own origin.
-3. Checks `authorize` with the user that `identify` returns. It answers 401 or 403.
-4. Asks `rateLimit` with the key `form:<name>`. The default policy is 5 a minute. It answers 429 with `retry-after`.
-5. Answers 413 above `maxBytes`, 64 KB by default.
+3. Reads at most `maxBytes`, 64 KB by default. It answers 413 above the limit, before `identify` or `authorize` can read the body.
+4. Checks `authorize` with the user that `identify` returns. It answers 401 or 403. A refused request uses no rate budget.
+5. Asks `rateLimit` with the key `form:<name>`. The default policy is 5 a minute. It answers 429 with `retry-after`.
 6. Answers 202 and stores nothing when the honeypot field, `website` by default, is filled.
 7. Validates the other fields with `schema`. It answers 400 with `{ message, issues: [{ message, path }] }`.
 8. Runs `onSubmit`. When it returns a Response, the request gets that Response and nothing is stored.
@@ -36,6 +36,8 @@ For each `POST`, `handleFormRequest()`:
 10. Answers 201 with `{ id }`.
 
 A browser form without JavaScript, which sends form data and accepts HTML, gets a 303 back to its page with `?form=sent` or `?form=error`.
+
+For Valibot object schemas, form data is decoded before validation: number inputs and numeric select choices become numbers, checked boolean fields become `true`, and omitted boolean fields become `false`. Empty number inputs and select placeholders become `undefined`. JSON keeps its input types.
 
 Two fields are not form data: `_page`, the app path of the form (default: the `Referer`), and `_anchor`, the part of the page that the sender pointed at: `{ selector, exact, prefix, suffix }`, the same text quote as a Comments text anchor, so `resolveAnchor({ kind: "text", ...anchor })` from `@vite-hub/comments/client` finds the sentence again.
 
