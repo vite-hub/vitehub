@@ -36,6 +36,8 @@ export interface StripeAdapterOptions {
   secret?: ChannelWebhookSecret
   /** Another route next to `/api/_vitehub/channels/<name>`. A string literal. */
   path?: string
+  /** The old webhook State and queue scope to keep when this Channel moves. */
+  stateScope?: WebhookAdapterOptions<StripeEvent>["stateScope"]
   /** Maximum age of the signed timestamp in seconds. Defaults to 300. */
   toleranceSeconds?: number
 }
@@ -57,6 +59,7 @@ export function stripe(options: StripeAdapterOptions = {}): WebhookChannelAdapte
   return webhook<StripeEvent>({
     kind: "stripe",
     ...(options.path === undefined ? {} : { path: options.path }),
+    ...(options.stateScope === undefined ? {} : { stateScope: options.stateScope }),
     signature: options.toleranceSeconds === undefined ? "stripe-sha256" : { preset: "stripe-sha256", toleranceSeconds: options.toleranceSeconds },
     secret: options.secret ?? stripeWebhookSecret,
     event: payload => typeof payload?.type === "string" ? payload.type : undefined,

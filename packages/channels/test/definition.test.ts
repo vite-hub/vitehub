@@ -46,11 +46,11 @@ describe("webhook adapters", () => {
   })
 
   it("reads the Stripe event type and ID", () => {
-    const adapter = stripe({ secret: "whsec_test" })
+    const adapter = stripe({ secret: "whsec_test", stateScope: "webhook:support:stripe:stripe:" })
     const payload = { id: "evt_1", type: "checkout.session.completed" }
     const request = { headers: {}, method: "POST", url: "https://example.com" }
     expect(adapter.kind).toBe("stripe")
-    expect(adapter.webhook).toMatchObject({ secret: "whsec_test", signature: "stripe-sha256" })
+    expect(adapter.webhook).toMatchObject({ secret: "whsec_test", signature: "stripe-sha256", stateScope: "webhook:support:stripe:stripe:" })
     expect(adapter.webhook.event?.(payload as never, request)).toBe("checkout.session.completed")
     expect(adapter.webhook.id?.(payload as never, request)).toBe("evt_1")
     expect(stripe({ toleranceSeconds: 60 }).webhook.signature).toEqual({ preset: "stripe-sha256", toleranceSeconds: 60 })
