@@ -6,20 +6,20 @@ navigation.group: Blocks
 icon: i-lucide-git-compare
 ---
 
-This block combines [`FileTree`](/docs/ui/file-tree), [`PatchDiff`](/docs/ui/diff), and [`TraceRun`](/docs/ui/trace). Select a changed file in the tree to see its diff. The trace under the diff shows the verification run. The patches and the run are synthetic.
+This block combines [`FileTree`](/docs/ui/file-tree), [`PatchDiff`](/docs/ui/diff), and [`TraceRun`](/docs/ui/trace). Select a changed file to see its diff. The trace below shows the verification run. The patches and run are fake.
 
-::component-preview{name="CodeReviewBlock" flush reset}
+::example{name="CodeReviewBlock" flush reset height=34}
 ::
 
 ## Wire the panes
 
 - Create the tree model with `useFileTree()` and read the selection with `useFileTreeSelection()`.
 - Mark changed files with the `gitStatus` option.
-- Key the diff by the selected path, so Pierre renders a new view for each file.
+- Key the diff by the selected path, so Pierre renders a new view per file.
 
 ## Load real data
 
-Read patches from the Agent's Workspace changes or from Git. Derive the trace run with `deriveTraceRuns()` from `@vite-hub/runtime`.
+Read patches from the Agent's Workspace changes or Git. Get the trace run from `deriveTraceRuns()` in `@vite-hub/runtime`.
 
 ## Components used
 

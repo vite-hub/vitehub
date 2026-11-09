@@ -6,14 +6,14 @@ navigation.group: Parts
 icon: i-lucide-message-square-text
 ---
 
-`Message` is one row of a conversation. It aligns the turn to the start or the end and holds an avatar, a header, the content, and a footer. Put a [Bubble](/docs/ui/bubble), a [Trace](/docs/ui/trace), or any other content inside `MessageContent`. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Message](https://ui.shadcn.com/docs/components/message).
+`Message` is one row of a conversation. It aligns the turn to the start or end and holds an avatar, header, content, and footer. Put a [Bubble](/docs/ui/bubble), a [Trace](/docs/ui/trace), or other content in `MessageContent`. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Message](https://ui.shadcn.com/docs/components/message).
 
-::component-preview{name="MessageExample"}
+::example{name="MessageExample" height=25}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/message`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/message`:
 
 ```ts
 import { Message, MessageAvatar, MessageContent, MessageFooter, MessageGroup, MessageHeader } from "@vite-hub/ui";
@@ -40,7 +40,7 @@ import { Bubble, BubbleContent, Message, MessageAvatar, MessageContent } from "@
 </template>
 ```
 
-`Message` owns the row layout: the avatar, the alignment, the header, and the footer. Put the visible surface inside it with [Bubble](/docs/ui/bubble). For the scroll container around a conversation, use [Message Scroller](/docs/ui/message-scroller).
+`Message` handles the row layout. Put the visible surface in it with [Bubble](/docs/ui/bubble). To scroll a conversation, use [Message Scroller](/docs/ui/message-scroller).
 
 ## Composition
 
@@ -53,7 +53,7 @@ Message
     └── MessageFooter
 ```
 
-Use `MessageGroup` to stack consecutive messages from the same sender:
+`MessageGroup` stacks consecutive messages from one sender:
 
 ```text
 MessageGroup
@@ -63,60 +63,59 @@ MessageGroup
 
 ## Features
 
-- Start and end alignment for the sender and the receiver through `align`.
-- An avatar slot at the bottom of the message. When the message has a footer, the avatar moves up to stay next to the content.
-- Header and footer slots for sender names, status, and message actions.
-- The footer follows the side of the message, so actions stay aligned on `align="end"` rows.
-- `MessageGroup` stacks consecutive messages from the same sender.
-- The default styles are in the `components` layer of `@vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
+- Start and end alignment with `align`.
+- An avatar at the bottom of the message. With a footer, the avatar moves up to stay next to the content.
+- Header and footer for sender names, status, and actions.
+- The footer follows the message side, so actions stay aligned on `align="end"` rows.
+- Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
 
 ## Avatar
 
-Use `MessageAvatar` to show an avatar next to the message. Set `align="end"` on the message to put the avatar at the end.
+`MessageAvatar` shows an avatar next to the message. Set `align="end"` on the message to put it at the end.
 
-::component-preview{name="MessageAvatarExample"}
+::example{name="MessageAvatarExample" height=20}
 ::
 
 | Align   | Description                                          |
 | ------- | ---------------------------------------------------- |
-| `start` | Aligns the message to the start of the conversation. |
-| `end`   | Aligns the message to the end of the conversation.   |
+| `start` | The start of the conversation. |
+| `end`   | The end of the conversation. |
 
 ## Group
 
-Use `MessageGroup` to stack consecutive messages from the same sender. Put an empty `MessageAvatar` on the earlier messages, so they align with the avatar on the last one.
+Stack consecutive messages from one sender. Put an empty `MessageAvatar` on earlier messages, so they align with the last one's avatar.
 
-::component-preview{name="MessageGroupExample"}
+::example{name="MessageGroupExample" height=8}
 ::
 
 ## Header and Footer
 
-Use `MessageHeader` for a sender name and `MessageFooter` for metadata, such as a delivery or read status. Without a framed bubble, the header and footer align with the unframed content.
+Use `MessageHeader` for a sender name and `MessageFooter` for details, such as delivery or read status. Without a framed bubble, they align with the unframed content.
 
-::component-preview{name="MessageHeaderFooterExample"}
+::example{name="MessageHeaderFooterExample" height=12}
 ::
 
 ## Actions
 
-Put message actions in `MessageFooter`, such as copy, retry, or feedback buttons.
+Put actions in `MessageFooter`, such as copy, retry, or feedback buttons.
 
-::component-preview{name="MessageActionsExample"}
+::example{name="MessageActionsExample" height=14}
 ::
 
 ## Attachment
 
-Put an [Attachment](/docs/ui/attachment) in `MessageContent` next to the bubble to show an image or a file in the turn.
+Put an [Attachment](/docs/ui/attachment) in `MessageContent` next to the bubble to show an image or file.
 
-::component-preview{name="MessageAttachmentExample"}
+::example{name="MessageAttachmentExample" height=30}
 ::
 
 ## Accessibility
 
-`Message` is a layout wrapper with no role. The content in it gives the accessibility.
+`Message` is a layout wrapper with no role. Its content gives the semantics.
 
 ### Label icon-only actions
 
-Action buttons in `MessageFooter` often show only an icon. Give each one an `aria-label`.
+Footer action buttons often show only an icon. Give each one an `aria-label`.
 
 ```vue
 <MessageFooter>
@@ -126,7 +125,7 @@ Action buttons in `MessageFooter` often show only an icon. Give each one an `ari
 
 ### Status updates
 
-The parts do not announce new messages. Put the conversation in an element with `role="log"`, as [Chat](/docs/ui/chat) does, when new turns arrive while the reader waits. For a message in progress, use a [Marker](/docs/ui/marker) with `role="status"`.
+The parts do not announce new messages. When new turns arrive while the reader waits, put the conversation in an element with `role="log"`, as [Chat](/docs/ui/chat) does. For a message in progress, use a [Marker](/docs/ui/marker) with `role="status"`.
 
 ```vue
 <Marker role="status">
@@ -139,33 +138,33 @@ The parts do not announce new messages. Put the conversation in an element with 
 
 ### Message
 
-The row of one message. Renders a `div` with `data-slot="message"`.
+Renders a `div` with `data-slot="message"`.
 
 #### Props
 
 | Prop    | Type               | Default   | Description                                       |
 | ------- | ------------------ | --------- | ------------------------------------------------- |
-| `align` | `"start" \| "end"` | `"start"` | The alignment of the message in the conversation. |
+| `align` | `"start" \| "end"` | `"start"` | Message alignment in the conversation. |
 
 ### MessageGroup
 
-Stacks consecutive messages from the same sender. Has no props. Renders a `div` with `data-slot="message-group"`.
+Stacks consecutive messages from one sender. No props. Renders a `div` with `data-slot="message-group"`.
 
 ### MessageAvatar
 
-The avatar slot at the bottom of the message. When the message has a `MessageFooter`, the avatar moves up to stay next to the content. Has no props. Renders a `div` with `data-slot="message-avatar"`.
+The avatar at the bottom of the message. With a `MessageFooter`, it moves up to stay next to the content. No props. Renders a `div` with `data-slot="message-avatar"`.
 
 ### MessageContent
 
-Holds the header, the content, and the footer. Has no props. Renders a `div` with `data-slot="message-content"`.
+Holds the header, content, and footer. No props. Renders a `div` with `data-slot="message-content"`.
 
 ### MessageHeader
 
-Shows content above the message, such as a sender name. It aligns to the side of the message. Has no props. Renders a `div` with `data-slot="message-header"`.
+Content above the message, such as a sender name, on the message side. No props. Renders a `div` with `data-slot="message-header"`.
 
 ### MessageFooter
 
-Shows content below the message, such as status or actions. It aligns to the side of the message. Has no props. Renders a `div` with `data-slot="message-footer"`.
+Content below the message, such as status or actions, on the message side. No props. Renders a `div` with `data-slot="message-footer"`.
 
 Each part passes `class` and other attributes to its element.
 

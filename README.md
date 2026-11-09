@@ -109,6 +109,8 @@ pnpm add vite-hub nitro h3
 pnpm add -D vite
 ```
 
+If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script. Then run `pnpm add -D vite` before you continue.
+
 ```ts
 // vite.config.ts
 import { vitehub } from "vite-hub";

@@ -6,14 +6,14 @@ navigation.group: Chat
 icon: i-lucide-file-text
 ---
 
-`Markdown` renders Markdown strings and parsed Content pages with Comark UI components and document styles already configured. Use it for authored pages and assistant text. Streaming strings also use the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes.
+`Markdown` renders Markdown strings and parsed Content pages, with Comark UI components and document styles set up. Use it for written pages and assistant text. Streaming strings also use the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays still while streamed text adds nodes.
 
-::component-preview{name="MarkdownExample"}
+::example{name="MarkdownExample" height=8}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/markdown`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/markdown`:
 
 ```ts
 import { Markdown } from "@vite-hub/ui";
@@ -31,7 +31,7 @@ import { Markdown } from "@vite-hub/ui";
 
 ## Content pages
 
-Pass a Content page directly. ViteHub uses its pre-parsed nodes without parsing them again. Callouts, tabs, steps, badges, cards, and document typography use the bundled Comark UI renderers.
+Pass a Content page directly. ViteHub uses its parsed nodes as they are. Callouts, tabs, steps, badges, cards, and typography use the bundled Comark UI renderers.
 
 ```vue
 <script setup lang="ts">
@@ -45,53 +45,51 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction");
 </template>
 ```
 
-There is no separate Comark install, preset, component map, or stylesheet. `components` is an optional override. A parsed page keeps the document's parser settings; `plugins` and `options` apply only to string values.
+You need no separate Comark install, preset, component map, or stylesheet. `components` is an optional override. A parsed page keeps its parser settings. `plugins` and `options` apply only to strings.
 
 ## Composition
 
-`Markdown` chooses the string parser or document renderer from the value. Comark UI supplies the block components. Images use ViteHub previews; string formulas use lazy KaTeX. Replace individual renderers with the `components` prop.
+`Markdown` picks the string parser or the document renderer from the value. Comark UI gives the block components. Images use ViteHub previews. String formulas use lazy-loaded KaTeX. Replace single renderers with the `components` prop.
 
 ## Features
 
-- Renders parsed Content pages with the bundled Comark UI components.
 - Parses partial Markdown while text streams.
-- Keeps the layout stable while streamed text appends new nodes.
-- Renders string formulas with lazy KaTeX and preserves pre-rendered math in Content pages.
+- Renders string formulas with lazy KaTeX and keeps pre-rendered math in Content pages.
 - Shows images as thumbnails that open a full preview.
-- Accepts Comark components, parser options, and plugins.
-- Raw HTML in string values stays disabled. Parsed Content pages render their existing nodes.
+- Takes Comark components, parser options, and plugins.
+- Raw HTML in strings stays off. Parsed Content pages render their existing nodes.
 
 ## Streaming
 
-Set `streaming` while text arrives. A formula without its closing delimiter stays text until the delimiter arrives.
+Set `streaming` while text arrives. A formula stays text until its closing delimiter arrives.
 
-::component-preview{name="MarkdownStreamingExample" reset}
+::example{name="MarkdownStreamingExample" reset height=22}
 ::
 
 ## Math
 
-For string values, `Markdown` loads KaTeX with the first formula. Use `$...$` or `\(...\)` for inline formulas and `$$...$$` or `\[...\]` for display formulas.
+For strings, `Markdown` loads KaTeX with the first formula. Use `$...$` or `\(...\)` for inline formulas and `$$...$$` or `\[...\]` for display formulas.
 
-::component-preview{name="MarkdownMathExample"}
+::example{name="MarkdownMathExample" height=14}
 ::
 
-- Start a display formula at the beginning of a line. Its closing delimiter must end the line.
-- For dollar-delimited inline math, do not put spaces directly inside the delimiters.
-- Math inside code spans and fenced code blocks stays literal.
+- Start a display formula at the start of a line. Its closing delimiter must end the line.
+- In `$` inline math, put no spaces directly inside the delimiters.
+- Math in code spans and code blocks stays as text.
 - If KaTeX rejects a formula, its source renders as code.
 
-Parsed Content pages keep the math nodes produced by their parser, including pre-rendered MathML. They do not load the string parser's KaTeX renderer.
+Parsed Content pages keep their parser's math nodes, including pre-rendered MathML. They do not load KaTeX.
 
 ## Images
 
-Images render as compact thumbnails. Select one to open it at its full aspect ratio. Press Escape or select the close button to return. The dialog also links to the original image.
+Images show as small thumbnails. Select one to open it at full aspect ratio. Press Escape or the close button to return. The dialog also links to the original image.
 
-::component-preview{name="MarkdownImageExample"}
+::example{name="MarkdownImageExample" height=24}
 ::
 
 ## Custom components
 
-Pass Comark components to replace an element or add a custom one. Set `components.img` to replace the image preview. For string values, `components.math` replaces KaTeX and receives the formula as `content` and a `class` that contains `block` for display math.
+Pass Comark components to replace an element or add one. `components.img` replaces the image preview. For strings, `components.math` replaces KaTeX. It receives the formula as `content`, and a `class` with `block` for display math.
 
 ```vue
 <Markdown
@@ -101,11 +99,11 @@ Pass Comark components to replace an element or add a custom one. Set `component
 />
 ```
 
-Comark takes parser plugins in the top-level `plugins` prop. `options` holds parser settings only. Raw HTML stays disabled for string values.
+Parser plugins go in the top-level `plugins` prop. `options` holds parser settings only. Raw HTML stays off for strings.
 
 ## Styling
 
-Override the typography variables on one instance or globally. The base rules style prose rhythm, headings, lists, links, inline code, code blocks, and blockquotes. They do not style application chrome.
+Override the typography variables on one instance or globally. The base rules style spacing, headings, lists, links, inline code, code blocks, and blockquotes, not app chrome.
 
 ```css
 .support-answer {
@@ -114,32 +112,32 @@ Override the typography variables on one instance or globally. The base rules st
 }
 ```
 
-Change the default class for every instance with the `markdown.class` [default](/docs/ui/installation#defaults).
+Change the class of every instance with the `markdown.class` [default](/docs/ui/installation#defaults).
 
 ## Accessibility
 
-- Raw HTML in string values does not render. Parsed pages use their existing nodes and parser settings.
-- KaTeX runs with trusted commands disabled for string formulas.
+- Raw HTML in strings does not render. Parsed pages use their existing nodes and parser settings.
+- KaTeX runs with trusted commands off for string formulas.
 - Image thumbnails are buttons. The expanded view closes with Escape and returns focus.
-- Write meaningful image alt text in the Markdown source. It becomes the button and dialog label.
+- Write useful image alt text. It becomes the button and dialog label.
 
 ## API Reference
 
 ### Markdown
 
-Renders a Markdown string or a parsed Content page as styled prose. The focused `vite-hub/ui/markdown` and `@vite-hub/ui/markdown` entries also export the `MarkdownValue` type.
+Renders a Markdown string or parsed Content page as styled prose. The `vite-hub/ui/markdown` and `@vite-hub/ui/markdown` entries also export the `MarkdownValue` type.
 
 #### Props
 
 | Prop         | Type                          | Default | Description |
 | ------------ | ----------------------------- | ------- | ----------- |
-| `value`      | `MarkdownValue`               | `""`    | Markdown string or a parsed Content page with `nodes`. |
-| `streaming`  | `boolean`                     | `false` | Treats string values as partial, streamed Markdown. |
-| `components` | `MarkdownProps['components']` |         | Optional overrides for the bundled Comark UI components. |
-| `options`    | `MarkdownProps['options']`    |         | Parser options for string values. Raw HTML stays disabled. |
-| `plugins`    | `MarkdownProps['plugins']`    |         | Parser plugins for string values. Extend or replace defaults by name. |
+| `value`      | `MarkdownValue`               | `""`    | A Markdown string or a parsed Content page with `nodes`. |
+| `streaming`  | `boolean`                     | `false` | Treats strings as partial, streamed Markdown. |
+| `components` | `MarkdownProps['components']` |         | Overrides for the bundled Comark UI components. |
+| `options`    | `MarkdownProps['options']`    |         | Parser options for strings. Raw HTML stays off. |
+| `plugins`    | `MarkdownProps['plugins']`    |         | Parser plugins for strings. Extend or replace defaults by name. |
 
-Other attributes, for example `class`, go to the Comark root.
+Other attributes, such as `class`, go to the Comark root.
 
 ## Related
 
