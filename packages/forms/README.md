@@ -68,3 +68,43 @@ if (error) showFieldErrors(error.issues)
 ```
 
 `submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence.
+
+## Vue
+
+`@vite-hub/forms/vue` needs `vue` and `@formisch/vue`. `AutoForm` draws a whole form from the Valibot object schema of the form: a label and a control for each field, the help text of `v.description()`, the honeypot, the error of each field, and the message after it is sent. It draws plain elements with `data-*` attributes, so the app styles them.
+
+```vue fragment
+<script setup lang="ts">
+import { AutoForm } from "@vite-hub/forms/vue"
+import { ContactSchema } from "#shared/schemas"
+</script>
+
+<template>
+  <AutoForm name="contact" :schema="ContactSchema" />
+</template>
+```
+
+A string becomes a text, email, or url input, or a textarea when it is long or named like `message`. A number becomes a number input, a boolean a checkbox, and a picklist a select. `v.title()` sets the label.
+
+For your own markup, use Formisch and `useFormSubmit()`. It sends the values and puts each server issue under its field:
+
+```vue fragment
+<script setup lang="ts">
+import { Field, Form, useForm } from "@formisch/vue"
+import { useFormSubmit } from "@vite-hub/forms/vue"
+
+const form = useForm({ schema: ContactSchema })
+const { send, sent } = useFormSubmit("contact", form)
+</script>
+
+<template>
+  <Form :of="form" @submit="send">
+    <Field v-slot="field" :of="form" :path="['message']">
+      <textarea v-model="field.input" v-bind="field.props" />
+      <p v-if="field.errors">{{ field.errors[0] }}</p>
+    </Field>
+    <button>Send</button>
+    <p v-if="sent">Thanks.</p>
+  </Form>
+</template>
+```

@@ -162,6 +162,7 @@ catalogs:
   ui:
     "@fontsource-variable/geist": ^5.3.0
     "@fontsource-variable/geist-mono": ^5.3.0
+    "@formisch/vue": ^1.2.0
     "@iconify-json/lucide": ^1.2.139
     "@iconify-json/ph": ^1.2.2
     "@iconify-json/simple-icons": ^1.2.98

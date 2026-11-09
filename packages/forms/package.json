@@ -56,6 +56,11 @@
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -71,20 +76,31 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@formisch/vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "happy-dom": "21.0.3",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "vite": "catalog:vite-compat"
+    "@formisch/vue": "^1.2.0",
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "@formisch/vue": {
+      "optional": true
+    },
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

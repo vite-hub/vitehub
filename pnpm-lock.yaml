@@ -403,6 +403,9 @@ catalogs:
     '@fontsource-variable/geist-mono':
       specifier: ^5.3.0
       version: 5.3.0
+    '@formisch/vue':
+      specifier: ^1.2.0
+      version: 1.2.0
     '@iconify-json/lucide':
       specifier: ^1.2.139
       version: 1.2.139
@@ -2230,6 +2233,9 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
     devDependencies:
+      '@formisch/vue':
+        specifier: catalog:ui
+        version: 1.2.0(typescript@6.0.3)(valibot@1.5.0(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
@@ -2239,6 +2245,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      happy-dom:
+        specifier: 21.0.3
+        version: 21.0.3
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -2251,6 +2260,9 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+      vue:
+        specifier: 3.5.44
+        version: 3.5.44(typescript@6.0.3)
 
   packages/gateways:
     dependencies:
@@ -6025,6 +6037,16 @@ packages:
 
   '@fontsource-variable/geist@5.3.0':
     resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
+
+  '@formisch/vue@1.2.0':
+    resolution: {integrity: sha512-KAdH8JHbiRbAY/Iroelo3A0sHh3nMuwiUoETx3QtG7g5Kd31fQQUkiRF7vy699CudKwW2pMvELOqDOVTqsudMw==}
+    peerDependencies:
+      typescript: '>=5 <8'
+      valibot: '>=1.4.1 <2'
+      vue: 3.5.44
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   '@github-tools/eve-extension@0.8.1':
     resolution: {integrity: sha512-wOVaEiPfI0xtWJ8DuBlWjjxE8VJhKLrybCVUF9ppA0O69OsmKSNvoQSLofhu8Ok9a40xWEANB3qTZozpWNx8fA==}
@@ -22404,6 +22426,13 @@ snapshots:
   '@fontsource-variable/geist-mono@5.3.0': {}
 
   '@fontsource-variable/geist@5.3.0': {}
+
+  '@formisch/vue@1.2.0(typescript@6.0.3)(valibot@1.5.0(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))':
+    dependencies:
+      valibot: 1.5.0(typescript@6.0.3)
+      vue: 3.5.44(typescript@6.0.3)
+    optionalDependencies:
+      typescript: 6.0.3
 
   '@github-tools/eve-extension@0.8.1(854b73fa1b62f0eeeb2e9429a66bc04e)':
     dependencies:

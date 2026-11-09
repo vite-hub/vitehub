@@ -6,11 +6,11 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["drizzle-orm", "nostics", "valibot", "vite"],
+      neverBundle: ["@formisch/vue", "drizzle-orm", "nostics", "valibot", "vite", "vue"],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/client.ts", "src/database.ts", "src/runtime.ts", "src/vite.ts", "src/operations.ts"],
+    entry: ["src/index.ts", "src/client.ts", "src/database.ts", "src/runtime.ts", "src/vite.ts", "src/operations.ts", "src/vue.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,
