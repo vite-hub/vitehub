@@ -204,6 +204,15 @@ it("refuses a requestId that another author or a hidden thread already uses", as
   expect(await store.list({})).toHaveLength(1)
 })
 
+it("returns the first thread to a retry after the author lost write access", async () => {
+  let canWrite = true
+  setup(defineComments({ authorize: ({ action }) => action !== "write" || canWrite }))
+  const first = await create(member, { ...input, requestId: "draft-1" })
+  canWrite = false
+  expect(await call("comments.create", { ...input, requestId: "draft-1" }, member)).toEqual({ ok: true, value: first })
+  expect(await call("comments.create", { ...input, requestId: "draft-2" }, member)).toMatchObject({ ok: false, status: 403 })
+})
+
 it("checks read access on the subject before creating a thread", async () => {
   const authorize = vi.fn(({ action }) => action !== "read")
   const store = setup(defineComments({ authorize }))

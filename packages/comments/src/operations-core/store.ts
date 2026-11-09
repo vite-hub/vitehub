@@ -157,6 +157,8 @@ export interface CommentsStore {
   list: (query: StoreListQuery) => Promise<CommentThread[]>
   getById: (id: string) => Promise<CommentThread | null>
   getByNumber: (scope: string, n: number) => Promise<CommentThread | null>
+  /** The thread that a `createThread` with this `requestId` stored in the scope. */
+  getByRequestId: (scope: string, requestId: string) => Promise<CommentThread | null>
   /** The thread that holds a message. */
   getByMessage: (messageId: string) => Promise<CommentThread | null>
   /** Threads listing `key` in a page of matching messages. `cursor` continues after those candidates. */
@@ -331,6 +333,9 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     getById: find,
     async getByNumber(scope, n) {
       return (await read(and(eq(threads.scope, scope), eq(threads.n, n)), 1))[0] ?? null
+    },
+    async getByRequestId(scope, requestId) {
+      return (await read(and(eq(threads.scope, scope), eq(threads.requestId, requestId)), 1))[0] ?? null
     },
     async getByMessage(messageId) {
       const [row] = await db.select({ threadId: messages.threadId }).from(messages).where(eq(messages.id, messageId)).limit(1)

@@ -5,7 +5,7 @@ import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
-import { attachmentThread, can, createThread, deniedError, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, storeAttachment, suggest } from "./service.ts"
+import { attachmentThread, can, createThread, deniedError, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, storeAttachment, suggest } from "./service.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./define.ts"
@@ -250,9 +250,13 @@ export const commentActions = {
 
   /** `context` is the page context that the overlay read and its transport checked. */
   async create(input: CommentCreateInput & { context?: CommentContext }, who: CommentsCaller): Promise<CommentThread> {
+    const canRead = (thread: CommentThread) => permitted(who, "read", { thread })
+    // A retry gets the first thread even when the caller lost write access since the first call.
+    const earlier = await earlierThread(who.runtime, input)
+    if (earlier) return retried(earlier, author(who), canRead)
     await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
-    return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, { ...writeOptions(who), canRead: thread => permitted(who, "read", { thread }) })
+    return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, { ...writeOptions(who), canRead })
   },
 
   /** `allowResolved`: the operations keep a reply box on resolved threads, and a reply keeps the thread resolved. */
