@@ -117,7 +117,7 @@ The Queue runtime has no client factory. The generated server output installs it
 
 ### QUEUE_VERCEL_SDK_UNAVAILABLE
 
-`@vercel/queue` cannot be loaded. Add it to the app dependencies. Read `error.cause` for the import error.
+`@vercel/queue` or `@vercel/functions` cannot be loaded. Queue lists both as optional peers, so a Vercel app installs them. Add them to the app dependencies. Read `error.cause` for the import error.
 
 ## Definition and build errors
 

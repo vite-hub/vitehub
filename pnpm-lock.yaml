@@ -2563,12 +2563,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
-      '@vercel/functions':
-        specifier: catalog:vercel
-        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
-      '@vercel/queue':
-        specifier: catalog:vercel
-        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -2600,6 +2594,12 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
+      '@vercel/queue':
+        specifier: catalog:vercel
+        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

@@ -86,8 +86,6 @@
   },
   "dependencies": {
     "@types/ws": "^8.18.2",
-    "@vercel/functions": "catalog:vercel",
-    "@vercel/queue": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
@@ -99,6 +97,8 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
+    "@vercel/queue": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -108,9 +108,17 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
+    "@vercel/queue": "catalog:vercel",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
+    "@vercel/queue": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
