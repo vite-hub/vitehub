@@ -39,6 +39,7 @@ it.each(["default-expression", "default-binding", "default-reexport"])("preserve
       "export default defineSchedule({ cron: '0 9 * * *', handler: async () => { const [error, result] = await runAgent(daily, { prompt: 'Write the report.' }); if (error) throw error; return result } })",
     ].join("\n"))
     const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+    const agentPackageDir = resolve(import.meta.dirname, "..").replace(/\\/g, "/") + "/"
     await build({
       root,
       configFile: false,
@@ -47,7 +48,11 @@ it.each(["default-expression", "default-binding", "default-reexport"])("preserve
       build: {
         ssr: join(root, "server", "schedules", "daily.ts"),
         outDir: join(root, "dist"),
-        rolldownOptions: { external: /^@vite-hub\//, output: { entryFileNames: "daily.mjs" } },
+        rolldownOptions: {
+          // Keep generated Agent file imports external, like the bare package imports in this fixture.
+          external: id => id.startsWith("@vite-hub/") || id.startsWith(agentPackageDir),
+          output: { entryFileNames: "daily.mjs" },
+        },
       },
     })
     const schedule = await import(/* @vite-ignore */ pathToFileURL(join(root, "dist", "daily.mjs")).href)

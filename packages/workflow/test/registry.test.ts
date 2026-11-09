@@ -32,7 +32,13 @@ describe("Workflow registry", () => {
       name: "__proto__",
       source: kind === "agent" ? "agent-workflow" : "server-workflows",
       ...(kind === "steps" ? { steps: [step] } : {}),
-    }]), "utf8")
+    }], {
+      agent: {
+        index: resolve(packageRoot, "../agent/dist/index.js"),
+        runtimeWorkflow: resolve(packageRoot, "../agent/dist/runtime/workflow.js"),
+        serverInternal: resolve(packageRoot, "../agent/dist/server/internal.js"),
+      },
+    }), "utf8")
 
     const generated = await import(pathToFileURL(registryFile).href)
     expect(Object.keys(generated.default)).toEqual(["__proto__"])
