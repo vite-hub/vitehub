@@ -35,6 +35,13 @@ vi.mock("../src/server.ts", async (importOriginal) => {
 
 const tempDirs: string[] = []
 
+function idHook(hook: unknown): (id: string) => string | undefined {
+  const handler: unknown = typeof hook === "function" ? hook : Reflect.get(Object(hook), "handler")
+  if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
+  // SAFETY: The Workspace resolveId and load hooks take an id and return a resolved id or module source.
+  return handler as (id: string) => string | undefined
+}
+
 function responseChunkText(chunk: unknown) {
   if (typeof chunk === "string") return chunk
   if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
@@ -264,8 +271,8 @@ describe("hubWorkspace", () => {
     const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
     const environmentHook = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }, env: { command: string }) => unknown
     const configEnvironment = (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }) => environmentHook(name, environment, { command: "build" })
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
-    const load = plugin.load as (id: string) => string | undefined
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configResolved({ root } as never)
 
@@ -294,6 +301,23 @@ describe("hubWorkspace", () => {
 
     const rootId = resolveId("#vitehub/workspaces")!
     expect(load(rootId)).toContain('"docs"')
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
+    const ids = [
+      "#vitehub-workspace-assets-registry",
+      "#vitehub-workspace-registry",
+      "#vitehub/workspaces",
+      "#vitehub/workspaces/docs",
+      "\0#vitehub-workspace-registry",
+      "\0#vitehub/workspaces",
+      "\0#vitehub/workspaces/docs",
+      "\0#vitehub-workspace-assets-registry",
+      "#vitehub/workspacesX",
+      "#vitehub-workspace-registry.mjs",
+      "@vite-hub/workspace",
+      "/app/server/api/files.ts",
+    ]
+    expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(ids.slice(0, 4))
+    expect(ids.filter(id => idFilter(plugin.load).test(id))).toEqual(ids.slice(4, 7))
     expect(load(rootId)).not.toContain('"ignored"')
     const docsId = resolveId("#vitehub/workspaces/docs")!
     expect(load(docsId)).toContain('"entries":[]')
@@ -530,8 +554,8 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
-    const load = plugin.load as (id: string) => string | undefined
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configResolved({ root } as never)
 
@@ -607,8 +631,8 @@ describe("hubWorkspace", () => {
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
     const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
-    const load = plugin.load as (id: string) => string | undefined
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await expect(config({ nitro: {}, root: appRoot, workspace: {} }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
@@ -3474,7 +3498,7 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const buildStart = plugin.buildStart as () => Promise<void>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
+    const resolveId = idHook(plugin.resolveId)
 
     await configResolved({ command: "build", root })
     await buildStart()
@@ -3498,7 +3522,7 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({ assets: ["docs"] })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const buildStart = plugin.buildStart as () => Promise<void>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
+    const resolveId = idHook(plugin.resolveId)
 
     await configResolved({ command: "build", root })
     await buildStart()
@@ -3519,7 +3543,7 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({ assets: false })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const buildStart = plugin.buildStart as () => Promise<void>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
+    const resolveId = idHook(plugin.resolveId)
 
     await configResolved({ command: "build", root })
     await buildStart()
@@ -3539,7 +3563,7 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({ assets: ["docs"] })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string, workspace?: { assets?: boolean | string[] } }) => Promise<void>
     const buildStart = plugin.buildStart as () => Promise<void>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined
+    const resolveId = idHook(plugin.resolveId)
 
     await configResolved({ command: "build", root, workspace: { assets: false } })
     await buildStart()
