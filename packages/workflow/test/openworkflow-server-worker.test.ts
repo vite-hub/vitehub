@@ -15,7 +15,7 @@ interface FakeWorker {
 
 const fake = vi.hoisted(() => {
   const state = {
-    connectError: undefined as Error | undefined,
+    connectErrors: [] as Error[],
     workers: [] as FakeWorker[],
   }
 
@@ -40,7 +40,8 @@ const fake = vi.hoisted(() => {
   }
 
   const connect = () => {
-    if (state.connectError) throw state.connectError
+    const error = state.connectErrors.shift()
+    if (error) throw error
     return { stop: () => {} }
   }
 
@@ -74,7 +75,7 @@ async function flush(): Promise<void> {
 const config: ResolvedWorkflowOptions = { provider: "openworkflow", sqlite: { path: ":memory:" }, worker: { concurrency: 4 } }
 
 beforeEach(async () => {
-  fake.state.connectError = undefined
+  fake.state.connectErrors.length = 0
   fake.state.workers.length = 0
   resetWorkflowRuntime()
   await resetOpenWorkflowRuntime()
@@ -91,8 +92,7 @@ describe("installOpenWorkflow", () => {
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     const app = createApp()
 
-    installOpenWorkflow(app)
-    await flush()
+    await expect(installOpenWorkflow(app)).resolves.toBe(true)
 
     const [worker] = fake.state.workers
     expect(fake.state.workers).toHaveLength(1)
@@ -166,20 +166,49 @@ describe("installOpenWorkflow", () => {
     expect(fake.state.workers).toHaveLength(0)
   })
 
-  it("reports a worker that cannot start without crashing the server", async () => {
+  it("tries the setup again and starts the worker when it succeeds later", async () => {
+    vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({})
-    fake.state.connectError = new Error("database is locked")
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    // Another server holds the schema setup, or Postgres is still starting.
+    fake.state.connectErrors = [new Error("connection refused"), new Error("connection refused")]
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const app = createApp()
 
-    installOpenWorkflow(app)
-    await flush()
+    const started = installOpenWorkflow(app)
+    await vi.advanceTimersByTimeAsync(2_000)
 
+    await expect(started).resolves.toBe(true)
+    expect(consoleWarn).toHaveBeenCalledTimes(2)
+    expect(fake.state.workers).toHaveLength(1)
+    expect(fake.state.workers[0]!.start).toHaveBeenCalledOnce()
+    expect(app.captureError).not.toHaveBeenCalled()
+    vi.useRealTimers()
+    await app.close()
+    consoleWarn.mockRestore()
+  })
+
+  it("reports a worker that cannot start without crashing the server", async () => {
+    vi.useFakeTimers()
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({})
+    fake.state.connectErrors = Array.from({ length: 5 }, () => new Error("database is locked"))
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = createApp()
+
+    const started = installOpenWorkflow(app)
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    // Setup runs 5 times, 0.5, 1, 2, and 4 seconds apart.
+    await expect(started).resolves.toBe(false)
+    expect(consoleWarn).toHaveBeenCalledTimes(4)
     expect(app.captureError).toHaveBeenCalledOnce()
     expect(app.captureError.mock.calls[0]![1]).toEqual({ tags: ["vitehub-workflow"] })
     expect(fake.state.workers).toHaveLength(0)
+    vi.useRealTimers()
     await app.close()
     consoleError.mockRestore()
+    consoleWarn.mockRestore()
   })
 })

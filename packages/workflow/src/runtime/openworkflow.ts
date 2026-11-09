@@ -12,6 +12,8 @@ type NodeFsModule = typeof import("node:fs")
 type NodePathModule = typeof import("node:path")
 type OpenWorkflowPostgresModule = typeof import("openworkflow/postgres")
 type OpenWorkflowSqliteModule = typeof import("openworkflow/sqlite")
+// `postgres` declares `export =`, and a dynamic import returns it as `default`.
+type PostgresModule = { default: typeof import("postgres") }
 type OpenWorkflowClient = InstanceType<OpenWorkflowModule["OpenWorkflow"]>
 type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["BackendPostgres"]["connect"]>> | ReturnType<OpenWorkflowSqliteModule["BackendSqlite"]["connect"]>
 type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
@@ -137,6 +139,29 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   }
 }
 
+/**
+ * OpenWorkflow creates its Postgres schema without a lock, so servers that start together fail with
+ * `duplicate key value violates unique constraint "pg_type_typname_nsp_index"`. A session advisory lock on the
+ * schema name lets one process set it up while the others wait, then find it up to date.
+ */
+async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, schema: string, setup: () => Promise<T>): Promise<T> {
+  const sql = postgres.default(url, { max: 1, onnotice: () => {} })
+  const key = `vitehub:openworkflow:${schema}`
+  try {
+    await sql`select pg_advisory_lock(hashtextextended(${key}, 0))`
+    try {
+      return await setup()
+    }
+    finally {
+      await sql`select pg_advisory_unlock(hashtextextended(${key}, 0))`
+    }
+  }
+  finally {
+    // Closing the session also releases the lock when the unlock query fails.
+    await sql.end({ timeout: 5 })
+  }
+}
+
 async function createOpenWorkflowRuntime(
   options: OpenWorkflowStorageConfig,
   importer: OpenWorkflowImporter,
@@ -158,11 +183,15 @@ async function createOpenWorkflowRuntime(
     }
     else {
       // SAFETY: The discriminated storage options select the matching dynamically imported backend module.
-      backend = await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
+      const { BackendPostgres } = backendModule as OpenWorkflowPostgresModule
+      const connect = () => BackendPostgres.connect(options.url, {
         namespaceId: options.namespaceId,
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
         schema: options.schema,
       })
+      backend = options.runMigrations === false
+        ? await connect()
+        : await withPostgresSetupLock(await importOpenWorkflowModule<PostgresModule>("postgres", importer), options.url, options.schema, connect)
     }
     return { backend, client: new OpenWorkflow({ backend }) }
   })

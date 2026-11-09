@@ -122,10 +122,22 @@ const openWorkflowMock = vi.hoisted(() => {
     }
   }
 
+  // The advisory lock around OpenWorkflow's Postgres setup. Each tagged query records its SQL text.
+  const lockQueries: string[] = []
+  const postgres = vi.fn((_url: string, _options?: unknown) => Object.assign(
+    async (strings: TemplateStringsArray) => {
+      lockQueries.push(strings.join("?"))
+      return []
+    },
+    { end: vi.fn(async () => {}) },
+  ))
+
   return {
     cancelWorkflowRun,
     connect,
     definitions,
+    lockQueries,
+    postgres,
     newWorker,
     OpenWorkflow,
     runOptions,
@@ -160,6 +172,8 @@ vi.mock("openworkflow/postgres", () => ({
   },
 }))
 
+vi.mock("postgres", () => ({ default: openWorkflowMock.postgres }))
+
 vi.mock("openworkflow/sqlite", () => ({
   BackendSqlite: {
     connect: openWorkflowMock.sqliteConnect,
@@ -179,6 +193,10 @@ function setOpenWorkflowMockImporter(): void {
     if (specifier === "openworkflow/sqlite") {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+    }
+    if (specifier === "postgres") {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      return { default: openWorkflowMock.postgres } as never
     }
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     return await import(specifier) as never
@@ -212,6 +230,8 @@ beforeEach(async () => {
   openWorkflowMock.connect.mockClear()
   openWorkflowMock.sqliteConnect.mockClear()
   openWorkflowMock.definitions.clear()
+  openWorkflowMock.lockQueries.length = 0
+  openWorkflowMock.postgres.mockClear()
   openWorkflowMock.newWorker.mockClear()
   openWorkflowMock.runOptions.length = 0
   openWorkflowMock.runs.clear()
@@ -1446,6 +1466,30 @@ describe("workflow runtime", () => {
       namespaceId: "staging",
       schema: "workflow_schema",
     })
+  })
+
+  it("holds an advisory lock while OpenWorkflow sets up its Postgres schema", async () => {
+    const order: string[] = []
+    openWorkflowMock.connect.mockImplementationOnce(async () => {
+      order.push(`connect after ${openWorkflowMock.lockQueries.length} lock queries`)
+      return { getWorkflowRun: vi.fn(async () => null), stop: vi.fn() }
+    })
+    await getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { schema: "jobs", url: "postgres://localhost/lock" }, provider: "openworkflow" })!)
+
+    expect(openWorkflowMock.postgres).toHaveBeenCalledWith("postgres://localhost/lock", expect.objectContaining({ max: 1 }))
+    expect(openWorkflowMock.lockQueries).toEqual([
+      "select pg_advisory_lock(hashtextextended(?, 0))",
+      "select pg_advisory_unlock(hashtextextended(?, 0))",
+    ])
+    expect(order).toEqual(["connect after 1 lock queries"])
+    expect(openWorkflowMock.postgres.mock.results[0]!.value.end).toHaveBeenCalledOnce()
+  })
+
+  it("does not lock when OpenWorkflow Postgres migrations are off", async () => {
+    await getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { runMigrations: false, url: "postgres://localhost/nolock" }, provider: "openworkflow" })!)
+
+    expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
+    expect(openWorkflowMock.postgres).not.toHaveBeenCalled()
   })
 
   it("runs registered definitions through the OpenWorkflow SQLite provider", async () => {

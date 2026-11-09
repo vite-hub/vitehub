@@ -53,7 +53,8 @@ export default defineConfig({
 - `runWorkflow()` puts the run in storage and returns it with the status `queued`. A worker then executes it.
 - Each server starts the OpenWorkflow worker when it starts. On `SIGTERM`, the worker stops taking runs. A run that does not finish in the [drain budget](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) keeps its lease for 30 seconds. Then another worker takes it.
 - Set `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` on the server to keep runs in Postgres, in the `openworkflow` schema. Without one of them, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only.
-- Several servers can use the same Postgres database. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
+- Several servers can use the same Postgres database. When they start together, they create the `openworkflow` schema one at a time under a Postgres advisory lock. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
+- When the storage is not ready, for example while Postgres starts, the server tries the setup again 4 times, 0.5 to 4 seconds apart. Then it logs the error and serves requests without a worker.
 - `vite dev` also starts the worker, so runs complete on your computer. When you change a Workflow file, the dev server starts a new worker with the new code.
 
 ### Run the worker in its own process

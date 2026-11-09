@@ -236,17 +236,22 @@ const bundledOpenWorkflowModules: Readonly<Record<string, () => Promise<unknown>
   "openworkflow": () => import("openworkflow"),
   "openworkflow/postgres": () => import("openworkflow/postgres"),
   "openworkflow/sqlite": () => import("openworkflow/sqlite"),
+  "postgres": () => import("postgres"),
 }
 
 /**
  * Installs OpenWorkflow in a long-lived Nitro server. The generated Workflow startup plugin calls it after it installs
  * the runtime config and registry. It loads OpenWorkflow from the server bundle, then starts the worker unless
- * `workflow.worker` is `false`. The worker stops when the server stops.
+ * `workflow.worker` is `false`. The worker stops when the server stops. Setup that fails runs again up to 5 times.
+ * The returned promise resolves to `true` when the worker runs, and to `false` when it is off or did not start.
  *
  * A worker copies the Workflow Definitions when it is created. When this process registers a new definition later,
  * such as an inline `createWorkflow()` or an Agent Workflow, a new worker replaces the current one. Several servers
  * can run a worker on the same storage: OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED` on Postgres.
  */
+const openWorkflowStartAttempts = 5
+const openWorkflowStartDelayMs = 500
+
 interface ActiveOpenWorkflowInstall {
   /** Stops claiming runs and releases the hooks of this install. It does not wait for runs that are executing. */
   release(): Promise<void>
@@ -275,7 +280,8 @@ function useBundledOpenWorkflow(): void {
 /**
  * Installs OpenWorkflow in a long-lived Nitro server. The generated Workflow startup plugin calls it after it installs
  * the runtime config and registry. It loads OpenWorkflow from the server bundle, then starts the worker unless
- * `workflow.worker` is `false`. The worker stops when the server stops.
+ * `workflow.worker` is `false`. The worker stops when the server stops. Setup that fails runs again up to 5 times.
+ * The returned promise resolves to `true` when the worker runs, and to `false` when it is off or did not start.
  *
  * A worker copies the Workflow Definitions when it is created. When this process registers a new definition later,
  * such as an inline `createWorkflow()` or an Agent Workflow, a new worker replaces the current one. When the plugin
@@ -283,9 +289,9 @@ function useBundledOpenWorkflow(): void {
  * uses the changed definitions. Several servers can run a worker on the same storage: OpenWorkflow claims each run
  * with `FOR UPDATE SKIP LOCKED` on Postgres.
  */
-export function installOpenWorkflow(app: OpenWorkflowWorkerApp): void {
+export function installOpenWorkflow(app: OpenWorkflowWorkerApp): Promise<boolean> {
   const config = getWorkflowRuntimeConfig()
-  if (!config || config.provider !== "openworkflow") return
+  if (!config || config.provider !== "openworkflow") return Promise.resolve(false)
   useBundledOpenWorkflow()
 
   const retired = new Set<Promise<void>>()
@@ -313,7 +319,7 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp): void {
     retired.add(task)
   }
 
-  let started: Promise<void> = Promise.resolve()
+  let started: Promise<boolean> = Promise.resolve(false)
   const release = async (): Promise<void> => {
     closed = true
     await started
@@ -330,9 +336,10 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp): void {
       await resetOpenWorkflowRuntime()
       useBundledOpenWorkflow()
     }
-    if (closed || config.worker === false) return
-    const { concurrency, runtime } = await prepareOpenWorkflowWorker({ config })
-    if (closed) return
+    if (closed || config.worker === false) return false
+    const prepared = await prepareWithRetries(() => closed)
+    if (!prepared || closed) return false
+    const { concurrency, runtime } = prepared
     const start = () => {
       const next = runtime.client.newWorker({ concurrency })
       if (worker) retire(worker)
@@ -343,7 +350,11 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp): void {
       if (!closed) void start()
     })
     await start()
-  })().catch(report)
+    return true
+  })().catch((error: unknown) => {
+    report(error)
+    return false
+  })
 
   onShutdown(app, "workflow.openworkflow-worker", async ({ signal }) => {
     await release()
@@ -354,4 +365,24 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp): void {
       new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true })),
     ])
   })
+  return started
+
+  /**
+   * The storage can be unavailable for a moment when the server starts, for example while Postgres starts or another
+   * server sets up the schema. Setup runs again with a growing delay before the worker gives up.
+   */
+  async function prepareWithRetries(isClosed: () => boolean) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await prepareOpenWorkflowWorker({ config })
+      }
+      catch (error) {
+        if (isClosed() || attempt >= openWorkflowStartAttempts) throw error
+        const delay = openWorkflowStartDelayMs * 2 ** (attempt - 1)
+        console.warn(`[vitehub:workflow] OpenWorkflow worker setup failed (attempt ${attempt} of ${openWorkflowStartAttempts}). It tries again in ${delay} ms.`, error)
+        await new Promise<void>(resolve => setTimeout(resolve, delay).unref?.())
+        if (isClosed()) return undefined
+      }
+    }
+  }
 }

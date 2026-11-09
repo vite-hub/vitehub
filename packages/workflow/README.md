@@ -106,7 +106,7 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 ### Run an OpenWorkflow worker
 
-`runWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. It loads OpenWorkflow from the server bundle and starts one worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database: OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it.
+`runWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. It loads OpenWorkflow from the server bundle and starts one worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database. ViteHub holds a Postgres advisory lock while OpenWorkflow sets up its schema, so servers that start together do not fail with `duplicate key value violates unique constraint`. OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it. When setup fails, the server tries it again up to 4 times. `installOpenWorkflow()` resolves to `true` when the worker runs.
 
 A worker copies the Workflow Definitions when it starts. When the server registers a new definition later, such as an inline `createWorkflow()` or an Agent Workflow, it replaces its worker. In `vite dev`, a changed Workflow file also replaces the worker.
 
