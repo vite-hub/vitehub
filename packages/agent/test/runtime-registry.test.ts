@@ -87,15 +87,23 @@ it('lets an undeclared path leave the declared webhook middleware without buildi
     }
   }
   try {
+    const returned: unknown[] = []
     const app = await declaredWebhookApp(server, async (middleware) => {
       inMiddleware = true
-      try { return await middleware() } finally { inMiddleware = false }
+      try {
+        const result = middleware()
+        returned.push(result)
+        return await result
+      } finally { inMiddleware = false }
     })
     expect(await (await app.request('/unrelated', { method: 'POST', body: 'first' })).text()).toBe('first')
     built = 0
+    returned.length = 0
     expect(await (await app.request('/unrelated', { method: 'POST', body: 'second' })).text()).toBe('second')
     expect((await app.request('/missing')).status).toBe(404)
     expect(built).toBe(0)
+    // Once the declared paths are known, an undeclared path passes on without a Promise.
+    expect(returned).toEqual([undefined, undefined])
     expect((await app.request('/api/productlane/webhook/', { method: 'HEAD' })).status).toBe(204)
     expect(built).toBeGreaterThan(0)
   } finally {
