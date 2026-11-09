@@ -4,6 +4,7 @@ import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/in
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import {
   asyncServerEnvRequired,
@@ -69,8 +70,9 @@ export function runWithCloudflareEnv<T>(env: RuntimeEnv, callback: () => T): T {
   return runWithActiveCloudflareEnv(env, callback)
 }
 
+/** In app tests, the values of `setEnv()` from `vite-hub/test` win over every other source. */
 function runtimeEnv(event?: ViteHubContext): RuntimeEnv {
-  return { ...processEnv(), ...cloudflareEnv(event) }
+  return { ...processEnv(), ...cloudflareEnv(event), ...getViteHubTestMode()?.env }
 }
 
 let warnedGeneratedSecret = false
@@ -472,7 +474,8 @@ function reusableEnvNames(registry: object): readonly string[] | null {
 /** The values of every name the registry reads, as one string. Undefined when the result must not be reused. */
 function serverEnvKey(registry: object, event: ViteHubContext | undefined): string | undefined {
   const names = reusableEnvNames(registry)
-  if (!names) return undefined
+  // Test values change between tests, so a test reads the env again on each call.
+  if (!names || getViteHubTestMode()) return undefined
   const host = processEnv()
   const cloudflare = cloudflareEnv(event) ?? {}
   let key = ""

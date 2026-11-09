@@ -92,7 +92,7 @@ export const playgroundConsoleContributions = [
         { key: "manual", label: "Manual" },
       ],
       kind: "record-table",
-      notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
+      notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). A Definition without cron runs when code starts it with `startSchedule()`; each started Schedule has its own row. Static Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
     },
   },
 ] as const
