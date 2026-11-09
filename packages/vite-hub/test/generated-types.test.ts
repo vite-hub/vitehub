@@ -725,6 +725,9 @@ describe("framework generated types", () => {
       handler: join(root, ".vitehub/content/preview.mjs"),
       plugin: true,
     }, {
+      handler: join(root, ".vitehub/content/types.mjs"),
+      plugin: true,
+    }, {
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
     }])
@@ -755,7 +758,23 @@ describe("framework generated types", () => {
     const nitroApp = { fetch: () => "next" }
     previewPlugin(nitroApp)
     expect(nitroApp.fetch()).toBe("next")
-    const generatedModule: unknown = await import(pathToFileURL(handlers[1]!.handler).href)
+    await expect(readFile(join(root, ".vitehub/content/types.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineContentTypesPlugin } from "vite-hub/content"`,
+        `import { useRuntimeConfig } from "nitro/runtime-config"`,
+        ``,
+        `// A production build drops this branch, so the server does not load Content at startup.`,
+        `const write = async (declarations) => {`,
+        `  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })`,
+        '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
+        `}`,
+        `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)})).content, write, { moduleName: "vite-hub/content" }) : () => {}`,
+        ``,
+      ].join("\n"),
+    )
+    // Until a development server writes the types, `.vitehub/types.d.ts` references an empty file.
+    await expect(readFile(join(root, ".vitehub/types/content.d.ts"), "utf8")).resolves.toBe("export {}\n")
+    const generatedModule: unknown = await import(pathToFileURL(handlers[2]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
     if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
     const nodeRequest = new IncomingMessage(new Socket())
@@ -988,7 +1007,7 @@ export const content = defineContent(${options})
     expect(Reflect.get(Object(contribution), "nitro")).toEqual({
       handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), lazy: true, route: "/api/content/**" }],
       modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
-      plugins: [join(root, ".vitehub/content/preview.mjs")],
+      plugins: [join(root, ".vitehub/content/preview.mjs"), join(root, ".vitehub/content/types.mjs")],
     })
   })
 
@@ -1497,6 +1516,31 @@ export const content = defineContent(${options})
 
     await listeners.get("unlink")?.(collection)
     expect(restartHost).toHaveBeenCalledTimes(2)
+  })
+
+  it("restores Content declarations when removing Content fails to restart the host", async () => {
+    const { root } = await createNestedProject()
+    const definition = join(root, "server/content.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, "export const content = defineContent({})")
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const types = join(root, ".vitehub/types/content.d.ts")
+    const declarations = "// Existing Content declarations\nexport {}\n"
+    await writeFile(types, declarations)
+    const restartHost = vi.fn().mockRejectedValueOnce(new Error("host restart failed")).mockResolvedValue(undefined)
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+    await rm(definition)
+    await listeners.get("unlink")?.(definition)
+    await expect(readFile(types, "utf8")).resolves.toBe(declarations)
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
+    await expect(readFile(types, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("retries when Vite fulfills a failed restart without replacing the server", async () => {
