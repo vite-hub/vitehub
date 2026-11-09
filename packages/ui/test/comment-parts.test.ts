@@ -186,6 +186,23 @@ describe("composer mentions", () => {
     expect(field.element).toHaveProperty("value", "@be");
   });
 
+  it("warns again on Esc after the files change, and discards only on an Esc right after a warning", async () => {
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, attachments: true, files: [], modelValue: "Half a thought" } }));
+    const field = wrapper.get("textarea");
+    const status = () => wrapper.get("[data-slot=comment-composer-status]").text();
+    await field.trigger("keydown", { key: "Escape" });
+    expect(status()).toBe("Press Escape again to discard the comment.");
+    await wrapper.setProps({ files: [file] });
+    expect(status()).toBe("");
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toBeUndefined();
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
   it("renders a mention-item slot with the person and whether it is active", async () => {
     const wrapper = keep(mount(CommentComposer, {
       attachTo: document.body,
