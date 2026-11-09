@@ -1,4 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -13,6 +15,7 @@ import {
   createResolver,
   defineNuxtModule,
   extendPages,
+  updateTemplates,
   useLogger,
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
@@ -47,9 +50,12 @@ export interface DocsSiteOptions {
   /** Canonical origin, such as `https://vitehub.dev`. Raw Markdown links, canonical links, and the sitemap use it. */
   url?: string
   description?: string
-  /** Path of a one-color SVG mark beside the name. The theme fills it with the text color. */
-  logo?: string
-  /** A short label after the name, such as `beta`, with an optional tooltip on the header brand. */
+  /**
+   * The mark beside the name. A path is a one-color SVG that the theme fills with the text color, so it follows light and
+   * dark mode. `{ light, dark? }` shows images as they are, such as a colored logo, with `dark` in dark mode.
+   */
+  logo?: string | { light: string, dark?: string }
+  /** A short label after the name, such as `beta`, with an optional tooltip on the site brand. */
   badge?: { label: string, tooltip?: string }
 }
 
@@ -111,12 +117,13 @@ export interface DocsModuleOptions {
    */
   linkChecker?: false | Pick<DocsLinkCheckOptions, "excludeLinks" | "excludePages" | "ignoreFragments" | "redirect">
   /**
-   * Checks every prerendered page as a site audit does and fails the build on a problem: a sitemap URL that is not a
-   * prerendered page, a missing or duplicate title or description, a title outside 10 to 60 characters or a
-   * description outside 70 to 160, not exactly one `h1`, a skipped heading level, fewer than 150 words, or a page that
-   * no other page links to. Pages with `noindex` or a canonical link to another page are left out. Off by default.
+   * Checks every prerendered page as a site audit does: a sitemap URL that is not a prerendered page, a missing or
+   * duplicate title or description, a title outside 10 to 60 characters or a description outside 70 to 160, not exactly
+   * one `h1`, a skipped heading level, fewer than 150 words, or a page that no other page links to. Pages with `noindex`
+   * or a canonical link to another page are left out. `"warn"`, the default, logs the problems. `"error"` or `true` stops the
+   * build with `DocsSeoError`. `false` turns the check off.
    */
-  seoAudit?: boolean
+  seoAudit?: "warn" | "error" | boolean
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
   assistant?: boolean | { agent?: string }
   /**
@@ -143,13 +150,25 @@ export interface DocsModuleOptions {
    * this config. The page route, search, and Console drafts parse with it.
    */
   parser?: string
+  /**
+   * The folder, relative to the app's source folder, of the Vue files that `::example{name}` shows. Defaults to
+   * `examples`, so `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue` beside its source.
+   */
+  examples?: string
+}
+
+/** The site mark: `mask` fills `src` with the text color, else `src` shows as it is, and `dark` in dark mode. */
+export interface DocsLogo {
+  src: string
+  dark: string | null
+  mask: boolean
 }
 
 /** Options as the client and the server read them from `runtimeConfig.public.docs`. */
 export interface DocsPublicConfig {
   appBase: string
   base: string
-  site: { name: string, url: string, description: string, logo: string | null, badge: { label: string, tooltip: string | null } | null }
+  site: { name: string, url: string, description: string, logo: DocsLogo | null, badge: { label: string, tooltip: string | null } | null }
   categories: string[]
   railExclude: string[]
   groups: DocsGroup[]
@@ -286,6 +305,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const contentDirsToWatch = sources?.map(source => source.dir) ?? [contentDir]
     const manifestOptions = { dir: contentDir, base: normalizeDocsBase(options.base ?? "/docs"), sources, sections: options.sections }
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
+    // comark-ui's blocks add their styles when they mount. The page links them too, so the first paint, before the app
+    // hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text. They are one
+    // static file, because Vite's CSS pipeline does not parse some of their newer syntax, such as `interpolate-size`.
+    const stylesDir = join(nuxt.options.buildDir, "docs/styles")
+    const comarkCss = comarkStylesheet()
+    const comarkCssFile = `comark-${createHash("sha256").update(comarkCss).digest("hex").slice(0, 10)}.css`
+    function writeComarkCss() {
+      mkdirSync(stylesDir, { recursive: true })
+      writeFileSync(join(stylesDir, comarkCssFile), comarkCss)
+    }
+    writeComarkCss()
+    // A production build empties the build directory before it starts, so the file is written again after that.
+    nuxt.hook("build:before", writeComarkCss)
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
@@ -386,6 +418,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/manifest"] = manifestFile
     addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
+    nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
+    addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
     // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
     // Without `server/content.ts` the route imports `undefined` and bundles nothing more.
     const contentEntry = await findContentEntry({ projectRoot: nuxt.options.rootDir, serverDirs: [nuxt.options.serverDir] })
@@ -407,8 +441,28 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
 
+    // `::example{name}` shows a Vue file of the examples folder. The page loads the component, and the parser reads
+    // its source, so the server bundle carries every source as a string.
+    const examplesDir = resolve(nuxt.options.srcDir, options.examples ?? "examples")
+    const exampleFiles = () => existsSync(examplesDir) ? readdirSync(examplesDir).filter(file => file.endsWith(".vue")).sort() : []
+    nuxt.options.alias["#docs/examples"] = addTemplate({
+      filename: "docs/examples.mjs",
+      write: true,
+      getContents: () => `export default {\n${exampleFiles().map(file => `  ${JSON.stringify(file.slice(0, -4))}: () => import(${JSON.stringify(join(examplesDir, file))}),`).join("\n")}\n}\n`,
+    }).dst
+    addTemplate({ filename: "docs/examples.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const examples: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default examples\n` })
+    const exampleSourcesFile = addTemplate({
+      filename: "docs/example-sources.mjs",
+      write: true,
+      getContents: () => `export default ${JSON.stringify(Object.fromEntries(exampleFiles().map(file => [file.slice(0, -4), readFileSync(join(examplesDir, file), "utf8")])))}\n`,
+    }).dst
+    nuxt.hook("builder:watch", async (_event, path) => {
+      if (resolve(nuxt.options.srcDir, path).startsWith(`${examplesDir}${sep}`)) await updateTemplates({ filter: template => template.filename.startsWith("docs/example") })
+    })
+
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
     if (nuxt.options.dev) {
+      nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), examplesDir])]
       let timer: ReturnType<typeof setTimeout> | undefined
       let regeneration = Promise.resolve()
       let closed = false
@@ -511,6 +565,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
     })
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
+    addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
       // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
@@ -575,7 +630,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           useLogger("@vite-hub/docs").info?.(`Checked links and fragments of ${result.pages} pages`)
         })
       }
-      if (options.seoAudit && building) {
+      const seoAudit = options.seoAudit ?? "warn"
+      if (seoAudit && building) {
         // Only what the check needs stays in memory, not the HTML of every page.
         const origin = `${config.site.url || "http://docs.invalid"}${config.appBase.replace(/\/+$/, "")}`
         const pages: DocsSeoPage[] = []
@@ -587,7 +643,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         })
         nitro.hooks?.hook("prerender:done", () => {
           const problems = docsSeoProblems(pages, sitemap)
-          if (problems.length) throw new DocsSeoError(problems)
+          if (!problems.length) return
+          const error = new DocsSeoError(problems)
+          if (seoAudit === "error" || seoAudit === true) throw error
+          useLogger("@vite-hub/docs").warn(`${error.message}\nSet \`docs.seoAudit\` to "error" to stop the build on these, or to false to turn the check off.`)
         })
       }
     }])
@@ -605,7 +664,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           }
         }
       }
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
       // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
       // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
       const inline = nitro.externals?.inline
@@ -613,7 +672,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Pages are read at runtime, so a host without a file system serves them too.
       nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
-      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }]
+      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }, { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
       nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
@@ -661,7 +720,9 @@ const shellIcons = [
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
   "i-ph-github-logo-light", "i-ph-moon-light", "i-ph-sun-light", "i-simple-icons-anthropic", "i-simple-icons-cursor",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
-  "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-text",
+  "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
+  "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",
+  "i-vscode-icons-file-type-vue", "i-vscode-icons-file-type-yaml",
 ]
 
 /**
@@ -678,6 +739,12 @@ function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
 
+function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | null {
+  if (!logo) return null
+  if (typeof logo === "string") return { src: docsAppPath(logo, appBase), dark: null, mask: true }
+  return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
+}
+
 function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
   const url = (site.url ?? "").replace(/\/+$/, "")
@@ -689,7 +756,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
       name: site.name ?? "Docs",
       url,
       description: site.description ?? "",
-      logo: site.logo ? docsAppPath(site.logo, appBase) : null,
+      logo: docsLogo(site.logo, appBase),
       badge: site.badge ? { label: site.badge.label, tooltip: site.badge.tooltip ?? null } : null,
     },
     categories: options.categories ?? [],
@@ -706,6 +773,33 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },
   }
+}
+
+/**
+ * The stylesheets of the comark-* packages that comark-ui renders with, in one file. It names the layer order first,
+ * the same as the app's CSS, so it can load before or after it.
+ */
+function comarkStylesheet(): string {
+  const layers = "@layer theme, base, comark, components, utilities;"
+  let ui: string
+  try {
+    ui = createRequire(import.meta.url).resolve("comark-ui/package.json")
+  }
+  catch {
+    // An app that installs the module without its dependencies, as the module tests do, gets the layer order alone.
+    return layers
+  }
+  const dependencies = Object.keys((JSON.parse(readFileSync(ui, "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {})
+  const fromUi = createRequire(ui)
+  const sheets = dependencies.filter(name => name.startsWith("comark-")).flatMap((name) => {
+    try {
+      return [readFileSync(fromUi.resolve(`${name}/style.css`), "utf8")]
+    }
+    catch {
+      return []
+    }
+  })
+  return [layers, ...sheets].join("\n")
 }
 
 // The header shows the star count next to the GitHub link. One request per build; a failure only drops the count.

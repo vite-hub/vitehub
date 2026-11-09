@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { H3 } from 'h3'
-import { createServer } from 'vite'
+import { build, createServer } from 'vite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hubAgent } from '../src/vite.ts'
 import { discoverStandaloneChannels, standaloneChannelWebhookAliases } from '../src/vite/standalone-channels.ts'
@@ -24,7 +24,7 @@ async function app(files: Record<string, string>) {
   return root
 }
 
-async function server(root: string) {
+async function server(root: string, aliases: Record<string, string> = {}) {
   const packageRoot = fileURLToPath(new URL('..', import.meta.url))
   await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
   await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
@@ -32,7 +32,7 @@ async function server(root: string) {
   await symlink(join(packageRoot, '../channels'), join(root, 'node_modules/@vite-hub/channels'), 'dir')
   await symlink(join(packageRoot, '../../node_modules/h3'), join(root, 'node_modules/h3'), 'dir')
   return await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()],
-    resolve: { alias: { '@vite-hub/agent/server/internal': join(packageRoot, 'src/server/internal.ts') } },
+    resolve: { alias: { '@vite-hub/agent/server/internal': join(packageRoot, 'src/server/internal.ts'), ...aliases } },
     server: { middlewareMode: true, watch: null } })
 }
 
@@ -199,6 +199,27 @@ export default defineAgent({ name: 'owner', channels: ['cycle'], runtime: false,
     try {
       await expect(vite.ssrLoadModule(join(root, 'server/agents/owner.ts'))).rejects.toThrow(/Use a lazy task target/)
     } finally { await vite.close() }
+  }, 30_000)
+
+  it.each(['@app/server', '#server'])('rejects an eager owner import through the %s alias', async (prefix) => {
+    const root = await app({
+      'server/channels/cycle.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannelTrigger } from '@vite-hub/agent/channels'
+import owner from '${prefix}/lib/owner'
+export default defineChannel({ adapter: webhook(), on: { webhook: defineChannelTrigger({ tasks: { reply: { agent: owner } }, invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }) }) } })`,
+      'server/lib/owner.ts': `export { default } from '${prefix}/agents/owner'`,
+      'server/agents/owner.ts': `import { defineAgent } from '@vite-hub/agent'
+export default defineAgent({ channels: ['cycle'], runtime: false, driver: { run: () => 'ok' } })`,
+    })
+    const vite = await server(root, { '@app': root, '#server': join(root, 'server') })
+    try {
+      await expect(vite.ssrLoadModule(join(root, 'server/agents/owner.ts'))).rejects.toThrow(/Use a lazy task target/)
+    } finally { await vite.close() }
+    await expect(build({
+      root, configFile: false, logLevel: 'silent', plugins: [hubAgent()],
+      resolve: { alias: { '@app': root, '#server': join(root, 'server') } },
+      build: { ssr: join(root, 'server/agents/owner.ts'), rolldownOptions: { external: /^@vite-hub\// } },
+    })).rejects.toThrow(/Use a lazy task target/)
   }, 30_000)
 
   it.each(['agent', 'channel'])('loads an owning Agent task from the %s entry', async (entry) => {

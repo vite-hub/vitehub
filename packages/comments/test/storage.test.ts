@@ -8,7 +8,8 @@ import { eq } from "drizzle-orm"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { commentsSchema, commentsTables } from "../src/database.ts"
-import { defineComments, installComments } from "../src/index.ts"
+import { defineComments } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { ada, anchor, grace } from "./harness.ts"
 
 import type { CommentsDatabase } from "../src/operations-core/store.ts"

@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { build } from "esbuild"
+import { resolveConfig } from "vite"
 import { expect, it, vi } from "vitest"
 import { hubAgent } from "../src/vite.ts"
 
@@ -63,7 +64,8 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
     const plugin = hubAgent({ runtime: hosting === "deno" ? "deno" : undefined, providers: { state: { provider: "memory" } } })
     if (typeof plugin.config !== "function") throw new Error("Expected config hook")
     await plugin.config.call({} as never, { root }, { command: "build", mode: "production" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] } })
+    const config = await resolveConfig({ root, configFile: false, build: { outDir: "dist" } }, "build")
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     let output: string
     if (hosting === "netlify") {
       await (plugin.buildEnd as () => Promise<void>)()

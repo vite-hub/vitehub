@@ -6,6 +6,7 @@ import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents
 import { getConsoleInvocations } from "./invocations.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -31,18 +32,24 @@ interface ConsoleInvocationDetail {
   observations: readonly TraceEventLogEntry[]
 }
 
-function observationCursor(observations: readonly TraceEventLogEntry[], count = observations.length): string {
+function formatObservationCursor(count: number, fnv: number, djb: number): string {
+  return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`
+}
+
+function observationCursors(observations: readonly TraceEventLogEntry[], prefixCount?: number): { cursor: string, prefix?: string } {
   let fnv = 2_166_136_261
   let djb = 5_381
-  for (let index = 0; index < count; index++) {
+  let prefix = prefixCount === 0 ? formatObservationCursor(0, fnv, djb) : undefined
+  for (let index = 0; index < observations.length; index++) {
     const serialized = JSON.stringify(observations[index])
     for (let offset = 0; offset <= serialized.length; offset++) {
       const code = offset === serialized.length ? 0 : serialized.charCodeAt(offset)
       fnv = Math.imul(fnv ^ code, 16_777_619)
       djb = Math.imul(djb, 33) ^ code
     }
+    if (index + 1 === prefixCount) prefix = formatObservationCursor(index + 1, fnv, djb)
   }
-  return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`
+  return { cursor: formatObservationCursor(observations.length, fnv, djb), prefix }
 }
 
 const cancelActionSchema = v.strictObject({ action: v.literal("cancel") })
@@ -51,14 +58,11 @@ const deleteActionSchema = v.strictObject({ action: v.literal("delete") })
 const terminalStatuses: ReadonlySet<AgentInvocationSummary["status"]> = new Set(["cancelled", "completed", "failed"])
 
 function notFound(): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }), {
-    statusCode: 404,
-    statusMessage: "Invocation not found",
-  })
+  return consoleHttpError(404, viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }))
 }
 
 function actionError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }))
 }
 
 // Console invoke access for the record's Agent allows these actions.
@@ -159,16 +163,17 @@ export async function getConsoleInvocationDetail(event: ConsoleRequestEvent): Pr
   const countValue = requestURL.searchParams.get("observationCount")
   const requestedCursor = requestURL.searchParams.get("observationCursor")
   const observationCount = countValue === null ? undefined : Number(countValue)
-  const canAppend = invocation.observationsTruncated !== true
+  const hasRequestedPrefix = invocation.observationsTruncated !== true
     && requestedCursor !== null
     && observationCount !== undefined
     && Number.isSafeInteger(observationCount)
     && observationCount >= 0
     && observationCount <= observations.length
-    && requestedCursor === observationCursor(observations, observationCount)
+  const cursors = observationCursors(observations, hasRequestedPrefix ? observationCount : undefined)
+  const canAppend = hasRequestedPrefix && requestedCursor === cursors.prefix
   const detail: ConsoleInvocationDetail = {
     invocation: { ...summary, ...(actions ? { actions } : {}), ...(usage ? { usage } : {}) },
-    observationCursor: observationCursor(observations),
+    observationCursor: cursors.cursor,
     observations: canAppend
       ? observations.slice(observationCount)
       : observations,
