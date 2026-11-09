@@ -1,5 +1,6 @@
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, resolve } from "node:path"
+import { createHash } from "node:crypto"
+import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
@@ -477,6 +478,27 @@ function createFileUrlPlugin(): Plugin {
   }
 }
 
+/**
+ * Copies a `.wasm?module` import next to the bundle and keeps it as a relative `.wasm` import. Wrangler and Nitro load
+ * such an import as a compiled WebAssembly module, which Workers need because they can't compile WebAssembly bytes.
+ */
+function createWasmModulePlugin(outdir: string): Plugin {
+  return {
+    name: "vitehub-wasm-module",
+    setup(build) {
+      build.onResolve({ filter: /\.wasm\?module$/ }, async (args) => {
+        const resolved = await build.resolve(args.path.slice(0, -"?module".length), { importer: args.importer, kind: args.kind, resolveDir: args.resolveDir })
+        if (resolved.errors.length) return { errors: resolved.errors }
+        const bytes = await readFile(resolved.path)
+        const name = `${basename(resolved.path, ".wasm")}-${createHash("sha256").update(bytes).digest("hex").slice(0, 8)}.wasm`
+        await mkdir(outdir, { recursive: true })
+        await copyFile(resolved.path, join(outdir, name))
+        return { external: true, path: `./${name}` }
+      })
+    },
+  }
+}
+
 export async function bundleEsmEntry(
   entryFile: string,
   outfile: string,
@@ -499,6 +521,8 @@ export async function bundleEsmEntry(
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())
   if (viteAliasPlugin) plugins.push(viteAliasPlugin)
   plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime))
+  // Node.js compiles WebAssembly bytes. Other targets, such as Workers, need the file as a compiled module.
+  if (platform !== "node") plugins.unshift(createWasmModulePlugin(dirname(outfile)))
 
   const result = await bundle({
     absWorkingDir: options.workingDir,
@@ -524,6 +548,8 @@ export async function bundleEsmEntry(
     format,
     // Syntax and identifier minification can change function and class names.
     keepNames: options.minifySyntax || options.minifyIdentifiers,
+    // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
+    loader: platform === "node" ? { ".wasm": "binary" } : undefined,
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
     resolveExtensions: options.extensions,
