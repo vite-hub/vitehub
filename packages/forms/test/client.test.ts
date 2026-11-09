@@ -16,10 +16,10 @@ function server(store = createMemoryFormsStore()): typeof fetch {
 describe("submitForm", () => {
   it("posts to the form route with the page and anchor", async () => {
     const store = createMemoryFormsStore()
-    const [error, data] = await submitForm("feedback", { message: "Hello" }, { fetch: server(store), page: "/docs", anchor: { text: "selected" } })
+    const [error, data] = await submitForm("feedback", { message: "Hello" }, { fetch: server(store), page: "/docs", anchor: { selector: "main p", exact: "selected", prefix: "", suffix: "" } })
     expect(error).toBeUndefined()
     expect(data?.id).toEqual(expect.any(String))
-    expect((await store.list())[0]).toMatchObject({ data: { message: "Hello" }, page: "/docs", anchor: { text: "selected" } })
+    expect((await store.list())[0]).toMatchObject({ data: { message: "Hello" }, page: "/docs", anchor: { selector: "main p", exact: "selected", prefix: "", suffix: "" } })
   })
 
   it("returns the field issues of a 400", async () => {

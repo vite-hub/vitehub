@@ -69,9 +69,15 @@ describe("handleFormRequest", () => {
 
   it("keeps the page and anchor fields out of the data", async () => {
     const { store, all } = services()
-    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Typo", _page: "/docs/intro", _anchor: { selector: "main p", text: "teh word" } }), all)
+    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Typo", _page: "/docs/intro", _anchor: { selector: "main p", exact: "teh word", prefix: "Fix ", suffix: " here", kind: "text" } }), all)
     const [saved] = await store.list()
-    expect(saved).toMatchObject({ data: { email: "ada@example.com", message: "Typo" }, page: "/docs/intro", anchor: { selector: "main p", text: "teh word" } })
+    expect(saved).toMatchObject({ data: { email: "ada@example.com", message: "Typo" }, page: "/docs/intro", anchor: { selector: "main p", exact: "teh word", prefix: "Fix ", suffix: " here" } })
+  })
+
+  it("keeps no anchor without a selector", async () => {
+    const { store, all } = services()
+    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi", _anchor: { exact: "orphan" } }), all)
+    expect((await store.list())[0]?.anchor).toBeNull()
   })
 
   it("does not keep a page of another origin", async () => {

@@ -16,10 +16,12 @@ export class FormSubmitError extends Error {
   }
 }
 
-/** The part of the page that the sender pointed at, such as a selected sentence. */
+/** The part of the page that the sender pointed at: an element and a W3C text quote, as a Comments text anchor. */
 export interface FormAnchor {
-  selector?: string
-  text?: string
+  selector: string
+  exact: string
+  prefix: string
+  suffix: string
 }
 
 export interface SubmitFormOptions {

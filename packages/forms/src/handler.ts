@@ -96,12 +96,12 @@ function readAnchor(value: unknown): FormAnchor | null {
     }
   }
   if (!input || typeof input !== "object") return null
-  const selector = Reflect.get(input, "selector")
-  const text = Reflect.get(input, "text")
-  const anchor: FormAnchor = {}
-  if (typeof selector === "string" && selector) anchor.selector = selector.slice(0, 500)
-  if (typeof text === "string" && text.trim()) anchor.text = text.trim().slice(0, 1000)
-  return anchor.selector || anchor.text ? anchor : null
+  const field = (key: string, limit: number) => {
+    const raw: unknown = Reflect.get(input, key)
+    return typeof raw === "string" ? raw.slice(0, limit) : ""
+  }
+  const selector = field("selector", 500)
+  return selector ? { selector, exact: field("exact", 1000), prefix: field("prefix", 64), suffix: field("suffix", 64) } : null
 }
 
 function issuePath(path: StandardSchemaV1.Issue["path"]): (string | number)[] {
@@ -126,7 +126,7 @@ function emailText(name: string, submission: FormSubmission): string {
   const lines = Object.entries(submission.data && typeof submission.data === "object" ? submission.data : { value: submission.data })
     .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
   if (submission.page) lines.push(`page: ${submission.page}`)
-  if (submission.anchor?.text) lines.push(`selected text: ${submission.anchor.text}`)
+  if (submission.anchor?.exact) lines.push(`selected text: ${submission.anchor.exact}`)
   if (submission.user) lines.push(`user: ${submission.user.name ?? submission.user.id}${submission.user.email ? ` <${submission.user.email}>` : ""}`)
   return [`New message from the ${name} form.`, "", ...lines].join("\n")
 }

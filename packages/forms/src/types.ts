@@ -10,12 +10,20 @@ export interface FormUser {
   email?: string
 }
 
-/** The part of the page that the sender pointed at, such as a selected sentence. */
+/**
+ * The part of the page that the sender pointed at: an element, and inside it a W3C text quote of the selected text.
+ * It is the shape of a Comments text anchor, so `anchorRange()` of `@vite-hub/comments/client` finds the sentence.
+ * `exact` is empty when the sender pointed at the whole element.
+ */
 export interface FormAnchor {
   /** A CSS selector of the element. */
-  selector?: string
-  /** The text that the sender selected. At most 1,000 characters. */
-  text?: string
+  selector: string
+  /** The selected text. At most 1,000 characters. */
+  exact: string
+  /** Up to 64 characters before `exact`, to tell repeated text apart. */
+  prefix: string
+  /** Up to 64 characters after `exact`. */
+  suffix: string
 }
 
 /** One message that a visitor sent through a form. */

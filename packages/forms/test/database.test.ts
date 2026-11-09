@@ -14,7 +14,7 @@ async function drizzleStore(): Promise<FormsStore> {
 }
 
 function submission(id: string, form: string, createdAt: number): FormSubmission {
-  return { id, form, data: { message: id }, page: "/", anchor: id === "a" ? { text: "x" } : null, user: null, status: "open", createdAt, updatedAt: createdAt }
+  return { id, form, data: { message: id }, page: "/", anchor: id === "a" ? { selector: "p", exact: "x", prefix: "", suffix: "" } : null, user: null, status: "open", createdAt, updatedAt: createdAt }
 }
 
 describe.each([
