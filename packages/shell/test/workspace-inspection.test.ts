@@ -204,11 +204,14 @@ describe("@vite-hub/shell workspace inspection", () => {
     expect(exec).not.toHaveBeenCalled()
   })
 
-  it("keeps negated statements in conditional branch checks", async () => {
+  it.each([
+    `! cd ${workspaceMountPoint} || rg needle .`,
+    `! cat README.md | cd ${workspaceMountPoint} || rg needle .`,
+  ])("keeps negation in conditional branch checks for %j", async (command) => {
     const workspace = new MemoryWorkspace({ "README.md": "needle\n" })
 
-    await expect(runWorkspaceInspectionCommand(workspace, `! cd ${workspaceMountPoint} || rg needle .`, {
-      commands: ["rg"],
+    await expect(runWorkspaceInspectionCommand(workspace, command, {
+      commands: ["cat", "rg"],
       cwd: workspaceMountPoint,
       fs: createReadonlyWorkspaceFs(workspace),
     })).resolves.toMatchObject({ event: "policy_denied" })

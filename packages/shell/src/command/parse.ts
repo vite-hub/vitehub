@@ -59,7 +59,12 @@ export function parseShellCommand(command: string, mode: "execution" | "inspecti
   return stmt ? statementWords(stmt, command, createSourceIndex(command)) : []
 }
 
-function statementWords(stmt: Stmt, command: string, toIndex: SourceIndex): string[] {
+function statementWords(stmt: Stmt, command: string, toIndex: SourceIndex, negated = stmt.negated): string[] {
+  const words = commandWords(stmt, command, toIndex)
+  return negated && words[0] !== "!" ? ["!", ...words] : words
+}
+
+function commandWords(stmt: Stmt, command: string, toIndex: SourceIndex): string[] {
   const call = stmt.cmd
   if (call?.type === "FuncDecl") return [`${call.name?.value ?? ""}()`]
   if (call?.type !== "CallExpr") {
@@ -68,7 +73,6 @@ function statementWords(stmt: Stmt, command: string, toIndex: SourceIndex): stri
   }
 
   return [
-    ...(stmt.negated ? ["!"] : []),
     ...call.assigns.map(assign => command.slice(toIndex(assign.start), toIndex(assign.end))),
     ...call.args.map(arg => wordText(arg, command, toIndex)),
     ...stmt.redirs.map(redir => command.slice(toIndex(redir.start), toIndex((redir.hdoc ? redir.word : redir)?.end ?? redir.end))),
@@ -103,7 +107,7 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   }
 
   const toIndex = createSourceIndex(command)
-  const leaves: Array<{ stmt: Stmt, separator?: StatementSeparator }> = []
+  const leaves: StatementLeaf[] = []
   file.stmts.forEach((stmt, index) => {
     flattenStatement(stmt, statementSeparator(file.stmts, index, command, toIndex), toIndex, leaves)
   })
@@ -111,7 +115,7 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   const segments: ShellCommandSegment[] = []
   let cursor = 0
   let followsPipe = false
-  for (const { stmt, separator } of leaves) {
+  for (const { negated, stmt, separator } of leaves) {
     const trailingComment = stmt.comments.find(comment => comment.start >= stmt.end)
     const rawEnd = separator?.offset ?? (trailingComment ? toIndex(trailingComment.start) : toIndex(stmt.end))
     const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd))).text
@@ -119,7 +123,7 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
       command: raw,
       followsPipe,
       ...(separator ? { separatorAfter: separator.kind } : {}),
-      words: statementWords(stmt, command, toIndex),
+      words: statementWords(stmt, command, toIndex, negated),
     })
     if (separator) cursor = separator.offset + separator.length
     followsPipe = separator?.kind === "|"
@@ -127,19 +131,27 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   return segments
 }
 
+interface StatementLeaf {
+  negated: boolean
+  separator?: StatementSeparator
+  stmt: Stmt
+}
+
 function flattenStatement(
   stmt: Stmt,
   outer: StatementSeparator | undefined,
   toIndex: SourceIndex,
-  leaves: Array<{ stmt: Stmt, separator?: StatementSeparator }>,
+  leaves: StatementLeaf[],
+  negated = false,
 ) {
+  // `!` negates the whole pipeline or list, so it stays on the first command.
   if (stmt.cmd?.type === "BinaryCmd") {
     const operator = binaryOperator(stmt.cmd.op, toIndex(stmt.cmd.opPos.offset))
-    flattenStatement(stmt.cmd.x!, operator, toIndex, leaves)
+    flattenStatement(stmt.cmd.x!, operator, toIndex, leaves, negated || stmt.negated)
     flattenStatement(stmt.cmd.y!, outer, toIndex, leaves)
     return
   }
-  leaves.push({ stmt, ...(outer ? { separator: outer } : {}) })
+  leaves.push({ negated: negated || stmt.negated, stmt, ...(outer ? { separator: outer } : {}) })
 }
 
 function statementSeparator(
