@@ -173,6 +173,21 @@ describe("vitehub db up", () => {
     await expect(project.run("migrate", ["--dry-run"])).resolves.toMatchObject({ stdout: expect.stringContaining("no pending migrations.") })
   }, 120_000)
 
+  it("asks for drizzle-kit 1.0 when the project has drizzle-kit 0.x", async () => {
+    const project = await createProject()
+    await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
+    // The project root wins over the package's own drizzle-kit, as in an app that still pins 0.31.
+    await mkdir(join(project.rootDir, "node_modules/drizzle-kit"), { recursive: true })
+    await writeFile(join(project.rootDir, "node_modules/drizzle-kit/package.json"), JSON.stringify({ bin: "bin.cjs", name: "drizzle-kit", version: "0.31.4" }))
+    await writeFile(join(project.rootDir, "node_modules/drizzle-kit/bin.cjs"), "process.exit(0)\n")
+
+    const refused = await project.run("up")
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("`vitehub db up` needs drizzle-kit 1.0, and")
+    expect(refused.stderr).toContain("has drizzle-kit 0.31.4. Install the version that ViteHub uses, for example with `pnpm add -D drizzle-kit@1.0.0-rc.5`")
+    await expect(readdir(project.database.migrationsDir)).resolves.toContain("meta")
+  })
+
   it("stops migrate on start and test mode at a Drizzle Kit 0.x folder", async () => {
     const project = await createProject()
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })

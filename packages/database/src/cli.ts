@@ -201,11 +201,20 @@ function toConfigPath(rootDir: string, file: string): string {
   return isAbsolute(file) ? relative(rootDir, file) || file : file
 }
 
+interface DrizzleKitInstall {
+  bin: string
+  version?: string
+}
+
 /** Finds the drizzle-kit bin file in the dependencies of the project, so the command does not depend on PATH. */
 function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
+  return resolveDrizzleKit(projectRoots)?.bin
+}
+
+function resolveDrizzleKit(projectRoots: string[]): DrizzleKitInstall | undefined {
   for (const projectRoot of projectRoots) {
-    const drizzleKitBin = resolveDrizzleKitBinFromRoot(projectRoot)
-    if (drizzleKitBin) return drizzleKitBin
+    const drizzleKit = resolveDrizzleKitFromRoot(projectRoot)
+    if (drizzleKit) return drizzleKit
   }
   // pnpm keeps Kit beside the facade's real directory, outside the application's symlink.
   for (const projectRoot of projectRoots) {
@@ -217,8 +226,8 @@ function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
     catch {
       continue
     }
-    const bin = facadeManifest && resolveDrizzleKitBinFromRoot(dirname(facadeManifest))
-    if (bin) return bin
+    const drizzleKit = facadeManifest && resolveDrizzleKitFromRoot(dirname(facadeManifest))
+    if (drizzleKit) return drizzleKit
   }
   return undefined
 }
@@ -233,7 +242,7 @@ function resolvePackageManifest(name: string, projectRoot: string): string | und
   }
 }
 
-function resolveDrizzleKitBinFromRoot(projectRoot: string): string | undefined {
+function resolveDrizzleKitFromRoot(projectRoot: string): DrizzleKitInstall | undefined {
   let packageJsonFile: string | undefined
   try {
     packageJsonFile = resolvePackageManifest("drizzle-kit", projectRoot)
@@ -242,9 +251,9 @@ function resolveDrizzleKitBinFromRoot(projectRoot: string): string | undefined {
     return
   }
   if (!packageJsonFile) return
-  const { bin } = JSON.parse(readFileSync(packageJsonFile, "utf8")) as { bin?: string | Record<string, string> }
+  const { bin, version } = JSON.parse(readFileSync(packageJsonFile, "utf8")) as { bin?: string | Record<string, string>, version?: string }
   const file = typeof bin === "string" ? bin : bin?.["drizzle-kit"]
-  return file ? resolve(dirname(packageJsonFile), file) : undefined
+  return file ? { bin: resolve(dirname(packageJsonFile), file), ...(version ? { version } : {}) } : undefined
 }
 
 async function runDrizzleKit(
@@ -368,11 +377,18 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
     context.stdout.write("[vitehub] Every migrations folder already uses the layout of Drizzle Kit 1.0.\n")
     return 0
   }
-  const bin = resolveDrizzleKitBin([projectRoot, context.rootDir])
-  if (!bin) {
+  const drizzleKit = resolveDrizzleKit([projectRoot, context.rootDir])
+  if (!drizzleKit) {
     context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
     return 1
   }
+  // Drizzle Kit 0.x has an `up` command too, but it upgrades 0.x snapshots and keeps the journal.
+  const major = Number.parseInt(drizzleKit.version ?? "", 10)
+  if (!(major >= 1)) {
+    context.stderr.write(`[vitehub] \`vitehub db up\` needs drizzle-kit 1.0, and ${projectRoot} has drizzle-kit ${drizzleKit.version ?? "of an unknown version"}. Install the version that ViteHub uses, for example with \`pnpm add -D drizzle-kit@1.0.0-rc.5\`, and run it again.\n`)
+    return 1
+  }
+  const { bin } = drizzleKit
   for (const { database, dir } of folders) {
     const folder = relative(projectRoot, dir) || dir
     // D1 and libSQL folders are SQLite folders. Kit converts the snapshots by dialect, not by driver.
