@@ -6,6 +6,8 @@ defineProps<{
   panel: boolean
   /** Shows the rail labels, for the mobile menu where touch has no hover to expand the rail. */
   labeled?: boolean
+  /** Shows the brand, search, and the links row, for wide screens, which have no site header beside the sidebar. */
+  head?: boolean
 }>()
 
 // A small site has no rail. The panel lists every section with its pages.
@@ -15,10 +17,11 @@ const rail = docsHasRail(useDocsManifest(), config.icons, config.groups, config)
 
 <template>
   <div class="vh-docs-sidebars">
-    <DocsRail v-if="rail" :labeled="labeled" />
-    <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': !rail }">
-      <DocsAsideLeftTop v-if="rail" />
+    <DocsRail v-if="rail" :labeled="labeled" :brand="head" />
+    <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': !rail, 'has-head': head }">
+      <DocsAsideLeftTop :brand="head && !rail" :search="head" :title="rail" />
       <DocsAsideLeftBody />
+      <DocsAsideFooter v-if="head" />
     </div>
   </div>
 </template>
@@ -45,5 +48,10 @@ const rail = docsHasRail(useDocsManifest(), config.icons, config.groups, config)
   width: auto;
   flex: 1 1 auto;
   padding-top: 0.75rem;
+}
+
+/* The brand and search open the panel, so the page list needs no space above it. */
+.vh-docs-panel.is-single.has-head {
+  padding-top: 0;
 }
 </style>

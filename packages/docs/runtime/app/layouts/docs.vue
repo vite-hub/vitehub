@@ -5,7 +5,7 @@ const found = useDocsPage()
 const hasCodePanel = computed(() => found.value?.page.codePanel === true)
 const tutorialNavigation = useTutorialNavigation()
 // Other docs pages show the navigation unless they set `sidebar: false`. A tutorial shows it only when the reader opens it.
-const showsNavigation = computed(() => found.value?.page.sidebar !== false && (!hasCodePanel.value || tutorialNavigation.value))
+const showsNavigation = useDocsSidebarShown()
 
 // The sidebar sits on the left edge of the viewport on every docs page. The page content centers in the remaining space.
 const docsShellUi = {
@@ -16,14 +16,15 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel }">
+  <!-- On wide screens the sidebar carries the brand, search, and the site links, so the site header hides beside it. -->
+  <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel, 'has-sidebar': showsNavigation }">
     <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
     <a href="#docs-content" class="vh-skip-link">Skip to content</a>
     <UPage :ui="docsShellUi">
       <template v-if="showsNavigation" #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
           <!-- Phones hide this column and open the sidebar from the header menu, so it hydrates only once it shows. -->
-          <LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel />
+          <LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel head />
         </UPageAside>
       </template>
 
@@ -118,6 +119,11 @@ const docsShellUi = {
   .vh-docs-shell.is-tutorial {
     --vh-panel-width: 12rem;
     --vh-sidebar-width: calc(var(--vh-rail-width) + var(--vh-panel-width));
+  }
+
+  /* AppHeader hides beside the sidebar. Sticky offsets and full-height columns read this variable. */
+  .vh-docs-shell.has-sidebar {
+    --ui-header-height: 0px;
   }
 
   .vh-docs-aside {
