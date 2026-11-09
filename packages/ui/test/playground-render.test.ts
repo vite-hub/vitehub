@@ -4,6 +4,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { renderToString } from "@vue/server-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSSRApp, h } from "vue";
+import * as playground from "../src/playground/share.ts";
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundLinkLimit, readPlaygroundHash } from "../src/playground.ts";
 import { PlaygroundRender, type PlaygroundFiles, type PlaygroundPaneSlotProps, type PlaygroundResult } from "../src/playground-render.ts";
 
@@ -25,6 +26,13 @@ async function markdown(files: PlaygroundFiles): Promise<PlaygroundResult> {
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, reject, resolve };
+}
+
 function mountPlayground(render = vi.fn(markdown), props: Record<string, unknown> = {}) {
   const wrapper = mount(PlaygroundRender, { attachTo: document.body, props: { panes, presets, render, ...props } });
   return { render, wrapper };
@@ -39,6 +47,7 @@ describe("PlaygroundRender", () => {
     await wait(10);
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
@@ -67,6 +76,7 @@ describe("PlaygroundRender", () => {
     await vi.waitFor(() => expect(wrapper.get(".vh-pg-issues").text()).toBe("Line 1The file is empty."));
     expect(wrapper.get(".vh-pg-issues").attributes("hidden")).toBeUndefined();
 
+    await vi.waitFor(() => expect(readPlaygroundHash(location.hash)).toBeDefined());
     const code = readPlaygroundHash(location.hash);
     expect(code).toBeDefined();
     expect(await decodePlaygroundLink(code!, presets)).toEqual({ files: { "config.json": "{}\n", "content.md": "" }, template: "hello" });
@@ -90,12 +100,111 @@ describe("PlaygroundRender", () => {
     wrapper.unmount();
   });
 
+  it.each(["edit", "preset", "hash"])("invalidates an old render immediately on %s", async (change) => {
+    const pending = deferred<PlaygroundResult>();
+    const render = vi.fn(markdown).mockReturnValueOnce(pending.promise);
+    const { wrapper } = mountPlayground(render);
+    try {
+      await flushPromises();
+      expect(render).toHaveBeenCalledTimes(1);
+      if (change === "edit") await wrapper.get("textarea").setValue("# Edited\n");
+      else if (change === "preset") {
+        vi.spyOn(playground, "encodePlaygroundLink").mockReturnValue(new Promise(() => {}));
+        await wrapper.get('[data-preset="bye"]').trigger("click");
+      }
+      else {
+        vi.spyOn(playground, "decodePlaygroundLink").mockReturnValue(new Promise(() => {}));
+        location.hash = "#code=pending";
+        await wait(10);
+      }
+      pending.resolve({ html: "<p>old</p>", issues: [{ message: "Old issue" }] });
+      await flushPromises();
+      expect(srcdoc(wrapper)).not.toContain("<p>old</p>");
+      expect(wrapper.get(".vh-pg-issues").text()).not.toContain("Old issue");
+    }
+    finally { wrapper.unmount(); }
+  });
+
+  it("drops an old render error during the edit debounce", async () => {
+    const pending = deferred<PlaygroundResult>();
+    const { wrapper } = mountPlayground(vi.fn(markdown).mockReturnValueOnce(pending.promise));
+    try {
+      await flushPromises();
+      await wrapper.get("textarea").setValue("# Edited\n");
+      pending.reject(new Error("Old error"));
+      await flushPromises();
+      expect(wrapper.get(".vh-pg-issues").text()).not.toContain("Old error");
+    }
+    finally { wrapper.unmount(); }
+  });
+
+  it.each(["edit", "hash"])("invalidates an old encoder immediately on %s", async (change) => {
+    const pending = deferred<string>();
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const { wrapper } = mountPlayground();
+    try {
+      await flushPromises();
+      vi.spyOn(playground, "encodePlaygroundLink").mockReturnValueOnce(pending.promise);
+      await wrapper.get('[data-action="copy-link"]').trigger("click");
+      if (change === "edit") await wrapper.get("textarea").setValue("# Edited\n");
+      else {
+        vi.spyOn(playground, "decodePlaygroundLink").mockReturnValue(new Promise(() => {}));
+        location.hash = "#code=navigated";
+        await wait(10);
+      }
+      const navigated = location.hash;
+      pending.resolve("old-code");
+      await flushPromises();
+      expect(location.hash).toBe(navigated);
+      expect(writeText).not.toHaveBeenCalled();
+    }
+    finally { wrapper.unmount(); }
+  });
+
+  it("keeps an edit made while a shared link is decoding", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof decodePlaygroundLink>>>();
+    const { wrapper } = mountPlayground();
+    try {
+      await flushPromises();
+      vi.spyOn(playground, "decodePlaygroundLink").mockReturnValue(pending.promise);
+      location.hash = "#code=pending";
+      await wait(10);
+      await wrapper.get("textarea").setValue("# Edited\n");
+      pending.resolve({ files: presets[1]!.files, template: "bye" });
+      await flushPromises();
+      expect(wrapper.get("textarea").element.value).toBe("# Edited\n");
+    }
+    finally { wrapper.unmount(); }
+  });
+
+  it.each(["valid", "invalid"])("loads a previously written hash after another link (%s)", async (link) => {
+    const { wrapper } = mountPlayground();
+    try {
+      await flushPromises();
+      await wrapper.get('[data-preset="bye"]').trigger("click");
+      await vi.waitFor(() => expect(readPlaygroundHash(location.hash)).toBeDefined());
+      const written = location.hash;
+      await wait(10);
+      const code = link === "valid"
+        ? await encodePlaygroundLink({ files: { "content.md": "# Shared\n" }, template: "hello" }, presets[0]!.files)
+        : "not-a-code";
+      location.hash = `#code=${code}`;
+      await vi.waitFor(() => expect(wrapper.get("textarea").element.value).toBe(link === "valid" ? "# Shared\n" : "# Hello\n"));
+      location.hash = written;
+      await vi.waitFor(() => expect(wrapper.get("textarea").element.value).toBe("*Bye*\n"));
+      expect(srcdoc(wrapper)).toContain("<p>*Bye*</p>");
+    }
+    finally { wrapper.unmount(); }
+  });
+
   it("switches presets and opens shared links", async () => {
     const { render, wrapper } = mountPlayground();
     await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
     await wrapper.get('[data-preset="bye"]').trigger("click");
     await vi.waitFor(() => expect(srcdoc(wrapper)).toContain("<p>*Bye*</p>"));
     expect(wrapper.get('[data-preset="bye"]').attributes("aria-current")).toBe("true");
+    await vi.waitFor(() => expect(readPlaygroundHash(location.hash)).toBeDefined());
     expect(await decodePlaygroundLink(readPlaygroundHash(location.hash)!, presets)).toEqual({ files: presets[1]!.files, template: "bye" });
 
     const shared = await encodePlaygroundLink({ files: { ...presets[0]!.files, "content.md": "# Shared\n" }, template: "hello" }, presets[0]!.files);

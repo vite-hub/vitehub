@@ -3283,7 +3283,8 @@
   .vh-pg-preview { background: Canvas; border: 0; color-scheme: light; height: 100%; width: 100%; }
 
   @media (max-width: 60rem) {
-    .vh-pg, .vh-pg:has(> .vh-pg-presets) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(18rem, 1fr) minmax(18rem, 1fr); }
+    .vh-pg, .vh-pg:has(> .vh-pg-presets) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(18rem, 1fr) minmax(18rem, 1fr); }
+    .vh-pg:has(> .vh-pg-presets) { grid-template-rows: auto minmax(18rem, 1fr) minmax(18rem, 1fr); }
     .vh-pg-presets { border-bottom: 1px solid var(--vh-border); border-inline-end: 0; display: flex; overflow-x: auto; }
     .vh-pg-group { flex: none; }
     .vh-pg-group ul { display: flex; }
