@@ -1,6 +1,8 @@
 import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
 import { defineErrors, type Result } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
+import { adminClaimPluginId } from "./admin-claim.ts";
+import { adminClaimVariable } from "./admin-claim-code.ts";
 import { adminsPluginId, adminsVariable } from "./admins.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
@@ -310,6 +312,13 @@ function adminsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
   return [`${adminsVariable} gives the ${role} role to ${admins.join(", ")} on sign-in.`];
 }
 
+/** The `VITEHUB_ADMIN_CLAIM` rule as an access note. */
+function adminClaimAccess(plugins: BetterAuthOptions["plugins"]): string[] {
+  const options: unknown = plugins?.find((plugin) => plugin.id === adminClaimPluginId)?.options;
+  const role: unknown = options && typeof options === "object" ? Reflect.get(options, "role") : undefined;
+  return typeof role === "string" ? [`${adminClaimVariable} gives the ${role} role to the first signed-in user who enters its code.`] : [];
+}
+
 export function createAuthConsole(
   auth: {
     api: object;
@@ -469,7 +478,7 @@ export function createAuthConsole(
       edit: field.edit.enabled && !actions.editField.enabled ? actions.editField : field.edit,
     }));
     return {
-      access: [...(policy.access ?? []), ...adminsAccess(ctx.options.plugins)],
+      access: [...(policy.access ?? []), ...adminsAccess(ctx.options.plugins), ...adminClaimAccess(ctx.options.plugins)],
       actions,
       fields,
       pages: [
