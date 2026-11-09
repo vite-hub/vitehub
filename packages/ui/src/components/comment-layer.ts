@@ -1,4 +1,4 @@
-import type { AnchorPosition, CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
+import type { CommentsClient, ResolvedAnchor, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, type PropType, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
@@ -267,7 +267,7 @@ export const CommentLayer = defineComponent({
     return () => {
       // Pins that would cover each other, such as two quotes of one paragraph in its gutter, stack downward, so each
       // stays visible and takes its own click.
-      const spots = new Map<string, AnchorPosition>();
+      const spots = new Map<string, ResolvedAnchor>();
       for (const thread of pinned.value) {
         const position = state.positions.value.get(thread.id);
         if (!position || position.detached || position.clipped || thread.anchor.kind === "page") continue;
