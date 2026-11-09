@@ -207,6 +207,8 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     },
     async incrementItem(key, ttl) {
       const ms = ttlMilliseconds(ttl)
+      // Counters such as rate limit windows are often written only by `increment()`, so it deletes expired rows too.
+      await sweep()
       const { dialect } = await ready()
       const value = `${table}.value`
       // A canonical integer of at most 16 digits: no sign other than "-", no leading zero, and small enough that the
