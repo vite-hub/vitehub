@@ -134,6 +134,8 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   if (formsVite?.usesForms({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
     content.forms = await readViteHubConsoleSection(formsVite.formsConsoleSection, undefined)
     sectionOverrides.forms = describeViteHubConsoleSection(formsVite.formsConsoleSection)
+    // No section registers Forms, so the folder turns it on here.
+    if (!entries.includes("forms")) entries.push("forms")
   }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
