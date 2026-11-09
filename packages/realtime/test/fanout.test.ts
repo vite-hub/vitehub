@@ -3,7 +3,7 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as encoding from "lib0/encoding"
 import * as Y from "yjs"
 
-import type { RealtimeDefinition } from "../src/types.ts"
+import type { RealtimeDefinition, RealtimeDocumentAdapter, RealtimeDocumentContext, RealtimeDocumentSnapshot, RealtimeSaveOptions } from "../src/types.ts"
 import { messageAwareness } from "../src/protocol.ts"
 import { realtimeRoomKey } from "../src/server.ts"
 import { appendParagraph, createClientAwareness, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, paragraphs, presence, settle } from "./harness.ts"
@@ -212,6 +212,118 @@ describe("rooms shared across instances", () => {
     await flush()
     expect(paragraphs(onB.doc)).toEqual(["Start"])
     void a
+  })
+})
+
+/**
+ * An adapter of one instance over a shared store, which a test can hold: a save waits before it writes, a load reads the
+ * store at once and returns when released, and a crashed instance can no longer save.
+ */
+function controllable(adapter: RealtimeDocumentAdapter) {
+  let saveGate: Promise<void> | undefined
+  let loadGate: Promise<void> | undefined
+  let crashed = false
+  const hold = () => {
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return { gate, release }
+  }
+  return {
+    adapter: {
+      kind: "controllable",
+      async load(context: RealtimeDocumentContext) {
+        const loaded = await adapter.load(context)
+        await loadGate
+        return loaded
+      },
+      async save(context: RealtimeDocumentContext, document: RealtimeDocumentSnapshot, options: RealtimeSaveOptions) {
+        await saveGate
+        if (crashed) throw new Error("This instance stopped.")
+        return await adapter.save(context, document, options)
+      },
+    } satisfies RealtimeDocumentAdapter,
+    crash() {
+      crashed = true
+    },
+    holdLoad() {
+      const { gate, release } = hold()
+      loadGate = gate
+      return () => {
+        loadGate = undefined
+        release()
+      }
+    },
+    holdSave() {
+      const { gate, release } = hold()
+      saveGate = gate
+      return () => {
+        saveGate = undefined
+        release()
+      }
+    },
+  }
+}
+
+describe("saves across instances", () => {
+  function controlledInstances() {
+    const network = createMemoryBusNetwork()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const [controlA, controlB] = [controllable(memory.adapter), controllable(memory.adapter)]
+    const [busA, busB] = [network.bus(), network.bus()]
+    const a = createTestServer(definition(controlA.adapter), { handler: { bus: () => busA } })
+    const b = createTestServer(definition(controlB.adapter), { handler: { bus: () => busB } })
+    return { a, b, busA, controlA, controlB, memory, network }
+  }
+
+  it("keeps an edit that arrived during another instance's save unsaved, so it is saved when that instance crashes", async () => {
+    const { a, b, busA, controlA, memory } = controlledInstances()
+    const onA = await a.connect("page")
+    const onB = await b.connect("page")
+    await flush()
+
+    const releaseSave = controlA.holdSave()
+    appendParagraph(onA.doc, "Edit 1")
+    await flush()
+    // A's idle save takes the lock and waits in `save()`. B's save waits for the lock.
+    await flush(2_000)
+    appendParagraph(onA.doc, "Edit 2")
+    await flush()
+    expect(paragraphs(onB.doc)).toEqual(["Start", "Edit 1", "Edit 2"])
+
+    releaseSave()
+    await settle()
+    // A stored edit 1 only, published the record, and stops before it saves edit 2.
+    busA.crash()
+    controlA.crash()
+    await flush(10_000)
+
+    expect(memory.store.get("page")!.body.split("\n\n")).toEqual(["Start", "Edit 1", "Edit 2"])
+  })
+
+  it("does not re-seed when a room opens while another instance saves", async () => {
+    const { a, b, controlA, controlB, network } = controlledInstances()
+    const onA = await a.connect("page")
+    await flush()
+    const epoch = network.records.get(realtimeRoomKey("docs", "page"))!.epoch
+
+    const releaseSave = controlA.holdSave()
+    appendParagraph(onA.doc, "Edit")
+    await flush(2_100)
+    // B starts to open the room while A's save holds the lock. Its load waits until the test releases it.
+    const releaseLoad = controlB.holdLoad()
+    const opening = b.connect("page")
+    await flush()
+    releaseSave()
+    await flush()
+    releaseLoad()
+    const onB = await opening
+    await flush()
+
+    expect(onA.controls.filter(control => control.type === "reset")).toEqual([])
+    expect(network.records.get(realtimeRoomKey("docs", "page"))).toMatchObject({ digest: "v2", epoch })
+    expect(paragraphs(onB.doc)).toEqual(["Start", "Edit"])
   })
 })
 

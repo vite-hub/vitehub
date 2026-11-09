@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
-import { dirname, relative, resolve } from "node:path"
+import { basename, dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
@@ -150,9 +151,10 @@ type RealtimeNodeAuthority = "auto" | "postgres" | "redis"
  * The handler and the Nitro plugin of a Node build. `database` is the module that exports the app's `databases`, when
  * the Default Database is on Postgres: the bus then borrows the postgres.js client of that Database.
  */
-function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, nodeAuthority?: RealtimeNodeAuthority, registryFile: string }): Array<[string, string]> {
-  const { busPlugin, database, handlerFile, importBase, nodeAuthority, registryFile } = input
-  const busOptions = database ? `, { databases: () => import(${JSON.stringify(database)}).then(module => module.databases) }` : ""
+function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, namespace: string, nodeAuthority?: RealtimeNodeAuthority, registryFile: string }): Array<[string, string]> {
+  const { busPlugin, database, handlerFile, importBase, namespace, nodeAuthority, registryFile } = input
+  const busOptions = `, { ${database ? `databases: () => import(${JSON.stringify(database)}).then(module => module.databases), ` : ""}namespace: ${JSON.stringify(namespace)} }`
+  const logOptions = `{ ${database ? "database: true, " : ""}namespace: ${JSON.stringify(namespace)} }`
   const handler = [
     `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
     `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
@@ -172,12 +174,22 @@ function renderNodeFiles(input: { busPlugin?: string, database?: string, handler
     "",
     "export default (nitroApp) => {",
     "  // Prints where the rooms of this server live.",
-    `  logRealtimeNodeAuthority(${JSON.stringify(nodeAuthority)}${database ? ", { database: true }" : ""})`,
+    `  logRealtimeNodeAuthority(${JSON.stringify(nodeAuthority)}, ${logOptions})`,
     "  // Removes this instance's presence from the other instances, and lets the process exit. A borrowed Database client stays open.",
     "  nitroApp.hooks.hook(\"close\", () => closeRealtimeBuses())",
     "}",
     "",
   ].join("\n")]]
+}
+
+/** The app name: the `name` in the root `package.json`, else the root folder name. */
+function defaultNamespace(root: string): string {
+  try {
+    const name: unknown = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).name
+    if (typeof name === "string" && name.trim()) return name.trim()
+  }
+  catch {}
+  return basename(root) || "default"
 }
 
 const realtimeAvailabilityId = "#vitehub/realtime/availability"
@@ -195,7 +207,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   // The Default Database is on Postgres. Read when the config is made, and again at `buildStart`.
   let postgresDatabase = false
   // The files of a Node build, to write again when the Default Database turns out to be on Postgres.
-  let nodeWrite: { busPlugin?: string, handlerFile: string, nodeAuthority: RealtimeNodeAuthority, postgres: boolean, registryFile: string } | undefined
+  let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeAuthority: RealtimeNodeAuthority, postgres: boolean, registryFile: string } | undefined
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -278,13 +290,15 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const busPlugin = nodeAuthority ? resolve(directory, "bus.mjs") : undefined
       databasePlugin = findDatabasePlugin(config.plugins) ?? databasePlugin
       postgresDatabase = !!nodeAuthority && hasPostgresDefaultDatabase(databasePlugin)
+      const namespace = options.namespace?.trim() || defaultNamespace(root)
       const nodeFiles = (files: { busPlugin?: string, handlerFile: string, registryFile: string }) => renderNodeFiles({
         ...files,
         database: postgresDatabase ? databaseImport : undefined,
         importBase,
+        namespace,
         nodeAuthority,
       })
-      nodeWrite = nodeAuthority ? { busPlugin, handlerFile, nodeAuthority, postgres: postgresDatabase, registryFile } : undefined
+      nodeWrite = nodeAuthority ? { busPlugin, handlerFile, namespace, nodeAuthority, postgres: postgresDatabase, registryFile } : undefined
       await mkdir(directory, { recursive: true })
       await Promise.all([
         writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions)),

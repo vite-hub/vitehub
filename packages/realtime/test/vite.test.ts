@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -258,7 +258,8 @@ describe("hubRealtime", () => {
     const { readFile } = await import("node:fs/promises")
     const handler = await readFile(join(root, ".vitehub/nitro/realtime/handler.ts"), "utf8")
     expect(handler).toContain(`import { useRealtimeBus } from "@vite-hub/realtime/bus"`)
-    expect(handler).toContain(`createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(expected)}) })`)
+    // Without a package.json, the namespace is the root folder name.
+    expect(handler).toContain(`createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(expected)}, { namespace: ${JSON.stringify(basename(root))} }) })`)
     const busPlugin = join(root, ".vitehub/nitro/realtime/bus.mjs")
     expect(await readFile(busPlugin, "utf8")).toContain("closeRealtimeBuses()")
     expect(config.nitro).toMatchObject({ plugins: [busPlugin], features: { websocket: true } })
@@ -272,6 +273,7 @@ describe("hubRealtime", () => {
     await mkdir(join(root, "server/realtime"), { recursive: true })
     await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
 
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "my-app" }))
     const { hubRealtime } = await import("../src/vite.ts")
     let dialect: string | undefined
     const databasePlugin = { name: "@vite-hub/database/vite", api: { getConfig: () => dialect ? { databases: { default: { dialect } } } : undefined } }
@@ -283,13 +285,13 @@ describe("hubRealtime", () => {
     const { readFile } = await import("node:fs/promises")
     const handlerFile = join(root, ".vitehub/nitro/realtime/handler.ts")
     const busFile = join(root, ".vitehub/nitro/realtime/bus.mjs")
-    expect(await readFile(handlerFile, "utf8")).toContain("useRealtimeBus(\"auto\") })")
+    expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { namespace: "my-app" }) })`)
 
     // The Database integration resolves its Definitions after the config hook.
     dialect = "postgresql"
     await (plugin.buildStart as unknown as () => Promise<void>)()
-    expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { databases: () => import("vite-hub/database/drizzle").then(module => module.databases) })`)
-    expect(await readFile(busFile, "utf8")).toContain(`logRealtimeNodeAuthority("auto", { database: true })`)
+    expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { databases: () => import("vite-hub/database/drizzle").then(module => module.databases), namespace: "my-app" })`)
+    expect(await readFile(busFile, "utf8")).toContain(`logRealtimeNodeAuthority("auto", { database: true, namespace: "my-app" })`)
   })
 
   it("keeps rooms in memory on the dev server", async () => {

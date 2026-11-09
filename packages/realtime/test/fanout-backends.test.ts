@@ -21,8 +21,8 @@ vi.setConfig({ testTimeout: 20_000 })
 // Opt-in: `docker run -d -p 5432 postgres:17` and `docker run -d -p 6379 redis:7`, then set these variables.
 const postgresUrl = process.env.VITEHUB_TEST_POSTGRES_URL
 const backends = [
-  { name: "Postgres", url: postgresUrl, create: (url: string) => createPostgresRealtimeBus({ url }) },
-  { name: "Redis", url: process.env.VITEHUB_TEST_REDIS_URL, create: createRedisRealtimeBus },
+  { name: "Postgres", url: postgresUrl, create: (url: string, namespace?: string) => createPostgresRealtimeBus({ namespace, url }) },
+  { name: "Redis", url: process.env.VITEHUB_TEST_REDIS_URL, create: (url: string, namespace?: string) => createRedisRealtimeBus(url, { namespace }) },
 ] as const
 
 async function waitFor(check: () => boolean, timeout = 5_000): Promise<boolean> {
@@ -97,6 +97,28 @@ describe.each(backends)("rooms shared through $name", ({ name, url, create }) =>
         await sql.end()
       }
     }
+  })
+
+  it.skipIf(!url)("keeps the rooms of two apps apart on one backend", async () => {
+    const [appA1, appA2, appB] = await Promise.all([create(url!, "app-a"), create(url!, "app-a"), create(url!, "app-b")])
+    opened.push(appA1, appA2, appB)
+    // Both apps have a document with the same path, as two Content sites with `index.md`.
+    const document = `index-${crypto.randomUUID()}.md`
+    const [storeA, storeB] = [createMemoryAdapter({ [document]: { body: "Start" } }), createMemoryAdapter({ [document]: { body: "Start" } })]
+    const a1 = createTestServer(realtimeDefinition(storeA.adapter), { handler: { bus: () => appA1 } })
+    const a2 = createTestServer(realtimeDefinition(storeA.adapter), { handler: { bus: () => appA2 } })
+    const b = createTestServer(realtimeDefinition(storeB.adapter), { handler: { bus: () => appB } })
+    const [onA1, onA2, onB] = await Promise.all([a1.connect(document), a2.connect(document), b.connect(document)])
+    expect(await waitFor(() => [onA1, onA2, onB].every(client => paragraphs(client.doc).length === 1))).toBe(true)
+
+    appendParagraph(onA1.doc, "Only in app A")
+    expect(await waitFor(() => paragraphs(onA2.doc).includes("Only in app A"))).toBe(true)
+    createClientAwareness(onA1).set({ user: { name: "Ada" } })
+    expect(await waitFor(() => presence(onA2).has(onA1.doc.clientID))).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(paragraphs(onB.doc)).toEqual(["Start"])
+    expect(presence(onB).has(onA1.doc.clientID)).toBe(false)
+    expect([...onA1.controls, ...onA2.controls, ...onB.controls].some(control => control.type === "reset")).toBe(false)
   })
 
   it.skipIf(!url)("saves the edits of both instances once each, without a conflict", async () => {

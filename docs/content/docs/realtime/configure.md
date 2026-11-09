@@ -67,15 +67,18 @@ How it works:
   stored digest of the document. Two instances that seed one document alone
   would duplicate its content when their edits merge. The record lives in the
   `vitehub_realtime_rooms` table on Postgres, or in a hash per room on Redis.
-- An instance that opens a room asks the other instances for the edits that it
-  does not have yet.
+- An instance that opens a room loads the document and reads the record under
+  the room lock, so it never sees a save of another instance half done. Then it
+  asks the other instances for the edits that it does not have yet.
 - Saves of one room run one at a time across instances, under a lock: a
-  Postgres advisory lock, or a Redis key with a 30 second expiry. Before it
-  saves, an instance takes in the last save of the other instances, so its
-  `ifDigest` is the stored digest. The edits of every instance are saved, and
-  a save with nothing new writes nothing. A conflict means that the stored
-  document changed outside the room. The room then re-seeds on every
-  instance, as on one instance.
+  Postgres advisory lock, or a Redis key that expires 30 seconds after its
+  holder stops renewing it. Before it saves, an instance takes in the last save
+  of the other instances, so its `ifDigest` is the stored digest. After the
+  save, the record gets exactly the state that the adapter stored. Edits that
+  arrived during the save stay unsaved on every instance, so another instance
+  saves them if this one stops. A save with nothing new writes nothing. A
+  conflict means that the stored document changed outside the room. The room
+  then re-seeds on every instance, as on one instance.
 - A client that leaves removes its presence on every instance. An instance that
   stops removes the presence of its clients from the others. An instance that
   crashes sends nothing, so the other instances drop its clients 30 seconds
@@ -83,6 +86,12 @@ How it works:
 - Postgres `NOTIFY` payloads stop at 8,000 bytes. A larger message goes to the
   `vitehub_realtime_messages` table, and the notification carries its id. Rows
   older than 5 minutes are deleted.
+- Each app has its own namespace on the bus, so two apps on one Redis or one
+  Postgres never share a room, also when both have a document `index.md`. The
+  namespace is `realtime.namespace`, else the `name` of `vitehub()`, else the
+  `name` in your root `package.json`, else the root folder name.
+  `REALTIME_NAMESPACE` replaces it when the server starts, for example to keep
+  staging and production apart on one Redis.
 - Unsaved edits live in the memory of the instances that have the room open.
   If they all stop at once, the edits since the last save are lost, as with
   `memory`.
@@ -175,7 +184,7 @@ export default defineRealtime({
 | Awareness state per room | 8 MiB |
 | Awareness clients per peer | 1,024 |
 | Active rooms per Node instance | 128, with inactive saved rooms reclaimed first |
-| Save lock on Redis | Expires after 30 seconds. A `save()` that takes longer can overlap the next one. |
+| Save lock on Redis | Renewed every 10 seconds while the save runs. It expires 30 seconds after an instance stops. An instance waits at most 30 seconds for it. |
 
 ## Inspect definitions
 

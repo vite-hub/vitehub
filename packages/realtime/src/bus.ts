@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import { decodeRealtimeBusMessage, encodeRealtimeBusMessage } from "./bus-protocol.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -11,6 +13,17 @@ export type RealtimeNodeAuthority = "auto" | "postgres" | "redis"
 /** The variable that points the Postgres bus at its own database, instead of the connection of the Default Database. */
 export const realtimePostgresUrlVariable = "REALTIME_POSTGRES_URL"
 
+/** The variable that replaces the namespace of the build, such as to keep staging and production apart on one Redis. */
+export const realtimeNamespaceVariable = "REALTIME_NAMESPACE"
+
+/**
+ * The namespace of the rooms of one app on a shared Redis or Postgres. Rooms with the same key in two namespaces never
+ * meet. `REALTIME_NAMESPACE` wins over the namespace of the build.
+ */
+export function resolveRealtimeNamespace(namespace: string | undefined, env: Record<string, string | undefined> = globalThis.process?.env ?? {}): string {
+  return env[realtimeNamespaceVariable]?.trim() || namespace?.trim() || "default"
+}
+
 /** The Databases of the app, as `@vite-hub/database/drizzle` exports them. */
 export type RealtimeDatabases = Readonly<Record<string, { db: object } | undefined>>
 
@@ -21,6 +34,8 @@ export interface RealtimeNodeBusOptions {
    */
   databases?: () => Promise<RealtimeDatabases>
   env?: Record<string, string | undefined>
+  /** The namespace of this app's rooms on the bus. The generated handler passes the app name. */
+  namespace?: string
 }
 
 /** Where the rooms of this process live: alone in memory, or shared with other instances over a bus. */
@@ -82,12 +97,13 @@ async function defaultDatabaseClient(databases: (() => Promise<RealtimeDatabases
  */
 export async function createRealtimeNodeBus(authority: RealtimeNodeAuthority, options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
   const choice = resolveRealtimeNodeAuthority(authority, { database: !!options.databases, env: options.env })
-  if (choice.authority === "redis") return await createRedisRealtimeBus(choice.url!)
+  const namespace = resolveRealtimeNamespace(options.namespace, options.env)
+  if (choice.authority === "redis") return await createRedisRealtimeBus(choice.url!, { namespace })
   if (choice.authority === "memory") return undefined
-  if (choice.url) return await createPostgresRealtimeBus({ url: choice.url })
+  if (choice.url) return await createPostgresRealtimeBus({ namespace, url: choice.url })
   const client = await defaultDatabaseClient(options.databases)
   if (!client) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
-  return await createPostgresRealtimeBus({ client })
+  return await createPostgresRealtimeBus({ client, namespace })
 }
 
 const busesKey: unique symbol = Symbol.for("vitehub.realtime.buses")
@@ -119,9 +135,10 @@ export function useRealtimeBus(authority: RealtimeNodeAuthority = "auto", option
  * Prints the room authority that this server uses. The generated Nitro plugin calls it when the server starts.
  * `database` is true when the build found the Default Database on Postgres.
  */
-export function logRealtimeNodeAuthority(authority: RealtimeNodeAuthority = "auto", options: { database?: boolean } = {}): void {
+export function logRealtimeNodeAuthority(authority: RealtimeNodeAuthority = "auto", options: { database?: boolean, namespace?: string } = {}): void {
   try {
-    console.info(describeChoice(resolveRealtimeNodeAuthority(authority, options)))
+    const choice = resolveRealtimeNodeAuthority(authority, options)
+    console.info(choice.authority === "memory" ? describeChoice(choice) : `${describeChoice(choice).slice(0, -1)}, namespace "${resolveRealtimeNamespace(options.namespace)}".`)
   }
   catch (error) {
     console.error(error)
@@ -255,7 +272,10 @@ function toRecord(row: Record<string, unknown> | undefined): RealtimeRoomRecord 
  * `{ client }`, the bus borrows the postgres.js client of a Database: it stops listening on close, and leaves the client
  * open.
  */
-export async function createPostgresRealtimeBus(connection: { client: unknown } | { url: string }): Promise<RealtimeBus> {
+export async function createPostgresRealtimeBus(connection: ({ client: unknown } | { url: string }) & { namespace?: string }): Promise<RealtimeBus> {
+  const namespace = connection.namespace ?? "default"
+  // A channel name stops at 63 bytes, so it carries a hash of the namespace.
+  const channel = `${postgresChannel}_${createHash("sha256").update(namespace).digest("hex").slice(0, 16)}`
   let sql: PostgresClient
   const owned = "url" in connection
   if ("url" in connection) {
@@ -271,7 +291,7 @@ export async function createPostgresRealtimeBus(connection: { client: unknown } 
   try {
     await sql.begin(async (transaction) => {
       await transaction`select pg_advisory_xact_lock(${postgresSetupLock})`
-      await transaction`create table if not exists vitehub_realtime_rooms (room_key text primary key, epoch text not null, digest text, state bytea not null, updated_at timestamptz not null default now())`
+      await transaction`create table if not exists vitehub_realtime_rooms (namespace text not null, room_key text not null, epoch text not null, digest text, state bytea not null, updated_at timestamptz not null default now(), primary key (namespace, room_key))`
       await transaction`create table if not exists vitehub_realtime_messages (id bigserial primary key, payload bytea not null, created_at timestamptz not null default now())`
     })
   }
@@ -292,7 +312,7 @@ export async function createPostgresRealtimeBus(connection: { client: unknown } 
     return bytes(row?.payload)
   }, async (resubscribed) => {
     let started = false
-    listening = await sql.listen(postgresChannel, payload => delivery.push(payload), () => {
+    listening = await sql.listen(channel, payload => delivery.push(payload), () => {
       if (started) resubscribed()
       started = true
     })
@@ -306,30 +326,30 @@ export async function createPostgresRealtimeBus(connection: { client: unknown } 
       const encoded = encodeRealtimeBusMessage({ ...message, instance: base.instance })
       const inline = `m${Buffer.from(encoded).toString("base64")}`
       if (inline.length <= maxNotifyPayload) {
-        await sql`select pg_notify(${postgresChannel}, ${inline})`
+        await sql`select pg_notify(${channel}, ${inline})`
         return
       }
       const [row] = await sql`insert into vitehub_realtime_messages (payload) values (${Buffer.from(encoded)}) returning id`
-      await sql`select pg_notify(${postgresChannel}, ${`r${String(row?.id)}`})`
+      await sql`select pg_notify(${channel}, ${`r${String(row?.id)}`})`
       if (++published % 100 === 1) {
         await sql`delete from vitehub_realtime_messages where created_at < now() - make_interval(secs => ${postgresMessageRetentionSeconds})`
       }
     }),
     subscribe: (listener, resubscribed) => delivery.subscribe(listener, resubscribed),
     async readRoom(room) {
-      const [row] = await sql`select epoch, digest, state from vitehub_realtime_rooms where room_key = ${room}`
+      const [row] = await sql`select epoch, digest, state from vitehub_realtime_rooms where namespace = ${namespace} and room_key = ${room}`
       return toRecord(row)
     },
     async writeRoom(room, record, ifEpoch) {
       const state = Buffer.from(record.state)
       const rows = ifEpoch === null
-        ? await sql`insert into vitehub_realtime_rooms (room_key, epoch, digest, state) values (${room}, ${record.epoch}, ${record.digest}, ${state}) on conflict (room_key) do nothing returning room_key`
-        : await sql`update vitehub_realtime_rooms set epoch = ${record.epoch}, digest = ${record.digest}, state = ${state}, updated_at = now() where room_key = ${room} and epoch = ${ifEpoch} returning room_key`
+        ? await sql`insert into vitehub_realtime_rooms (namespace, room_key, epoch, digest, state) values (${namespace}, ${room}, ${record.epoch}, ${record.digest}, ${state}) on conflict (namespace, room_key) do nothing returning room_key`
+        : await sql`update vitehub_realtime_rooms set epoch = ${record.epoch}, digest = ${record.digest}, state = ${state}, updated_at = now() where namespace = ${namespace} and room_key = ${room} and epoch = ${ifEpoch} returning room_key`
       return rows.length === 1
     },
     // A transaction-scoped lock ends with the transaction, and with the connection when the instance stops.
     withRoomLock: (room, task) => locked(() => sql.begin(async (transaction) => {
-      await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub_realtime:${room}`}, 0))`
+      await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub_realtime:${namespace}:${room}`}, 0))`
       return await task()
     })),
     close: () => base.close(async () => {
@@ -339,9 +359,7 @@ export async function createPostgresRealtimeBus(connection: { client: unknown } 
   }
 }
 
-const redisChannel = "vitehub:realtime"
-const redisRoomPrefix = "vitehub:realtime:room:"
-const redisLockPrefix = "vitehub:realtime:lock:"
+const redisPrefix = "vitehub:realtime:"
 /** A lock whose holder stopped expires after this time. */
 const redisLockMs = 30_000
 
@@ -355,6 +373,15 @@ end
 return 0
 `
 
+/** Extends the lock while its holder still runs, so a save that takes longer than 30 seconds keeps it. */
+const redisRenewLockScript = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('PEXPIRE', KEYS[1], ARGV[2])
+end
+return 0
+`
+const redisLockRenewMs = 10_000
+
 const redisReleaseLockScript = `
 if redis.call('GET', KEYS[1]) == ARGV[1] then
   return redis.call('DEL', KEYS[1])
@@ -366,7 +393,11 @@ return 0
  * Shares rooms through Redis: pub/sub carries room traffic, one hash per room holds the shared room record, and a
  * `SET NX PX` lock orders saves.
  */
-export async function createRedisRealtimeBus(url: string): Promise<RealtimeBus> {
+export async function createRedisRealtimeBus(url: string, options: { namespace?: string } = {}): Promise<RealtimeBus> {
+  const prefix = `${redisPrefix}${options.namespace ?? "default"}:`
+  const redisChannel = `${prefix}channel`
+  const redisRoomPrefix = `${prefix}room:`
+  const redisLockPrefix = `${prefix}lock:`
   const { Redis } = await import("ioredis")
   const client = new Redis(url, { lazyConnect: true })
   const subscriber = client.duplicate()
@@ -425,10 +456,14 @@ export async function createRedisRealtimeBus(url: string): Promise<RealtimeBus> 
         if (Date.now() > deadline) throw realtimeErrorDiagnostics.REALTIME_ROOM_LOCK_TIMEOUT()
         await new Promise(resolve => setTimeout(resolve, 25 + Math.random() * 50))
       }
+      const renew = setInterval(() => {
+        client.eval(redisRenewLockScript, 1, key, token, redisLockMs).catch(() => {})
+      }, redisLockRenewMs)
       try {
         return await task()
       }
       finally {
+        clearInterval(renew)
         await client.eval(redisReleaseLockScript, 1, key, token).catch(() => {})
       }
     },

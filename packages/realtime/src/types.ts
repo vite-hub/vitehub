@@ -218,6 +218,12 @@ export interface RealtimeModuleOptions {
    * `memory` keeps rooms in one process.
    */
   authority?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
+  /**
+   * Keeps the rooms of this app apart from other apps on the same Redis or Postgres. Defaults to the `name` of
+   * `vitehub()`, else the `name` in the root `package.json`, else the root folder name. `REALTIME_NAMESPACE` replaces
+   * it when the server starts.
+   */
+  namespace?: string
   projectRoot?: string
 }
 

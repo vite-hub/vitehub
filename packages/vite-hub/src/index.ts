@@ -1403,6 +1403,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   if (options.realtime) {
     plugins.push(requireOptionalOwner(ownerModules.realtimeVite, "realtime").hubRealtime({
+      // Rooms of this app stay apart from other apps on the same Redis or Postgres.
+      ...(options.name ? { namespace: options.name } : {}),
       ...(options.realtime === true ? {} : options.realtime),
       // The Postgres bus borrows the client of a Postgres Default Database.
       databaseImport: "vite-hub/database/drizzle",
