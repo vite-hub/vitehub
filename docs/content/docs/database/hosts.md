@@ -79,7 +79,7 @@ export default defineDatabase({
 })
 ```
 
-Production Nuxt builds that use only D1 HTTP do not bundle libSQL or native SQLite libraries. Local SQLite development keeps its local driver.
+Production Nuxt builds that use only D1 HTTP do not bundle libSQL or native SQLite libraries. A Cloudflare build bundles libSQL only when a Database has a remote libSQL connection URL, a URL from the environment, or a Definition that the build cannot read. Local SQLite development keeps its local driver.
 
 D1 HTTP also generates Drizzle Kit `d1-http` credentials. `vitehub db migrate` applies D1 HTTP migrations without Drizzle Kit and records them in Wrangler's `d1_migrations` table, so `wrangler d1 migrations apply` sees them too. With `http: true`, migrations call Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID`, the database id, and `CLOUDFLARE_API_TOKEN`; an object-form `http` uses its resolved proxy `url` and `authToken`. Drizzle Kit inspection commands use the Cloudflare API credentials. ViteHub never embeds these credentials in generated output.
 
