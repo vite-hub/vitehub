@@ -46,13 +46,14 @@ A box inside a framed box uses the next smaller step, so the corners stay concen
 
 ## Focus
 
-`--vh-focus` is sky 600 on light and sky 400 on dark, 3:1 on both pages. The theme uses it; components never do. Blue means focus and nothing else: links, selection, and primary buttons stay black and white.
+`--vh-focus` is sky 600 on light and sky 400 on dark, 3:1 on both pages. The theme uses it; components never do. Blue means focus and nothing else: links, selected items, selected text (`--vh-selection`), and primary buttons stay black and white.
 
 ```
 A button, a link, a checkbox, a card link             → 2px ring, 2px outside
 A menu item, an option, a tab, a table row            → 2px ring, inside the item
 A link row in a framed list                           → add data-focus-inset, ring inside
 A framed text field                                   → its frame turns blue and 2px (red with an error)
+A field framed by a wrapper (prompt input)            → add data-focus-frame to the wrapper, it turns blue
 A field without a frame, the document editor          → the caret only
 An element that code focused (tabindex="-1")          → no ring
 ```
