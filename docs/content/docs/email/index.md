@@ -37,6 +37,55 @@ icon: i-lucide-mail
   Your workspace is ready.
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  import { env } from 'vite-hub/env'
+
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // Resend sends the email
+      email: {
+        driver: 'resend',
+        // The server reads the key when it sends
+        options: {
+          apiKey: env({
+            secret: true,
+            source: env.source('RESEND_API_KEY'),
+          }),
+        },
+      },
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { vitehub } from 'vite-hub'
+  import { env } from 'vite-hub/env'
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
+
+  export default defineConfig({
+    plugins: [vitehub({
+      preset: 'node',
+      // Resend sends the email
+      email: {
+        driver: 'resend',
+        // The server reads the key when it sends
+        options: {
+          apiKey: env({
+            secret: true,
+            source: env.source('RESEND_API_KEY'),
+          }),
+        },
+      },
+    }), nitro()],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
   ```ts [vite.config.ts]
   import { vitehub } from 'vite-hub'
   import { env } from 'vite-hub/env'
@@ -59,6 +108,7 @@ icon: i-lucide-mail
     })],
   })
   ```
+  ::::
 
   ```ts [test/welcome.test.ts]
   import { expect, it } from 'vitest'

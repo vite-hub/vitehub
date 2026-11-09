@@ -9,12 +9,43 @@ icon: i-lucide-key-round
 
 ::product-hero{tagline="Declare your settings and secrets once, then read them as typed values in browser and server code." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-tree
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  import { env } from 'vite-hub/env'
+
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      env: {
+        // Safe to show in the browser
+        public: {
+          appName: env({ default: 'Acme', mode: 'build' }),
+        },
+        // Only server code can read these
+        server: {
+          github: {
+            token: env({
+              secret: true,
+              source: env.source('GITHUB_TOKEN'),
+            }),
+          },
+          dryRun: env.boolean({ default: true }),
+        },
+      },
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
-  import { env, hubEnv } from '@vite-hub/env/vite'
+  import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+  import { env } from 'vite-hub/env'
 
   export default defineConfig({
-    plugins: [hubEnv()],
+    plugins: [vitehub({ preset: 'node' }), nitro()],
     env: {
       // Safe to show in the browser
       public: {
@@ -33,6 +64,34 @@ icon: i-lucide-key-round
     },
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+  import { env } from 'vite-hub/env'
+
+  export default defineConfig({
+    plugins: [vitehub({ preset: 'node' })],
+    env: {
+      // Safe to show in the browser
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      // Only server code can read these
+      server: {
+        github: {
+          token: env({
+            secret: true,
+            source: env.source('GITHUB_TOKEN'),
+          }),
+        },
+        dryRun: env.boolean({ default: true }),
+      },
+    },
+  })
+  ```
+  ::::
 
   ```ts [src/app.ts]
   import { usePublicEnv } from '#vitehub/env/public'

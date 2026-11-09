@@ -25,6 +25,29 @@ pnpm add @upstash/redis
 Replace the tutorial's ViteHub options with this configuration. Keep the
 other plugins and features your app uses.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', kv: { driver: 'upstash' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+	plugins: [vitehub({ preset: 'node', kv: { driver: 'upstash' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -33,6 +56,8 @@ export default defineConfig({
 	plugins: [vitehub({ preset: 'node', kv: { driver: 'upstash' } })],
 })
 ```
+:::
+::
 
 Set both variables in the environment used to build and run the app:
 

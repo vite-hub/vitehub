@@ -13,6 +13,32 @@ Configure the integration in Vite. Inspect Provider Output when you need to chec
 
 ## Configure the integration
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: true, kv: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'node', agent: true, kv: true }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -23,6 +49,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Put options in `vite.config.ts` when they affect discovery, generated files, provider bindings, or deployment. Put options in a Definition when they apply to that named item.
 
