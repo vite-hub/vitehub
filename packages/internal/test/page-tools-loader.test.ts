@@ -72,6 +72,7 @@ afterEach(() => {
   document.cookie = "vitehub-tools=; Path=/; Max-Age=0"
   document.documentElement.className = ""
   document.documentElement.removeAttribute("data-vitehub-pill")
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -270,6 +271,24 @@ describe("loadViteHubPageTools", () => {
     await loadViteHubPageTools({ load: modules().load })
     const { element } = pill()
     expect([element.hasAttribute("collapsed"), element.style.getPropertyValue("--at")]).toEqual([false, "50"])
+    menu.remove()
+  })
+
+  it("folds when the page adds its floating control after the pill", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect(element.hasAttribute("collapsed")).toBe(false)
+    // A chat widget that loads late.
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    document.body.append(menu)
+    await vi.advanceTimersByTimeAsync(250)
+    expect([element.hasAttribute("collapsed"), element.style.getPropertyValue("--at")]).toEqual([true, "100"])
     menu.remove()
   })
 

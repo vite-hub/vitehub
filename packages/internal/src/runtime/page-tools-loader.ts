@@ -146,8 +146,8 @@ function asideOf(dock: ViteHubPageToolsDock): ViteHubPageToolsDock {
 }
 
 /**
- * Calls `change` each time the page starts or stops asking for the mark, until `signal` aborts. A resize or a drop of
- * the pill can uncover or cover the pill's default place, so both check it again.
+ * Calls `change` each time the page starts or stops asking for the mark, until `signal` aborts. A resize, a change of
+ * the page's elements, or a drop of the pill can uncover or cover the pill's default place, so each one checks it again.
  */
 function watchPageAsk(change: () => void, signal: AbortSignal): void {
   let asked = pageAsksForMark()
@@ -165,16 +165,23 @@ function watchPageAsk(change: () => void, signal: AbortSignal): void {
   }
   const observer = new MutationObserver(check)
   observer.observe(document.documentElement, { attributes: true, attributeFilter: [viteHubPillAttribute] })
+  // At most one check each 200ms, also on a page that changes all the time.
   let timer: ReturnType<typeof setTimeout> | undefined
   const later = () => {
-    clearTimeout(timer)
-    timer = setTimeout(check, 200)
+    timer ??= setTimeout(() => {
+      timer = undefined
+      check()
+    }, 200)
   }
+  // A page can add its floating control after the pill, such as a chat widget that loads late.
+  const added = new MutationObserver(later)
+  added.observe(document.documentElement, { childList: true, subtree: true })
   addEventListener("resize", later, { signal })
   addEventListener("storage", later, { signal })
   document.addEventListener("pointerup", later, { signal })
   signal.addEventListener("abort", () => {
     observer.disconnect()
+    added.disconnect()
     clearTimeout(timer)
   }, { once: true })
 }
