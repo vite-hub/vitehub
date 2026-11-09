@@ -549,7 +549,7 @@ describe("migratePostgres", () => {
    * A postgres.js client that records each query and answers the lock, identity, and ledger reads. `ledger` undefined
    * has no table; rows without `name` make a Drizzle Kit 0.x table.
    */
-  function fakeClient({ database = "app", events, fail, holders = [], ledger, locked = true, pid = 1, started = "1794260759.623267" }: { database?: string, events?: string[], fail?: string, holders?: number[], ledger?: FakeRow[], locked?: boolean, pid?: number, started?: string }) {
+  function fakeClient({ database = "app", events, fail, ledger, locked = true, started = "1794260759.623267" }: { database?: string, events?: string[], fail?: string, ledger?: FakeRow[], locked?: boolean, started?: string }) {
     const queries: Array<[string, unknown[] | undefined]> = []
     const named = ledger?.every(row => row.name !== undefined)
     const sql: PostgresMigrationSql = {
@@ -557,9 +557,8 @@ describe("migratePostgres", () => {
         queries.push([query, parameters])
         events?.push(`${database}: ${query}`)
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
-        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked, pid }]
+        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
         if (query.startsWith("select current_database()")) return [{ database, started }]
-        if (query.startsWith("select pid from pg_locks")) return holders.map(holder => ({ pid: holder }))
         if (query.startsWith("select column_name")) return ledger ? ["id", "hash", "created_at", ...named ? ["name", "applied_at"] : []].map(column_name => ({ column_name })) : []
         if (query.startsWith("SELECT id, hash, created_at FROM")) return (ledger ?? []).map(({ created_at, hash, id }) => ({ created_at: String(created_at), hash, id }))
         if (query.startsWith("select id, hash, created_at, name")) return (ledger ?? []).map(row => ({ ...row, created_at: String(row.created_at), name: row.name ?? null }))
@@ -577,7 +576,7 @@ describe("migratePostgres", () => {
     expect(applied).toEqual(["0001_older"])
     // One transaction holds the lock from the ledger read to the commit.
     expect(queries).toEqual([
-      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked, pg_backend_pid() as pid", [postgresMigrationLock]],
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local client_min_messages = warning", undefined],
       ["CREATE SCHEMA IF NOT EXISTS \"drizzle\"", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
@@ -617,9 +616,7 @@ describe("migratePostgres", () => {
     const { client, queries } = fakeClient({ locked: false })
     const log: string[] = []
     await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: message => log.push(message) })
-    // No session of this process holds the lock, so another process does.
-    expect(queries[1]?.[0]).toMatch(/^select pid from pg_locks/)
-    expect(queries[2]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
+    expect(queries[1]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
     expect(log[0]).toBe('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.')
   })
 
@@ -697,19 +694,5 @@ describe("migratePostgres", () => {
     } })
     expect(key).toBe(JSON.stringify(["app", "1794260759.623267"]))
     expect(queries).toEqual(["select current_database() as database, extract(epoch from pg_postmaster_start_time())::text as started"])
-  })
-
-  it("joins a group whose lock a session of this process already holds, instead of waiting for itself", async () => {
-    // Two keys that differ, on one database: the first session (pid 11) holds the lock when the second tries it.
-    const first = fakeClient({ pid: 11, started: "1" })
-    const second = fakeClient({ holders: [11], locked: false, pid: 12, started: "2" })
-    const log: string[] = []
-    await migratePostgres([
-      { client: first.client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"])], name: "first" } },
-      { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
-    ], { log: message => log.push(message) })
-    expect(log).toEqual(['[vitehub] Database "first": applied a0.', '[vitehub] Database "second": applied b0.'])
-    expect(first.queries.map(([query]) => query)).toContain("CREATE TABLE b (id int)")
-    expect(second.queries.map(([query]) => query)).not.toContain("select pg_advisory_xact_lock(hashtext($1))")
   })
 })

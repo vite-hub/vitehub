@@ -252,7 +252,7 @@ export interface PostgresTarget {
 /**
  * Names the Postgres database that a client reaches, as the server reports it: the database name and the server start
  * time as Unix seconds. Every session gets the same key, whatever its address (a Unix socket, a TCP address, two URL
- * spellings), its `TimeZone`, or its role. `withPostgresLocks()` also merges two groups that turn out to be one database.
+ * spellings), its `TimeZone`, or its role.
  */
 export async function readPostgresDatabaseKey(client: PostgresMigrationSql): Promise<string> {
   const [row] = Array.from(await client.unsafe("select current_database() as database, extract(epoch from pg_postmaster_start_time())::text as started"))
@@ -304,38 +304,27 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
   return planByName(databases, { applied: match.applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
 }
 
-/** A group whose migration lock this process holds, in the transaction `sql` on the session `pid`. */
-interface HeldGroup {
-  group: PostgresTarget[]
-  pid: number
-  sql: PostgresMigrationSql
-}
-
-/**
- * Takes the migration lock of each group, in order, and holds them all for `run`. When a lock is taken, it checks
- * whether a session of this process holds it: then the group is on a database that an earlier group already locked, so
- * it joins that group instead of waiting for itself forever. Otherwise another process migrates, and it waits.
- */
-async function withPostgresLocks(groups: PostgresTarget[][], log: (message: string) => void, run: (held: HeldGroup[]) => Promise<void>, index = 0, held: HeldGroup[] = []): Promise<void> {
-  if (index === groups.length) return await run(held)
-  const group = groups[index]!
+/** Runs `run` in a transaction that holds the migration lock of the group's database. */
+async function withPostgresLock(group: PostgresTarget[], log: (message: string) => void, run: (sql: PostgresMigrationSql) => Promise<void>) {
   await group[0]!.client.begin(async (sql) => {
-    const [lock] = Array.from(await sql.unsafe("select pg_try_advisory_xact_lock(hashtext($1)) as locked, pg_backend_pid() as pid", [postgresMigrationLock]))
+    const [lock] = Array.from(await sql.unsafe("select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]))
     if (lock?.locked !== true) {
-      // Advisory locks belong to one database: a holder in pg_locks for this database and key is on the same database.
-      const holders = Array.from(await sql.unsafe("select pid from pg_locks where locktype = 'advisory' and granted and database = (select oid from pg_database where datname = current_database()) and ((classid::bigint << 32) | objid::bigint) = hashtext($1)::bigint", [postgresMigrationLock])).map(row => Number(row.pid))
-      const owner = held.find(entry => holders.includes(entry.pid))
-      if (owner) {
-        owner.group.push(...group)
-        return await withPostgresLocks(groups, log, run, index + 1, held)
-      }
       log(`[vitehub] Database "${group[0]!.database.name}": another process is applying migrations. Waiting for it to finish.`)
       await sql.unsafe("select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock])
     }
     // postgres.js prints notices, such as "schema already exists, skipping", on stdout by default.
     await sql.unsafe("set local client_min_messages = warning")
-    await withPostgresLocks(groups, log, run, index + 1, [...held, { group: [...group], pid: Number(lock?.pid), sql }])
+    await run(sql)
   })
+}
+
+/**
+ * Holds the lock of every group, in key order, for all of `run`. Each group is a separate database, because the key is
+ * the same for every session of one database, so this process never waits for a lock that it holds itself.
+ */
+async function withPostgresLocks(groups: PostgresTarget[][], log: (message: string) => void, run: (sqls: PostgresMigrationSql[]) => Promise<void>, held: PostgresMigrationSql[] = []): Promise<void> {
+  if (held.length === groups.length) return await run(held)
+  await withPostgresLock(groups[held.length]!, log, sql => withPostgresLocks(groups, log, run, [...held, sql]))
 }
 
 export interface MigratePostgresOptions extends MigrateOnStartOptions {
@@ -359,12 +348,12 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
   // The transaction callback sets these, so the catch can name the migration that failed.
   const progress: { applied: PendingEntry[], running?: PendingEntry } = { applied: [] }
   try {
-    await withPostgresLocks(groups, log, async (held) => {
+    await withPostgresLocks(groups, log, async (sqls) => {
       const plans: PendingEntry[][] = []
-      for (const { group, sql } of held) plans.push(await planPostgres(sql, group, options))
+      for (const [index, group] of groups.entries()) plans.push(await planPostgres(sqls[index]!, group, options))
       await options.beforeApply?.()
       for (const [index, pending] of plans.entries()) {
-        const { sql } = held[index]!
+        const sql = sqls[index]!
         for (const entry of pending) {
           progress.running = entry
           for (const statement of entry.migration.statements) await sql.unsafe(statement)
