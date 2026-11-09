@@ -122,7 +122,7 @@ const docsShellUi = {
   }
 
   /* AppHeader hides beside the sidebar. Sticky offsets and full-height columns read this variable. */
-  .vh-docs-shell.has-sidebar {
+  .vh-docs-shell.has-sidebar:has([data-docs-sidebar-head]) {
     --ui-header-height: 0px;
   }
 

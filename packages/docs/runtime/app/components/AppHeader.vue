@@ -10,8 +10,6 @@ const docsHome = docsHomePath(useDocsManifest())
 const shell = useDocsShell()
 const error = useError()
 const isDocsRoute = computed(() => shell.value && !error.value)
-// On wide screens the docs sidebar carries the brand, search, and these links, so the header hides beside it.
-const sidebarShown = useDocsSidebarShown()
 const menuOpen = ref(false)
 // Nuxt turns a `null` in runtime config into "", so only a number counts.
 const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
@@ -39,7 +37,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 </script>
 
 <template>
-  <div class="sticky top-0 z-50" :class="{ 'lg:hidden': sidebarShown }">
+  <div class="vh-docs-header sticky top-0 z-50">
     <UHeader
       v-model:open="menuOpen"
       :ui="{
@@ -200,6 +198,13 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 </template>
 
 <style scoped>
+/* A replacement layout or sidebar keeps the header until it supplies the sidebar controls. */
+@media (min-width: 64rem) {
+  :global(body:has([data-docs-sidebar-head]) .vh-docs-header) {
+    display: none;
+  }
+}
+
 /*
  * In the mobile menu the rail and the page panel sit side by side, as on wide screens.
  * The menu fills the visible body of the fullscreen menu (its padding minus this block's negative margin),

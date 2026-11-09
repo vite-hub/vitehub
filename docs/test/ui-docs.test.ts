@@ -152,33 +152,46 @@ describe("UI documentation", () => {
     const sidebarTop = readFileSync(resolve(packageApp, "components/DocsAsideLeftTop.vue"), "utf8");
 
     expect(sidebarTop).toContain("docsSidebarGroup(manifest, section.value, groups)?.title ?? section.value.title");
-    expect(sidebarTop).not.toContain("<UContentSearchButton");
     expect(sidebarTop).not.toContain("vh-docs-context");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-  it("keeps the brand, search, and the controls in the header, and the rail and pages in the sidebar", () => {
+  it("puts the brand, search, and controls in the desktop sidebar and keeps the header for other shells", () => {
     const rail = readFileSync(resolve(packageApp, "components/DocsRail.vue"), "utf8");
     const body = readFileSync(resolve(packageApp, "components/DocsAsideLeftBody.vue"), "utf8");
     const sidebars = readFileSync(resolve(packageApp, "components/DocsSidebars.vue"), "utf8");
     const header = readFileSync(resolve(packageApp, "components/AppHeader.vue"), "utf8");
+    const top = readFileSync(resolve(packageApp, "components/DocsAsideLeftTop.vue"), "utf8");
+    const footer = readFileSync(resolve(packageApp, "components/DocsAsideFooter.vue"), "utf8");
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
 
-    // The rail names the site from the `docs.site` options: "ViteHub navigation". The header carries the brand.
+    // The rail names the site from the `docs.site` options: "ViteHub navigation". Its brand opens the docs home.
     expect(rail).toContain('<PrimitiveRail ref="rail" :label="`${site.name} navigation`"');
-    expect(rail).not.toContain("vh-docs-rail-brand");
+    expect(rail).toContain("vh-docs-rail-brand");
+    expect(rail).toContain(':text="site.badge?.tooltip || brandLabel"');
+    expect(rail).toContain(':disabled="expanded && !site.badge?.tooltip"');
     expect(body).toContain('v-for="link in startLinks"');
     expect(config).toContain('{ label: "Learn", to: "/learn"');
     expect(config).toContain('{ label: "Projects", to: "/projects"');
     expect(config).toContain('{ label: "Templates", to: "/templates"');
     expect(sidebars).toContain("<DocsAsideLeftBody />");
+    expect(sidebars).toContain(':data-docs-sidebar-head="head && panel ? \'\' : undefined"');
+    expect(sidebars).toContain('<DocsAsideFooter v-if="head" />');
+    expect(top).toContain("<UContentSearchButton");
+    expect(top).toContain(':text="site.badge?.tooltip ?? undefined"');
+    expect(footer).toContain("<DocsHeaderActions />");
+    expect(footer).toContain("<UColorModeButton");
+    expect(footer).toContain('v-for="link in socials"');
+    expect(footer).toContain("github.stars");
     expect(header).toContain("<UColorModeButton");
     expect(header).toContain('v-for="link in socials"');
     expect(header).toContain('label="Search docs"');
     expect(config).toContain('socials: [{ label: "ViteHub on Discord"');
-    // The header shows on every page, also next to the docs sidebar.
-    expect(header).not.toContain("'lg:hidden': isDocsRoute");
+    // Only a rendered sidebar with the full set of controls hides the desktop header. Custom shells keep it.
+    expect(header).toContain("@media (min-width: 64rem)");
+    expect(header).toContain(":global(body:has([data-docs-sidebar-head]) .vh-docs-header)");
+    expect(header).not.toContain("lg:hidden': sidebarShown");
   });
 
   it("keeps the docs sidebar panel visible and scrollable", () => {
@@ -189,7 +202,8 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
-    expect(layout).toContain('<LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel />');
+    expect(layout).toContain('<LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel head />');
+    expect(layout).toContain(".vh-docs-shell.has-sidebar:has([data-docs-sidebar-head])");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     // The aside container is a flex column. The sidebars must grow into it, or the panel collapses to its header.
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));

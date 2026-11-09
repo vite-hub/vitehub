@@ -84,7 +84,14 @@ onBeforeUnmount(() => {
   <PrimitiveRail ref="rail" :label="`${site.name} navigation`" class="vh-docs-rail" :class="{ 'vh-docs-rail-labeled': labeled }">
     <!-- Like the header brand on other pages, it opens the docs home. -->
     <template v-if="brand" #header="{ expanded }">
-      <UTooltip :text="brandLabel" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" :disabled="expanded">
+      <UTooltip
+        :text="site.badge?.tooltip || brandLabel"
+        :content="{ side: 'right', sideOffset: 6 }"
+        :delay-duration="150"
+        :disabled="expanded && !site.badge?.tooltip"
+        ignore-non-keyboard-focus
+        :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
+      >
         <PrimitiveRailItem :as="NuxtLink" :to="docsHome ?? '/'" :label="brandLabel" class="vh-docs-rail-brand">
           <DocsBrandMark v-if="site.logo" />
           <span v-else class="vh-docs-rail-brand-initial">{{ site.name.charAt(0) }}</span>

@@ -8,6 +8,7 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
 
 <template>
   <div class="vh-docs-aside-footer">
+    <DocsHeaderActions />
     <a
       v-if="github"
       :href="github.url"
@@ -50,6 +51,7 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
 <style scoped>
 .vh-docs-aside-footer {
   display: flex;
+  flex-wrap: wrap;
   flex: none;
   align-items: center;
   gap: 0.25rem;

@@ -52,7 +52,7 @@ export interface DocsSiteOptions {
    * dark mode. `{ light, dark? }` shows images as they are, such as a colored logo, with `dark` in dark mode.
    */
   logo?: string | { light: string, dark?: string }
-  /** A short label after the name, such as `beta`, with an optional tooltip on the header brand. */
+  /** A short label after the name, such as `beta`, with an optional tooltip on the site brand. */
   badge?: { label: string, tooltip?: string }
 }
 

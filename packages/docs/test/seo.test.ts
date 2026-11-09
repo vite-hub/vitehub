@@ -27,6 +27,9 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     await writeFile(join(root, "content/docs/guide/none.md"), "---\ntitle: None\nseo:\n  image: false\n---\nNone\n")
     await writeFile(join(root, "content/docs/guide/embedded.md"), "---\ntitle: Lumenate\n---\nA distinct word\n")
     await writeFile(join(root, "content/docs/guide/named.md"), "---\ntitle: LUMEN!\n---\nThe site name\n")
+    await writeFile(join(root, "content/docs/guide/no-sidebar.md"), "---\ntitle: No sidebar\nsidebar: false\n---\nPlain page\n")
+    await mkdir(join(root, "app/components"), { recursive: true })
+    await writeFile(join(root, "app/components/DocsHeaderActions.vue"), '<template><button type="button" data-custom-docs-action>Package menu</button></template>\n')
     await writeFile(join(root, "public/own.png"), "")
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
     const config: NuxtConfig & { schemaOrg: Partial<SchemaOrgOptions> } = {
@@ -79,9 +82,15 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     const home = await page("index")
     expect(home).toContain("Read <a")
     expect(home).not.toMatch(/class="[^"]*vh-docs-rail/)
-    expect(home).toMatch(/class="sticky top-0 z-50"/)
-    expect(install).toMatch(/class="sticky top-0 z-50 lg:hidden"/)
+    expect(home).toMatch(/class="vh-docs-header sticky top-0 z-50"/)
+    expect(home).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
+    expect(install).toMatch(/<div[^>]*data-docs-sidebar-head/)
     expect(install).toContain("vh-docs-aside-footer")
+    // The app action remains in the visible sidebar when the desktop header hides.
+    expect(install).toMatch(/class="vh-docs-aside-footer"[^>]*>[\s\S]*?data-custom-docs-action/)
+    const noSidebar = await page("docs/guide/no-sidebar")
+    expect(noSidebar).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
+    expect(noSidebar).toMatch(/class="vh-docs-header sticky top-0 z-50"/)
     expect.soft(await page("docs/guide/embedded")).toContain("<title>Lumenate · Lumen</title>")
     expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 

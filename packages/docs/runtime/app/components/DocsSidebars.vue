@@ -16,7 +16,7 @@ const rail = docsHasRail(useDocsManifest(), config.icons, config.groups, config)
 </script>
 
 <template>
-  <div class="vh-docs-sidebars">
+  <div class="vh-docs-sidebars" :data-docs-sidebar-head="head && panel ? '' : undefined">
     <DocsRail v-if="rail" :labeled="labeled" :brand="head" />
     <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': !rail, 'has-head': head }">
       <DocsAsideLeftTop :brand="head && !rail" :search="head" :title="rail" />
