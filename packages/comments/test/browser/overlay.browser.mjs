@@ -34,7 +34,8 @@ test("the idle overlay leaves the page usable", { timeout: 120_000 }, async (t) 
   page.on("pageerror", error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${port}/`)
   await page.locator("vitehub-comments").waitFor({ state: "attached" })
-  await page.locator("vitehub-tool").getByRole("button", { name: /^Comment/ }).first().waitFor()
+  // Until the session answers, the pill shows a busy "Comments" button. The comment layer mounts with the listeners.
+  await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
 
   await t.test("a click on the site's own button reaches it", async () => {
     const target = await page.evaluate(() => {
