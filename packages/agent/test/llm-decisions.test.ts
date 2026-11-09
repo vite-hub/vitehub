@@ -12,7 +12,7 @@ const runtime = () => ({
 
 function mockAiDecision(output: unknown) {
   const generateText = vi.fn(async (input: unknown) => ({ ...input as Record<string, unknown>, output }))
-  vi.doMock("ai", () => ({
+  vi.doMock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway,
     generateText,
     jsonSchema: (schema: unknown, options?: unknown) => ({ options, schema }),
     Output: {

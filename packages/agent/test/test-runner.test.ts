@@ -26,7 +26,7 @@ vi.mock("@vite-hub/workflow/runtime/state", () => ({
   runWithWorkflowRuntimeEvent: vi.fn((_event, callback) => callback()),
 }))
 
-vi.mock("ai", () => ({
+vi.mock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway,
   jsonSchema: vi.fn(schema => schema),
   isStepCount: vi.fn(count => ({ count })),
   // This SDK double executes fixture responses without invoking a language model.

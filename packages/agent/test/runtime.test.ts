@@ -8591,7 +8591,7 @@ describe("agent message protocol", () => {
         }
       },
     }
-    vi.doMock("ai", () => aiSdk)
+    vi.doMock("ai", async importOriginal => ({ ...aiSdk, createGateway: (await importOriginal<typeof import("ai")>()).createGateway }))
     loadAiSdk.mockResolvedValue(aiSdk)
     try {
       const { defineAgent } = await import("../src/index.ts")
@@ -8642,7 +8642,7 @@ describe("agent message protocol", () => {
         }
       },
     }
-    vi.doMock("ai", () => aiSdk)
+    vi.doMock("ai", async importOriginal => ({ ...aiSdk, createGateway: (await importOriginal<typeof import("ai")>()).createGateway }))
     loadAiSdk.mockResolvedValue(aiSdk)
 
     try {
@@ -8804,7 +8804,7 @@ describe("agent message protocol", () => {
 
   it("renders custom title templates and skips unmatched triggers", async () => {
     const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
-    vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))
+    vi.doMock("ai", async importOriginal => ({ createGateway: (await importOriginal<typeof import("ai")>()).createGateway, generateText, jsonSchema: vi.fn(schema => schema) }))
 
     try {
       const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
