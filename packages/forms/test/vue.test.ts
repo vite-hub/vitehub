@@ -118,6 +118,35 @@ describe("AutoForm", () => {
     expect((await store.list()).map(row => row.data)).toEqual([{ age: 42, count: 2, terms: false }])
   })
 
+  it("submits the generated native controls with the same types as the hydrated form", async () => {
+    const schema = v.object({
+      age: v.number(),
+      count: v.picklist([1, 2]),
+      message: v.pipe(v.string(), v.trim()),
+      terms: v.boolean(),
+      extra: v.optional(v.number()),
+      size: v.optional(v.picklist([1, 2])),
+    })
+    const { store, element, submit, type } = await mount(schema, schema)
+    await type("[data-field=age] input", "42")
+    await type("[data-field=count] select", "2")
+    await type("[data-field=message] textarea", " Hello ")
+    const form = element<HTMLFormElement>("form")
+    // FormData reads the successful HTML controls without using the submit listener.
+    const body = new URLSearchParams()
+    for (const [key, value] of new FormData(form)) body.append(key, String(value))
+    expect(Object.fromEntries(body)).toEqual({ age: "42", count: "2", message: " Hello ", extra: "", size: "", website: "" })
+    expect(body.has("terms")).toBe(false)
+    const response = await fetch(form.action, { method: "POST", headers: { accept: "text/html" }, body })
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/?form=sent")
+    await submit()
+    expect((await store.list()).map(row => row.data)).toEqual([
+      { age: 42, count: 2, message: "Hello", terms: false, extra: undefined, size: undefined },
+      { age: 42, count: 2, message: "Hello", terms: false, extra: undefined, size: undefined },
+    ])
+  })
+
   it("keeps the labels of two forms with one name apart", async () => {
     // One app with the form twice, such as in the footer and in a dialog.
     const root = document.createElement("div")
