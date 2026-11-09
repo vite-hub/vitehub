@@ -205,11 +205,6 @@
     "error": "TS2304 Cannot find name 'defineAgent'."
   },
   {
-    "id": "docs/content/docs/logs/get-started.md#b7725026293a",
-    "label": "vite.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
     "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
     "label": "server/api/signup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
