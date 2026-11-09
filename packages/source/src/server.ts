@@ -134,7 +134,7 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
     throw sourceErrorDiagnostics.SOURCE_R0025({ message: "[vitehub] Collection authorize requires Auth. Enable Auth and add `server/auth.ts`." })
   }
   const handlePage = async (event: H3Event) => {
-    // The Standard Context request is the one that Auth checked. On H3 1, it keeps the URL that H3 strips.
+    // The Standard Context request is the one that Auth checked.
     const request = getStandardContext(event).req
     const parameters = requestQuery(request)
     let cursor: string | undefined

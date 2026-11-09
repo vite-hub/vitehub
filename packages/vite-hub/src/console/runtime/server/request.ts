@@ -6,7 +6,7 @@ import { isConsoleDevelopmentBuild } from "./development.ts"
 import type { ViteHubContext } from "@vite-hub/runtime"
 
 /**
- * A Console request event: any event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub
+ * A Console request event: any event with Standard Context properties, such as an H3 2 event in a ViteHub
  * app. Console code reads the request, the response, the host lifetime, and the Cloudflare bindings from
  * `event["~standard"]`. `context.params` holds the route parameters of H3 routes.
  */
@@ -88,7 +88,7 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
   for (const [name, value] of Object.entries(headers)) response.headers?.set(name, value)
 }
 
-/** The public URL of a request event. On H3 1, its Standard Context request keeps the mounted base that H3 strips. */
+/** The public URL of a request event, from its Standard Context. */
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
   return consolePublicURL(getStandardContext(event).req)
 }

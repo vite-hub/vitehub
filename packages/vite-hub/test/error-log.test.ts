@@ -46,7 +46,7 @@ describe("generated error log Nitro plugin", () => {
     })
   })
 
-  it("logs H3 1 requests with a relative Node request URL", () => {
+  it("logs requests with a relative URL", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
     const thrown = new Error("request failed")
     errorHook()(unhandled(thrown), { event: { req: { url: "/api/post?draft=true", method: "GET" } } })

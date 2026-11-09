@@ -186,7 +186,6 @@ const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) 
  * `/_vitehub/mcp`: ViteHub MCP, a stateless Streamable HTTP MCP server. It runs with the Console access of the request,
  * a session or an OAuth access token, and lists the operations and registered tools that the person may use.
  */
-// A plain handler also loads when Nuxt 4 resolves h3 to h3 1, which has no defineHandler().
 const handler: (event: H3Event) => Promise<Response> = async (event) => {
   const response = await guarded(event)
   if (isBearerRejection(response)) return response

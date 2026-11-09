@@ -1,6 +1,5 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getStandardContext, installStandardContext } from "@vite-hub/runtime/h3"
 import { H3Event } from "h3"
 import * as v from "valibot"
@@ -9,7 +8,7 @@ import { consoleDocumentMetadata } from "./document-metadata.ts"
 import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-page.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
 import { consolePublicURL } from "./runtime/server/request.ts"
-import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
+import { consoleAuthPath, consoleEventPath, consoleEventRequest } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
@@ -362,7 +361,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
 } {
   async function requestAuth(event: object) {
     // Request-only callers need a response target before Auth can read Standard Context.
-    const authEvent = "~standard" in event || "res" in event || "node" in event ? event : new H3Event(toEventRequest(event))
+    const authEvent = "~standard" in event || "res" in event ? event : new H3Event(consoleEventRequest(event))
     installStandardContext(authEvent)
     const request = getStandardContext(authEvent).req
     const url = consolePublicURL(request)
@@ -549,8 +548,8 @@ export interface ConsoleAppAuthAccessOptions {
 }
 
 /**
- * The Console access `check` and `user` for `console: { auth: "app" }`. The generated Console plugin calls this, so it
- * works for an H3 2 event and for an H3 1 event such as Nuxt 4's, which has no `url`.
+ * The Console access `check` and `user` for `console: { auth: "app" }`. The generated Console plugin calls this with
+ * the H3 event of the request.
  */
 export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions): {
   check: (event: ConsoleRequestEvent) => Promise<Response | undefined>

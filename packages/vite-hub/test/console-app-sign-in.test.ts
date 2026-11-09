@@ -71,7 +71,7 @@ async function setup(mount = "", providers = true, access: { authorize?: () => b
   return { authForRequest, visit: (path: string, init: RequestInit = {}) => app.fetch(new Request(`${origin}${mount}${path}`, init)) }
 }
 
-function proxySignInEvent(host: "fetch" | "h3", browserOrigin = origin) {
+function proxySignInEvent(browserOrigin = origin) {
   const path = "/portal/_vitehub/sign-in?provider=github&redirect=%2Fportal%2F_vitehub%2Fcontent%3Ffile%3Dhome.md"
   const headers = {
     host: "internal:3000",
@@ -79,13 +79,7 @@ function proxySignInEvent(host: "fetch" | "h3", browserOrigin = origin) {
     "x-forwarded-host": "app.example.com, proxy.internal",
     "x-forwarded-proto": "https, http",
   }
-  return host === "fetch"
-    ? requestEvent(new Request(`http://internal:3000${path}`, { method: "POST", headers }))
-    : nodeEvent({ node: { req: { method: "POST", headers, url: path.slice("/portal".length), originalUrl: path, async *[Symbol.asyncIterator]() {} }, res: {} } })
-}
-
-/** An H3 1 event, as Nuxt 4 passes it, with Standard Context set by the ViteHub Nitro plugin. */
-function nodeEvent<T extends object>(event: T) {
+  const event = new H3Event(new Request(`http://internal:3000${path}`, { method: "POST", headers }))
   installStandardContext(event)
   return event
 }
@@ -152,20 +146,20 @@ describe("Console reuses app Auth sign-in", () => {
     if (host === "h3") expect(authEvent).toBe(event)
   })
 
-  it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {
+  it("uses the public proxy origin for static Auth", async () => {
     const pages = createConsoleAppAuthPages(getAuthForRequest)
-    const event = proxySignInEvent(host)
+    const event = proxySignInEvent()
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)
     expect(response.status).toBe(303)
     expect(new URL(response.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
-    expect((await pages.signIn(proxySignInEvent(host, "https://evil.example"))).status).toBe(403)
+    expect((await pages.signIn(proxySignInEvent("https://evil.example"))).status).toBe(403)
   })
 
-  it.each(["fetch", "h3"] as const)("keeps public return and retry URLs behind a proxy with %s requests", async (host) => {
+  it("keeps public return and retry URLs behind a proxy", async () => {
     const { authForRequest } = await setup("/portal")
     const pages = createConsoleAppAuthPages(authForRequest)
-    const response = await pages.signIn(proxySignInEvent(host))
+    const response = await pages.signIn(proxySignInEvent())
     expect(response.status).toBe(303)
     const authorize = new URL(response.headers.get("location")!)
     expect(authorize.searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)

@@ -232,7 +232,6 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
 }
 
-// A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
 const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleCors(withConsoleAccess((event: H3Event, access) => {
   const { req, runtime, waitUntil } = getStandardContext(event)
   return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, waitUntil })

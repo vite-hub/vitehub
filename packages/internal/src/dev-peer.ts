@@ -1,7 +1,7 @@
 /**
  * Proof that a development request came from this machine, for dev servers that run the app behind a proxy.
  *
- * Nuxt 4 (Nitro 2) and Nitro 3 run the app in a worker behind a proxy. The worker never sees the client's address:
+ * Nitro 3 runs the app in a worker behind a proxy. The worker never sees the client's address:
  * over a Unix socket it sees none, and over TCP it sees the proxy on `127.0.0.1`. The proxy forwards a client
  * `x-forwarded-for` as is. The front process sees the real socket, so its Nitro dev handler removes any client copy
  * of {@link viteHubDevPeerHeader} and, for a loopback socket only, adds an HMAC over the method, the path, a
@@ -181,9 +181,8 @@ export async function isViteHubLoopbackPeer(request: Request, remoteAddress: str
   return key ? verifyViteHubDevPeer(request, key) : isViteHubLoopbackAddress(remoteAddress) && !isViteHubForwardedRequest(Object.fromEntries(request.headers))
 }
 
-/** The parts of an H3 1 (Nitro 2) or H3 2 (Nitro 3) event that the dev handler reads. */
+/** The parts of an H3 2 event that the dev handler reads. */
 interface DevPeerEvent {
-  node?: { req?: DevPeerNodeRequest }
   req?: { headers: Headers }
   runtime?: { node?: { req?: DevPeerNodeRequest } }
 }
@@ -251,13 +250,13 @@ function takeSignableRequest(node: DevPeerNodeRequest): { method: string, path: 
 }
 
 /**
- * The Nitro dev handler that runs in the front process before Nitro forwards a request to its worker. It accepts
- * H3 1 events (Nitro 2) and H3 2 events (Nitro 3), and it never answers a request itself.
+ * The Nitro dev handler that runs in the front process before Nitro forwards a request to its worker. It never
+ * answers a request itself.
  */
 export async function viteHubDevPeerDevHandler(event: DevPeerEvent): Promise<void> {
   // H3 2 builds `event.req` from the Node request's raw headers, so change both copies.
-  const web = event.runtime?.node?.req ? event.req?.headers : undefined
-  const node = event.runtime?.node?.req ?? event.node?.req
+  const node = event.runtime?.node?.req
+  const web = node ? event.req?.headers : undefined
   web?.delete(viteHubDevPeerHeader)
   if (!node) return
   const request = takeSignableRequest(node)
@@ -294,8 +293,7 @@ export function addViteHubDevPeerUpgradeSigner(server: ViteHubDevPeerUpgradeServ
 }
 
 const devHandlerMark = Symbol.for("vitehub.dev-peer.dev-handler")
-// H3 1 marks event handlers with `__is_handler__`, and warns about a plain function.
-const devHandler = Object.assign(viteHubDevPeerDevHandler, { __is_handler__: true, [devHandlerMark]: true })
+const devHandler = Object.assign(viteHubDevPeerDevHandler, { [devHandlerMark]: true })
 
 /**
  * Put the dev handler first in Nitro's `devHandlers`, once, and create the key of this process. Call it while Nitro

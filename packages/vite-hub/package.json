@@ -1426,7 +1426,6 @@
     "dropbox": "catalog:storage",
     "evalite": "catalog:ai",
     "google-auth-library": "catalog:storage",
-    "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
     "katex": "^0.18.7",
     "miniflare": "4.20260730.0",

@@ -15,7 +15,7 @@ type NuxtApp = {
 }
 type RouteLike = { fullPath: string, meta: { auth?: AuthPageMeta } }
 type ResponseLike = { headers: Headers }
-type EventLike = { node?: { res?: { appendHeader?: (name: string, value: string) => void } }, res?: { headers?: Headers } }
+type EventLike = { req?: { headers?: Headers }, res?: { headers?: Headers } }
 
 const stateKey = "vitehub:auth:session"
 
@@ -41,18 +41,14 @@ function reviveDates(value: unknown): unknown {
 
 /** Forward Better Auth's `Set-Cookie` headers, such as a refreshed session, to the page response. */
 function appendSetCookies(event: EventLike, response: ResponseLike): void {
-  for (const cookie of response.headers.getSetCookie?.() ?? []) {
-    if (event.res?.headers) event.res.headers.append("set-cookie", cookie)
-    else event.node?.res?.appendHeader?.("set-cookie", cookie)
-  }
+  for (const cookie of response.headers.getSetCookie?.() ?? []) event.res?.headers?.append("set-cookie", cookie)
 }
 
 /** Reads the session of the request once, so server rendering and hydration start signed in or signed out. */
 async function readServerSession(basePath: string): Promise<unknown> {
-  const event = useRequestEvent() as (EventLike & { req?: { headers?: Headers }, headers?: Headers, node?: { req?: { headers?: Record<string, string | string[] | undefined> } } }) | undefined
+  const event = useRequestEvent() as EventLike | undefined
   if (!event) return undefined
-  // H3 2 (Nuxt 5) keeps the request on `event.req`. H3 1 exposes `event.headers` and the Node request.
-  const cookie = event.req?.headers?.get("cookie") ?? event.headers?.get("cookie") ?? [event.node?.req?.headers?.cookie].flat().join("; ")
+  const cookie = event.req?.headers?.get("cookie") ?? undefined
   // Without a session cookie the request has no session. Skip the lookup, so signed-out pages do not load Better Auth.
   if (!hasSessionCookie(cookie)) return null
   try {

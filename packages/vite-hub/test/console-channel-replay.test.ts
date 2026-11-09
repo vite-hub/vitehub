@@ -15,8 +15,7 @@ import channelReplayHandler from "../src/console/runtime/server/channel-replay.t
 
 import type { AgentRunContext } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
-import { consoleEvent, nodeResponse } from "./console-event.ts"
-import { installStandardContext } from "../src/runtime/h3.ts"
+import { consoleEvent } from "./console-event.ts"
 import "./support/console-access.ts"
 
 const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receipt" }]
@@ -62,29 +61,6 @@ function replayEvent(body: unknown, headers: Record<string, string> = { "content
   return consoleEvent({ body: body === undefined ? "" : body, headers, method: "POST", url: "https://app.test/_vitehub/channels/replay" })
 }
 
-function nodeReplayEvent(body: unknown): ConsoleRequestEvent {
-  return nodeReplayPayloadEvent(JSON.stringify(body))
-}
-
-/** An H3 1 event, as Nuxt 4 passes it, with Standard Context set by the ViteHub Nitro plugin. */
-function nodeReplayPayloadEvent(payload: string): ConsoleRequestEvent {
-  const event = {
-    node: {
-      req: {
-        headers: { "content-type": ["application/json"], host: "app.test" },
-        method: "POST",
-        url: "/_vitehub/channels/replay",
-        async *[Symbol.asyncIterator]() {
-          yield payload
-        },
-      },
-      res: nodeResponse(),
-    },
-  }
-  installStandardContext(event)
-  return event
-}
-
 function fetchReplayPayloadEvent(payload: string): ConsoleRequestEvent {
   return consoleEvent({ body: payload, headers: { "content-type": "application/json" }, method: "POST", url: "https://app.test/_vitehub/channels/replay" })
 }
@@ -100,7 +76,6 @@ describe("Console Channel replay route", () => {
 
   describe.each([
     ["Fetch", fetchReplayPayloadEvent],
-    ["Node", nodeReplayPayloadEvent],
   ])("%s request bodies", (_host, event) => {
     it("returns 413 for oversized replay requests before invoking the Agent", async () => {
       const { agent, label } = labeller()
@@ -137,15 +112,6 @@ describe("Console Channel replay route", () => {
     const live = await channelReplayHandler(replayEvent({ agent: "labeller", channel: "mailbox" }))
     await expect(live.json()).resolves.toMatchObject({ processed: 2, skipped: 0 })
     expect(label.mock.calls).toEqual([["Finance"], ["Finance"]])
-  })
-
-  it("accepts headers from a path-only Nitro Node request", async () => {
-    const { agent } = labeller()
-    installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
-
-    const response = await channelReplayHandler(nodeReplayEvent({ agent: "labeller", channel: "mailbox", dryRun: true }))
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ processed: 2 })
   })
 
   it("passes the verified Console user and request headers to Channel replay", async () => {

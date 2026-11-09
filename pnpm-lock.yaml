@@ -2623,9 +2623,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      h3-v1:
-        specifier: npm:h3@^1.15.11
-        version: h3@1.15.11
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3585,9 +3582,6 @@ importers:
       google-auth-library:
         specifier: catalog:storage
         version: 11.3.1
-      h3-v1:
-        specifier: npm:h3@^1.15.11
-        version: h3@1.15.11
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3

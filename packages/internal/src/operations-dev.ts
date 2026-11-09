@@ -2,7 +2,6 @@ import { validateViteHubNitroDevRequest } from "./dev-endpoint.ts"
 import { isViteHubLoopbackPeer } from "./dev-peer.ts"
 import { assertOperationProject, createOperationRegistry, operationRootHeader, operationRpcHeader, operationsOf, projectRootHash, runOperation, toOperationFailure } from "./operations.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "./runtime/cloudflare-env.ts"
-import { toEventRequest } from "./runtime/h3-v1-request.ts"
 
 function readPath(value: unknown, ...path: string[]): unknown {
   for (const key of path) value = value !== null && typeof value === "object" ? Reflect.get(value, key) : undefined
@@ -22,15 +21,15 @@ function reject(status: number, message: string): never {
 }
 
 /** Bundled into owner packages and used only by their serve-only generated Nitro route. */
-export function createStandaloneOperationHandler(sources: { operations: unknown, plugin: string }[], root: string): (event: object) => Promise<Response> {
+export function createStandaloneOperationHandler(sources: { operations: unknown, plugin: string }[], root: string): (event: { req: Request }) => Promise<Response> {
   const registry = createOperationRegistry(sources.map(source => ({ ...source, operations: operationsOf(source.operations) })))
   const defaultLimit = 64 * 1_024
   const maximum = Math.max(defaultLimit, ...registry.list().map(operation => operation.maxRequestBytes ?? defaultLimit))
   return async (event) => {
     const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", [operationRootHeader]: projectRootHash(root) }
     try {
-      const request = toEventRequest(event)
-      const address = [readPath(event, "req", "ip"), readPath(event, "req", "context", "clientAddress"), readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"), readPath(event, "node", "req", "socket", "remoteAddress")].find((value): value is string => typeof value === "string" && value !== "")
+      const request = event.req
+      const address = [readPath(request, "ip"), readPath(request, "context", "clientAddress"), readPath(request, "runtime", "node", "req", "socket", "remoteAddress")].find((value): value is string => typeof value === "string" && value !== "")
       const forwarded = request.headers.get("x-forwarded-host")
       if (!localHost(request.headers.get("host") ?? new URL(request.url).host) || (forwarded && !localHost(forwarded)) || !await isViteHubLoopbackPeer(request, address)) reject(403, "Standalone development operations accept only local requests.")
       const site = request.headers.get("sec-fetch-site")
