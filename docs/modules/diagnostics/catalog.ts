@@ -77,8 +77,9 @@ function owns(code: DiagnosticCode): boolean {
   return code.file.startsWith(`packages/${code.pkg}/`)
 }
 
-/** The package that the code prefix names, such as `rate-limit` for `RATE_LIMIT_C0001`. The longest prefix wins. */
+/** Numbered diagnostics name their owner package; named runtime errors belong to their declaring catalog. */
 function ownerPackage(code: string, packages: ReadonlySet<string>): string | null {
+  if (!/_[A-Z]\d{4}$/.test(code)) return null
   const parts = code.toLowerCase().split("_").slice(0, -1)
   for (let length = parts.length; length > 0; length--) {
     const name = parts.slice(0, length).join("-")

@@ -31,8 +31,8 @@ export interface DocsPage {
   codePanel?: boolean
   /** Search result title and description, when they differ from the page heading. */
   seo?: { title?: string, description?: string, image?: string | false, index?: boolean }
-  /** Whether the navigation sidebar shows on this page. */
-  sidebar: boolean
+  /** Whether the navigation sidebar shows on this page. `"collapsed"` starts it as a narrow strip that the reader opens. */
+  sidebar: boolean | "collapsed"
   /** Whether the "On this page" outline shows on this page. */
   toc: boolean
   kind: string | null

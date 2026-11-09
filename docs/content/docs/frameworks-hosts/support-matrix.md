@@ -57,6 +57,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
 | Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
 | Logs | Nitro | Nitro | Nitro | Nitro | Nitro | Host source | Nitro |
+| MCP server | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro route | Nitro |
 | Observability | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog |
 <!-- support-matrix:application-features:end -->
 

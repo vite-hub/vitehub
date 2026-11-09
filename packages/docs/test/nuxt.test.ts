@@ -19,6 +19,10 @@ vi.mock("@nuxt/kit", () => ({
     templates.set(template.filename, template.getContents)
     return { dst: `/build/${template.filename}` }
   },
+  addTypeTemplate: (template: { filename: string, getContents: () => string }) => {
+    templates.set(template.filename, template.getContents)
+    return { dst: `/build/${template.filename}` }
+  },
   addServerHandler: (handler: { route: string, method?: string }) => handlers.push(handler),
   addComponent: vi.fn(),
   addComponentsDir: vi.fn(),

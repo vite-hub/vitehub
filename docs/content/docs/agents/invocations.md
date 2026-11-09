@@ -377,7 +377,7 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 
 ### Inspect a GitHub checkout
 
-For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` gives `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and keeps no disposable checkouts.
+For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `vite-hub/agent/server/github` gives `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and keeps no disposable checkouts.
 
 ## Errors
 

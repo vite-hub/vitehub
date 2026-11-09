@@ -10,7 +10,7 @@ navigation.kind: Reference
 
 A Capability gives an Agent one ability. Pick one below by task. Each page shows setup, what the Agent gets, and how to verify it.
 
-Import factories from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabilities` in a standalone package. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a full example. Server Primitive Capabilities are documented next to their server API.
+Import factories from `vite-hub/agent/capabilities`. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a full example. Server Primitive Capabilities are documented next to their server API.
 
 ## Catalog
 
