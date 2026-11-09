@@ -65,6 +65,7 @@ export const componentNames = [
   "FileView",
   "FileDiff",
   "FileTree",
+  "DeviceFrame",
   "Markdown",
   "MessageParts",
   "MultiFileDiff",
