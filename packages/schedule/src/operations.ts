@@ -2,7 +2,7 @@ import { defineOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
-import type { ManualScheduleRunSummary, ScheduleAttemptsResult, ScheduleRunAttemptSummary, ScheduleRunResult, ScheduleRunSummary, ScheduleRunsResult } from "./runtime/operations.ts"
+import type { ManualScheduleRunSummary, ScheduleAttemptsResult, ScheduleListResult, ScheduleRunAttemptSummary, ScheduleRunResult, ScheduleRunSummary, ScheduleRunsResult, StartedScheduleResult, StartedScheduleSummary } from "./runtime/operations.ts"
 
 // The runtime module reads the run store and the registry of the Nitro runtime. The operations load it when they run, so
 // the CLI and `vitehub inspect` can list them without it.
@@ -73,7 +73,55 @@ const run = defineScheduleOperation<{ at?: string, name: string }, ScheduleRunRe
   run: async input => await (await runtime()).runScheduleNow(input),
 })
 
-/** The `schedule.*` operations: runs, attempts, and run. The Console, `vitehub schedule`, and agents run them. */
-export const scheduleOperations: readonly AnyOperation[] = [runs, attempts, run]
+function timingOf(schedule: StartedScheduleSummary): string {
+  if (schedule.at) return `once at ${schedule.at}`
+  return schedule.timeZone && schedule.timeZone !== "UTC" ? `${schedule.cron} (${schedule.timeZone})` : schedule.cron ?? "-"
+}
 
-export type { ScheduleAttemptsResult, ScheduleRunResult, ScheduleRunsResult }
+function formatSchedules({ schedules }: { schedules: readonly StartedScheduleSummary[] }): string {
+  if (schedules.length === 0) return "No started Schedules.\n"
+  return `${table([
+    ["ID", "SCHEDULE", "RUNS", "STARTED AT"],
+    ...schedules.map(schedule => [schedule.id, schedule.name, timingOf(schedule), schedule.createdAt]),
+  ])}\n`
+}
+
+function formatStartedSchedule(verb: string) {
+  return ({ schedule }: { schedule: StartedScheduleSummary }) => `${verb} ${schedule.id}: ${schedule.name}, ${timingOf(schedule)}\n`
+}
+
+const list = defineScheduleOperation<{ name?: string }, ScheduleListResult>({
+  cli: { command: "list", format: formatSchedules, namespace: "schedule", positional: ["name"] },
+  description: "List the Schedules that code started with startSchedule(), oldest first. `name` keeps the Schedules of one Definition.",
+  input: v.object({ name: v.optional(id) }),
+  kind: "read",
+  name: "schedule.list",
+  run: async input => await (await runtime()).runScheduleList(input),
+})
+
+const start = defineScheduleOperation<{ at?: string, cron?: string, name: string, payload?: unknown, timeZone?: string }, StartedScheduleResult>({
+  cli: { command: "start", format: formatStartedSchedule("Started"), namespace: "schedule", positional: ["name"] },
+  description: "Start a Schedule Definition without cron: once at `at` (ISO 8601 with a time zone), or on `cron` in `timeZone` until you cancel it. `payload` reaches the handler as `context.payload`.",
+  input: v.object({ at: v.optional(v.string()), cron: v.optional(v.string()), name: id, payload: v.optional(v.unknown()), timeZone: v.optional(v.string()) }),
+  invoke: true,
+  kind: "write",
+  name: "schedule.start",
+  run: async input => await (await runtime()).runScheduleStart(input),
+})
+
+const cancel = defineScheduleOperation<{ id: string }, StartedScheduleResult>({
+  cli: { command: "cancel", format: formatStartedSchedule("Cancelled"), namespace: "schedule", positional: ["id"] },
+  description: "Cancel a started Schedule, so it does not run again.",
+  input: v.object({ id }),
+  kind: "destructive",
+  name: "schedule.cancel",
+  run: async input => await (await runtime()).runScheduleCancel(input),
+})
+
+/**
+ * The `schedule.*` operations: runs, attempts, run, list, start, and cancel. The Console, `vitehub schedule`, and agents
+ * run them.
+ */
+export const scheduleOperations: readonly AnyOperation[] = [runs, attempts, run, list, start, cancel]
+
+export type { ScheduleAttemptsResult, ScheduleListResult, ScheduleRunResult, ScheduleRunsResult, StartedScheduleResult }

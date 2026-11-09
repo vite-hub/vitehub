@@ -40,7 +40,7 @@ function runQueuePlugin(source: string, options: { dev?: boolean, env?: Record<s
     .replaceAll("import.meta.prerender", "false")
     .replace("export default ", "return ")
   // SAFETY: The generated plugin module returns its default export after the replacements above.
-  const plugin = new Function("resumeWebhookQueues", "warmWebhookRoutes", "waitUntilFromEvent", "drainInlineChatInvocations", "onShutdown", "webhookQueueShutdown", "process", "setTimeout", "onAgentRoutesLoad", "registerChannelTaskQueueStarter", body)(
+  const plugin = new Function("resumeWebhookQueues", "warmWebhookRoutes", "waitUntilFromContext", "drainInlineChatInvocations", "onShutdown", "webhookQueueShutdown", "process", "setTimeout", "onAgentRoutesLoad", "registerChannelTaskQueueStarter", body)(
     () => queueStop,
     async () => {},
     () => undefined,

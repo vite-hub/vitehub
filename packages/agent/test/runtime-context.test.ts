@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { createRuntimeContext } from "@vite-hub/runtime"
 
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 
 describe("Agent Runtime context", () => {
   it("uses a constructed context through success, failure, and background cleanup", async () => {
@@ -15,7 +16,7 @@ describe("Agent Runtime context", () => {
       },
     })
     const runtime = createRuntimeContext({ runtime: "unknown" })
-    await expect(runAgent(agent, runtime, {})).resolves.toBe("done")
+    await expect(runAgentWithContext(agent, runtime, {})).resolves.toBe("done")
     await runtime.flushWaitUntil()
     expect(completed).toEqual(["finish"])
 
@@ -29,7 +30,7 @@ describe("Agent Runtime context", () => {
       },
     })
     const failedRuntime = createRuntimeContext({ runtime: "unknown" })
-    await expect(runAgent(failed, failedRuntime, {})).rejects.toThrow("driver failed")
+    await expect(runAgentWithContext(failed, failedRuntime, {})).rejects.toThrow("driver failed")
     await failedRuntime.flushWaitUntil()
     expect(completed).toEqual(["finish", "error"])
   })
@@ -41,7 +42,7 @@ describe("Agent Runtime context", () => {
       hooks: { "agent:finish": finish },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
 
     const defaultRuntime = finish.mock.calls[0]![0].runtime
     expect(defaultRuntime.capabilities).toEqual({})
@@ -49,7 +50,7 @@ describe("Agent Runtime context", () => {
 
     const capabilities = { queue: { send: vi.fn() } }
     const runtimeConfig = { region: "local" }
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       capabilities,
       memo: vi.fn(),
       runtime: "unknown",

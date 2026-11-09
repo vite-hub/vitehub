@@ -298,10 +298,10 @@ export function handleAuthRequest(
   definition: AuthDefinition,
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event: ViteHubContext | undefined = authRequestEvent(input),
+  event: ViteHubContext = authRequestEvent(input),
 ): Promise<Response> {
   const request = unwrapAuthRequest(input)
-  // Better Auth limits requests per client IP. It gets the address that the host reports for the event.
+  // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
   const address = eventClientAddress(event)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
 }
@@ -934,7 +934,17 @@ export async function requireAuthAccessRoutes(
   return await checkAuthAccessRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options)
 }
 
-export default handleAuth
+/**
+ * The Auth route that ViteHub mounts at `/api/auth/**`, as a Fetchable. It reads the client address and the
+ * Cloudflare bindings from the Standard Context of the Request.
+ */
+const authRoute = {
+  fetch(request: Request): Promise<Response> {
+    return handleAuth(request)
+  },
+}
+
+export default authRoute
 
 export const auth = new Proxy({}, {
   get(_target, property, receiver) {
