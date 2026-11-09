@@ -6,7 +6,8 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
 
-import { agentWithColocatedInstructions, codexDriver, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithColocatedInstructions, codexDriver, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { markDiscoveredAgentName, readDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
@@ -67,7 +68,7 @@ describe("colocated Agent instructions", () => {
     const decorated = agentWithColocatedInstructions(agent, "Label the email.")
     markDiscoveredAgentName(target === "original" ? agent : decorated, "labeller")
 
-    await runAgent(decorated, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Hello" })
+    await runAgentWithContext(decorated, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Hello" })
     const { invocations: records } = await invocations.list({ limit: 10 })
     expect(records).toEqual([expect.objectContaining({ agentName: "labeller", status: "completed" })])
     expect(readDiscoveredAgentName(agent)).toBe("labeller")

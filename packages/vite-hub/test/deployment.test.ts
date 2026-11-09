@@ -56,6 +56,14 @@ describe("vitehub() without a preset", () => {
     expect(config.nitro?.preset).toBe("node-server")
   })
 
+  it("needs no options", async () => {
+    for (const variable of hostVariables) vi.stubEnv(variable, "")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-no-options-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    const config = await resolveConfig({ root, plugins: [vitehub()] }, "build")
+    expect(config.vitehub).toEqual({ preset: "node" })
+  })
+
   it("follows NITRO_PRESET instead of failing on a conflict", async () => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     vi.stubEnv("NITRO_PRESET", "vercel")

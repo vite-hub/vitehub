@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 import { defineDiagnostics } from "nostics"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
-import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
+import { defineAgent, defineCapability } from "../src/index.ts"
+import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { isAsyncIterable } from "../src/internal/stream-result.ts"
 

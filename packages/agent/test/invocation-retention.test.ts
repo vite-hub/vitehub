@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations, createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 import type { AgentInvocationRecord, AgentInvocationStore } from "../src/invocations.ts"
@@ -26,7 +27,7 @@ describe("Invocation observation retention", () => {
     const observations = { maxCount: 512, maxStringLength: 256 * 1024, maxBytes: 2 * 1024 * 1024, flushTimeoutMs: 60_000 }
     try {
       const invocations = defineAgentInvocations({ content: "content", observations, store: createLibsqlAgentInvocationStore({ url }) })
-      const run = runAgent(defineAgent({
+      const run = runAgentWithContext(defineAgent({
         name: "retention", invocations,
         driver: { async run(context) {
           for (let index = 0; index < 300; index++) {
