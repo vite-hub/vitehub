@@ -28,9 +28,14 @@ export function mergeDatabaseRelations(
       // Drizzle builds SQL from the table objects of each relation, so they must be the tables that the database uses.
       if (config.table !== entry.table) throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, reason: "replaced", table: name })
       for (const [field, relation] of Object.entries(config.relations)) {
-        const { targetTable, targetTableName } = relation
-        if (targetTable !== merged[targetTableName]?.table) {
-          throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, field: `${name}.${field}`, reason: merged[targetTableName] ? "replaced" : "missing", table: targetTableName })
+        // A many-to-many relation also joins its junction table, which `.through()` names by its schema key.
+        const tables: Array<[string, unknown]> = [[relation.targetTableName, relation.targetTable]]
+        const throughName = relation.through?.source[0]?._.tableName
+        if (throughName !== undefined) tables.push([throughName, relation.throughTable])
+        for (const [table, object] of tables) {
+          if (object !== merged[table]?.table) {
+            throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, field: `${name}.${field}`, reason: merged[table] ? "replaced" : "missing", table })
+          }
         }
         entry.relations[field] = relation
       }
