@@ -66,7 +66,7 @@ The module also configures the modules it installs: `llms` from `site`, and `age
 | `layout` | `'article'`, `'tutorial'`, `'landing'`, or `'home'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
 | `tutorial` | `'project'` or `'quickstart'` | None | Stored in the manifest for your tutorials catalog. |
 | `codePanel` | `boolean` | `false` | Tutorials only. Shows the current step's files beside the text. |
-| `sidebar` | `boolean` | `true` | `false` hides the left navigation on this page. |
+| `sidebar` | `boolean \| "collapsed"` | `true` | `false` hides the left navigation on this page. `"collapsed"` starts it as a narrow column that the reader opens. |
 | `toc` | `boolean` | `true`, `false` on `landing` and `home` | `false` hides the "On this page" outline. |
 | `navigation` | `false` or `{ title?, order?, group?, kind?, panel? }` | Listed | `false` keeps the page out of the sidebar. `title` is the sidebar label, `order` sorts the pages, and `group` is a sidebar heading. `kind` is stored in the manifest. `panel: true` on the `index.md` of a folder inside a section makes the folder a [panel](/docs/docs-site/configure#panels). |
 | `seo` | `{ title?, description?, image?, index? }` | None | Title and description for search engines, shares, and the search dialog, when they must differ from the page. `image` is the share image, a path in `public/` or a URL, or `false` for none; without it the build renders one. `index: false` marks the page `noindex` and leaves it out of the prerender, `sitemap.xml`, llms.txt, and the share images. See [Pages that search engines skip](/docs/docs-site/configure#pages-that-search-engines-skip). |

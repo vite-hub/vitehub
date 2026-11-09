@@ -25,7 +25,7 @@ Then install the dependency required by the selected provider:
 | Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
 | OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Uses local SQLite by default. Configure durable storage for deployment. |
 
-Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`.
+Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
 
 Set `workflow.sqlite.path` or `workflow.postgres.url` to select OpenWorkflow storage. An explicit value takes precedence over ambient storage environment variables. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`.
 
@@ -110,7 +110,7 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 ```ts fragment
 // worker.ts
-import { startOpenWorkflowWorker } from "@vite-hub/workflow/runtime/openworkflow-worker";
+import { startOpenWorkflowWorker } from "@vite-hub/workflow/openworkflow";
 import { installWorkflowRuntime } from "./server/workflow-runtime.ts";
 
 installWorkflowRuntime();

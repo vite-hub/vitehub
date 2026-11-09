@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Provider output
 
-KV picks the store and generates store-name types. Put namespaces, bindings, and credentials in your config or deployment. Your code imports `kv` from `@vite-hub/kv` on every driver (local, Cloudflare, Deno, Vercel, or others).
+KV picks the store and generates store-name types. Put namespaces, bindings, and credentials in your config or deployment. Your code imports `kv` from `vite-hub/kv` on every driver (local, Cloudflare, Deno, Vercel, or others).
 
 `vite dev` keeps every store local unless it sets `remote: true`, also when `.env` has Upstash credentials. Read [Development stays local](/docs/kv/configure#development-stays-local).
 

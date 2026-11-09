@@ -23,7 +23,7 @@ Use `defineChannel()` for another transport. To send messages without an Invocat
 
 ## Add a Channel
 
-Add Channels to the Agent's `channels` map. Import the helpers from `@vite-hub/agent/channels`.
+Add Channels to the Agent's `channels` map. Import the helpers from `vite-hub/agent/channels`.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
