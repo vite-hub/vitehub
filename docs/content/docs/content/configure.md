@@ -387,7 +387,7 @@ A server build parses each `glob()` and `files()` Source once and ships the pars
 - `refresh()` parses the Source again.
 - A `glob()` whose options are not literals reads its files from disk at run time, so the server parses it.
 
-The parsed documents add to the server bundle. The 344 pages of the ViteHub docs add about 5 MB, or 1.1 MB with gzip.
+The build stores the parsed documents gzipped, and the server inflates each part on its first read. The 344 pages of the ViteHub docs add about 1.5 MB to the server bundle, or 1.1 MB with gzip.
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 

@@ -17,7 +17,7 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import { contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
@@ -457,7 +457,7 @@ export function defineContent<
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
     const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined)
-    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance })
+    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
     return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
