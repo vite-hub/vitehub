@@ -7,18 +7,54 @@ navigation.group: Storage
 icon: i-simple-icons-cloudflare
 ---
 
-Use Cloudflare R2 for object storage on a Worker. ViteHub Blob keeps the upload
-and read API separate from the R2 binding.
+Use Cloudflare R2 to store files on a Worker. Your code uses the Blob API, and
+the config picks R2.
 
-Complete [Upload your first Blob object](/docs/blob/get-started). Keep its
-`hello.txt` routes. Create an R2 bucket for this check. Provider requests and
-stored bytes can incur charges.
+First, complete [Upload your first Blob object](/docs/blob/get-started) and
+keep its `hello.txt` routes. Create an R2 bucket. Requests and stored bytes
+cost money.
 
 ## Name the bucket in configuration
 
-Replace the tutorial's ViteHub options with the following. Use your existing
-bucket name.
+Replace the tutorial's options with these and use your bucket name.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	preset: 'cloudflare',
+  	blob: {
+  		driver: 'cloudflare-r2',
+  		binding: 'BLOB',
+  		bucketName: 'your-existing-bucket',
+  	},
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+	plugins: [vitehub({
+		preset: 'cloudflare',
+		blob: {
+			driver: 'cloudflare-r2',
+			binding: 'BLOB',
+			bucketName: 'your-existing-bucket',
+		},
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -34,22 +70,23 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
-Build and inspect `.output/server/wrangler.json`. Its `r2_buckets` entry must
-name the intended bucket and the `BLOB` binding.
+Build, then check that the `r2_buckets` entry in `.output/server/wrangler.json`
+names your bucket and the `BLOB` binding.
 
 ```bash [Terminal]
 pnpm build
 pnpm exec nitro deploy --prebuilt
 ```
 
-Authenticate with Cloudflare before deploying. If the bucket is in a
-jurisdiction, configure the matching `jurisdiction` option. Read
-[Blob hosts](/docs/blob/hosts) for jurisdictional buckets.
+Log in to Cloudflare before you deploy. If the bucket is in a jurisdiction,
+set the matching `jurisdiction` option (see [Blob hosts](/docs/blob/hosts)).
 
 ## Verify stored bytes
 
-Set `APP_URL` to the Worker URL, then call the tutorial's routes:
+Set `APP_URL` to the Worker URL and call the tutorial's routes:
 
 ```bash [Terminal]
 curl --fail-with-body "$APP_URL/api/files" \
@@ -57,19 +94,18 @@ curl --fail-with-body "$APP_URL/api/files" \
 curl --fail-with-body "$APP_URL/api/files"
 ```
 
-The read returns `Hello from ViteHub`. Check the bucket for `hello.txt`.
-The write replaces that fixed pathname. Delete the test object when finished.
+The read returns `Hello from ViteHub`, and the bucket has `hello.txt` (each
+write replaces it). Delete it when you finish.
 
 ## Distinguish storage from public access
 
-An R2 binding does not make the bucket public. `blob.serve()` can return bytes
-through your application route. Use [Blob authorization](/docs/blob/configure)
-before serving private user files.
+An R2 binding does not make the bucket public. `blob.serve()` returns bytes
+through your route. Add [Blob authorization](/docs/blob/configure) before you
+serve private files.
 
-Signed direct uploads need R2 account and S3 credentials even when a Worker
-binding exists. A binding alone cannot sign an HTTP request. Keep these
-credentials in server secret storage.
+Signed direct uploads need R2 account and S3 credentials, because a binding
+cannot sign an HTTP request. Keep them in server secrets.
 
-Read [Blob configuration](/docs/blob/configure) for the HTTP fallback and
-[R2 documentation](https://developers.cloudflare.com/r2/) for bucket access,
-pricing, and service limits.
+See [Blob configuration](/docs/blob/configure) for the HTTP fallback and the
+[R2 docs](https://developers.cloudflare.com/r2/) for bucket access, pricing,
+and limits.
