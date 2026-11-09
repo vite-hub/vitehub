@@ -17,6 +17,7 @@ import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
+import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
@@ -31,6 +32,7 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { DBProvider } from "./internal/vite-build.ts"
+import type { DatabaseBundleStartupRule } from "./internal/bundle-startup.ts"
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
 import type { CollectedDatabaseContributions, DatabaseContributingPlugin } from "./contributions.ts"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
@@ -87,8 +89,14 @@ interface DBCliContributingPlugin {
 }
 
 /** The Nitro surface that the database plugin reads and extends on a Cloudflare host. */
+interface DatabaseNitroHooks {
+  hook(name: "compiled", callback: () => Promise<void>): void
+  /** `@vite-hub/bundle` calls it when it writes the report of the server build. */
+  hook(name: "vitehub:bundle:rules", callback: (rules: DatabaseBundleStartupRule[]) => void): void
+}
+
 interface DatabaseNitroHost {
-  hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
+  hooks: DatabaseNitroHooks
   options: {
     cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown, compatibility_flags?: unknown } }
     dev?: boolean
@@ -414,7 +422,13 @@ export function hubDatabase(options?: DBModulePublicOptions): DBVitePlugin {
         installNitroPostgresRequestScope()
         installNitroRequestStats()
         installNitroMigrateOnStart()
-        nitro.hooks.hook("compiled", async () => {
+        // Keep the feature hook surface when Nitro augments Vite's Plugin type.
+        const hooks: DatabaseNitroHooks = nitro.hooks
+        hooks.hook("vitehub:bundle:rules", (rules) => {
+          const rule = libsqlStartupRule(runtimeConfig, nitro.options.preset)
+          if (rule) rules.push(rule)
+        })
+        hooks.hook("compiled", async () => {
           await copyNitroMigrations(nitro.options.output.serverDir)
           if (nitroOptions && getHostingProvider(nitroOptions.preset) === "cloudflare") await collapseGeneratedWranglerD1Bindings(nitro.options.output.serverDir)
         })
