@@ -12,7 +12,7 @@ the same `vite-hub/*` imports as a Vite app.
 
 ## Install the module
 
-Use Nuxt 4.5.2 or newer. Nuxt has its own Nitro, so install only `vite-hub` and the packages of the features you enable. See [Add feature packages](/docs/getting-started/installation#add-feature-packages).
+Use Nuxt 5, which runs Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Nuxt has its own Nitro, so install only `vite-hub` and the packages of the features you enable. See [Add feature packages](/docs/getting-started/installation#add-feature-packages).
 
 ```bash [Terminal]
 pnpm add vite-hub

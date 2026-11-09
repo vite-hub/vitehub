@@ -25,7 +25,6 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals,
 - `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 1 or H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.
 - A `Request` has no client address, so pass `key`. On Cloudflare, the guard reads `cf-connecting-ip` and the current request's bindings instead.
-- On Nuxt 4 (H3 1), a 429 from a `Request` has no `retry-after` header, because the guard cannot reach the response.
 - The same ID with the same normalized policy shares one budget. Conflicting policies fail the build and show both source locations.
 
 | Option | Type | Default | Description |
@@ -51,11 +50,11 @@ if (!decision.allowed) return genericCard()
 
 | Import | Use |
 | --- | --- |
-| `requireRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Enforce a managed Rate Limit in an H3 handler. |
-| `checkRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
-| `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
-| `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
-| `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
+| `requireRateLimit` from `vite-hub/rate-limit` | Enforce a managed Rate Limit in an H3 handler. |
+| `checkRateLimit` from `vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
+| `createRateLimiter` from `vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
+| `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
+| `cloudflareRateLimitDriver` from `vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
 | `hubRateLimit` from `@vite-hub/rate-limit/vite` | Add call discovery, runtime setup, and Provider Output without the framework preset. |
 
 `@vite-hub/rate-limit/runtime` is for framework integrations only. Apps call `requireRateLimit()` or build a direct limiter.
@@ -96,8 +95,8 @@ pnpm add @vite-hub/rate-limit
 ```
 
 ```ts
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const limiter = createRateLimiter({
   driver: memoryRateLimitDriver(),

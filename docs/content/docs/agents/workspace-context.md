@@ -149,7 +149,7 @@ export default defineAgent({
 
 ## Preserve GitHub PR history
 
-A Node process host can check out an exact PR head with Git, using `createGitHubHost()` from `@vite-hub/agent/server/github`. Pass `repository`, `number`, `headSha`, `headRepository`, and `headRef` to `withPullRequestCheckout()`. The host fetches the source branch directly and rejects a changed head.
+A Node process host can check out an exact PR head with Git, using `createGitHubHost()` from `vite-hub/agent/server/github`. Pass `repository`, `number`, `headSha`, `headRepository`, and `headRef` to `withPullRequestCheckout()`. The host fetches the source branch directly and rejects a changed head.
 
 Each pass uses a fresh temporary checkout. The host deletes its contents when the callback ends, also after failure, cancellation, or timeout. Cleanup is best effort: if it fails, the callback result or error is kept. It leaves an empty temporary directory, so concurrent pathname replacements stay safe.
 

@@ -32,7 +32,7 @@ pnpm add @vite-hub/agent @vite-hub/sandbox
 This Agent gives Codex a private Home and checks the required CLIs before each Invocation (one run of the Agent):
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   sandbox: {
@@ -83,7 +83,7 @@ Keep a service limit as a second boundary. Trusted-host commands keep the host u
 When every run must inspect an exact commit, read repository facts from trusted Invocation data, which Sandbox callbacks receive:
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 interface PullRequest {
   ref: string
@@ -152,7 +152,7 @@ Boot fails when the project pins no Node.js version and no `fallbackNode` is set
 Keep secrets out of the repository. Load them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads credentials from the Sandbox Home, such as `.codex/auth.json`.
 
 ```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({

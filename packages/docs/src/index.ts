@@ -21,6 +21,7 @@ export {
   docsSectionForPath,
   docsSectionGroup,
   docsSectionIcon,
+  docsSidebarCollapses,
   docsSidebarGroups,
   docsSidebarSections,
   docsTutorialNavigationCookie,
