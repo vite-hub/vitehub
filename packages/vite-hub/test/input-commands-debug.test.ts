@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { agentInvocationId } from "@vite-hub/agent"
 import { runAgentWithContext } from "@vite-hub/agent/server/internal"
-import { defineChannel } from "@vite-hub/agent/channels"
+import { channelAdapter } from "@vite-hub/agent/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
@@ -47,7 +47,7 @@ describe("inputCommands({ debug })", () => {
       installAgentInvocations({ journal: { libsql, projectRoot } })
       installConsoleInvocations(projectRoot)
       const replies: unknown[] = []
-      const chat = defineChannel("chat", {
+      const chat = channelAdapter("chat", {
         [channelDeliveryHandlers]: {
           reply(context: { effect: { payload: unknown } }) {
             replies.push(context.effect.payload)
