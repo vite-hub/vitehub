@@ -9,7 +9,7 @@ icon: i-lucide-folder-git-2
 ---
 
 ::product-hero{tagline="A folder of files your server can read and write, with rules for each path and a record of every change." hosts="Node, Docker, Cloudflare, Vercel"}
-  :::product-files
+  :::code-tree
   ```ts [server/workspaces/docs.ts]
   import { defineWorkspace, glob } from 'vite-hub/workspace'
 

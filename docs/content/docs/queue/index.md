@@ -8,7 +8,7 @@ icon: i-lucide-list-ordered
 ---
 
 ::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Cloudflare, Vercel"}
-  :::product-files{feature="queue"}
+  :::code-tree{feature="queue"}
   ```ts [server/api/signup.post.ts]
   import { defineEventHandler, readValidatedBody } from 'h3'
   import * as v from 'valibot'
