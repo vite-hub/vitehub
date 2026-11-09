@@ -112,8 +112,7 @@ application, so pick per value:
 
 Nuxt reads `runtimeConfig.public` again when the server starts. Env Public
 values do not change after the build. Env checks Server Env when server code
-reads it, not when the server starts. Run `pnpm vitehub env check --stage production`
-with the production variables to find a missing or invalid value before you deploy.
+reads it, not when the server starts.
 
 ## Inspect the output
 
