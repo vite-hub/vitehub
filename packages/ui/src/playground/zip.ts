@@ -1,6 +1,6 @@
-// The `.zip` that the playground downloads, built in the browser. The files are a few kilobytes of text, so the
-// archive stores them without compression and needs no library.
-import { isProjectPath } from "./project-path";
+// The `.zip` of a playground or a tutorial starter. The files are a few kilobytes of text, so the
+// archive stores them without compression and needs no library. It runs in browsers and in Node.
+import { isProjectPath } from "./paths.ts";
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {
   let value = index;
