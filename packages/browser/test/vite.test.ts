@@ -104,6 +104,16 @@ describe("hubBrowser", () => {
     expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", engine: "kitesurf", remote: false })
   })
 
+  it("filters resolveId and load to the Browser virtual modules", () => {
+    const plugin = hubBrowser()
+    const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id
+    const loadFilter = (plugin.load as { filter: { id: RegExp } }).filter.id
+    const ids = ["#vitehub/browser/registry", "#vitehub/browser/runtime", "#vitehub/browser/availability"]
+
+    expect([...ids, "#vitehub/browser/other", "@vite-hub/browser"].map(id => resolveFilter.test(id))).toEqual([true, true, true, false, false])
+    expect([...ids.map(id => `\0${id}`), ids[0]].map(id => loadFilter.test(id))).toEqual([true, true, true, false])
+  })
+
   it("generates the provider runtime and discovered Browser Definition registry", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-registry-"))
     roots.push(root)
@@ -162,8 +172,8 @@ describe("hubBrowser", () => {
     const load = async (options?: false) => {
       const plugin = hubBrowser(options)
       ;(plugin.config as unknown as (config: Record<string, unknown>) => void)({ nitro: {}, root: tmpdir() })
-      const id = (plugin.resolveId as (id: string) => string)("#vitehub/browser/availability")
-      return await (plugin.load as (id: string) => string | Promise<string>)(id)
+      const id = await runHook(plugin.resolveId, "#vitehub/browser/availability")
+      return await runHook(plugin.load, id)
     }
 
     expect(await load()).toBe('export default {"available":true}\n')
@@ -177,8 +187,8 @@ describe("hubBrowser", () => {
     const config = { nitro: {}, root }
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
 
-    const runtimeId = (plugin.resolveId as (id: string) => string)("#vitehub/browser/runtime")
-    const runtime = await (plugin.load as (id: string) => string | Promise<string>)(runtimeId)
+    const runtimeId = await runHook(plugin.resolveId, "#vitehub/browser/runtime")
+    const runtime = await runHook(plugin.load, runtimeId)
 
     expect(runtime).toContain('import("@cloudflare/playwright")')
   })
