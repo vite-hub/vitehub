@@ -28,7 +28,7 @@ import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@v
 import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
-import { vitehub } from "./index.ts"
+import { vitehub, type ViteHubOptions } from "./index.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
@@ -64,7 +64,7 @@ const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
 
-type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
+type ViteHubNuxtOptions = Omit<ViteHubOptions, "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
 }
@@ -226,13 +226,13 @@ type NuxtLike = {
     srcDir?: string
     vite?: UserConfig & {
       auth?: AuthModuleOptions
-      database?: Parameters<typeof vitehub>[0]["database"]
+      database?: ViteHubOptions["database"]
       kv?: KVModuleOptions
       queue?: QueueModuleOptions
-      rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
-      schedule?: Parameters<typeof vitehub>[0]["schedule"]
-      workspace?: Parameters<typeof vitehub>[0]["workspace"]
-      workflow?: Parameters<typeof vitehub>[0]["workflow"]
+      rateLimit?: ViteHubOptions["rateLimit"]
+      schedule?: ViteHubOptions["schedule"]
+      workspace?: ViteHubOptions["workspace"]
+      workflow?: ViteHubOptions["workflow"]
     }
     vitehub?: ViteHubNuxtOptions
     vitehubCliDiscovery?: true
@@ -399,6 +399,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
   "vite-hub/optional-owner-imports",
+  "vite-hub/cloudflare-sh-syntax",
   "vite-hub/unavailable-services",
 ])
 
@@ -523,7 +524,7 @@ function addTypeScriptDefaults(options: Record<string, unknown>, includes: strin
   }
 }
 
-function configuredProjectRoots(options: Parameters<typeof vitehub>[0], rootDir: string, viteRoot: string): string[] {
+function configuredProjectRoots(options: ViteHubOptions, rootDir: string, viteRoot: string): string[] {
   return Object.entries(options)
     .filter((entry): entry is [string, { projectRoot: string }] => {
       const value = entry[1]
@@ -875,13 +876,13 @@ async function applyNitroConfig(
     [VITEHUB_SERVER_DIRS]?: string[]
     [VITEHUB_APP_BASE_URL]?: string
     nitro?: Record<string, unknown>
-    blob?: Parameters<typeof vitehub>[0]["blob"]
-    database?: Parameters<typeof vitehub>[0]["database"]
+    blob?: ViteHubOptions["blob"]
+    database?: ViteHubOptions["database"]
     queue?: QueueModuleOptions
-    rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
-    schedule?: Parameters<typeof vitehub>[0]["schedule"]
-    sandboxTask?: Parameters<typeof vitehub>[0]["sandboxTask"]
-    workspace?: Parameters<typeof vitehub>[0]["workspace"]
+    rateLimit?: ViteHubOptions["rateLimit"]
+    schedule?: ViteHubOptions["schedule"]
+    sandboxTask?: ViteHubOptions["sandboxTask"]
+    workspace?: ViteHubOptions["workspace"]
     vitehubCliDiscovery?: true
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
@@ -919,11 +920,11 @@ async function applyNitroConfig(
     if (handler) {
       const previousDatabaseProjectRoot = configuredProjectRootOption(config.database)
       const result = await handler.call({} as never, config, environment)
-      let returnedDatabase: Parameters<typeof vitehub>[0]["database"] | undefined
+      let returnedDatabase: ViteHubOptions["database"] | undefined
       if (result) {
         // SAFETY: Vite config hooks return Vite's UserConfig shape extended by ViteHub's documented service keys.
         const { nitro, ...viteConfig } = result as UserConfig & {
-          database?: Parameters<typeof vitehub>[0]["database"]
+          database?: ViteHubOptions["database"]
           nitro?: Record<string, unknown>
         }
         if (Object.hasOwn(viteConfig, "database")) returnedDatabase = viteConfig.database
@@ -1055,7 +1056,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0]), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
+  } as ViteHubOptions), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
   const consoleOptions = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(moduleOptions.preset)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
@@ -1152,7 +1153,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ?? configuredProjectRoot(rootDir, options.database)
     ?? configuredProjectRoot(rootDir, nuxt.options.database)
   // SAFETY: ViteHub Blob extends Vite's open user config with the documented top-level `blob` key.
-  const viteBlob = (nuxt.options.vite as UserConfig & { blob?: Parameters<typeof vitehub>[0]["blob"] }).blob
+  const viteBlob = (nuxt.options.vite as UserConfig & { blob?: ViteHubOptions["blob"] }).blob
   const effectiveBlob = consoleOptions ? viteBlob ?? options.blob : false
   const explicitBlob = Boolean(effectiveBlob && effectiveBlob !== true && ("driver" in effectiveBlob || "stores" in effectiveBlob))
   const consoleBlobEnabled = Boolean(effectiveBlob) && (plan.services.blob.supported || explicitBlob)
@@ -1293,7 +1294,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const installedPlugins = flattenPlugins(vitehub(markCmsPresetFeaturesResolved({
     ...options,
     ...(effectiveKV !== undefined ? { kv: effectiveKV } : {}),
-  } as Parameters<typeof vitehub>[0])))
+  } as ViteHubOptions)))
     // Nuxt runs its own Nitro.
     .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))

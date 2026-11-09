@@ -282,6 +282,7 @@ export interface AgentTelegramPollingRouteOptions extends AgentRouteRuntimeOptio
 export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
+  /** The host request context. The generated Nitro route passes its Request, which carries Standard Context. */
   event?: unknown
 }
 
@@ -313,6 +314,10 @@ export interface AgentChannelChatRouteStandardSchemaV1<T = unknown> {
 export interface AgentChannelChatRouteAdmissionContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody> {
   agentName: string
   body: TBody
+  /**
+   * The host request context. On the generated Nitro route, it is the incoming Request, which carries Standard Context:
+   * pass it to `getStandardContext()` or `getRuntimeContext()`. `request` is a copy for the Agent.
+   */
   event?: unknown
   rawBody: string
   request: Request
