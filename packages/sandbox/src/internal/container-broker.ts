@@ -43,7 +43,7 @@ def is_ip(host):
 
 def host_matches(pattern, host, port):
     name, _, want_port = pattern.lower().partition(":")
-    if want_port and int(want_port) != port:
+    if int(want_port or "443") != port:
         return False
     if name.startswith("*."):
         return host.endswith(name[1:])
@@ -172,7 +172,7 @@ export const containerBrokerEntrypoint = [
   "set -eu",
   "mkdir -p /tmp/vitehub-broker",
   "printf '%s' \"$VITEHUB_BROKER_ADDON\" > /tmp/vitehub-broker/addon.py",
-  "exec mitmdump --listen-host 0.0.0.0 --listen-port 8080 --quiet --set confdir=/tmp/vitehub-broker -s /tmp/vitehub-broker/addon.py",
+  "exec mitmdump --listen-host 0.0.0.0 --listen-port 8080 --quiet --set connection_strategy=lazy --set rawtcp=false --set confdir=/tmp/vitehub-broker -s /tmp/vitehub-broker/addon.py",
 ].join("\n");
 
 export const containerBrokerCaPath = "/tmp/vitehub-broker/mitmproxy-ca-cert.pem";

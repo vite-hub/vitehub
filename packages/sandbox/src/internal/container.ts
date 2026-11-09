@@ -2,6 +2,7 @@ import { spawn as spawnChildProcess, type ChildProcess } from "node:child_proces
 import { randomBytes, randomUUID } from "node:crypto";
 import { posix } from "node:path";
 import { Readable, Writable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
 
 import type { SandboxRuntime, SandboxRuntimeInput } from "../index.ts";
@@ -254,7 +255,19 @@ async function startContainer(
   };
 
   try {
-    await required(docker(["network", "create", "--internal", "--label", label, network], { signal }), "create the Sandbox network");
+    // Older Docker releases can silently ignore unknown bridge options.
+    const version = await required(docker(["version", "--format", "{{.Server.Version}}"], { signal }), "check the Docker daemon version");
+    const major = /^v?(\d+)\./.exec(version.stdout.trim());
+    if (!major || Number(major[1]) < 28)
+      throw invalid("Container Sandbox requires Docker Engine 28 or newer for isolated bridge gateway mode.");
+    // An internal bridge normally still exposes host services at its gateway. Isolated
+    // gateway mode leaves the host bridge without an address.
+    await required(docker([
+      "network", "create", "--internal",
+      "--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated",
+      "--opt", "com.docker.network.bridge.gateway_mode_ipv6=isolated",
+      "--label", label, network,
+    ], { signal }), "create the Sandbox network");
     created.network = network;
 
     if (options.egress.policy !== "none") {
@@ -330,7 +343,7 @@ async function startSandboxContainer(
 ) {
   await required(docker([
     "run", "-d", "--name", name, "--label", label, "--network", network, "--init",
-    "--security-opt", "no-new-privileges:true", "--pids-limit", String(options.pidsLimit),
+    "--security-opt", "no-new-privileges:true", "--cap-drop", "NET_RAW", "--pids-limit", String(options.pidsLimit),
     ...(options.cpus === undefined ? [] : ["--cpus", String(options.cpus)]),
     ...(options.memoryBytes === undefined ? [] : ["--memory", String(options.memoryBytes)]),
     ...(options.user === undefined ? [] : ["--user", options.user]),
@@ -466,16 +479,29 @@ function createContainerSession(state: {
       ...(options.workingDirectory === undefined ? [] : [options.workingDirectory]),
     ], stdin);
     children.add(child);
+    let exited = false;
     const exit = waitForExit(child).finally(() => {
+      exited = true;
       children.delete(child);
       void dockerCommand({ docker: state.docker }, ["exec", state.container, "rm", "-f", pidFile]).catch(() => undefined);
     });
     const kill = async (signal = "TERM") => {
       const name = signal.replace(/^SIG/, "").toUpperCase();
       if (!/^[A-Z0-9]+$/.test(name)) throw sandboxErrorDiagnostics.SANDBOX_R0164({ message: `[vitehub] Invalid signal: ${signal}` });
-      await dockerCommand({ docker: state.docker }, ["exec", state.container, "sh", "-c",
-        `pid=$(cat ${shellQuote(pidFile)} 2>/dev/null) && { kill -s ${name} -- "-$pid" 2>/dev/null || kill -s ${name} "$pid"; }`]);
-      if (name === "KILL") child.kill("SIGKILL");
+      const deadline = Date.now() + 10_000;
+      while (!exited) {
+        const result = await dockerCommand({ docker: state.docker }, ["exec", state.container, "sh", "-c",
+          `pid=$(cat ${shellQuote(pidFile)} 2>/dev/null) && [ -n "$pid" ] || exit 3; kill -s ${name} -- "-$pid" 2>/dev/null || kill -s ${name} "$pid"`]);
+        if (exited) return;
+        if (result.exitCode === 0) {
+          if (name === "KILL") child.kill("SIGKILL");
+          return;
+        }
+        // The Docker CLI can return a process handle before its shell registers the PID.
+        if (result.exitCode !== 3 || Date.now() >= deadline)
+          throw sandboxErrorDiagnostics.SANDBOX_R0164({ message: `[vitehub] Container Sandbox could not signal the process: ${result.stderr.trim() || "PID registration timed out."}` });
+        await delay(50);
+      }
     };
     return { child, exit, kill };
   };
@@ -487,12 +513,18 @@ function createContainerSession(state: {
     const stderr: Buffer[] = [];
     child.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
+    let termination: Promise<void> | undefined;
     const abort = () => {
-      void kill("KILL").catch(() => child.kill("SIGKILL"));
+      termination = kill("KILL").catch((error) => {
+        child.kill("SIGKILL");
+        throw error;
+      });
+      void termination.catch(() => undefined);
     };
     options.abortSignal?.addEventListener("abort", abort, { once: true });
     try {
       const exitCode = await exit;
+      await termination;
       options.abortSignal?.throwIfAborted();
       return { exitCode, stderr: Buffer.concat(stderr).toString("utf8"), stdout: Buffer.concat(stdout).toString("utf8") };
     } finally {
@@ -576,8 +608,13 @@ function createContainerSession(state: {
       options.abortSignal?.throwIfAborted();
       const stdin = options.stdin === true;
       const { child, exit, kill } = start(options, stdin);
+      let termination: Promise<void> | undefined;
       const abort = () => {
-        void kill("KILL").catch(() => child.kill("SIGKILL"));
+        termination = kill("KILL").catch((error) => {
+          child.kill("SIGKILL");
+          throw error;
+        });
+        void termination.catch(() => undefined);
       };
       options.abortSignal?.addEventListener("abort", abort, { once: true });
       void exit.finally(() => options.abortSignal?.removeEventListener("abort", abort)).catch(() => undefined);
@@ -589,7 +626,9 @@ function createContainerSession(state: {
           await kill(signal);
         },
         async wait() {
-          return { exitCode: await exit };
+          const exitCode = await exit;
+          await termination;
+          return { exitCode };
         },
       };
       return process;

@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveSandbox, type ContainerSandboxOptions } from "../src/index.ts";
+import { resolveSandbox, type ContainerSandboxOptions, type SandboxSession } from "../src/index.ts";
 
 const temporary: string[] = [];
 
@@ -14,19 +15,41 @@ afterEach(async () => {
 });
 
 /** A Docker CLI stand-in that records each call and answers the broker readiness probe. */
-async function fakeDocker() {
+async function fakeDocker(options: { processes?: boolean; failSignals?: boolean; serverVersion?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-container-"));
   temporary.push(root);
   const log = join(root, "calls.jsonl");
   const docker = join(root, "docker");
   await writeFile(docker, `#!/usr/bin/env node
-const { appendFileSync } = require("node:fs")
+const { appendFileSync, mkdirSync } = require("node:fs")
+const { spawn } = require("node:child_process")
 const argv = process.argv.slice(2)
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("VITEHUB_BROKER_SECRET_") || key === "GH_TOKEN" || key === "PROJECT_ENV"))
 appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, env }) + "\\n")
-if (argv.join(" ").includes("socket.create_connection")) process.stdout.write("-----BEGIN CERTIFICATE-----\\nfake\\n-----END CERTIFICATE-----\\n")
-process.stdin.resume()
-process.stdin.on("end", () => process.exit(0))
+const pidRoot = ${JSON.stringify(join(root, "pids"))}
+mkdirSync(pidRoot, { recursive: true })
+const pidIndex = argv.findIndex(arg => arg.startsWith("/vitehub/.pids/"))
+const script = argv[argv.indexOf("-c") + 1] || ""
+const signal = script.includes("pid=$(cat")
+if (argv[0] === "version") process.stdout.write(${JSON.stringify(options.serverVersion ?? "29.1.3")})
+if (${!!options.processes} && ((pidIndex >= 0 && argv[pidIndex + 1].includes("sleep 1")) || signal)) {
+  if (signal && ${!!options.failSignals}) {
+    process.stderr.write("signal exec failed")
+    process.exit(1)
+  }
+  const args = argv.slice(argv.indexOf("-c")).map(arg => arg.replaceAll("/vitehub/.pids", pidRoot).replaceAll("/vitehub/workspace", ${JSON.stringify(root)}))
+  setTimeout(() => {
+    const child = spawn("sh", args, { detached: !signal, stdio: "inherit" })
+    child.on("exit", (code, sig) => {
+      if (signal) appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: ["signal-result", String(code)], env: {} }) + "\\n")
+      process.exit(code ?? (sig ? 128 : 1))
+    })
+  }, signal ? 0 : 250)
+} else {
+  if (argv.join(" ").includes("socket.create_connection")) process.stdout.write("-----BEGIN CERTIFICATE-----\\nfake\\n-----END CERTIFICATE-----\\n")
+  process.stdin.resume()
+  process.stdin.on("end", () => process.exit(0))
+}
 `);
   await chmod(docker, 0o755);
   return {
@@ -80,6 +103,13 @@ describe("container Sandbox runtime", () => {
     }, {})).rejects.toThrow(/also declared in sandbox.env/);
   });
 
+  it.each(["26.1.5", "27.5.1", "unknown"])("rejects daemon %s before creating a network", async (serverVersion) => {
+    const fake = await fakeDocker({ serverVersion });
+    const sandbox = await resolveSandbox({ runtime: { docker: fake.docker, image: "node:24", kind: "container" } }, {});
+    await expect(sandbox.open()).rejects.toThrow(/requires Docker Engine 28 or newer/);
+    expect((await fake.calls()).map(call => call.argv[0])).toEqual(["version"]);
+  });
+
   it("keeps credential values off the Docker command line and out of the Sandbox", async () => {
     const fake = await fakeDocker();
     const secret = "ghp_real_secret_value";
@@ -105,9 +135,12 @@ describe("container Sandbox runtime", () => {
     expect(brokerRun?.argv).toEqual(expect.arrayContaining(["--network", "bridge", "-e", "VITEHUB_BROKER_SECRET_0"]));
 
     const sandboxRun = calls.find(call => call.argv[0] === "run" && call.argv.includes("node:24"));
-    expect(sandboxRun?.argv).toEqual(expect.arrayContaining(["--init", "--security-opt", "no-new-privileges:true"]));
+    expect(sandboxRun?.argv).toEqual(expect.arrayContaining(["--init", "--security-opt", "no-new-privileges:true", "--cap-drop", "NET_RAW"]));
     expect(sandboxRun?.argv[sandboxRun.argv.indexOf("--network") + 1]).toMatch(/-net$/);
-    expect(calls.some(call => call.argv[0] === "network" && call.argv[1] === "create" && call.argv.includes("--internal"))).toBe(true);
+    const network = calls.find(call => call.argv[0] === "network" && call.argv[1] === "create");
+    expect(network?.argv).toEqual(expect.arrayContaining([
+      "--internal", "com.docker.network.bridge.gateway_mode_ipv4=isolated", "com.docker.network.bridge.gateway_mode_ipv6=isolated",
+    ]));
 
     const command = calls.find(call => call.argv[0] === "exec" && call.argv.includes("true"));
     expect(command?.argv).toEqual(expect.arrayContaining(["-e", "GH_TOKEN", "-e", "PROJECT_ENV"]));
@@ -120,6 +153,55 @@ describe("container Sandbox runtime", () => {
     expect(removal?.argv).toHaveLength(4);
     expect(calls.at(-1)?.argv.slice(0, 2)).toEqual(["network", "rm"]);
   });
+
+  it.each(["kill", "abort"])("waits for PID registration on immediate %s", async (action) => {
+    const fake = await fakeDocker({ processes: true });
+    const session = await (await resolveSandbox({ runtime: { docker: fake.docker, image: "node:24", kind: "container" } }, {})).open();
+    try {
+      const controller = new AbortController();
+      const child = await session.spawn!("sh", ["-c", "sleep 1; true"], { signal: controller.signal });
+      if (action === "kill") await child.kill();
+      else controller.abort();
+      expect((await child.wait()).code).not.toBe(0);
+      // Even abort must wait for the remote signal command, rather than only killing the CLI.
+      const calls = await fake.calls();
+      expect(calls.filter(call => call.argv[0] === "signal-result").at(-1)?.argv[1]).toBe("0");
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("waits for registration when exec is aborted immediately", async () => {
+    const fake = await fakeDocker({ processes: true });
+    const session = await (await resolveSandbox({ runtime: { docker: fake.docker, image: "node:24", kind: "container" } }, {})).open();
+    try {
+      const controller = new AbortController();
+      const result = session.exec("sh", ["-c", "sleep 1; true"], { signal: controller.signal });
+      controller.abort(new Error("cancel exec"));
+      await expect(result).rejects.toThrow("cancel exec");
+      expect((await fake.calls()).filter(call => call.argv[0] === "signal-result").at(-1)?.argv[1]).toBe("0");
+    } finally {
+      await session.close();
+    }
+  });
+
+  it.each(["kill", "abort"])("reports a failed signal command on %s", async (action) => {
+    const fake = await fakeDocker({ processes: true, failSignals: true });
+    const session = await (await resolveSandbox({ runtime: { docker: fake.docker, image: "node:24", kind: "container" } }, {})).open();
+    try {
+      const controller = new AbortController();
+      const child = await session.spawn!("sh", ["-c", "sleep 1; true"], { signal: controller.signal });
+      if (action === "kill") {
+        await expect(child.kill()).rejects.toThrow(/signal exec failed/);
+        await child.wait();
+      } else {
+        controller.abort();
+        await expect(child.wait()).rejects.toThrow(/signal exec failed/);
+      }
+    } finally {
+      await session.close();
+    }
+  });
 });
 
 const dockerTests = process.env.VITEHUB_SANDBOX_DOCKER_TEST === "1";
@@ -127,6 +209,40 @@ const dockerTests = process.env.VITEHUB_SANDBOX_DOCKER_TEST === "1";
 /** Runs against a real Docker daemon. Set VITEHUB_SANDBOX_DOCKER_TEST=1 to enable. */
 describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
   const image = process.env.VITEHUB_SANDBOX_DOCKER_IMAGE || "node:24-bookworm";
+
+  it.each(["none", "open"] as const)("blocks direct host services with egress %s", { timeout: 120_000 }, async (egress) => {
+    const server = createServer(socket => socket.end("host-service"));
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "0.0.0.0", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing host listener address");
+    let session: SandboxSession | undefined;
+    try {
+      session = await (await resolveSandbox({ runtime: { egress, image, kind: "container" } }, {})).open();
+      const container = execFileSync("docker", ["ps", "--filter", "label=dev.vitehub.sandbox", "--format", "{{.Names}}"], { encoding: "utf8" })
+        .trim().split("\n").find(name => !name.endsWith("-broker"))!;
+      const network = execFileSync("docker", ["inspect", container, "--format", "{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}"], { encoding: "utf8" }).trim();
+      const subnet = execFileSync("docker", ["network", "inspect", network, "--format", "{{(index .IPAM.Config 0).Subnet}}"], { encoding: "utf8" }).trim();
+      const gateway = subnet.split("/")[0]!.replace(/\.\d+$/, ".1");
+      const defaultGateway = execFileSync("docker", ["network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"], { encoding: "utf8" }).trim();
+      for (const host of new Set([gateway, defaultGateway])) {
+        // A TCP socket ignores every proxy environment variable. On Linux the listener
+        // shares the Docker host; Docker Desktop also checks that the VM gateway is blocked.
+        const result = await session.exec("node", ["-e", `
+          const socket = require('node:net').connect(${address.port}, ${JSON.stringify(host)});
+          socket.on('connect', () => process.exit(1));
+          socket.on('error', () => process.exit(0));
+          socket.setTimeout(2000, () => process.exit(0));
+        `]);
+        expect(result.code).toBe(0);
+      }
+    } finally {
+      await session?.close();
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
 
   it("has no network exit without egress", { timeout: 120_000 }, async () => {
     const session = await (await resolveSandbox({ runtime: { image, kind: "container" } }, {})).open();
@@ -171,6 +287,9 @@ describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
       const denied = await session.exec("sh", ["-c", "curl -sS -o /dev/null -w '%{http_code}' https://example.com; true"]);
       expect(`${denied.stdout}${denied.stderr}`).toContain("403");
 
+      const ssh = await session.exec("sh", ["-c", "curl -sS -m 5 --proxytunnel https://registry.npmjs.org:22; true"]);
+      expect(`${ssh.stdout}${ssh.stderr}`).toContain("403");
+
       const host = await session.exec("sh", ["-c", "curl -sS -o /dev/null -w '%{http_code}' -H 'Host: example.com' -H \"Authorization: Bearer $NPM_TOKEN\" https://registry.npmjs.org/vite-hub"]);
       expect(host.stdout).toBe("403");
       const sni = await session.exec("sh", ["-c", "printf 'GET / HTTP/1.1\\r\\nHost: registry.npmjs.org\\r\\nConnection: close\\r\\n\\r\\n' | openssl s_client -quiet -proxy vitehub-broker:8080 -connect registry.npmjs.org:443 -servername example.com -CAfile /vitehub/broker-ca.pem 2>/dev/null | head -1"]);
@@ -191,10 +310,15 @@ describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
       expect((await child.wait()).code).toBe(0);
 
       const sleeper = await session.spawn!("sh", ["-c", "sleep 301; true"]);
-      await new Promise(resolve => setTimeout(resolve, 500));
       await sleeper.kill();
       expect((await sleeper.wait()).code).not.toBe(0);
       expect((await session.exec("sh", ["-c", "ps -eo args | grep -c '[s]leep 301' || true"])).stdout.trim()).toBe("0");
+
+      const controller = new AbortController();
+      const aborted = await session.spawn!("sh", ["-c", "sleep 302; true"], { signal: controller.signal });
+      controller.abort();
+      expect((await aborted.wait()).code).not.toBe(0);
+      expect((await session.exec("sh", ["-c", "ps -eo args | grep -c '[s]leep 302' || true"])).stdout.trim()).toBe("0");
     } finally {
       await session.close();
     }

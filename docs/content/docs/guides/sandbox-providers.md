@@ -150,7 +150,8 @@ The runtime reports `isolation: 'container'`. It reports `network: 'none'` witho
 
 Plan for these limits:
 
-- The ViteHub process needs the Docker CLI and a Docker daemon. Docker Desktop, OrbStack, and Docker Engine on Linux work. Serverless hosts cannot run it.
+- The ViteHub process needs the Docker CLI and a Docker daemon with isolated bridge gateway mode (Docker Engine 28 or newer). The bridge has no host address, so Sandbox code cannot connect directly to host services. Docker Desktop, OrbStack, and Docker Engine on Linux work. Serverless hosts cannot run it.
+- Egress and credential host patterns without a port allow only port 443. Use `host:port` for another HTTP or HTTPS port.
 - The image needs `sh`, coreutils, GNU `find`, and `git` for a `checkout`. Debian-based images such as `node:24-bookworm` work. BusyBox `find` does not.
 - Git over SSH and other non-HTTP protocols cannot leave the Sandbox. Use HTTPS remotes.
 - The runtime has no ports, no `cwd` mount, and no durable Home state. Use `checkout` and Workspace.
