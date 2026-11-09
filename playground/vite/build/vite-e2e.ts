@@ -14,7 +14,7 @@ import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.
 import { getCloudflareQueueBindingName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getCloudflareQueueName } from "../../../packages/queue/src/internal/cloudflare-resource-name.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
-import { discoverRateLimitCatalog } from "../../../packages/rate-limit/src/discovery.ts"
+import { discoverRateLimitDeclarations } from "../../../packages/rate-limit/src/discovery.ts"
 import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
@@ -109,7 +109,7 @@ interface GeneratedFeatureArtifacts {
   generatedDir: string
   queueDefinitions: Array<{ name: string, handler: string }>
   queueRegistryFile?: string
-  rateLimitDeclarations: ReturnType<typeof discoverRateLimitCatalog>["declarations"]
+  rateLimitDeclarations: ReturnType<typeof discoverRateLimitDeclarations>
   scheduleCrons: Map<string, string>
   scheduleDefinitions: Array<{ name: string, handler: string }>
   scheduleRegistryFile?: string
@@ -698,7 +698,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     ? discoverQueueDefinitions({ mode: "server-queues", scanDirs: [resolve(options.rootDir, "server")] })
     : []
   const rateLimitDeclarations = options.rateLimit
-    ? discoverRateLimitCatalog({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] }).declarations
+    ? discoverRateLimitDeclarations({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] })
     : []
   const scheduleDefinitions = options.schedule
     ? discoverScheduleDefinitions({ rootDir: options.rootDir })
@@ -1353,7 +1353,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
 
   if (options.kv) {
     // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
-    configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv)
+    configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv, readProvisionStateSync(options.rootDir))
   }
   // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
   configureCloudflareArtifacts({ cloudflare: { wrangler: wranglerConfig } as never }, options.workspace || false)
@@ -1550,18 +1550,33 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
   }
 }
 
+// Live smoke names a fresh KV namespace, queue prefix, and workflow for each Cloudflare run.
+// Without these variables the playground keeps its default names.
+export function resolveViteE2EModuleOptions(hosting: string, env: Record<string, string | undefined> = process.env) {
+  const cloudflare = resolveHostedProvider(hosting) === "cloudflare"
+  const kvNamespaceName = cloudflare ? env.VITEHUB_KV_NAMESPACE_NAME?.trim() : undefined
+  const queueNamePrefix = cloudflare ? env.VITEHUB_QUEUE_NAME_PREFIX?.trim() : undefined
+  const workflowName = cloudflare ? env.VITEHUB_CLOUDFLARE_WORKFLOW_NAME?.trim() : undefined
+  return {
+    kv: kvNamespaceName ? { driver: "cloudflare-kv-binding" as const, namespaceName: kvNamespaceName } : undefined,
+    queue: queueNamePrefix ? { namePrefix: queueNamePrefix } : {},
+    workflow: workflowName ? { name: workflowName } : {},
+  }
+}
+
 export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
+  const moduleOptions = resolveViteE2EModuleOptions(hosting)
   return {
     blob: normalizeBlobOptions(provider === "vercel" ? { access: "private", driver: "vercel-blob" } : undefined, { hosting }),
     db: resolveDBViteConfig(undefined, rootDir),
     hosting: provider,
-    kv: normalizeKVOptions(undefined, { hosting }),
-    queue: normalizeQueueOptions({}, { hosting }) || false,
+    kv: normalizeKVOptions(moduleOptions.kv, { hosting }),
+    queue: normalizeQueueOptions(moduleOptions.queue, { hosting }) || false,
     rateLimit: provider === "cloudflare" ? { namespace: "vitehub-playground-vite-e2e" } : false,
     schedule: true,
     sandbox: resolveSandboxTaskFeatureConfig({}, hosting),
     workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),
-    workflow: normalizeWorkflowOptions({}, { hosting }) || false,
+    workflow: normalizeWorkflowOptions(moduleOptions.workflow, { hosting }) || false,
   }
 }

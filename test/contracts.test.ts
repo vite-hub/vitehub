@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { array, object, optional, parse, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
+import { parse as parseYaml } from "yaml"
 import {
   packageDir,
   packageInfo,
@@ -108,7 +109,8 @@ describe("package manifest contracts", () => {
       expect(manifest.types).toBe(subpathOnly ? undefined : "./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
       expect(manifest.scripts?.build).toEqual(expect.any(String))
-      expect(manifest.scripts?.typecheck).toEqual(expect.any(String))
+      // The typecheck reads workspace dependencies from their dist, so it builds them first.
+      expect(manifest.scripts?.typecheck).toMatch(new RegExp(`^vp run --cache -t ${manifest.name}#build && `))
       expect(manifest.scripts?.test).toEqual(expect.any(String))
       if (packageName === "markdown-template") {
         expect(manifest.exports?.["."]).toEqual({
@@ -196,13 +198,27 @@ describe("package manifest contracts", () => {
 
     expect(security).toContain("https://github.com/vite-hub/vitehub/security/advisories")
     expect(security).toContain("https://github.com/vite-hub/vitehub/issues/new")
-    expect(security).toContain("https://discord.gg/YTRDsRP3")
+    expect(security).toContain("https://chat.vitehub.dev")
     expect(security).toContain("Published 0.x versions | No backports")
     expect(security).not.toMatch(/mailto:|[\w.+-]+@[\w.-]+/)
     expect(readme).toContain("[Apache License 2.0](LICENSE)")
     expect(readme).toContain("[security policy](SECURITY.md)")
     expect(contact).toContain("https://github.com/vite-hub/vitehub/security/policy")
     expect(contact).not.toContain("/security/advisories/new")
+  })
+
+  it("declares shared framework peers as ranges that accept the app's copy", () => {
+    // An exact peer makes pnpm install a second Vue next to the app's Vue, and Nuxt pages then render empty.
+    const workspace = parse(object({ catalogs: record(string(), record(string(), string())) }), parseYaml(readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+    for (const packageName of packageNames) {
+      const peers = readPackageManifest(packageName).peerDependencies || {}
+      for (const peer of ["@nuxt/ui", "nuxt", "vite", "vue"]) {
+        const specifier = peers[peer]
+        if (!specifier) continue
+        const range = specifier.startsWith("catalog:") ? workspace.catalogs[specifier.slice("catalog:".length)]?.[peer] : specifier
+        expect(range, `${packageName} peer ${peer} (${specifier}) should be a range`).toMatch(/^(\^|>=)/)
+      }
+    }
   })
 
   it("publishes required package dependencies before their consumers", () => {

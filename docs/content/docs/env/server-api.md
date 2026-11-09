@@ -76,6 +76,8 @@ export async function listIssues() {
 
 `useServerEnv()` resolves and checks every declared Server Env value, not only the values that the caller reads. When a required value is missing, every call throws `ENV_REQUIRED_MISSING` with the path of the missing value. When the application can run without a value, declare it with `optional: true`, or give a value that is not secret a default. A default is written into the generated server code, so never give a secret one. Use `vitehub env check` to list every missing value before a release.
 
+On Cloudflare, Server Env also reads Worker bindings. Pass the request event, such as `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without an event, Server Env reads the bindings of the active Cloudflare request. `loadServerEnv()`, `inspectServerEnv()`, `runWithServerEnv()`, and `deriveSecret()` take the same event.
+
 ## Read external Env storage
 
 Use an Env provider when application-owned credentials live outside the host environment. The provider is a runtime adapter, not a ViteHub secret store: your application chooses the external system, supplies its bootstrap credential through ordinary host Env, and owns its access policy.
@@ -153,6 +155,6 @@ This GitHub token authenticates application-owned Source materialization; it is 
 
 `inspectServerEnv()` uses the same provider load boundary and reports only declaration paths, source kinds, provider aliases, masking, required flags, and `available`, `defaulted`, `missing`, `invalid`, or `error` status. It never includes values, hashes, lengths, provider keys, or provider failure text. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` for an entry that makes `loadServerEnv()` fail: a required value is missing, a value is invalid, or a provider failed.
 
-Check a stage from the terminal with `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI and deploy steps can run it before a release. Add `--allow-missing-secrets` where the host adds secrets at runtime and the build environment does not have them. Both commands load the stage's Vite env files and never print values. Read [CLI](/docs/development/cli#inspect-server-env) for options and output. The Console Env section shows the same status when you select **Check status**.
+Check a stage from the terminal with `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI and deploy steps can run it before a release. Both commands load the stage's Vite env files and never print values. Read [CLI](/docs/development/cli#inspect-server-env) for options and output. The Console Env section shows the same status when you select **Check status**.
 
 Provider reads are read-only and receive the caller's abort signal. For managed credentials, [Env Bridge](/docs/env/bridge) adds conditional replacement, scoped access, and durable activity. Env resolution does not add watches, leases, or cross-request caches. Providers must not import the generated Server Env module; use the local `env` snapshot passed to `read()` for bootstrap credentials.

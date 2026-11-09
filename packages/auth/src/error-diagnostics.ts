@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
     AUTH_R0001: dynamicError,
     AUTH_R0002: dynamicError,
@@ -66,6 +66,9 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0054: dynamicError,
     AUTH_C0055: dynamicError,
     AUTH_C0056: dynamicError,
+    AUTH_C0057: dynamicError,
+    AUTH_C0058: dynamicError,
+    AUTH_C0059: dynamicError,
     AUTH_R0018: dynamicError,
     AUTH_R0003: dynamicError,
     AUTH_R0004: dynamicError,

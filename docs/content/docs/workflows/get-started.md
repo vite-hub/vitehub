@@ -68,7 +68,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 }
 ```
 
-Make each side effect safe to repeat. For example, create or update a user by email instead of inserting another user on every retry. A durable provider can replay a failed step while keeping earlier completed steps. The local inline provider used here does not retain that step history.
+Make each side effect safe to repeat. For example, create or update a user by email instead of inserting another user on every retry. A durable provider can replay a failed step while keeping earlier completed steps. The local inline provider used here runs each step once and does not replay it. In `vite dev`, `vitehub workflow runs show <runId>` shows each step that ran, with its status and error. [Durable execution](/docs/guides/durable-execution) walks through a three-step job that fails at step 2 on each provider.
 
 ::
 
@@ -109,11 +109,11 @@ curl -X POST http://localhost:5173/api/onboard \
 The response includes a run id and a provider status. Use
 [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run) with that id to
 inspect the final run status, result, or error metadata after the handler
-completes. Local inline execution retains the final result. It does not retain
-step history.
+completes. Local inline execution retains the final result. The run returned by
+`getWorkflowRun()` does not include step history.
 
 ## Start a run from the CLI or the Console
 
-You can also start a run without a route. `vitehub workflow start onboard --payload '{"email":"ada@example.com"}'` starts it on the running dev server, and the Workflows page of the [Console](/docs/development/console) has a Start button with a JSON payload field. Both read the run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. The commands call the Console RPC, so they need `vitehub()`; an app that adds only `hubWorkflow()` has no `vitehub workflow` commands. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
+You can also start a run without a route. `vitehub workflow start onboard --payload '{"email":"ada@example.com"}'` starts it on the running dev server, and the Workflows page of the [Console](/docs/development/console) has a Start button with a JSON payload field. Both read the run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `vitehub workflow runs list` and `vitehub workflow runs show <runId>` list the runs that the dev server recorded and show the steps, result, and error of one. `vitehub workflow runs clear --yes` empties that history. The commands call the Console RPC, so they need `vitehub()`; an app that adds only `hubWorkflow()` has no `vitehub workflow` commands. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
 
 ::

@@ -33,7 +33,7 @@ describe("Console Schedule result selection", () => {
     const sectionsBase = `/sections/${name}`
     mocks.request.mockReset().mockImplementation(async (url: string) => {
       if (url === sectionsBase) return { sections: ["schedules"], operations: ["schedule.run"] }
-      if (url === "/api/_vitehub/console/schedule-run") return { run: { id: "run-1", status: "succeeded" } }
+      if (url === "/_vitehub/api/schedule-run") return { run: { id: "run-1", status: "succeeded" } }
       return {
         section: "schedules", kind: "definition-catalog",
         definitions: [name, "other"].map(name => ({ name, file: `${name}.ts`, source: "static", fields: [], runnable: true })),
@@ -45,7 +45,7 @@ describe("Console Schedule result selection", () => {
     await router.push({ path: "/schedules", query: { definition: name } })
     const app = renderer.createApp({ ...Definitions, render: () => null }, {
       agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv",
-      scheduleRunBase: "/api/_vitehub/console/schedule-run", searchBase: "/search", sectionsBase,
+      scheduleRunBase: "/_vitehub/api/schedule-run", searchBase: "/search", sectionsBase,
       details: { id: "schedules", label: "Schedules", icon: "i-lucide-calendar", description: "Schedules", view: { kind: "definition-catalog", notice: "Schedule metadata" } },
     })
     app.use(router)
@@ -58,7 +58,7 @@ describe("Console Schedule result selection", () => {
       expect(state.selectedName).toBe(name)
       expect(state.selectedRun).toBeUndefined()
       await state.runSelectedSchedule()
-      expect(mocks.request).toHaveBeenCalledWith("/api/_vitehub/console/schedule-run", { body: { name }, method: "POST" })
+      expect(mocks.request).toHaveBeenCalledWith("/_vitehub/api/schedule-run", { body: { name }, method: "POST" })
       expect(state.selectedRun).toEqual({ id: "run-1", status: "succeeded" })
       state.selectDefinition("other")
       await vi.waitFor(() => expect(state.selectedName).toBe("other"))

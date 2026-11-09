@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -176,7 +176,7 @@ it.each(['review', '__proto__'])('bundles the published runtime lookup for %s wi
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
   await writeFile(entry, `import { getAgentFromRegistry } from '@vite-hub/agent'
-import registry, { metadata } from '#vitehub/agent/registry'
+import registry, { loadAgentHost, metadata } from '#vitehub/agent/registry'
 import { agents } from ${JSON.stringify(join(root, '.vitehub/agent/registry-agents.mjs'))}
 export async function inspect() {
   const agent = await getAgentFromRegistry(${JSON.stringify(name)})
@@ -184,6 +184,7 @@ export async function inspect() {
     instructions: agent.__vitehubAgentSettings.driver.instructions,
     registryNames: Object.keys(registry),
     metadataNames: Object.keys(metadata),
+    hostLoaderType: typeof loadAgentHost,
     identity: metadata[${JSON.stringify(name)}],
     catalogNames: Object.keys(agents),
   }
@@ -209,6 +210,7 @@ export async function inspect() {
       instructions: { template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' },
       registryNames: [name],
       metadataNames: [name],
+      hostLoaderType: 'function',
       identity: { name },
       catalogNames: [name],
     })
@@ -231,14 +233,78 @@ export async function inspect() {
   setWorkspaceRuntimeRegistry({ standalone: async () => ({ default: { sources: { context: { content: 'Standalone context.' } } } }) })
   const agent = await getAgentFromRegistry('review')
   const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { provider: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
-  const result = await runAgent(runnable, { runtime: 'unknown', memo: (_key, create) => create(), waitUntil: () => {} }, {})
+  const [error, run] = await runAgent(runnable, {})
+  if (error) throw error
   const standalone = await resolveRegisteredWorkspaceDefinition('standalone')
-  return { result, instructions: agent.__vitehubWorkspaceAgentOptions.driver.instructions, standalone: standalone.sources.context.content }
+  return { result: run.text, instructions: agent.__vitehubWorkspaceAgentOptions.driver.instructions, standalone: standalone.sources.context.content }
 }`)
   const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
   try {
     const module = await server.ssrLoadModule(entry)
     expect(await module.inspect()).toEqual({ result: 'Owned workspace context.', instructions: { template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' }, standalone: 'Standalone context.' })
+  } finally { await server.close() }
+}, 30_000)
+
+it.each([false, true])('preserves application Workspaces when deployment routes load with an owned Workspace: %s', async (withWorkspace) => {
+  const { root } = await fixture(true, withWorkspace)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  const entry = join(root, 'content.ts')
+  await writeFile(entry, `import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition, useWorkspace } from '@vite-hub/workspace/runtime'
+export async function inspect() {
+  setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
+  await import('./.vitehub/agent/chat-webhook-route.ts')
+  const content = useWorkspace('content', { mode: 'write' })
+  await content.fs.writeFile('guide.md', '# Edited guide')
+  return {
+    text: await content.fs.readFile('guide.md'),
+    ${withWorkspace ? "agent: (await resolveRegisteredWorkspaceDefinition('review')).name," : ''}
+  }
+}`)
+  const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
+  try {
+    const module = await server.ssrLoadModule(entry)
+    expect(await module.inspect()).toEqual({ text: '# Edited guide', ...(withWorkspace ? { agent: 'review' } : {}) })
+  } finally { await server.close() }
+}, 30_000)
+
+it('replaces owned Workspaces after route reloads without removing application Workspaces', async () => {
+  const { root, plugin, config } = await fixture(true, true)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  const probe = join(root, 'workspace-probe.mjs')
+  await writeFile(probe, `export { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition, useWorkspace } from '@vite-hub/workspace/runtime'`)
+  const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
+  try {
+    expect(server.config.server.watch).toBeNull()
+    // This test regenerates routes itself. Stop discovery before it can race those writes.
+    await server.watcher.close()
+    const runtime = await server.ssrLoadModule(probe)
+    runtime.setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
+    const route = join(root, '.vitehub/agent/chat-webhook-route.ts')
+    await server.ssrLoadModule(route)
+    expect((await runtime.resolveRegisteredWorkspaceDefinition('review')).name).toBe('review')
+    const content = runtime.useWorkspace('content', { mode: 'write' })
+    await content.fs.writeFile('guide.md', '# Preserved guide')
+
+    await rename(join(root, 'server/agents/review'), join(root, 'server/agents/renamed'))
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+    server.moduleGraph.invalidateAll()
+    await server.ssrLoadModule(route)
+    await expect(runtime.resolveRegisteredWorkspaceDefinition('review')).rejects.toThrow('not registered')
+    expect((await runtime.resolveRegisteredWorkspaceDefinition('renamed')).name).toBe('renamed')
+    expect(await runtime.useWorkspace('content').fs.readFile('guide.md')).toBe('# Preserved guide')
+
+    await writeFile(join(root, 'server/agents/renamed/agent.ts'), "import { defineAgent } from '@vite-hub/agent'; export default defineAgent({ driver: { run: () => 'unused' }, runtime: false })")
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+    server.moduleGraph.invalidateAll()
+    await server.ssrLoadModule(route)
+    await expect(runtime.resolveRegisteredWorkspaceDefinition('renamed')).rejects.toThrow('not registered')
+    expect(await runtime.useWorkspace('content').fs.readFile('guide.md')).toBe('# Preserved guide')
   } finally { await server.close() }
 }, 30_000)
 

@@ -1,5 +1,5 @@
 export { defineSandboxTask } from './runtime/registry'
-export { readRequestPayload, type RequestPayloadEvent } from './internal/shared/request-payload'
+export { readRequestPayload } from './internal/shared/request-payload'
 export { readValidatedPayload } from './internal/shared/validation'
 export { runSandboxTask } from './runtime/public'
 export { resolveSandboxTaskRunner, type SandboxTaskRunner } from './runtime/runtime'

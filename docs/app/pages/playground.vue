@@ -4,8 +4,7 @@ import { checkWebContainerSupport } from "@vite-hub/web-container";
 import { useClipboard, useMediaQuery } from "@vueuse/core";
 import { playgroundTemplates } from "#build/playground-templates.mjs";
 import PlaygroundWorkspace from "~/components/playground/PlaygroundWorkspace.vue";
-import { decodePlayground, shareCode } from "~/utils/playground-share";
-import { downloadZip } from "~/utils/zip";
+import { decodePlaygroundLink, downloadZip, readPlaygroundHash } from "@vite-hub/ui/playground";
 
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
 
@@ -35,13 +34,16 @@ let restoration = 0;
 /** A `#code=…` link holds files. Loading it opens them on their template. */
 async function restore() {
   const request = ++restoration;
-  const code = shareCode(location.hash);
-  const state = code ? await decodePlayground(code, playgroundTemplates) : undefined;
+  const code = readPlaygroundHash(location.hash);
+  const decoded = code ? await decodePlaygroundLink(code, playgroundTemplates) : undefined;
   if (request !== restoration) return;
-  invalidLink.value = !!code && !state;
-  restored.value = !!state;
-  const template = state ? playgroundTemplates.find(template => template.id === state.template)! : fromQuery();
-  boot(template, state?.files ?? template.files);
+  // Every app here starts from a template, so a link without one is not for this playground.
+  const shared = decoded && playgroundTemplates.find(template => template.id === decoded.template);
+  invalidLink.value = !!code && !shared;
+  restored.value = !!shared;
+  if (shared && decoded) return boot(shared, decoded.files);
+  const template = fromQuery();
+  boot(template, template.files);
 }
 function keep(template: PlaygroundTemplate) {
   // The share link no longer matches the files, so the address keeps the template only.
@@ -125,6 +127,22 @@ function download() {
         <p class="text-sm text-muted">Edit and run a ViteHub app in your browser. The first start downloads the dependencies of the app.</p>
         <UButton class="mt-3" color="neutral" icon="i-lucide-play" label="Open playground" @click="opened = true" />
       </div>
+
+      <h2 class="mt-10 text-lg font-semibold text-highlighted">Templates</h2>
+      <ul class="vh-playground-templates">
+        <li v-for="template in playgroundTemplates" :key="template.id">
+          <!-- A new document boots the template, as a link from another page does. -->
+          <a :href="template.id === fallback.id ? '/playground' : `/playground?template=${template.id}`" class="font-medium text-highlighted">{{ template.label }}</a>
+          <span class="text-muted">: {{ template.description }}</span>
+        </li>
+      </ul>
+
+      <h2 class="mt-10 text-lg font-semibold text-highlighted">How it works</h2>
+      <ul class="vh-playground-templates text-muted">
+        <li>The app runs in a WebContainer, a Node.js runtime inside the browser tab. The first start downloads the dependencies of the app.</li>
+        <li>A share link keeps your files in the part of the URL after <code>#</code>, which the browser does not send to a server.</li>
+        <li>Download saves the files of the app as a zip, so you can run it on your machine.</li>
+      </ul>
     </div>
   </div>
 </template>
@@ -183,6 +201,14 @@ function download() {
   .vh-playground-intro.is-pending {
     visibility: hidden;
   }
+}
+
+.vh-playground-templates {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+  padding-inline-start: 1.25rem;
+  list-style: disc;
 }
 
 .vh-playground-workspace {

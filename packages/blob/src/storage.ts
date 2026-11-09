@@ -2,7 +2,7 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
-import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -10,13 +10,17 @@ import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } f
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
+export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { Result, ViteHubContext } from "@vite-hub/runtime"
+
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
+import { withHostPathnameLimits } from "./internal/host-limits.ts"
 import { assertValidPathname } from "./internal/pathname.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
@@ -24,18 +28,17 @@ import { resolveBlobImages } from "./media/transformers.ts"
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
 
-function normalizeServeEvent(event: Parameters<BlobStorage["serve"]>[0]): BlobServeEvent {
-  if (!isH3V1Event(event)) return event
-  // The accepted Node event type requires its writable response.
-  const response = event.node.res!
-  return {
-    req: toH3V1Request(event),
-    res: {
-      headers: createH3V1ResponseHeaders(response),
-      get status() { return response.statusCode },
-      set status(value) { if (value !== undefined) response.statusCode = value },
-    },
-  }
+/** The request and the response fields that `serve()` reads and writes. */
+interface BlobServeEvent {
+  req: Request
+  res: { headers: Headers, status?: number }
+}
+
+function serveEvent(event: Request | ViteHubContext): BlobServeEvent {
+  const { req, res } = getStandardContext(event)
+  res.headers ??= new Headers()
+  // SAFETY: The line above gives `res` its headers, and `serve()` must write status and headers to the host's object.
+  return { req, res: res as BlobServeEvent["res"] }
 }
 
 function matchesETag(condition: string | null, etag: string | undefined): boolean {
@@ -226,7 +229,19 @@ export interface BlobStorageOptions {
   url?: (pathname: string) => string | undefined | Promise<string | undefined>
 }
 
-export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name, options: BlobStorageOptions = {}): BlobStorage {
+/** Only `vite dev` sets `remote: true` on a store, so the dev server warns once per store that writes change real data. */
+function warnRemoteStore(options: { bucketName?: unknown, driver?: unknown, remote?: unknown } | undefined, store: string): void {
+  if (options?.remote !== true) return
+  const bucket = typeof options.bucketName === "string" && options.bucketName ? ` ${options.bucketName}` : ""
+  const target = options.driver === "vercel-blob"
+    ? "Vercel Blob store"
+    : options.driver === "cloudflare-r2" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
+  console.warn(`[vitehub] Blob store "${store}" is remote: \`vite dev\` uses the real ${target}. Writes change real data.`)
+}
+
+export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: string = hostDriver.name, options: BlobStorageOptions = {}): BlobStorage {
+  warnRemoteStore(hostDriver.options, store)
+  const driver = withHostPathnameLimits(hostDriver)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
   async function clearDerived(pathname: string) {
     try {
@@ -326,21 +341,46 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
     async serve(input, pathname: string, options = {}) {
-      const event = normalizeServeEvent(input)
-      const normalizedPath = normalizePathname(pathname)
-      if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-      if (options.variant && !options.transform) {
-        const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
-        if (error) return [error, undefined]
-        if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
+      const event = serveEvent(input)
+      const added = Object.entries(options.headers ?? {})
+      const previous = added.map(([name]) => [name, event.res.headers.get(name)] as const)
+      const previousCookies = event.res.headers.getSetCookie()
+      for (const [name, value] of added) event.res.headers.set(name, value)
+      const restoreHeaders = () => {
+        for (const [name, value] of previous) {
+          if (name.toLowerCase() === "set-cookie") {
+            event.res.headers.delete(name)
+            for (const cookie of previousCookies) event.res.headers.append(name, cookie)
+          }
+          else if (value === null) event.res.headers.delete(name)
+          else event.res.headers.set(name, value)
+        }
       }
-      return serveObject(event, normalizedPath, options)
+      try {
+        const result = await serveRequest(event, pathname, options)
+        if (result[0]) restoreHeaders()
+        return result
+      }
+      catch (error) {
+        restoreHeaders()
+        throw error
+      }
     },
     store() {
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
   }
-  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>> {
+  async function serveRequest(event: BlobServeEvent, pathname: string, options: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>> {
+    const normalizedPath = normalizePathname(pathname)
+    if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
+    if (options.variant && !options.transform) {
+      const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
+      if (error) return [error, undefined]
+      if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
+    }
+    return serveObject(event, normalizedPath, options)
+  }
+  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [error, payload] = await blobResult("serve", store, async () => {
         // A driver that streams reads the object, or the requested range of it, with its metadata in one call, and
@@ -525,7 +565,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       if (payload === false) continue
       return payload === undefined
         ? [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-        : [null, payload]
+        : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
       throw new Error("Blob changed repeatedly while preparing its response.")

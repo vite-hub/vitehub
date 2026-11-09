@@ -7,7 +7,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 // Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
 import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
-import { defineComments, installComments } from "../src/index.ts"
+import { defineComments } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
 import { createCommentsStore } from "../src/operations-core/store.ts"
@@ -18,7 +19,7 @@ import { commentsTables } from "../src/tables.ts"
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { Comments } from "../src/index.ts"
 import type { CommentsDatabase } from "../src/operations-core/store.ts"
-import type { CommentsPeople, CommentsUser } from "../src/types.ts"
+import type { CommentsIdentifyContext, CommentsPeople, CommentsUser } from "../src/types.ts"
 import type { CommentCreateInput, CommentThread } from "../src/operations-core/types.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
@@ -118,6 +119,30 @@ it("gives each same-millisecond mutation a strictly newer timestamp", async () =
   const reopened = await store.setStatus(created.id, "open", member, 1)
   const deleted = await store.deleteMessage(created.id, "reply", 1)
   expect([created, replied, edited, resolved, reopened, deleted].map(thread => thread.updatedAt)).toEqual([1, 2, 3, 4, 5, 6])
+})
+
+it.each([1, 10])("orders a same-millisecond reply after resolution (created at %i)", async (createdAt) => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "First", id: "first", mentions: [], now: createdAt }
+  const created = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "thread" })
+  const resolved = await store.setStatus(created.id, "resolved", member, 10)
+  const replied = await store.addMessage(created.id, { ...message, body: "Reply", id: "reply", now: 10 }, { allowResolved: true })
+
+  expect(replied).toMatchObject({ status: "resolved", resolvedAt: resolved.resolvedAt })
+  expect(replied.messages.filter(entry => entry.createdAt > replied.resolvedAt!).map(entry => entry.id)).toEqual(["reply"])
+})
+
+it.each([1, 10])("acknowledges every reply when resolving again in the same millisecond (created at %i)", async (createdAt) => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "First", id: "first", mentions: [], now: createdAt }
+  const created = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "thread" })
+  await store.setStatus(created.id, "resolved", member, 10)
+  await store.addMessage(created.id, { ...message, body: "Reply", id: "reply", now: 10 }, { allowResolved: true })
+  const acknowledged = await store.setStatus(created.id, "resolved", member, 10)
+
+  expect(acknowledged.messages.filter(entry => entry.createdAt > acknowledged.resolvedAt!)).toEqual([])
+  const replied = await store.addMessage(created.id, { ...message, body: "Another reply", id: "another", now: 10 }, { allowResolved: true })
+  expect(replied.messages.filter(entry => entry.createdAt > replied.resolvedAt!).map(entry => entry.id)).toEqual(["another"])
 })
 
 function setup(comments: Comments, users?: CommentsPeople) {
@@ -319,16 +344,17 @@ it.each([false, true])("matches owner deletion capabilities to the write policy 
 it.each(["admin", "stranger"])("identifies %s through the standalone CLI operation RPC", async (person) => {
   const identified = { id: "admin", name: "Admin", role: "admin" }
   const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "admin")
-  const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "admin" ? identified : null)
+  const identify = vi.fn(({ event }: CommentsIdentifyContext) => event["~standard"].req.headers.get("x-person") === "admin" ? identified : null)
   const comments = defineComments({ identify, authorize })
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
   installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
   const handler = createStandaloneOperationHandler([{ operations: commentsOperations, plugin: "comments" }], "/project")
-  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+  // `ip` is the loopback peer address that srvx reports for `vite dev`.
+  const request = Object.assign(new Request("http://localhost/_vitehub/rpc/__call", {
     method: "POST",
     headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
     body: JSON.stringify({ operation: "comments.create", input }),
-  })
+  }), { ip: "127.0.0.1" })
   const event = new H3Event(request)
   const response = await handler(event)
   expect(response.status).toBe(person === "admin" ? 200 : 403)
@@ -344,7 +370,7 @@ it("gives authorize the user that identify builds for the request, not the Conso
   const seen: Array<DropUser | null> = []
   const comments = defineComments({
     // The app's own session: the Console user carries no `identity`.
-    identify: ({ event }) => event.req.headers.get("x-person") === "admin" ? { id: "admin", name: "Admin", identity: { role: "admin" } } : null,
+    identify: ({ event }) => event["~standard"].req.headers.get("x-person") === "admin" ? { id: "admin", name: "Admin", identity: { role: "admin" } } : null,
     authorize: ({ user }) => {
       seen.push(user as DropUser | null)
       return (user as DropUser | null)?.identity?.role === "admin"

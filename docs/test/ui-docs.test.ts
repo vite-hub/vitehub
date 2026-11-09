@@ -23,7 +23,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/") && !page.name.startsWith("diagnostics/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -32,14 +32,14 @@ describe("UI documentation", () => {
   it("lists component pages in the overview through the generated gallery", () => {
     const source = readFileSync(resolve(uiDocsRoot, "index.md"), "utf8");
 
-    expect(source).toContain("::ui-component-gallery");
+    expect(source).toContain('::page-list{exclude="Start"}');
     expect(source).not.toContain(":::u-page-card\n\n---");
-    expect(existsSync(resolve(docsRoot, "app/components/content/UiComponentGallery.vue"))).toBe(true);
+    expect(existsSync(resolve(packageApp, "components/content/PageList.vue"))).toBe(true);
   });
 
   it("keeps the overview's text list in sync for raw Markdown readers", () => {
     const source = readFileSync(resolve(uiDocsRoot, "index.md"), "utf8");
-    const gallery = source.split("::ui-component-gallery\n")[1]?.split("\n::\n")[0] ?? "";
+    const gallery = source.split('::page-list{exclude="Start"}\n')[1]?.split("\n::\n")[0] ?? "";
     for (const page of [...componentPages, ...blockPages]) {
       const path = `/docs/ui/${page.name.replace(/\.md$/, "")}`;
       expect(gallery, `index.md should list ${path}`).toContain(`](${path})`);
@@ -131,7 +131,8 @@ describe("UI documentation", () => {
     const page = readFileSync(resolve(packageApp, "components/DocsPage.vue"), "utf8");
     const article = readFileSync(resolve(packageApp, "components/DocsArticle.vue"), "utf8");
     expect(page).toContain('<DocsArticle :response="response" />');
-    expect(article).toContain('<DocsMarkdown :document="response.document" :components="{ pre: DocsCodePre }" />');
+    // comark-ui draws code blocks, except beside a tutorial's code panel, which reads DocsCodePre's file name bar.
+    expect(article).toContain('<DocsMarkdown :document="response.document" :components="hasCodePanel ? { pre: DocsCodePre } : undefined" />');
     expect(article).toContain("UContentToc");
     expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');
@@ -148,51 +149,48 @@ describe("UI documentation", () => {
     expect(layout).toContain("lg:!flex lg:!flex-row");
   });
 
-  it("keeps only search in the panel head, without a product context link or disclosure control", () => {
+  it("titles the panel with its group or section, without a product context link or disclosure control", () => {
     const sidebarTop = readFileSync(resolve(packageApp, "components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("<UContentSearchButton");
+    expect(sidebarTop).toContain("docsSidebarGroup(manifest, section.value, groups)?.title ?? section.value.title");
+    expect(sidebarTop).not.toContain("<UContentSearchButton");
     expect(sidebarTop).not.toContain("vh-docs-context");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-  it("moves the brand, the site areas, and the controls from the header into the sidebar", () => {
+  it("keeps the brand, search, and the controls in the header, and the rail and pages in the sidebar", () => {
     const rail = readFileSync(resolve(packageApp, "components/DocsRail.vue"), "utf8");
     const body = readFileSync(resolve(packageApp, "components/DocsAsideLeftBody.vue"), "utf8");
     const sidebars = readFileSync(resolve(packageApp, "components/DocsSidebars.vue"), "utf8");
-    const footer = readFileSync(resolve(packageApp, "components/DocsAsideFooter.vue"), "utf8");
     const header = readFileSync(resolve(packageApp, "components/AppHeader.vue"), "utf8");
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
 
-    // The rail names the site and its badge from the `docs.site` options: "ViteHub navigation" and "ViteHub alpha".
+    // The rail names the site from the `docs.site` options: "ViteHub navigation". The header carries the brand.
     expect(rail).toContain('<PrimitiveRail ref="rail" :label="`${site.name} navigation`"');
-    expect(rail).toContain("const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name");
-    expect(rail).toContain('<PrimitiveRailItem :as="NuxtLink" to="/" :label="brand" class="vh-docs-rail-brand">');
-    expect(rail).toContain("<template #label>");
+    expect(rail).not.toContain("vh-docs-rail-brand");
     expect(body).toContain('v-for="link in startLinks"');
     expect(config).toContain('{ label: "Learn", to: "/learn"');
     expect(config).toContain('{ label: "Projects", to: "/projects"');
     expect(config).toContain('{ label: "Templates", to: "/templates"');
-    expect(sidebars).toContain("<DocsAsideFooter />");
-    expect(footer).toContain("<UColorModeButton");
-    expect(footer).toContain('v-for="link in socials"');
+    expect(sidebars).toContain("<DocsAsideLeftBody />");
+    expect(header).toContain("<UColorModeButton");
+    expect(header).toContain('v-for="link in socials"');
+    expect(header).toContain('label="Search docs"');
     expect(config).toContain('socials: [{ label: "ViteHub on Discord"');
-    // The header stays for the menu on narrow screens and hides where the sidebar shows.
-    expect(header).toContain(":class=\"{ 'lg:hidden': isDocsRoute }\"");
+    // The header shows on every page, also next to the docs sidebar.
+    expect(header).not.toContain("'lg:hidden': isDocsRoute");
   });
 
-  it("keeps the docs sidebar visible without disclosure toggles", () => {
+  it("keeps the docs sidebar panel visible and scrollable", () => {
     const sidebar = readFileSync(resolve(packageApp, "components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(packageApp, "layouts/docs.vue"), "utf8");
     const sidebarPanel = readFileSync(resolve(packageApp, "components/DocsSidebars.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
-    expect(sidebar).not.toContain("<details");
-    expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
-    expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
+    expect(layout).toContain('<LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel />');
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     // The aside container is a flex column. The sidebars must grow into it, or the panel collapses to its header.
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));

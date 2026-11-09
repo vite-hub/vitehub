@@ -4,6 +4,7 @@ import { createKVStorage } from "./create-storage.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createCursorHistory, recordCursor } from "./cursor-history.ts"
+import { installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -60,6 +61,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     : options
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
+  installCloudflareKVLimits(driver)
   // Continuation state is keyed by the cursor that carries it. Consuming the
   // state before awaiting the provider keeps concurrent traversals independent.
   const cursorNamespace = cloudflareBindingNamespace(bindingName, namespaceId)

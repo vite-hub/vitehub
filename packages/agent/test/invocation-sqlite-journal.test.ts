@@ -131,6 +131,30 @@ describe("SQLite invocation journal", () => {
     expect(result.invocations.map(record => record.id)).toEqual(["run"])
   })
 
+  it("lists only invocations updated since a timestamp, in sequence order across pages", async () => {
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    const statuses = ["pending", "running", "completed", "failed", "cancelled"] as const
+    // updatedAt runs out of sequence order: a long run keeps an old sequence and gets a new updatedAt.
+    for (let index = 0; index < 250; index++) {
+      await store.create(invocation(`run-${index}`, { status: statuses[index % statuses.length], updatedAt: at((index * 7919) % 250) }))
+    }
+    const walk = async (options: { status?: readonly (typeof statuses)[number][]; updatedSince?: string }) => {
+      const entries: string[] = []
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ ...options, cursor, limit: 100 })
+        entries.push(...page.invocations.map(record => `${record.id}@${record.updatedAt}`))
+        cursor = page.cursor
+      } while (cursor)
+      return entries
+    }
+    const everything = await walk({})
+    for (const second of [0, 100, 249, 300]) {
+      const since = at(second)
+      expect(await walk({ status: statuses, updatedSince: since })).toEqual(everything.filter(entry => entry.split("@")[1]! >= since))
+    }
+  })
+
   it("backfills null search text even when its version is current", async () => {
     const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     await store.create(invocation("null-search"))
@@ -240,6 +264,25 @@ describe("SQLite invocation journal", () => {
     // A later append makes the search text stale. The next search rebuilds it.
     await store.update("run", { observation: { ...step(3), attributes: { "message.content": "second needle" } }, timestamp: at(3) })
     expect((await store.list({ search: "second needle" })).invocations.map(entry => entry.id)).toEqual(["run"])
+  })
+
+  it("looks up selected observation names without scanning unrelated payloads", async () => {
+    const recording = recordingClient(client)
+    const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
+    await store.create(invocation("run"))
+    for (const sequence of [1, 2, 3]) {
+      await store.update("run", {
+        observation: { ...step(sequence), name: sequence === 2 ? "agent.tool.result" : "agent.invocation.finish" },
+        timestamp: at(sequence),
+      })
+    }
+    recording.statements.length = 0
+    expect((await store.get("run", { observationNames: ["agent.invocation.finish"] }))?.observations.map(entry => entry.sequence)).toEqual([1, 3])
+    const query = recording.statements.map(statementSql).find(sql => sql.startsWith("SELECT position, observation FROM"))
+    if (!query) throw new Error("Expected an observation read")
+    const plan = await client.execute({ args: ["run", JSON.stringify(["agent.invocation.finish"])], sql: `EXPLAIN QUERY PLAN ${query}` })
+    expect(plan.rows.some(row => hasRuntimeType(row.detail, "string") && row.detail.includes("invocation_sequence=? AND <expr>=?"))).toBe(true)
+    expect((await store.get("run"))?.observations.map(entry => entry.sequence)).toEqual([1, 2, 3])
   })
 
   it("deletes observation rows with their invocation", async () => {

@@ -1,6 +1,6 @@
 ---
 title: Schedule Content publishing
-description: Publish reviewed drafts at a later time with content.schedule(), run due schedules from a Schedule Definition on every host, and inspect pending, overdue, and failed schedules.
+description: "Publish reviewed drafts later with content.schedule(), run due schedules from a Schedule Definition, and inspect pending, overdue, and failed schedules."
 navigation.title: Scheduling
 navigation.order: 11
 icon: i-lucide-calendar-clock
@@ -120,7 +120,7 @@ Schedules are files on the `schedules` ref of the Content Workspace, one JSON fi
 ```ts
 import { useWorkspace } from 'vite-hub/workspace'
 
-const { revisions } = await useWorkspace('site').history.list({ ref: 'schedules' })
+const { revisions } = await useWorkspace('content').history.list({ ref: 'schedules' })
 ```
 
 Schedules need no other storage: they live, and are durable, wherever the Workspace history is. Every change is a compare-and-swap on the `schedules` head, so concurrent writers retry instead of overwriting each other.

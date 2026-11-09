@@ -16,7 +16,6 @@ icon: i-lucide-code-2
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
-| `@vite-hub/database/nuxt` | Use the narrow Nuxt D1 host-resource bridge. |
 
 All Database Definition, integration, connection, Cloudflare D1, Drizzle, and runtime config types are exported from `@vite-hub/database`.
 
@@ -87,7 +86,7 @@ export default defineEventHandler(() => {
 
 ### Stay under the bound parameter limit
 
-Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert fails on D1, even when it works on local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each. This example uses the `files` table of the Default Database above:
+Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert rejects with [`DATABASE_D1_TOO_MANY_PARAMETERS`](/docs/database/limits-and-errors#database_d1_too_many_parameters) on D1, and in a dev server for Cloudflare that uses local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each. This example uses the `files` table of the Default Database above:
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ask } from "@vite-hub/gateways"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { usage } from "../src/capabilities/usage.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import type { AgentInvocationRecord } from "../src/invocations.ts"
@@ -61,7 +62,7 @@ function setup() {
     hooks: {
       // No duplicate in the same area: check the other areas in a child Invocation.
       "agent:finish": async () => {
-        await runAgent(crossArea, runtime(), { data: "ticket" })
+        await runAgentWithContext(crossArea, runtime(), { data: "ticket" })
       },
     },
     invocations,
@@ -83,7 +84,7 @@ beforeEach(() => {
 describe("ask Driver Invocation observations", () => {
   it("records each question, its answer, the request usage, and the structured result", async () => {
     const { record, sameArea } = setup()
-    await expect(runAgent(sameArea, runtime(), { data: "ticket" })).resolves.toMatchObject({ first: { choice: "different" } })
+    await expect(runAgentWithContext(sameArea, runtime(), { data: "ticket" })).resolves.toMatchObject({ first: { choice: "different" } })
     const parent = await record("same-area")
 
     expect(named(parent, "agent.invocation.start")[0]?.attributes).toMatchObject({ "input.data": "ticket" })
@@ -139,7 +140,7 @@ describe("ask Driver Invocation observations", () => {
       name: "priced",
       runtime: false,
     })
-    await runAgent(agent, runtime(), { data: "ticket" })
+    await runAgentWithContext(agent, runtime(), { data: "ticket" })
     const summary = (await invocations.list()).invocations[0]
     const record = summary ? await invocations.get(summary.id) : undefined
 
@@ -160,7 +161,7 @@ describe("ask Driver Invocation observations", () => {
     const { record, sameArea } = setup()
     systemOne.mockClear()
     const failure = "failed with HTTP 503 after 3 attempts"
-    await expect(runAgent(sameArea, runtime(), { data: "failing" })).rejects.toMatchObject({
+    await expect(runAgentWithContext(sameArea, runtime(), { data: "failing" })).rejects.toMatchObject({
       code: "GATEWAYS_R0009",
       cause: expect.objectContaining({ message: "503 upstream overloaded" }),
       message: expect.stringContaining(failure),
@@ -183,7 +184,7 @@ describe("ask Driver Invocation observations", () => {
 
   it("makes an Invocation that a hook starts a child of the running Invocation", async () => {
     const { record, sameArea } = setup()
-    await runAgent(sameArea, runtime(), { data: "ticket" })
+    await runAgentWithContext(sameArea, runtime(), { data: "ticket" })
     const parent = await record("same-area")
     const child = await record("cross-area")
     if (!parent || !child) throw new Error("Expected both Invocation records.")

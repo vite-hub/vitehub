@@ -130,7 +130,7 @@ async function readInvocationInputTokens(invocations: Pick<AgentInvocations, "li
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   do {
-    const page = await invocations.list({ cursor, limit: 100 });
+    const page = await invocations.list({ cursor, limit: 100, status: ["pending", "running", "completed", "failed", "cancelled"], updatedSince: new Date(since).toISOString() });
     if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
     if (page.cursor) seenCursors.add(page.cursor);
     for (const summary of page.invocations) {

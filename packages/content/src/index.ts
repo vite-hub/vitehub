@@ -17,7 +17,9 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import { contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
+import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
@@ -63,6 +65,8 @@ import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
+export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
+export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
@@ -136,7 +140,9 @@ export type {
 } from "./documents.ts"
 export type {
   AnyContentCollection,
+  ContentAlternate,
   ContentCollection,
+  ContentDerivedFrom,
   ContentDocument,
   ContentDocumentState,
   ContentDocumentStatus,
@@ -159,6 +165,8 @@ export type {
   ContentRevisionsResult,
   ContentSaveInput,
   ContentSingleton,
+  ContentStatusOptions,
+  ContentTranslationState,
   ContentWriteOptions,
 } from "./collections-types.ts"
 
@@ -442,9 +450,15 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
+  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
+  const snapshots = takeContentSnapshots()
+  const snapshotTargets: ContentSnapshotTarget[] = []
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
-    return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
+    const kind = contentSourceKind(input)
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined)
+    if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance })
+    return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   const createCollections = collectionEntries[0] && documentsRuntimeOf(collectionEntries[0][1])
@@ -651,6 +665,7 @@ export function defineContent<
       },
     },
   }
+  setContentSnapshotTargets(runtime, snapshotTargets)
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {
