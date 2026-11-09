@@ -1135,9 +1135,25 @@ describe("@vite-hub/shell analyzer", () => {
     await expect(analyzeShellCommand(command)).resolves.toMatchObject({ commands, hasPipelines, ok: true })
   })
 
+  it("reports commands nested in compound statements", async () => {
+    await expect(analyzeShellCommand("if true; then rm x; fi")).resolves.toMatchObject({ commands: ["true", "rm"] })
+    await expect(analyzeShellCommand("f() { rm x; }")).resolves.toMatchObject({ commands: ["rm"] })
+  })
+
+  it("keeps declaration and let builtins in analyzed commands", async () => {
+    await expect(analyzeShellCommand("export FOO=bar")).resolves.toMatchObject({
+      commands: ["export"],
+      ok: true,
+    })
+    await expect(analyzeShellCommand("let n+=1")).resolves.toMatchObject({
+      commands: ["let"],
+      ok: true,
+    })
+  })
+
   it("parses shell commands with sh-syntax and returns conservative metadata", async () => {
     await expect(analyzeShellCommand("FOO=bar echo $(pwd) | tr a-z A-Z > out")).resolves.toMatchObject({
-      commands: ["echo", "tr"],
+      commands: ["echo", "pwd", "tr"],
       hasCommandSubstitution: true,
       hasPipelines: true,
       hasRedirects: true,
@@ -1160,6 +1176,10 @@ describe("@vite-hub/shell analyzer", () => {
 
   it("detects heredocs and parser timeouts as structured analysis failures", async () => {
     await expect(analyzeShellCommand("cat <<EOF\nhello\nEOF")).resolves.toMatchObject({
+      hasHeredocs: true,
+      ok: true,
+    })
+    await expect(analyzeShellCommand("cat <<EOF\nEOF")).resolves.toMatchObject({
       hasHeredocs: true,
       ok: true,
     })
