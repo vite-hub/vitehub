@@ -10,6 +10,8 @@ const docsHome = docsHomePath(useDocsManifest())
 const shell = useDocsShell()
 const error = useError()
 const isDocsRoute = computed(() => shell.value && !error.value)
+// On wide screens the docs sidebar carries the brand, search, and these links, so the header hides beside it.
+const sidebarShown = useDocsSidebarShown()
 const menuOpen = ref(false)
 // Nuxt turns a `null` in runtime config into "", so only a number counts.
 const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
@@ -37,7 +39,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 </script>
 
 <template>
-  <div class="sticky top-0 z-50">
+  <div class="sticky top-0 z-50" :class="{ 'lg:hidden': sidebarShown }">
     <UHeader
       v-model:open="menuOpen"
       :ui="{
@@ -57,7 +59,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
         >
           <ULink :to="isDocsRoute && docsHome ? docsHome : '/'" class="vh-brand" :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
-            <span v-if="site.logo" class="vh-brand-mark" :style="{ '--vh-docs-logo': `url(${site.logo})` }" aria-hidden="true" />
+            <DocsBrandMark class="vh-brand-mark" />
             <span class="vh-brand-name">
               <span>{{ site.name }}</span>
               <span v-if="site.badge" class="vh-brand-alpha">{{ site.badge.label }}</span>
@@ -227,6 +229,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 }
 
 .vh-brand {
+  --vh-docs-mark-size: 1.5rem;
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -249,15 +252,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
     inset: -0.75rem -0.25rem;
     content: "";
   }
-}
-
-/* Like the docs rail, the mark is a mask filled with the text color, so it follows light and dark mode without a frame. */
-.vh-brand-mark {
-  display: block;
-  width: 1.5rem;
-  height: 1.5rem;
-  background-color: var(--ui-text-highlighted);
-  mask: var(--vh-docs-logo) center / contain no-repeat;
 }
 
 .vh-brand-name {

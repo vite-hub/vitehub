@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
-import { docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
+import { docsHomePath, docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
 import type { DocsRailEntry, DocsSection } from "@vite-hub/docs"
@@ -9,6 +9,8 @@ import type { DocsRailEntry, DocsSection } from "@vite-hub/docs"
 defineProps<{
   /** Shows every label, with no tooltips. Touch has no hover to expand the rail. */
   labeled?: boolean
+  /** Shows the brand at the top, for the sidebar of wide screens, which have no site header beside it. */
+  brand?: boolean
 }>()
 
 const { categories, railExclude, groups: docsGroups, site, start } = useDocsConfig()
@@ -32,6 +34,8 @@ const currentPanel = computed(() => {
 function target(entry: DocsRailEntry) {
   return docsRailTarget(entry.sections[0]!, currentPanel.value)
 }
+const brandLabel = site.badge ? `${site.name} ${site.badge.label}` : site.name
+const docsHome = docsHomePath(useDocsManifest())
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
@@ -78,6 +82,19 @@ onBeforeUnmount(() => {
 <template>
   <!-- The expanded rail shows each label, so the tooltips turn off while it is open. -->
   <PrimitiveRail ref="rail" :label="`${site.name} navigation`" class="vh-docs-rail" :class="{ 'vh-docs-rail-labeled': labeled }">
+    <!-- Like the header brand on other pages, it opens the docs home. -->
+    <template v-if="brand" #header="{ expanded }">
+      <UTooltip :text="brandLabel" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" :disabled="expanded">
+        <PrimitiveRailItem :as="NuxtLink" :to="docsHome ?? '/'" :label="brandLabel" class="vh-docs-rail-brand">
+          <DocsBrandMark v-if="site.logo" />
+          <span v-else class="vh-docs-rail-brand-initial">{{ site.name.charAt(0) }}</span>
+          <template #label>
+            <span class="vh-docs-rail-brand-name">{{ site.name }}</span>
+            <span v-if="site.badge" class="vh-docs-rail-brand-badge">{{ site.badge.label }}</span>
+          </template>
+        </PrimitiveRailItem>
+      </UTooltip>
+    </template>
     <template #default="{ expanded }">
       <PrimitiveRailGroup v-for="(items, index) in groups" :key="index">
         <UTooltip
@@ -160,5 +177,23 @@ onBeforeUnmount(() => {
   padding-block: 0.25rem;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.vh-docs-rail-brand {
+  --vh-docs-mark-size: 1.125rem;
+}
+
+.vh-docs-rail-brand-initial,
+.vh-docs-rail-brand-name {
+  color: var(--ui-text-highlighted);
+  font-weight: 650;
+}
+
+.vh-docs-rail-brand-badge {
+  margin-inline-start: 0.375rem;
+  border-bottom: 1px dotted currentcolor;
+  color: var(--ui-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
 }
 </style>
