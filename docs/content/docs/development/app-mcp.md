@@ -13,12 +13,35 @@ This is not the [Console MCP](/docs/development/mcp) at `/_vitehub/mcp`, which g
 
 ## Turn it on
 
-Install `@vite-hub/mcp` and set `mcp` in `vitehub()`:
+Install `@vite-hub/mcp` and turn on `mcp` in the ViteHub options:
 
 ```bash [Terminal]
 pnpm add @vite-hub/mcp
 ```
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { mcp: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ mcp: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -27,6 +50,8 @@ export default defineConfig({
   plugins: [vitehub({ mcp: true })],
 })
 ```
+:::
+::
 
 ## Write a tool
 
