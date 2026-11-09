@@ -315,7 +315,11 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           }
           const migrateOnStart = resolveMigrateOnStart(resolvedOptions)
           const host = { hosting: nuxtOptions.nitro?.preset, nitro: config }
-          const startDatabases = migrateOnStart ? selectMigrateOnStartDatabases(runtime, migrateOnStart, resolveHost(host) ?? resolveHostPreset(host)) : []
+          const preset = resolveHostPreset(host)
+          // Without a preset here, Nitro detects the host later. The default then takes the Postgres databases, and a
+          // Nitro module adds the plugin only when the detected host is Node. An explicit option treats it as Node.
+          const startHost = preset ? resolveHost(host) ?? preset : migrateOnStart?.explicit ? undefined : "node"
+          const startDatabases = migrateOnStart ? selectMigrateOnStartDatabases(runtime, migrateOnStart, startHost) : []
           if (!runtimeProvider) {
             // Nuxt CLI clears buildDir after nitro:config, before compiling the generated runtime.
             const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, startDatabases.length ? runtime : undefined)
@@ -757,9 +761,20 @@ async function installNitroMigrateOnStart(config: Record<string, unknown>, root:
   })
   if (!plugin) return
   await writeFileIfChanged(file, plugin)
-  const kit = createNitroServerKit(config)
-  kit.addPlugin(file)
-  config.plugins = kit.config.plugins
+  if (settings.explicit) {
+    const kit = createNitroServerKit(config)
+    kit.addPlugin(file)
+    config.plugins = kit.config.plugins
+    return
+  }
+  // Nitro resolves the preset, with its host detection, before it runs modules. The default migrates only on Node.
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: { options: { plugins?: string[], preset?: string } }) => {
+    if (resolveHost({ nitro: nitro.options }) !== "node") return
+    const plugins = nitro.options.plugins ??= []
+    if (!plugins.includes(file)) plugins.push(file)
+  })
+  config.modules = modules
 }
 
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string, targetDir = generatedNitroMigrationsDir) {

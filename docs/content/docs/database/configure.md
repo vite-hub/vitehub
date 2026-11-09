@@ -121,7 +121,7 @@ A self-hosted Node server, for example in a Docker image, often has only `.outpu
 | Local SQLite file (`file:` URL) | Does not migrate | Migrates on start |
 | Remote libSQL, D1 over HTTP | Does not migrate | `DATABASE_MIGRATE_ON_START_UNSUPPORTED` |
 
-A build for another host, such as Cloudflare or Vercel, does not migrate on start. With `migrateOnStart: true`, it fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Development does not migrate on start either: run `vitehub db migrate`.
+A build whose host is not Node, or is unknown, does not migrate on start by default. In Nuxt without a preset, ViteHub waits for the preset that Nitro detects. With `migrateOnStart: true`, it fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Development does not migrate on start either: run `vitehub db migrate`.
 
 Set `true` to also migrate local SQLite files, or `false` to migrate only with `vitehub db migrate`:
 
@@ -150,7 +150,9 @@ Several Node instances can start together on one Postgres database. Each one mig
 
 To see who holds or waits for the lock, query `pg_locks` where `locktype = 'advisory'`. Drizzle Kit's own `drizzle-kit migrate` does not take this lock, so do not run it while instances start.
 
-The advisory lock belongs to one Postgres database, and so does the ledger. Give each Postgres Database Definition its own Postgres database: Definitions that share one also share one ledger, and Drizzle then skips a migration whose timestamp is older than the last applied one.
+Before it changes a database, the server checks the pending migrations of every database while it holds the lock, so it reads the ledger after a migration that another process commits, such as `vitehub db migrate --allow-data-loss`.
+
+Definitions on one Postgres database share its ledger. ViteHub asks each server which database it reaches, so two URL spellings of one database count as one. Their pending migrations run in one transaction, in journal timestamp order. Drizzle applies only migrations newer than the newest ledger row, so if a Definition has a migration at or below that row without a ledger entry, the start fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any database changes. Give each Definition its own Postgres database, or generate the migration again so that it is newer.
 
 ### Several processes on SQLite
 

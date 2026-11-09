@@ -70,6 +70,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   })
   const config: Record<string, unknown> & { alias: Record<string, string>, plugins?: string[] } = { alias: {} }
   for (const hook of hooks) await hook(config)
+  await runNitroModules(config)
   const entry = join(root, "server.mjs")
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
@@ -94,6 +95,15 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
     }],
   })
   return { config, start: () => execFileAsync(process.execPath, [output], { cwd: root }) }
+}
+
+/** Runs the Nitro modules that the hooks added, like Nitro does after it resolves the preset. */
+async function runNitroModules(config: Record<string, unknown> & { plugins?: string[] }, preset = "node-server") {
+  const options: { plugins?: string[], preset: string } = { plugins: config.plugins, preset }
+  for (const module of Array.isArray(config.modules) ? config.modules : []) {
+    if (typeof module === "function") await module({ hooks: { hook: () => {} }, options })
+  }
+  config.plugins = options.plugins
 }
 
 async function readLedger(url: string) {
@@ -407,7 +417,8 @@ describe("migrate on start defaults", () => {
     const settings = resolveMigrateOnStart({})!
     expect(settings).toEqual({ allowDataLoss: false, explicit: false })
     expect(selectMigrateOnStartDatabases(config, settings, "node")).toEqual(["analytics", "edge"])
-    expect(selectMigrateOnStartDatabases(config, settings, undefined)).toEqual(["analytics", "edge"])
+    // An unknown host is not Node.
+    expect(selectMigrateOnStartDatabases(config, settings, undefined)).toEqual([])
     for (const host of ["cloudflare", "vercel", "bun"]) expect(selectMigrateOnStartDatabases(config, settings, host)).toEqual([])
   })
 
@@ -431,6 +442,51 @@ describe("migrate on start defaults", () => {
     expect((await buildNodeServer(root, {})).config.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
   })
 
+  it("lets Nitro's resolved preset decide for a Nuxt build without a preset", async () => {
+    const root = await createProject()
+    await writeFile(join(root, "server/databases/config.ts"), [
+      'import { defineDatabase } from "@vite-hub/database"',
+      'import { integer, pgTable } from "drizzle-orm/pg-core"',
+      'export default defineDatabase({ dialect: "postgresql", schema: { users: pgTable("users", { id: integer("id").primaryKey() }) } })',
+    ].join("\n"))
+    await writeMigrations(root, [init])
+    const configFor = async (preset: string) => {
+      const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+      await hubDb({})(undefined, {
+        hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
+          if (event === "nitro:config") hooks.push(callback)
+        },
+        options: { buildDir: join(root, ".nuxt"), dev: false, nitro: {}, rootDir: root },
+      })
+      const config: Record<string, unknown> & { plugins?: string[] } = {}
+      for (const hook of hooks) await hook(config)
+      await runNitroModules(config, preset)
+      return config.plugins
+    }
+    expect(await configFor("node-server")).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+    expect(await configFor("vercel")).toBeUndefined()
+  })
+
+  it("adds the plugin to a Vite build only when the Nitro preset is Node", async () => {
+    const root = await createProject()
+    await writeFile(join(root, "server/databases/config.ts"), [
+      'import { defineDatabase } from "@vite-hub/database"',
+      'import { integer, pgTable } from "drizzle-orm/pg-core"',
+      'export default defineDatabase({ dialect: "postgresql", schema: { users: pgTable("users", { id: integer("id").primaryKey() }) } })',
+    ].join("\n"))
+    await writeMigrations(root, [init])
+    const setup = async (options: { preset?: string }) => {
+      const plugin = hubDbVite({})
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root })
+      const nitroOptions: Parameters<typeof plugin.nitro.setup>[0]["options"] = { ...options, output: { serverDir: join(root, ".output/server") } }
+      plugin.nitro.setup({ hooks: { hook: () => {} }, options: nitroOptions })
+      return nitroOptions.plugins
+    }
+    expect(await setup({ preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+    expect(await setup({})).toBeUndefined()
+    expect(await setup({ preset: "cloudflare-module" })).toBeUndefined()
+  })
+
   it("adds no plugin for SQLite when migrateOnStart is unset", async () => {
     const root = await createProject()
     await writeMigrations(root, [init])
@@ -441,35 +497,39 @@ describe("migrate on start defaults", () => {
 
 describe("migratePostgres", () => {
   const migration = (name: string, when: number, statements: string[]) => ({ dataLoss: [], hash: `hash-${name}`, name, statements, when })
+  const ledgerTable = "\"drizzle\".\"__drizzle_migrations\""
 
-  /** A postgres.js client that records each query and answers the lock and ledger reads. */
-  function fakeClient({ lastApplied, locked = true, fail }: { fail?: string, lastApplied?: number, locked?: boolean }) {
+  /** A postgres.js client that records each query and answers the lock, identity, and ledger reads. */
+  function fakeClient({ database = "app", fail, ledger = [], locked = true }: { database?: string, fail?: string, ledger?: Array<[number, string]>, locked?: boolean }) {
     const queries: Array<[string, unknown[] | undefined]> = []
     const sql: PostgresMigrationSql = {
       unsafe: async (query, parameters) => {
         queries.push([query, parameters])
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
         if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
-        if (query.startsWith("select created_at")) return lastApplied === undefined ? [] : [{ created_at: String(lastApplied) }]
+        if (query.startsWith("select current_database()")) return [{ address: "10.0.0.1", database, port: 5432, started: "2026-11-09" }]
+        if (query.startsWith("select hash, created_at")) return ledger.map(([when, hash]) => ({ created_at: String(when), hash }))
         return []
       },
     }
     return { client: { ...sql, begin: async <T>(run: (tx: PostgresMigrationSql) => Promise<T>) => await run(sql) }, queries }
   }
 
-  it("takes the lock before it reads Drizzle's ledger, and applies only the migrations after its last row", async () => {
-    const { client, queries } = fakeClient({ lastApplied: 1 })
+  it("takes the lock before it reads Drizzle's ledger, and applies only the migrations after the newest ledger row", async () => {
+    const { client, queries } = fakeClient({ ledger: [[1, "hash-0000_init"]] })
     const log: string[] = []
-    const applied = await migratePostgres(client, { migrations: [migration("0000_init", 1, ["CREATE TABLE a (id int)"]), migration("0001_next", 2, ["CREATE TABLE b (id int)"])], name: "default" }, { log: message => log.push(message) })
+    const applied = await migratePostgres([{ client, database: { migrations: [migration("0000_init", 1, ["CREATE TABLE a (id int)"]), migration("0001_next", 2, ["CREATE TABLE b (id int)"])], name: "default" } }], { log: message => log.push(message) })
     expect(applied).toEqual(["0001_next"])
+    const lock: [string, unknown[]] = ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]]
+    // One transaction holds the lock from the ledger read to the commit.
     expect(queries).toEqual([
-      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      lock,
       ["set local client_min_messages = warning", undefined],
       ["CREATE SCHEMA IF NOT EXISTS \"drizzle\"", undefined],
-      ["CREATE TABLE IF NOT EXISTS \"drizzle\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)", undefined],
-      ["select created_at from \"drizzle\".\"__drizzle_migrations\" order by created_at desc limit 1", undefined],
+      [`CREATE TABLE IF NOT EXISTS ${ledgerTable} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`, undefined],
+      [`select hash, created_at from ${ledgerTable}`, undefined],
       ["CREATE TABLE b (id int)", undefined],
-      ["insert into \"drizzle\".\"__drizzle_migrations\" (\"hash\", \"created_at\") values ($1, $2)", ["hash-0001_next", 2]],
+      [`insert into ${ledgerTable} ("hash", "created_at") values ($1, $2)`, ["hash-0001_next", 2]],
     ])
     expect(log).toEqual(['[vitehub] Database "default": applied 0001_next.'])
   })
@@ -477,23 +537,79 @@ describe("migratePostgres", () => {
   it("says that it waits when another process holds the lock", async () => {
     const { client, queries } = fakeClient({ locked: false })
     const log: string[] = []
-    await migratePostgres(client, { migrations: [], name: "default" }, { log: message => log.push(message) })
+    await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: message => log.push(message) })
     expect(queries[1]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
-    expect(log).toEqual(['[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.'])
+    expect(log[0]).toBe('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.')
   })
 
   it("names the migration that failed", async () => {
     const { client } = fakeClient({ fail: "INSERT INTO missing_table VALUES (1)" })
     const log: string[] = []
-    await expect(migratePostgres(client, { migrations: [migration("0000_init", 1, ["CREATE TABLE a (id int)"]), migration("0001_broken", 2, ["INSERT INTO missing_table VALUES (1)"])], name: "default" }, { log: message => log.push(message) }))
+    await expect(migratePostgres([{ client, database: { migrations: [migration("0000_init", 1, ["CREATE TABLE a (id int)"]), migration("0001_broken", 2, ["INSERT INTO missing_table VALUES (1)"])], name: "default" } }], { log: message => log.push(message) }))
       .rejects.toMatchObject({ code: "DATABASE_MIGRATION_FAILED", why: expect.stringContaining("\"0001_broken\" of the database \"default\" failed: relation \"missing_table\" does not exist") })
     expect(log).toEqual([])
   })
 
-  it("refuses data loss inside the lock", async () => {
+  it("refuses data loss before any database changes", async () => {
     const { client, queries } = fakeClient({})
-    await expect(migratePostgres(client, { migrations: [{ ...migration("0000_drop", 1, ["DROP TABLE public.a"]), dataLoss: [{ reason: "drops table \"a\"", statement: "DROP TABLE public.a" }] }], name: "default" }, { log: () => {} }))
+    await expect(migratePostgres([{ client, database: { migrations: [{ ...migration("0000_drop", 1, ["DROP TABLE public.a"]), dataLoss: [{ reason: "drops table \"a\"", statement: "DROP TABLE public.a" }] }], name: "default" } }], { log: () => {} }))
       .rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
     expect(queries.map(([query]) => query)).not.toContain("DROP TABLE public.a")
+  })
+
+  it("leaves SQLite as it was when a Postgres database refuses", async () => {
+    const { client } = fakeClient({})
+    // postgres.js clients are functions.
+    const postgresClient = Object.assign(() => {}, client)
+    const sqliteMigrated: string[] = []
+    const sqliteClient = { execute: async () => ({ rows: [] }), migrate: async () => sqliteMigrated.push("default"), protocol: "file" }
+    await expect(migrateOnStart([
+      { db: { $client: sqliteClient }, dialect: "sqlite", migrations: [migration("0000_init", 1, ["SELECT 1"])], name: "default" },
+      { db: { $client: postgresClient }, dialect: "postgresql", migrations: [{ ...migration("0000_drop", 1, ["DROP TABLE public.a"]), dataLoss: [{ reason: "drops table \"a\"", statement: "DROP TABLE public.a" }] }], name: "orders" },
+    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+    expect(sqliteMigrated).toEqual([])
+  })
+
+  it("migrates Definitions on one Postgres database together, in timestamp order", async () => {
+    const first = fakeClient({})
+    const second = fakeClient({})
+    const log: string[] = []
+    await migratePostgres([
+      { client: first.client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"]), migration("a1", 3, ["CREATE TABLE a1 (id int)"])], name: "first" } },
+      { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
+    ], { log: message => log.push(message) })
+    expect(log).toEqual([
+      '[vitehub] Database "first": applied a0.',
+      '[vitehub] Database "second": applied b0.',
+      '[vitehub] Database "first": applied a1.',
+    ])
+    // One transaction on the first client runs every migration of the shared database.
+    expect(second.queries.map(([query]) => query)).toEqual([expect.stringMatching(/^select current_database\(\)/)])
+  })
+
+  it("refuses a shared-database migration that Drizzle would skip", async () => {
+    const ledger: Array<[number, string]> = [[1, "hash-a0"], [3, "hash-a1"]]
+    const first = fakeClient({ ledger })
+    const second = fakeClient({ ledger })
+    await expect(migratePostgres([
+      { client: first.client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"]), migration("a1", 3, ["CREATE TABLE a1 (id int)"])], name: "first" } },
+      { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
+    ], { log: () => {} })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
+      why: expect.stringContaining("shares its Postgres database with \"first\", and Drizzle's ledger there has no entry for migration \"b0\""),
+    })
+    expect(first.queries.map(([query]) => query)).not.toContain("CREATE TABLE b (id int)")
+  })
+
+  it("keeps Definitions on different Postgres databases apart", async () => {
+    const first = fakeClient({ database: "one", ledger: [[3, "hash-a1"]] })
+    const second = fakeClient({ database: "two" })
+    const log: string[] = []
+    await migratePostgres([
+      { client: first.client, database: { migrations: [migration("a1", 3, ["CREATE TABLE a1 (id int)"])], name: "first" } },
+      { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
+    ], { log: message => log.push(message) })
+    expect(log).toEqual(['[vitehub] Database "second": applied b0.'])
+    expect(second.queries.map(([query]) => query)).toContain("CREATE TABLE b (id int)")
   })
 })

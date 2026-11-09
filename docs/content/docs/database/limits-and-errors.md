@@ -135,7 +135,7 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
-`migrateOnStart` applies migrations only to Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails with this error for another host or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories or separate files for shared-file conflicts. For unsupported connections, build with the Node preset and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub db migrate` from the deployment.
+`migrateOnStart` applies migrations only to Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails with this error for another host or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file or a Postgres database have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories, or a separate file or Postgres database for each Definition. For unsupported connections, build with the Node preset and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub db migrate` from the deployment.
 
 ## Export errors
 

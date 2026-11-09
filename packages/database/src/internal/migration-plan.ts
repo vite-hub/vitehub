@@ -228,27 +228,30 @@ export async function migrateD1Http(
 }
 
 /**
- * Applies the pending migrations of a Postgres database with the runtime's `migratePostgres()`, the one that a server
+ * Applies the pending migrations of the Postgres databases with the runtime's `migratePostgres()`, the one that a server
  * runs on start. It holds the same advisory lock, so `vitehub db migrate` and a starting server never migrate at the
- * same time. Returns the error when the migrations do not apply.
+ * same time, and Definitions on one Postgres database migrate together. Returns the error when the migrations do not apply.
  */
-export async function migratePostgresTarget(
-  database: ResolvedDrizzleDatabaseConfig,
+export async function migratePostgresDatabases(
+  databases: ResolvedDrizzleDatabaseConfig[],
   options: MigrationPlanOptions & { allowDataLoss: boolean },
   log: (message: string) => void,
 ): Promise<unknown> {
-  const target = resolveTarget(database, options)
-  if (target?.kind !== "postgres") return new Error(`The database "${database.name}" is not a Postgres database.`)
+  const clients: postgres.Sql[] = []
   try {
-    const sql = connectPostgres(target, options.projectRoot, options.env)
-    try {
-      await migratePostgres(sql, { migrations: readStartMigrations(database.migrationsDir), name: database.name }, { allowDataLoss: options.allowDataLoss, log })
-    }
-    finally {
-      await sql.end({ timeout: 5 })
-    }
+    const targets = databases.map((database) => {
+      const target = resolveTarget(database, options)
+      if (target?.kind !== "postgres") throw new Error(`The database "${database.name}" is not a Postgres database.`)
+      const client = connectPostgres(target, options.projectRoot, options.env)
+      clients.push(client)
+      return { client, database: { migrations: readStartMigrations(database.migrationsDir), name: database.name } }
+    })
+    await migratePostgres(targets, { allowDataLoss: options.allowDataLoss, log })
   }
   catch (error) {
     return error
+  }
+  finally {
+    await Promise.all(clients.map(client => client.end({ timeout: 5 })))
   }
 }

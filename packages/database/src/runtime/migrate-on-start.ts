@@ -88,15 +88,8 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     }
     return { client, database }
   })
-  // The lock is not held yet, so another server can change the ledger before the apply. The apply checks again.
-  if (!options.allowDataLoss) {
-    for (const { client, database } of postgres) {
-      const lastApplied = await readPostgresLastApplied(client, { create: false })
-      assertNoDataLoss(database.name, pendingAfter(database.migrations, lastApplied), "postgresql")
-    }
-  }
-  await applySqlite(sqlitePlans, log)
-  for (const { client, database } of postgres) await migratePostgres(client, database, { ...options, log })
+  // The SQLite files change only after every Postgres database passed its check under the lock.
+  await migratePostgres(postgres, { ...options, beforeApply: () => applySqlite(sqlitePlans, log), log })
 }
 
 async function planSqlite(databases: StartMigrationDatabase[], options: MigrateOnStartOptions): Promise<StartMigrationPlan[]> {
@@ -163,15 +156,6 @@ async function applySqlite(plans: StartMigrationPlan[], log: (message: string) =
   }
 }
 
-function pendingAfter(migrations: StartMigration[], lastApplied: number | undefined): StartMigration[] {
-  return migrations.filter(migration => lastApplied === undefined || lastApplied < migration.when)
-}
-
-function assertNoDataLoss(database: string, pending: StartMigration[], dialect: "postgresql" | "sqlite") {
-  const losses = withoutNewTableDataLoss(pending, dialect).flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
-  if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database, statements: losses })
-}
-
 /** The part of a postgres.js client, or of one of its transactions, that migrations use. */
 export interface PostgresMigrationSql {
   unsafe: (query: string, parameters?: Array<number | string>) => PromiseLike<ArrayLike<Record<string, unknown>>>
@@ -202,66 +186,150 @@ const createPostgresLedger = [
   `CREATE TABLE IF NOT EXISTS ${postgresLedger} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
 ]
 
-async function readPostgresLastApplied(sql: PostgresMigrationSql, { create }: { create: boolean }): Promise<number | undefined> {
-  if (create) {
-    for (const statement of createPostgresLedger) await sql.unsafe(statement)
-  }
-  else {
-    const [table] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations')::text as name"))
-    if (!table?.name) return
-  }
-  // Drizzle compares each journal `when` with the newest `created_at` only.
-  const [last] = Array.from(await sql.unsafe(`select created_at from ${postgresLedger} order by created_at desc limit 1`))
-  const millis = Number(last?.created_at ?? Number.NaN)
-  return Number.isFinite(millis) ? millis : undefined
+/** One Postgres database, and the Definitions that migrate it. They share Drizzle Kit's ledger in that database. */
+export interface PostgresTarget {
+  client: PostgresMigrationClient
+  database: Pick<StartMigrationDatabase, "migrations" | "name">
 }
 
 /**
- * Applies the pending migrations of one Postgres database in one transaction. The transaction first takes the
- * advisory lock `postgresMigrationLock`, and only then reads Drizzle Kit's ledger. A second process waits for the lock
- * and then reads the ledger that the first one committed, so each migration runs once. The ledger rows are the ones
- * that drizzle-orm writes, so `drizzle-kit migrate` and ViteHub agree on what is applied.
+ * Groups the Definitions by the Postgres database that their clients reach. The server reports the database, so two URL
+ * spellings of one database go in one group.
+ */
+async function groupPostgresTargets(targets: PostgresTarget[]): Promise<PostgresTarget[][]> {
+  if (targets.length < 2) return targets.length ? [targets] : []
+  const groups = new Map<string, PostgresTarget[]>()
+  for (const target of targets) {
+    const [row] = Array.from(await target.client.unsafe("select current_database() as database, inet_server_addr()::text as address, inet_server_port() as port, pg_postmaster_start_time()::text as started"))
+    const key = JSON.stringify([row?.database, row?.address, row?.port, row?.started])
+    groups.set(key, [...groups.get(key) ?? [], target])
+  }
+  return [...groups.values()]
+}
+
+interface PostgresLedger {
+  /** `created_at:hash` of each row. */
+  keys: Set<string>
+  lastApplied: number | undefined
+}
+
+/** Creates Drizzle Kit's ledger when it is missing, and reads it. Call it in the transaction that holds the lock. */
+async function readPostgresLedger(sql: PostgresMigrationSql): Promise<PostgresLedger> {
+  const keys = new Set<string>()
+  for (const statement of createPostgresLedger) await sql.unsafe(statement)
+  let lastApplied: number | undefined
+  for (const row of Array.from(await sql.unsafe(`select hash, created_at from ${postgresLedger}`))) {
+    const millis = Number(row.created_at ?? Number.NaN)
+    if (!Number.isFinite(millis)) continue
+    keys.add(`${millis}:${String(row.hash)}`)
+    // Drizzle compares each journal `when` with the newest `created_at` only.
+    lastApplied = Math.max(lastApplied ?? millis, millis)
+  }
+  return { keys, lastApplied }
+}
+
+/**
+ * Lists the pending migrations of one Postgres database in the order they run, with the Definition of each. It keeps
+ * Drizzle's rule: a migration is pending when its `when` is newer than the newest ledger row. Definitions that share the
+ * database also share the ledger, and time alone cannot prove another Definition's history. So, as for a shared SQLite
+ * file, it refuses a Definition's migration at or below the newest row that has no row of its own.
+ */
+function planPostgres(group: PostgresTarget[], { keys, lastApplied }: PostgresLedger, options: MigrateOnStartOptions) {
+  const pending = new Map<string, { migration: StartMigration, name: string }>()
+  for (const { database } of group) {
+    if (group.length > 1 && lastApplied !== undefined) {
+      const missing = database.migrations.find(migration => migration.when <= lastApplied && !keys.has(`${migration.when}:${migration.hash}`))
+      if (missing) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+          database: database.name,
+          problem: `It shares its Postgres database with ${group.filter(target => target.database !== database).map(target => `"${target.database.name}"`).join(", ")}, and Drizzle's ledger there has no entry for migration "${missing.name}" at or below the latest applied timestamp. Drizzle would skip it. Give each Definition its own Postgres database, or move the migration after the latest applied one.`,
+        })
+      }
+    }
+    for (const migration of database.migrations) {
+      const key = `${migration.when}:${migration.hash}`
+      if ((lastApplied === undefined || lastApplied < migration.when) && !pending.has(key)) pending.set(key, { migration, name: database.name })
+    }
+  }
+  const ordered = [...pending.values()].sort((a, b) => a.migration.when - b.migration.when)
+  if (!options.allowDataLoss) {
+    // Check the migrations in the order they run, so a table that this run creates can lose its rows.
+    const checked = withoutNewTableDataLoss(ordered.map(({ migration }) => migration), "postgresql")
+    for (const { database } of group) {
+      const losses = checked.flatMap((migration, index) => ordered[index]!.name === database.name
+        ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
+        : [])
+      if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
+    }
+  }
+  return ordered
+}
+
+/** Runs `run` in a transaction that holds the migration lock of the group's database. */
+async function withPostgresLock(group: PostgresTarget[], log: (message: string) => void, run: (sql: PostgresMigrationSql) => Promise<void>) {
+  await group[0]!.client.begin(async (sql) => {
+    const [lock] = Array.from(await sql.unsafe("select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]))
+    if (lock?.locked !== true) {
+      log(`[vitehub] Database "${group[0]!.database.name}": another process is applying migrations. Waiting for it to finish.`)
+      await sql.unsafe("select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock])
+    }
+    // postgres.js prints notices, such as "schema already exists, skipping", on stdout by default.
+    await sql.unsafe("set local client_min_messages = warning")
+    await run(sql)
+  })
+}
+
+/** Holds the lock of every group, in order, for all of `run`. */
+async function withPostgresLocks(groups: PostgresTarget[][], log: (message: string) => void, run: (sqls: PostgresMigrationSql[]) => Promise<void>, held: PostgresMigrationSql[] = []): Promise<void> {
+  if (held.length === groups.length) return await run(held)
+  await withPostgresLock(groups[held.length]!, log, sql => withPostgresLocks(groups, log, run, [...held, sql]))
+}
+
+export interface MigratePostgresOptions extends MigrateOnStartOptions {
+  /** Runs after every database passed its check, before the first one changes. */
+  beforeApply?: () => Promise<void>
+}
+
+/**
+ * Applies the pending migrations of Postgres Definitions. Definitions on one Postgres database migrate together, in
+ * one transaction that first takes the advisory lock `postgresMigrationLock` and only then reads Drizzle Kit's ledger.
+ * It keeps the lock until the transaction commits, so a second process waits and then reads the committed ledger, and
+ * each migration runs once. It checks every database before the first one changes. The ledger rows are the ones that
+ * drizzle-orm writes, so `drizzle-kit migrate` and ViteHub agree on what is applied.
  *
  * Returns the names of the applied migrations. A failed statement rolls back the transaction, so the database keeps
  * none of the pending migrations, and it throws `DATABASE_MIGRATION_FAILED`.
  */
-export async function migratePostgres(
-  client: PostgresMigrationClient,
-  database: Pick<StartMigrationDatabase, "migrations" | "name">,
-  options: MigrateOnStartOptions = {},
-): Promise<string[]> {
+export async function migratePostgres(targets: PostgresTarget[], options: MigratePostgresOptions = {}): Promise<string[]> {
   const log = options.log ?? (message => console.info(message))
+  const groups = await groupPostgresTargets(targets)
   // The transaction callback sets these, so the catch can name the migration that failed.
-  const progress: { applied: StartMigration[], running?: StartMigration } = { applied: [] }
+  const progress: { applied: Array<{ migration: StartMigration, name: string }>, running?: { migration: StartMigration, name: string } } = { applied: [] }
   try {
-    await client.begin(async (sql) => {
-      const [lock] = Array.from(await sql.unsafe("select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]))
-      if (lock?.locked !== true) {
-        log(`[vitehub] Database "${database.name}": another process is applying migrations. Waiting for it to finish.`)
-        await sql.unsafe("select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock])
-      }
-      // postgres.js prints notices, such as "schema already exists, skipping", on stdout by default.
-      await sql.unsafe("set local client_min_messages = warning")
-      const pending = pendingAfter(database.migrations, await readPostgresLastApplied(sql, { create: true }))
-      if (!options.allowDataLoss) assertNoDataLoss(database.name, pending, "postgresql")
-      for (const migration of pending) {
-        progress.running = migration
-        for (const statement of migration.statements) await sql.unsafe(statement)
-        await sql.unsafe(`insert into ${postgresLedger} ("hash", "created_at") values ($1, $2)`, [migration.hash, migration.when])
+    await withPostgresLocks(groups, log, async (sqls) => {
+      const plans: Array<Array<{ migration: StartMigration, name: string }>> = []
+      for (const [index, group] of groups.entries()) plans.push(planPostgres(group, await readPostgresLedger(sqls[index]!), options))
+      await options.beforeApply?.()
+      for (const [index, pending] of plans.entries()) {
+        for (const entry of pending) {
+          progress.running = entry
+          for (const statement of entry.migration.statements) await sqls[index]!.unsafe(statement)
+          await sqls[index]!.unsafe(`insert into ${postgresLedger} ("hash", "created_at") values ($1, $2)`, [entry.migration.hash, entry.migration.when])
+          progress.applied.push(entry)
+        }
       }
       progress.running = undefined
-      progress.applied = pending
     })
   }
   catch (error) {
     if (!progress.running) throw error
     throw databaseErrorDiagnostics.DATABASE_MIGRATION_FAILED({
       cause: error,
-      database: database.name,
-      migration: progress.running.name,
+      database: progress.running.name,
+      migration: progress.running.migration.name,
       problem: error instanceof Error ? error.message : String(error),
     })
   }
-  for (const migration of progress.applied) log(`[vitehub] Database "${database.name}": applied ${migration.name}.`)
-  return progress.applied.map(migration => migration.name)
+  for (const { migration, name } of progress.applied) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
+  return progress.applied.map(({ migration }) => migration.name)
 }

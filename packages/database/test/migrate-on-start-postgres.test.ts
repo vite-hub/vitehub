@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createDbCliContributor } from "../src/cli.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { hubDb } from "../src/nuxt.ts"
-import { postgresMigrationLock } from "../src/runtime/migrate-on-start.ts"
+import { migratePostgres, postgresMigrationLock } from "../src/runtime/migrate-on-start.ts"
 
 import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
@@ -103,6 +103,12 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   })
   const config: Record<string, unknown> & { alias: Record<string, string>, plugins?: string[] } = { alias: {} }
   for (const hook of hooks) await hook(config)
+  // Nitro runs modules after it resolves the preset.
+  const nitroOptions: { plugins?: string[], preset: string } = { plugins: config.plugins, preset: "node-server" }
+  for (const module of Array.isArray(config.modules) ? config.modules : []) {
+    if (typeof module === "function") await module({ hooks: { hook: () => {} }, options: nitroOptions })
+  }
+  config.plugins = nitroOptions.plugins
   const entry = join(root, "server.mjs")
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
@@ -134,16 +140,42 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
     startUntil: (url: string, text: string) => {
       const child = spawn(process.execPath, [output], { cwd: root, env: { ...process.env, MIGRATE_TEST_DATABASE_URL: url } })
       let stdout = ""
-      const exited = new Promise<{ code: number | null, stdout: string }>(resolve => child.on("close", code => resolve({ code, stdout })))
-      const seen = new Promise<void>((resolve) => {
+      let stderr = ""
+      child.stderr.on("data", (chunk: Buffer) => stderr += chunk.toString())
+      const exited = new Promise<{ code: number | null, stderr: string, stdout: string }>(resolve => child.on("close", code => resolve({ code, stderr, stdout })))
+      const seen = new Promise<void>((resolve, reject) => {
         child.stdout.on("data", (chunk: Buffer) => {
           stdout += chunk.toString()
           if (stdout.includes(text)) resolve()
         })
+        // A server that exits before it prints `text` fails the test with its output.
+        child.on("close", code => reject(new Error(`The server exited with code ${code} before it printed "${text}".\n${stdout}${stderr}`)))
       })
       return { exited, seen }
     },
   }
+}
+
+/** Takes the migration lock in a transaction of its own. Resolves when the lock is held; cleanup releases it. */
+async function holdLock(sql: postgres.Sql) {
+  let release!: () => void
+  const released = new Promise<void>(resolve => release = resolve)
+  let locked!: () => void
+  const held = new Promise<void>(resolve => locked = resolve)
+  const done = sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtext(${postgresMigrationLock}))`
+    locked()
+    await released
+  })
+  cleanups.push(async () => {
+    release()
+    await done
+  })
+  await held
+  return { release: async () => {
+    release()
+    await done
+  } }
 }
 
 async function readLedger(sql: postgres.Sql) {
@@ -251,17 +283,11 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const server = await buildNodeServer(root, {})
 
     // Hold the lock like a running `vitehub db migrate` would.
-    let release!: () => void
-    const released = new Promise<void>(resolve => release = resolve)
-    const holder = sql.begin(async (tx) => {
-      await tx`select pg_advisory_xact_lock(hashtext(${postgresMigrationLock}))`
-      await released
-    })
+    const holder = await holdLock(sql)
     const booting = server.startUntil(url, "Waiting for it to finish")
     await booting.seen
     expect(await sql`select to_regclass('drizzle.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
-    release()
-    await holder
+    await holder.release()
     const { code, stdout } = await booting.exited
     expect(code).toBe(0)
     expect(stdout).toContain('[vitehub] Database "default": applied 0001_seed.')
@@ -277,20 +303,85 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
     const stdoutWrite = vi.fn()
     const stderrWrite = vi.fn()
-    const otherHolder = sql.begin(async (tx) => {
-      await tx`select pg_advisory_xact_lock(hashtext(${postgresMigrationLock}))`
-      await new Promise(resolve => setTimeout(resolve, 1_000))
-    })
-    await new Promise(resolve => setTimeout(resolve, 100))
-    const startedAt = Date.now()
-    const exitCode = await command.run([], { env: process.env, rootDir: root, spawn: () => Promise.reject(new Error("drizzle-kit must not run")), stderr: { write: stderrWrite }, stdout: { write: stdoutWrite } } as never)
-    await otherHolder
+    const otherHolder = await holdLock(sql)
+    const running = command.run([], { env: process.env, rootDir: root, spawn: () => Promise.reject(new Error("drizzle-kit must not run")), stderr: { write: stderrWrite }, stdout: { write: stdoutWrite } } as never)
+    await vi.waitFor(() => expect(stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("Waiting for it to finish"), { interval: 50, timeout: 20_000 })
+    // The CLI applies nothing while another process holds the lock.
+    expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when, seed.when])
+    await otherHolder.release()
+    const exitCode = await running
     const out = stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
     expect(stderrWrite.mock.calls.map(([chunk]) => String(chunk)).join("")).toBe("")
     expect(exitCode).toBe(0)
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(500)
     expect(out).toContain("another process is applying migrations")
     expect(out).toContain('[vitehub] Database "default": applied 0002_add_email.')
     expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when, seed.when, addEmail.when])
+  })
+
+  it("boots after `vitehub db migrate --allow-data-loss` commits a destructive migration under the lock", { timeout: 60_000 }, async () => {
+    const { root } = await createProject([init])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await (await buildNodeServer(root, {})).start(url)
+
+    const dropLegacy = { sql: "DROP TABLE \"legacy\";", tag: "0001_drop_legacy", when: seed.when }
+    const migrationsDir = await writeMigrations(root, [init, dropLegacy])
+    const server = await buildNodeServer(root, {})
+    // The CLI holds the lock while it applies the drop. The server must read the ledger after that commit.
+    const contributor = createDbCliContributor(undefined, () => ({
+      databaseNames: ["default"],
+      databases: { default: postgresDatabase(url, migrationsDir) },
+      generatedDrizzleConfigFile: join(root, "drizzle.config.ts"),
+      rootDir: root,
+    }) as unknown as ResolvedDBViteConfig)!
+    const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
+    // A holder stands in for a long migration: it takes the lock first, so the CLI and the server queue behind it.
+    const holder = await holdLock(sql)
+    const cliOut = vi.fn()
+    const cli = command.run(["--allow-data-loss"], { env: process.env, rootDir: root, spawn: () => Promise.reject(new Error("drizzle-kit must not run")), stderr: { write: cliOut }, stdout: { write: cliOut } } as never)
+    // Postgres queues lock requests in order. Start the server only when the CLI waits, so the CLI applies first.
+    await vi.waitFor(() => expect(cliOut.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("Waiting for it to finish"), { interval: 50, timeout: 20_000 })
+    const booting = server.startUntil(url, "Waiting for it to finish")
+    await booting.seen
+    await holder.release()
+    expect(await cli).toBe(0)
+    const { code, stderr, stdout } = await booting.exited
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" })
+    expect(stdout).not.toContain("applied 0001_drop_legacy")
+    expect(cliOut.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("applied 0001_drop_legacy")
+    expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when, dropLegacy.when])
+  })
+
+  it("migrates two Definitions on one database together, and refuses a history that Drizzle would skip", { timeout: 60_000 }, async () => {
+    const url = await createDatabase()
+    // Two URL spellings of one database, on separate connections.
+    const other = new URL(url)
+    other.hostname = other.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1"
+    const first = connect(url)
+    const second = connect(other.href)
+    const entry = (name: string, when: number, statement: string) => ({ dataLoss: [], hash: `hash-${name}`, name, statements: [statement], when })
+    const a0 = entry("a0", 1_000, "CREATE TABLE a0 (id int)")
+    const a1 = entry("a1", 3_000, "CREATE TABLE a1 (id int)")
+    const b0 = entry("b0", 2_000, "CREATE TABLE b0 (id int)")
+    const log: string[] = []
+
+    await migratePostgres([
+      { client: first, database: { migrations: [a0, a1], name: "first" } },
+      { client: second, database: { migrations: [b0], name: "second" } },
+    ], { log: message => log.push(message) })
+    expect(log).toEqual([
+      '[vitehub] Database "first": applied a0.',
+      '[vitehub] Database "second": applied b0.',
+      '[vitehub] Database "first": applied a1.',
+    ])
+    expect((await readLedger(first)).map(row => Number(row.created_at))).toEqual([a0.when, b0.when, a1.when])
+
+    // A new migration of "second" that is older than the newest row: Drizzle would skip it on every start.
+    const b1 = entry("b1", 2_500, "CREATE TABLE b1 (id int)")
+    await expect(migratePostgres([
+      { client: first, database: { migrations: [a0, a1], name: "first" } },
+      { client: second, database: { migrations: [b0, b1], name: "second" } },
+    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED", why: expect.stringContaining("\"b1\"") })
+    expect(await first`select to_regclass('public.b1')::text as name`).toEqual([{ name: null }])
   })
 })

@@ -29,15 +29,15 @@ export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationO
 
 /**
  * Returns the databases that the server migrates when it starts. An explicit `migrateOnStart` takes every database and
- * fails the build when one cannot migrate in the server process. The default takes the Postgres databases of a Node
- * build and nothing on another host.
+ * fails the build when one cannot migrate in the server process. The default takes the Postgres databases of a build
+ * whose host is known to be Node, and nothing when the host is another one or unknown.
  */
 export function selectMigrateOnStartDatabases(config: ResolvedDBViteConfig | undefined, settings: MigrateOnStartSettings, host: string | undefined): string[] {
   if (settings.explicit) {
     assertMigrateOnStartSupported(config, host)
     return config?.databaseNames ?? []
   }
-  if (!config || (host && host !== "node")) return []
+  if (!config || host !== "node") return []
   return config.databaseNames.filter(name => config.databases[name]!.dialect === "postgresql")
 }
 

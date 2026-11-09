@@ -285,6 +285,7 @@ async function runDrizzleKit(
     context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
     return 1
   }
+  let postgresMigrated = false
   for (const run of runs) {
     const { configFile, database } = run
     if (usesD1Http(database)) {
@@ -293,7 +294,10 @@ async function runDrizzleKit(
       continue
     }
     if (usesPostgres(database)) {
-      const result = await migratePostgresDatabase(database, projectRoot, context, allowDataLoss)
+      // The first Postgres run migrates them all, so Definitions on one Postgres database migrate together.
+      if (postgresMigrated) continue
+      postgresMigrated = true
+      const result = await migratePostgresDatabases(runs.map(run => run.database).filter(usesPostgres), projectRoot, context, allowDataLoss)
       if (result !== 0) return result
       continue
     }
@@ -407,10 +411,10 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
   return 0
 }
 
-async function migratePostgresDatabase(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext, allowDataLoss: boolean): Promise<number> {
-  const { migratePostgresTarget } = await import("./internal/migration-plan.ts")
-  const error = await migratePostgresTarget(
-    { ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) },
+async function migratePostgresDatabases(databases: ResolvedDrizzleDatabaseConfig[], projectRoot: string, context: ViteHubCliContext, allowDataLoss: boolean): Promise<number> {
+  const { migratePostgresDatabases: migrate } = await import("./internal/migration-plan.ts")
+  const error = await migrate(
+    databases.map(database => ({ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) })),
     { allowDataLoss, env: context.env ?? process.env, projectRoot },
     message => context.stdout.write(`${message}\n`),
   )
@@ -418,7 +422,7 @@ async function migratePostgresDatabase(database: ResolvedDrizzleDatabaseConfig, 
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
-  context.stdout.write(`[vitehub] Database "${database.name}": migrations are up to date.\n`)
+  for (const database of databases) context.stdout.write(`[vitehub] Database "${database.name}": migrations are up to date.\n`)
   return 0
 }
 
