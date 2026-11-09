@@ -25,6 +25,7 @@ const serverPrimitiveSections = [
   "decisions",
   "email",
   "env",
+  "forms",
   "kv",
   "logs",
   "queue",

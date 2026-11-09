@@ -1,0 +1,39 @@
+---
+title: Forms limits and errors
+description: "Default limits of a form and the FORMS error codes with their fixes."
+navigation.title: Limits and errors
+navigation.order: 7
+icon: i-lucide-circle-alert
+---
+
+## Limits
+
+Change them in `defineForm()`.
+
+| Limit | Default |
+| --- | --- |
+| Body | 64 KB |
+| Messages from one address | 5 a minute, in each server process |
+| Page path | 2,000 characters |
+| Selected text (`_anchor.exact`) | 1,000 characters |
+| `forms.list` page | 100, at most 500 |
+
+## Errors
+
+A wrong `defineForm()` throws when you define it. The inbox returns `[error, data]`.
+
+### FORMS_C0001
+
+The form is wrong: `schema` is not a Standard Schema, a limit is out of range, or a file of `server/forms/` does not default-export `defineForm()`. Fix the definition.
+
+### FORMS_B0001
+
+A file of `server/forms/` has a name that is not lowercase letters, digits, and dashes, or two files define the same form. Rename the file.
+
+### FORMS_R0001
+
+The Database could not read or write a message. Most often the table is missing: run `vitehub db generate` and `vitehub db migrate`.
+
+### FORMS_R0002
+
+No message has that id. List the messages again.

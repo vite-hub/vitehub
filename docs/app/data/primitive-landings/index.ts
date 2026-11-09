@@ -20,6 +20,7 @@ import { CmsLanding } from "./cms";
 import { CommentsLanding } from "./comments";
 import { DecisionsLanding } from "./decisions";
 import { EnvLanding } from "./env";
+import { FormsLanding } from "./forms";
 import { RateLimitsLanding } from "./rate-limits";
 import { RealtimeLanding } from "./realtime";
 import type { PrimitiveLanding } from "./types";
@@ -47,6 +48,7 @@ export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEn
   CommentsLanding,
   DecisionsLanding,
   EnvLanding,
+  FormsLanding,
   RateLimitsLanding,
   RealtimeLanding,
 ].map((landing) => [landing.slug, landing]));
