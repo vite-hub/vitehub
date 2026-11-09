@@ -80,7 +80,8 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       label: "Comments",
       icon: "i-lucide-message-square-text",
       script,
-      // Not lazy: as in Drop, selected text gets the Comment bar and comments show on the page as soon as it loads.
+      // Not lazy for readers: as in Drop, selected text gets the Comment bar and comments show on the page as soon as it
+      // loads. `allowed` makes it lazy for people who may only sign in.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
       async allowed({ event, request }) {
@@ -90,8 +91,9 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         const { user, gate } = identity
         const page = new URL(request.url).searchParams.get("page")
         const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
-        return await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)
-          || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
+        if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true
+        // Someone who may only sign in, or switch accounts, gets the button. The overlay loads when they press it.
+        return !options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github) ? "lazy" : false
       },
     })
     installViteHubPageTools(nitroApp, { base: options.base })

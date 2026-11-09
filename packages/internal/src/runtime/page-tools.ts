@@ -23,8 +23,10 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
   /**
    * Whether this visitor may use the tool. The session route calls it, and the loader imports only the scripts of
    * allowed tools. It does not replace the access checks of the tool's own API, which must check each call again.
+   * `"lazy"` allows the tool but loads its script only when the visitor opens it, such as a sign-in prompt that most
+   * visitors never open.
    */
-  allowed(visitor: ViteHubPageToolVisitor): Promise<boolean>
+  allowed(visitor: ViteHubPageToolVisitor): Promise<boolean | "lazy">
 }
 
 interface PageToolsState {
@@ -127,8 +129,9 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
   const at = pathname.lastIndexOf(viteHubPageSessionPath)
   const base = at > 0 ? pathname.slice(0, at) : ""
   const tools = registered
-    .filter((_, index) => checks[index] === true)
-    .map(({ allowed: _allowed, ...tool }) => ({ ...tool, script: withViteHubBase(base, tool.script) }))
+    .flatMap(({ allowed: _allowed, ...tool }, index) => checks[index] === true || checks[index] === "lazy"
+      ? [{ ...tool, ...(checks[index] === "lazy" ? { lazy: true } : {}), script: withViteHubBase(base, tool.script) }]
+      : [])
   return sessionResponse({ tools }, { cookie: viteHubPageToolsHintCookie(tools.length > 0) })
 }
 
