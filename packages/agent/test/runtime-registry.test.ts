@@ -23,9 +23,9 @@ async function declaredWebhookServer(names = ['support'], aliases = {}) {
   await symlink(join(packageRoot, '../../node_modules/h3'), join(root, 'node_modules/h3'), 'dir')
   await mkdir(join(root, 'server/agents'), { recursive: true })
   const source = `import { defineAgent } from '@vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from '@vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineAgent({ runtime: false, driver: { run: () => 'unused' }, channels: {
-  productlane: defineChannel('productlane', {
+  productlane: channelAdapter('productlane', {
     messages: false,
     history: { key: item => item.id, collection: {
       parseQuery: async query => query,

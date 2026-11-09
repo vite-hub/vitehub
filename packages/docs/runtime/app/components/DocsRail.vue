@@ -4,7 +4,7 @@ import { NuxtLink } from "#components"
 import { docsHomePath, docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
-import type { DocsRailEntry, DocsSection } from "@vite-hub/docs"
+import type { DocsAppPage, DocsRailEntry, DocsSection } from "@vite-hub/docs"
 
 defineProps<{
   /** Shows every label, with no tooltips. Touch has no hover to expand the rail. */
@@ -31,7 +31,7 @@ const currentPanel = computed(() => {
   const page = section?.pages.find(candidate => candidate.path === normalizeDocsPath(route.path))
   return section && page ? docsPanelOf(section, page) : null
 })
-function target(entry: DocsRailEntry) {
+function target(entry: DocsRailEntry<DocsAppPage>) {
   return docsRailTarget(entry.sections[0]!, currentPanel.value)
 }
 const brandLabel = site.badge ? `${site.name} ${site.badge.label}` : site.name
@@ -39,18 +39,18 @@ const docsHome = docsHomePath(useDocsManifest())
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
-function isCurrent(section: DocsSection) {
+function isCurrent(section: DocsSection<DocsAppPage>) {
   const current = currentSection.value
   if (!current) return false
   return section.id === current.id || (!currentEntry.value && section.id === start?.section && !!current.category && railExclude.includes(current.category))
 }
 
-function isCurrentEntry(entry: DocsRailEntry) {
+function isCurrentEntry(entry: DocsRailEntry<DocsAppPage>) {
   return entry.sections.some(isCurrent)
 }
 
 // The sidebar link is the current page, so the rail marks its section with aria-current="true", not "page".
-function ariaCurrent(entry: DocsRailEntry) {
+function ariaCurrent(entry: DocsRailEntry<DocsAppPage>) {
   return isCurrentEntry(entry) ? "true" : undefined
 }
 

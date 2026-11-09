@@ -162,7 +162,11 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
       afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(access.oauth.path)}, vitehubResolveConsoleAppAuthIdentity)`)
     }
   }
-  if (access.oauth && access.mode === "auth" && oauthAuth) fields.push(`oauth: { ...${JSON.stringify(access.oauth)}, auth: ${oauthAuth}${oauthAuthorize ? `, authorize: ${oauthAuthorize}` : ""} }`)
+  if (access.oauth && access.mode === "auth" && oauthAuth) {
+    // Only an OAuth build imports the token check, so other builds ship without jose.
+    imports.push('import { verifyConsoleJwt as vitehubVerifyConsoleJwt } from "vite-hub/console/sections"')
+    fields.push(`oauth: { ...${JSON.stringify(access.oauth)}, auth: ${oauthAuth}${oauthAuthorize ? `, authorize: ${oauthAuthorize}` : ""}, verify: vitehubVerifyConsoleJwt }`)
+  }
   if (access.authorize) {
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
     fields.push("authorize: vitehubConsoleAuthorize")

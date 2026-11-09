@@ -22,6 +22,7 @@ import type { ConsoleOAuthConfig } from "../src/console/runtime/server/bearer.ts
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
 import consoleMcpDiscoveryHandler from "../src/console/runtime/server/mcp-discovery.ts"
 import { requestEvent } from "./console-event.ts"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 
 const require = createRequire(import.meta.url)
 const fixtureKey = Symbol.for("test.console.mcp.middleware")
@@ -88,7 +89,7 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' wit
       authorize: () => sectionAllowed,
       check: guard.checkConsoleAccess,
       mode: "auth",
-      oauth: { auth: guard.createConsoleAuth, authorize: guard.authorizeConsoleBearer, path, resource },
+      oauth: { auth: guard.createConsoleAuth, authorize: guard.authorizeConsoleBearer, path, resource, verify: verifyConsoleJwt },
     })
     const handler = async (event: object) => await guard.default(event) ?? Reflect.apply(consoleMcpHandler, undefined, [event])
     const app = createApp()

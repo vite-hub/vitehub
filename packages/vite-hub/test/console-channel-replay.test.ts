@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 import { defineAgent } from "@vite-hub/agent"
-import { defineChannel } from "@vite-hub/agent/channels"
+import { channelAdapter } from "@vite-hub/agent/channels"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { defineCollection } from "@vite-hub/source"
 
@@ -34,7 +34,7 @@ function labeller() {
   })
   const agent = defineAgent({
     channels: {
-      mailbox: defineChannel("mailbox", {
+      mailbox: channelAdapter("mailbox", {
         history: { collection: history, key: message => message.id },
         message: { methods: { label: (_context, name: string) => label(name) } },
         messages: false,

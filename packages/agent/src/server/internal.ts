@@ -79,3 +79,4 @@ type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R08
 export function agentGeneratedRuntimeError(code: AgentGeneratedRuntimeErrorCode, message: string): Error {
   return agentDiagnostics[code]({ message })
 }
+export { agentChannelNames, namedChannelHosts, registerAgentChannels } from "../internal/named-channels.ts"
