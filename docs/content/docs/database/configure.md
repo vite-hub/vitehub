@@ -244,7 +244,7 @@ Several Node instances can start together on one Postgres database. Each one tak
 
 To see who holds or waits for the lock, query `pg_locks` where `locktype = 'advisory'`. `drizzle-kit migrate` does not take this lock, so do not run it while instances start.
 
-Definitions on one Postgres database share its migrations table. ViteHub asks each server which database it reaches (`current_database()`, the server start time and `system_identifier`), so a Unix socket, a TCP address and two URL spellings of one database count as one. Their migrations run in one transaction, in folder timestamp order, and each folder name runs once. As on a shared SQLite file, two Definitions must not have one folder name with different SQL, and a folder name that the database already applied must keep its SQL: startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
+Definitions on one Postgres database share its migrations table. ViteHub asks each server which database it reaches (`current_database()` and the server start time in Unix seconds), so a Unix socket, a TCP address, two URL spellings, another `TimeZone` and another role on one database count as one. If two groups still turn out to be one database, the second finds the lock held by the same process and joins the first instead of waiting. Their migrations run in one transaction, in folder timestamp order, and each folder name runs once. As on a shared SQLite file, two Definitions must not have one folder name with different SQL, and a folder name that the database already applied must keep its SQL: startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
 
 ### Several processes on SQLite
 

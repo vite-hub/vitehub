@@ -437,4 +437,37 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     ], { log: message => log.push(message) })
     expect(log).toEqual(['[vitehub] Database "first": applied a0.', '[vitehub] Database "second": applied b0.'])
   })
+
+  it("groups sessions with different TimeZone values and roles as one database, and does not wait for its own lock", { timeout: 30_000 }, async () => {
+    // A plain role that owns the test database, so it can create the ledger and tables, but cannot call pg_control_system().
+    const admin = connect(adminUrl!)
+    const role = `vitehub_plain_${randomUUID().replaceAll("-", "").slice(0, 8)}`
+    await admin.unsafe(`create role ${role} login password 'plain'`)
+    cleanups.push(() => admin.unsafe(`drop role if exists ${role}`))
+    const url = await createDatabase()
+    const name = new URL(url).pathname.slice(1)
+    await admin.unsafe(`alter database ${name} owner to ${role}`)
+    const owner = connect(url)
+    await owner.unsafe("revoke execute on function pg_control_system() from public")
+    const plainUrl = new URL(url)
+    plainUrl.username = role
+    plainUrl.password = "plain"
+
+    const utc = postgres(url, { connection: { TimeZone: "UTC" }, onnotice: () => {} })
+    const newYork = postgres(plainUrl.href, { connection: { TimeZone: "America/New_York" }, onnotice: () => {} })
+    cleanups.push(() => utc.end(), () => newYork.end())
+    // The sessions read the server start time differently, and only one of them can read the system identifier.
+    const [utcStart] = await utc`select pg_postmaster_start_time()::text as started`
+    const [newYorkStart] = await newYork`select pg_postmaster_start_time()::text as started`
+    expect(utcStart?.started).not.toBe(newYorkStart?.started)
+    await expect(newYork`select system_identifier from pg_control_system()`).rejects.toThrow(/permission denied/)
+
+    const entry = (tag: string, when: number, statement: string) => ({ dataLoss: [], hash: `hash-${tag}`, name: tag, statements: [statement], when })
+    const log: string[] = []
+    await migratePostgres([
+      { client: utc, database: { migrations: [entry("a0", 1_000, "CREATE TABLE a0 (id int)")], name: "first" } },
+      { client: newYork, database: { migrations: [entry("b0", 2_000, "CREATE TABLE b0 (id int)")], name: "second" } },
+    ], { log: message => log.push(message) })
+    expect(log).toEqual(['[vitehub] Database "first": applied a0.', '[vitehub] Database "second": applied b0.'])
+  })
 })
