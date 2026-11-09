@@ -151,6 +151,15 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  // The generated durability boot plugin of a Node server imports each primitive's reporter by file.
+  "@vite-hub/blob/durability",
+  "@vite-hub/database/durability",
+  "@vite-hub/kv/durability",
+  "@vite-hub/queue/durability",
+  "@vite-hub/rate-limit/durability",
+  "@vite-hub/realtime/durability",
+  "@vite-hub/schedule/durability",
+  "@vite-hub/workflow/durability",
   "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/registry",
@@ -346,6 +355,7 @@ describe("framework package contract", () => {
       ".",
       "./_internal/agent/invocations",
       "./_internal/database/runtime/state",
+      "./_internal/durability/operations",
       "./_internal/kv/runtime/disabled-upstash",
       "./_internal/task/operations",
       "./agent",

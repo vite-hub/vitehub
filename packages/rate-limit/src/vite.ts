@@ -1,4 +1,5 @@
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -18,6 +19,7 @@ import { inspectRateLimitDefinitions } from "./inspect.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
 
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -38,7 +40,7 @@ interface InternalRateLimitModuleOptions extends RateLimitModuleOptions {
 }
 
 export type RateLimitVitePluginOptions = RateLimitModuleOptions
-export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] } }
+export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 type RateLimitConfig = UserConfig | ResolvedConfig
 
 function cloneNitroConfig(value: unknown): Record<string, unknown> {
@@ -146,6 +148,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     // regardless of plugin registration order.
     enforce: "pre",
     vitehub: {
+      durability: () => [{ export: "rateLimitDurability", input: { provider }, module: durabilityModuleFile(import.meta.url) }],
       // The Console, `vitehub rate-limit`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "rateLimitOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).rateLimitOperations, module: "@vite-hub/rate-limit/operations" }],
       cli: async () => {

@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -28,6 +29,7 @@ import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.
 import { createDatabaseProvisionStep } from "./provision.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -82,7 +84,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & {
+  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & DurabilityPluginMetadata & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -435,6 +437,17 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       },
     },
     vitehub: {
+      durability: () => {
+        if (!runtimeConfig) return []
+        const databases = Object.values(runtimeConfig.databases).map(database => ({
+          dialect: database.dialect,
+          ...(database.cloudflare?.http ? { http: true } : {}),
+          name: database.name,
+          // Only SQLite needs the URL, to tell a local file from a remote libSQL server. A Postgres URL can hold a password.
+          ...(database.dialect === "sqlite" && database.connection?.url !== undefined ? { url: database.connection.url } : {}),
+        }))
+        return [{ export: "databaseDurability", input: { databases }, module: durabilityModuleFile(import.meta.url) }]
+      },
       cli: async () => {
         const db = resolvedOptions()
         if (db === false) return

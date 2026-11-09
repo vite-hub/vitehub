@@ -123,6 +123,7 @@ With `vite-hub` installed, import `vitehub()` from the root and app APIs from fe
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
 | `vite-hub/runtime` | Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
+| `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
@@ -245,6 +246,7 @@ You can install each package on its own. These paths are stable for libraries, s
 | `@vite-hub/realtime/server` and `@vite-hub/realtime/vue` | Realtime Package | Manual server integration and Vue collaborative editing. |
 | `@vite-hub/realtime/client` | Realtime Package | `connectRealtimeRoom()`, presence in one room without an editor or Vue. |
 | `@vite-hub/runtime` | Runtime Package | Runtime Host Context, capability handles, policy, approvals, traces, leases, and execution authority. |
+| `@vite-hub/runtime/durability` | Runtime Package | The `Durability` contract, the boot table, and the instance check. |
 | `@vite-hub/runtime/node` | Runtime Package | Node process and host resource observations. |
 | `@vite-hub/shell` | Shell Package | Command analysis and provider-neutral Shell runtime execution. |
 | `@vite-hub/shell/providers/just-bash` | Shell Package | Just Bash Shell provider. |

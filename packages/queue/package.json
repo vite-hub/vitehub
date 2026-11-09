@@ -36,6 +36,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./internal/runtime/cloudflare-client": {
       "types": "./dist/internal/runtime/cloudflare-client.d.ts",
       "import": "./dist/internal/runtime/cloudflare-client.js",

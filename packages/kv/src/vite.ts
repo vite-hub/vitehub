@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url"
 import { resolve } from "node:path"
 
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 
 import {
   KV_VIRTUAL_CONFIG_ID,
@@ -30,6 +31,7 @@ import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
 import type { KVResolutionInput } from "./config.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -62,7 +64,7 @@ export type KVVitePlugin = Plugin & {
     name: string
     setup: (nitro: { options: NitroCloudflareKVTarget }) => void
   }
-  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] }
+  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
 
 export function hubKvOptionalPeerResolver(): Plugin {
@@ -313,6 +315,12 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
       },
     },
     vitehub: {
+      durability: () => {
+        const kv = getConfig().kv
+        if (!kv) return []
+        const stores = Object.fromEntries(Object.entries({ default: kv.store, ...kv.stores }).map(([name, store]) => [name, { driver: store.driver, ...("base" in store && store.base ? { base: store.base } : {}) }]))
+        return [{ export: "kvDurability", input: { stores }, module: durabilityModuleFile(import.meta.url) }]
+      },
       inspect: () => {
         const build = resolveKVViteConfig(configuredOptions, { hosting: input.hosting }).kv
         const dev = resolveKVViteConfig(configuredOptions, { dev: true, env: viteEnv, hosting: input.hosting }).kv

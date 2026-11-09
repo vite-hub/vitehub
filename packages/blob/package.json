@@ -136,6 +136,11 @@
       "import": "./dist/drivers/vercel.js",
       "default": "./dist/drivers/vercel.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./ensure": {
       "types": "./dist/ensure.d.ts",
       "import": "./dist/ensure.js",

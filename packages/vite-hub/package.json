@@ -173,6 +173,11 @@
       "import": "./dist/_internal/database/runtime/state.js",
       "default": "./dist/_internal/database/runtime/state.js"
     },
+    "./_internal/durability/operations": {
+      "types": "./dist/_internal/durability/operations.d.ts",
+      "import": "./dist/_internal/durability/operations.js",
+      "default": "./dist/_internal/durability/operations.js"
+    },
     "./_internal/email/operations": {
       "types": "./dist/_internal/email/operations.d.ts",
       "import": "./dist/_internal/email/operations.js",
@@ -867,6 +872,11 @@
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
       "default": "./dist/runtime.js"
+    },
+    "./runtime/durability": {
+      "types": "./dist/runtime/durability.d.ts",
+      "import": "./dist/runtime/durability.js",
+      "default": "./dist/runtime/durability.js"
     },
     "./runtime/h3": {
       "types": "./dist/runtime/h3.d.ts",

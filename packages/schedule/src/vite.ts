@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -19,6 +20,7 @@ import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDe
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ScheduleCronOverrides, ScheduleTimeZoneCrons, ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -116,7 +118,7 @@ interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
 export interface ScheduleVitePlugin {
   name: string
   [hook: string]: unknown
-  vitehub?: ViteHubInspectionPluginMetadata & { operations?: readonly OperationContributionEntry[] }
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations?: readonly OperationContributionEntry[] }
 }
 
 type NitroConfig = Record<string, unknown> & {
@@ -970,6 +972,10 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
   }
   inspectable.vitehub = {
+    // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron.
+    durability: () => options.runtime?.driver === "process"
+      ? [{ export: "scheduleDurability", input: { driver: "process" }, module: durabilityModuleFile(import.meta.url) }]
+      : [],
     // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: "@vite-hub/schedule/operations" }],
     inspect: () => ({
@@ -982,6 +988,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         },
       }],
     }),
-  } satisfies ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] }
+  } satisfies ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
   return inspectable
 }

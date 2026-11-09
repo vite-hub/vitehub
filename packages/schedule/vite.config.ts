@@ -24,6 +24,7 @@ export default defineConfig({
     }],
     entry: [
       "src/definition.ts",
+      "src/durability.ts",
       "src/index.ts",
       "src/operations.ts",
       "src/runtime.ts",

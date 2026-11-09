@@ -1,4 +1,5 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -12,6 +13,7 @@ import { inspectQueueDefinitions, inspectQueueResources } from "./inspect.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions } from "./types.ts"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -24,6 +26,7 @@ export { inspectQueueDefinitions, type QueueInspectionOptions, queueConsoleSecti
 interface QueueProvisionContributingPlugin {
   vitehub?: {
     cli?: () => Promise<ViteHubCliContributor>
+    durability?: DurabilityPluginMetadata["durability"]
     inspect?: () => ViteHubInspectionContributor | undefined
     operations?: readonly OperationContributionEntry[]
     queue?: {
@@ -236,6 +239,12 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
   return {
     name: "@vite-hub/queue/vite",
     vitehub: {
+      durability: () => {
+        const resolvedQueue = nitroQueue === false ? undefined : normalizeQueueOptions(queue, { hosting })
+        if (!resolvedQueue?.provider) return []
+        const base = "base" in resolvedQueue && typeof resolvedQueue.base === "string" ? { base: resolvedQueue.base } : {}
+        return [{ export: "queueDurability", input: { provider: resolvedQueue.provider, ...base }, module: durabilityModuleFile(import.meta.url) }]
+      },
       // The Console, `vitehub queue`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: "@vite-hub/queue/operations" }],
       inspect: () => {

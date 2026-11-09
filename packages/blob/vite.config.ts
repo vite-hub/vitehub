@@ -69,6 +69,7 @@ export default defineConfig({
       "src/client.ts",
       "src/config.ts",
       "src/content-type.ts",
+      "src/durability.ts",
       "src/errors.ts",
       "src/ensure.ts",
       "src/storage.ts",

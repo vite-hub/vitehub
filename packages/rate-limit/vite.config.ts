@@ -11,6 +11,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/durability.ts",
       "src/index.ts",
       "src/cli.ts",
       "src/drivers/cloudflare.ts",

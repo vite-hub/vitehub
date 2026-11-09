@@ -18,6 +18,7 @@ export type {
   ViteHubCloudflareOptions,
   ViteHubConfig,
   ViteHubConnectionsOptions,
+  ViteHubNodeOptions,
   ViteHubOptions,
 } from "./plugins.ts"
 
