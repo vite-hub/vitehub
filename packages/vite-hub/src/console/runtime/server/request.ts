@@ -3,6 +3,7 @@ import { installRequestStandardContext } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
+import { consoleHttpError, type ConsoleHttpError } from "./http-error.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -67,8 +68,8 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
 }
 
 /** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
-export function consoleRequestError(statusCode: number, statusMessage: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(statusCode)): Error {
-  return Object.assign(consoleDiagnostic(code, statusMessage), { statusCode, statusMessage })
+export function consoleRequestError(status: number, message: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(status)): ConsoleHttpError {
+  return consoleHttpError(status, consoleDiagnostic(code, message))
 }
 
 /** A failure of a Console route or operation, as JSON: the Console diagnostic fields, `ok: false`, and the status. */

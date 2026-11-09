@@ -4468,13 +4468,6 @@ describe("Agent invocation console", () => {
       const applyToEnvironment = plugin.applyToEnvironment as NonNullable<typeof plugin.applyToEnvironment>
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with a focused fake context.
       const buildStart = plugin.buildStart as unknown as (this: typeof context) => Promise<void>
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with a focused fake context.
-      const resolveId = plugin.resolveId as unknown as (
-        this: object,
-        source: string,
-        importer: string | undefined,
-        options: { isEntry: boolean },
-      ) => Promise<{ external?: boolean, id: string } | undefined>
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with focused arguments.
       const transform = plugin.transform as unknown as (
         code: string,
@@ -4492,7 +4485,7 @@ describe("Agent invocation console", () => {
       // SAFETY: The focused test inputs provide the only environment field read by the predicate.
       expect(await applyToEnvironment({ config: { consumer: "client" } } as never)).toBe(false)
       await Reflect.apply(buildStart, context, [])
-      const resolved = await Reflect.apply(resolveId, context, ["vite-hub/agent", "/app/server/example.agent.ts", { isEntry: false }])
+      const resolved = await callPluginHook(plugin.resolveId, context, ["vite-hub/agent", "/app/server/example.agent.ts", { isEntry: false }])
       const code = await transform("globalThis.agentModuleEvaluated = true", resolvedAgentEntry)
       expect(context.resolve).toHaveBeenCalledWith("vite-hub/agent", undefined, { skipSelf: true })
       expect(context.resolve).toHaveBeenCalledWith("vite-hub/agent", "/app/server/example.agent.ts", { isEntry: false, skipSelf: true })

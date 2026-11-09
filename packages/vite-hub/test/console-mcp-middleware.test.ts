@@ -20,6 +20,7 @@ import type { ConsoleOAuthConfig } from "../src/console/runtime/server/bearer.ts
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
 import consoleMcpDiscoveryHandler from "../src/console/runtime/server/mcp-discovery.ts"
 import { requestEvent } from "./console-event.ts"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 
 import type { H3Event } from "h3"
 
@@ -88,7 +89,7 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' as 
       authorize: () => sectionAllowed,
       check: guard.checkConsoleAccess,
       mode: "auth",
-      oauth: { auth: guard.createConsoleAuth, authorize: guard.authorizeConsoleBearer, path, resource },
+      oauth: { auth: guard.createConsoleAuth, authorize: guard.authorizeConsoleBearer, path, resource, verify: verifyConsoleJwt },
     })
     // As in Nitro 3: the H3 middleware gets the event, and the Fetchable MCP route gets its Request.
     const handler = async (event: H3Event) => await guard.default(event) ?? consoleMcpHandler.fetch(event.req)

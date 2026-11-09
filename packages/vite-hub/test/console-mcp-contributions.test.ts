@@ -17,6 +17,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 import { requestEvent } from "./console-event.ts"
 import type { NitroEventHandler } from "nitro/types"
+import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const calls: Array<{ input: Record<string, unknown>, user: unknown }> = []
@@ -103,7 +104,7 @@ describe("MCP owner contributions", () => {
     const route = `/.well-known/${name}`
     const application = { route, handler: "/app/metadata.js", method: "get" }
     const config: { handlers: typeof application[]; plugins?: string[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
-    installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
+    installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", verify: verifyConsoleJwt, auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
     for (const base of ["/", "/portal/"]) {
       addConsoleRpcHandler(config, "/runtime", base, [], true)
       expect(config.handlers).toContainEqual(application)

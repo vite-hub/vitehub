@@ -79,7 +79,7 @@ describe("Fetchable Console routes", () => {
     await expect(ok.json()).resolves.toEqual({ agents: [], observability: null })
     const invalid = await app.fetch(new Request(`http://app.test/portal/api/_vitehub/console/status?agent=${"a".repeat(600)}`))
     expect(invalid.status).toBe(400)
-    await expect(invalid.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", message: "Invalid Agent name.", status: 400 })
+    await expect(invalid.json()).resolves.toMatchObject({ code: "VITE_HUB_R0113", message: "Invalid Agent name.", status: 400 })
     installConsoleAccess({ mode: "open", authorize: () => false })
     const denied = await app.fetch(new Request("http://app.test/portal/api/_vitehub/console/status"))
     expect(denied.status).toBe(403)

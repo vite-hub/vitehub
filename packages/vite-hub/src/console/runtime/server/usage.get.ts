@@ -2,6 +2,7 @@ import { getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts";
 import { getConsoleInvocations, getConsoleUsageIndex } from "./invocations.ts";
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
 import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
+import { consoleHttpError } from "./http-error.ts";
 import { createUsageSummary, parseConsoleUsageStatus, parseConsoleUsageWindow } from "./usage.ts";
 
 import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
@@ -49,36 +50,21 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
   const query = consoleRequestURL(event).searchParams;
   const agentName = query.get("agent")?.trim() || undefined;
   if (agentName && agentName.length > 512) {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0070({ message: "Invalid Agent name" }), {
-      statusCode: 400,
-      statusMessage: "Invalid Agent name",
-    });
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0070({ message: "Invalid Agent name" }));
   }
   const windowValue = query.get("window");
   const window = windowValue === null ? "30d" : parseConsoleUsageWindow(windowValue);
   if (!window) {
-    throw Object.assign(
-      viteHubErrorDiagnostics.VITE_HUB_R0071({ message: "Invalid usage window" }),
-      {
-        statusCode: 400,
-        statusMessage: "Invalid usage window",
-      },
-    );
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0071({ message: "Invalid usage window" }));
   }
   const statusValue = query.get("status");
   const status = statusValue === null ? undefined : parseConsoleUsageStatus(statusValue);
   if (statusValue !== null && !status) {
-    throw Object.assign(
-      viteHubErrorDiagnostics.VITE_HUB_R0072({ message: "Invalid usage status" }),
-      { statusCode: 400, statusMessage: "Invalid usage status" },
-    );
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0072({ message: "Invalid usage status" }));
   }
   const search = query.get("search")?.trim() || undefined;
   if (search && search.length > 512) {
-    throw Object.assign(
-      viteHubErrorDiagnostics.VITE_HUB_R0072({ message: "Invalid usage search" }),
-      { statusCode: 400, statusMessage: "Invalid usage search" },
-    );
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0072({ message: "Invalid usage search" }));
   }
   const cursor = query.get("cursor") ?? undefined;
   const invocations = getConsoleInvocations();

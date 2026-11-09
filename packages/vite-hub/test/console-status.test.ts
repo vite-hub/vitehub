@@ -56,10 +56,10 @@ describe("Console status", () => {
     const app = new H3({ onError }).get("/_vitehub/api/status", statusRoute)
     const invalidResponse = await app.request(`/_vitehub/api/status?agent=${invalid}`)
     expect(invalidResponse.status).toBe(400)
-    await expect(invalidResponse.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", ok: false, status: 400, message: "Invalid Agent name." })
+    await expect(invalidResponse.json()).resolves.toMatchObject({ code: "VITE_HUB_R0113", ok: false, status: 400, message: "Invalid Agent name." })
     const unavailableResponse = await app.request("/_vitehub/api/status?agent=missing")
     expect(unavailableResponse.status).toBe(404)
-    await expect(unavailableResponse.json()).resolves.toMatchObject({ code: "CONSOLE_NOT_FOUND", ok: false, status: 404, message: "Agent status is unavailable." })
+    await expect(unavailableResponse.json()).resolves.toMatchObject({ code: "VITE_HUB_R0114", ok: false, status: 404, message: "Agent status is unavailable." })
   })
 
   it("reports the observability exporter and papercut backlog", async () => {
