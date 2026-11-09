@@ -524,6 +524,8 @@ export async function bundleEsmEntry(
     format,
     // Syntax and identifier minification can change function and class names.
     keepNames: options.minifySyntax || options.minifyIdentifiers,
+    // A WASM import becomes its bytes. Packages such as @vite-hub/shell compile them where the host allows it.
+    loader: { ".wasm": "binary" },
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
     resolveExtensions: options.extensions,

@@ -7,6 +7,7 @@ type ShellParser = (text: string, options?: ShOptions) => Promise<File>
 // The package compiles without the DOM lib, so declare the WebAssembly API that this module uses.
 declare const WebAssembly: {
   Module: abstract new (...args: never[]) => object
+  compile(bytes: Uint8Array): Promise<object>
   instantiate(module: object, imports: object): Promise<object>
 }
 
@@ -26,7 +27,7 @@ async function loadParser(): Promise<ShellParser> {
     return shSyntax.parse
   }
   // A bundled sh-syntax can't find main.wasm on disk, and Workers can't compile WebAssembly from bytes.
-  // Nitro bundles this import as a compiled module instead.
+  // Nitro bundles this import as a compiled module, and esbuild as bytes.
   const processor = shSyntax.getProcessor(imports => WebAssembly.instantiate(wasm, imports))
   return (text, options) => processor(text, options)
 }
@@ -34,7 +35,8 @@ async function loadParser(): Promise<ShellParser> {
 async function bundledWasmModule(): Promise<object | undefined> {
   try {
     const wasm = await (await import("sh-syntax/main.wasm?module")).default
-    // Vite's dev server serves the file as an asset URL, not a module.
+    // esbuild bundles the file as bytes. Vite's dev server serves it as an asset URL, which is neither.
+    if (wasm instanceof Uint8Array) return await WebAssembly.compile(wasm)
     return wasm instanceof WebAssembly.Module ? wasm : undefined
   }
   catch {
