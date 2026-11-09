@@ -1263,8 +1263,6 @@ function createCloudflareOutput(
         "workflow",
         "workflow/api",
         "workflow/runtime",
-        // Nitro and Wrangler load these imports as compiled WebAssembly modules. esbuild has no loader for them.
-        "*.wasm?module",
       ],
       format: "esm",
       platform: "neutral",
