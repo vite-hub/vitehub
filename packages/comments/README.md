@@ -53,7 +53,7 @@ Custom `identify` names the user of every surface, and `authorize` decides; Comm
 
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
-Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
+Press `C` and click the page to start a thread, or press `B` to highlight part of the page and comment with a picture of it. Press `E` to edit text that `contentField()` marks:
 
 ```vue
 <script setup lang="ts">

@@ -3,6 +3,7 @@
 // has no layout, so these checks need a real browser.
 // Run: pnpm --filter @vite-hub/comments test:browser
 import assert from "node:assert/strict"
+import { mkdir, writeFile } from "node:fs/promises"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
@@ -11,19 +12,28 @@ import { createServer } from "vite"
 import { overlayAliases, standaloneUI } from "../../overlay.aliases.ts"
 
 const port = Number(process.env.COMMENTS_BROWSER_PORT ?? 4797)
+/** A folder for screenshots of the flows, for pull request evidence. */
+const evidence = process.env.COMMENTS_BROWSER_EVIDENCE
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 
 /** Serves `/api/_vitehub/comments/**` from the real handler, with one signed-in person. */
 function commentsApi() {
   let comments
+  const files = new Map()
   return {
     name: "comments-api",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (!req.url.startsWith("/api/_vitehub/comments/")) return next()
         const [{ createComments }, { createCommentsHandler }, { H3 }] = await Promise.all([server.ssrLoadModule(harness), server.ssrLoadModule(handlerFile), import("h3")])
-        comments ??= await createComments()
+        comments ??= await createComments({
+          storeAttachment: (file) => {
+            files.set(`files/${file.name}`, file)
+            return `files/${file.name}`
+          },
+          readAttachment: key => files.has(key) ? new Blob([files.get(key).data], { type: files.get(key).type }) : null,
+        })
         const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: () => ({ id: "u1", name: "Maxi" }) }))
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
@@ -33,6 +43,7 @@ function commentsApi() {
       })
     },
     threads: async () => (await comments.list())[1],
+    files,
   }
 }
 
@@ -250,6 +261,58 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const low = await pins.evaluateAll(elements => elements.map(pin => pin.getBoundingClientRect().bottom))
     await page.setViewportSize({ width: 1024, height: 720 })
     assert.ok(low.every(bottom => bottom <= height), `pins end at ${low} in a ${height}px screen`)
+  })
+
+  await t.test("highlights the page and comments with a picture of the strokes", async () => {
+    await page.evaluate(() => getSelection().removeAllRanges())
+    await page.mouse.click(900, 600)
+    await page.keyboard.press("b")
+    const layer = page.locator("vitehub-marker .layer")
+    await layer.waitFor({ timeout: 5000 })
+    // The page under the layer takes no click while highlighting.
+    assert.equal(await page.evaluate(() => document.elementFromPoint(300, 200)?.localName), "vitehub-marker")
+    const line = await page.evaluate(() => {
+      const box = document.querySelector("#second").getBoundingClientRect()
+      return { left: box.left + 4, right: box.left + 300, y: box.top + 14 }
+    })
+    // A stroke can start on an earlier comment's area or pin.
+    assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.localName, { x: line.left, y: line.y }), "vitehub-marker")
+    await drag(page, { x: line.left, y: line.y }, { x: line.right, y: line.y })
+    if (evidence) await page.screenshot({ path: `${evidence}/highlight-drawing.png` })
+    await page.locator("vitehub-tool button", { hasText: "Done" }).click()
+    await composer.waitFor({ timeout: 10000 })
+    await page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='attachment']").waitFor({ timeout: 5000 })
+    // The strokes stay where they were drawn while the comment is written, and the page takes clicks again.
+    assert.equal(await layer.evaluate(element => element.hasAttribute("data-frozen")), true)
+    await composer.fill("This flight is wrong")
+    if (evidence) await page.screenshot({ path: `${evidence}/highlight-comment.png` })
+    await composer.press("Enter")
+    await composer.waitFor({ state: "detached", timeout: 10000 })
+    await page.locator("vitehub-marker").waitFor({ state: "detached", timeout: 5000 })
+    const thread = (await api.threads()).find(item => item.messages[0].body === "This flight is wrong")
+    assert.equal(thread.anchor.kind, "area")
+    const [key] = thread.messages[0].attachments
+    const file = api.files.get(key)
+    assert.equal(file.type, "image/webp")
+    if (evidence) await writeFile(`${evidence}/highlight-picture.webp`, file.data)
+    // The picture is the screen, with the yellow ink on the highlighted line and the page's white elsewhere.
+    const picture = await page.evaluate(async ({ bytes, at }) => {
+      const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/webp" }))
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const context = canvas.getContext("2d")
+      context.drawImage(bitmap, 0, 0)
+      const row = (y, from, to) => context.getImageData(from, y, to - from, 1).data
+      // Yellow ink over the white page, between the letters: much more red and green than blue.
+      const yellow = (data) => {
+        let count = 0
+        for (let index = 0; index < data.length; index += 4) if (data[index] > 200 && data[index + 1] > 170 && data[index + 2] < 200) count++
+        return count
+      }
+      return { width: bitmap.width, height: bitmap.height, ink: yellow(row(at.y, at.left, at.right)), blank: yellow(row(at.y + 120, at.left, at.right)) }
+    }, { bytes: [...file.data], at: { left: Math.round(line.left), right: Math.round(line.right), y: Math.round(line.y) } })
+    assert.deepEqual([picture.width, picture.height], [1024, 720])
+    assert.ok(picture.ink > 60, `${picture.ink} yellow pixels on the highlighted line`)
+    assert.equal(picture.blank, 0)
   })
 
   await t.test("a tap on the Comment bar comments on the selected text", async () => {

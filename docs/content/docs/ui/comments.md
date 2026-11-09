@@ -114,6 +114,7 @@ const comments = useComments({ client, subject: { kind: "page", id: "/pricing" }
 comments.pageThreads.value; // The threads of this page, after the filters.
 comments.toggle(); // Comment mode.
 comments.startDraft({ x: 120, y: 80 }); // Start a comment on a point.
+comments.startDraft(element, { area, files: [screenshot] }); // Start one on an area, with a file in its box.
 await comments.create({ body: "Looks good" }); // A comment on the whole page.
 comments.people.value; // The people that the state knows, for mention names.
 ```
