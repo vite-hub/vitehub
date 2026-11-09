@@ -32,11 +32,14 @@ export function operationCell(item: unknown, column: ConsoleOperationColumn): st
 
 // The page rule of @vite-hub/comments: an app path with no second slash or backslash, whitespace, `?`, or `#`.
 const pagePath = /^\/(?![/\\])[^\s\\?#]*$/
+// An app URL that a server already serialized, such as `/pricing?plan=pro`: one leading slash, no whitespace or `#`.
+const pageHref = /^\/(?![/\\])[^\s\\#]*$/
 
 /**
  * The link of one row, or undefined when the view has none, the row does not match `when`, or a value is missing.
  * `{path}` fills a value with `encodeURIComponent`. `{path:path}` fills an app path: each segment is encoded, and a value
- * that is not an app path, such as `//evil.com/x`, gives no link.
+ * that is not an app path, such as `//evil.com/x`, gives no link. `{page:href}` fills an app URL that is already encoded,
+ * with its query, as it is.
  */
 export function operationLink(item: unknown, view: ConsoleOperationView): string | undefined {
   const link = view.link
@@ -44,13 +47,19 @@ export function operationLink(item: unknown, view: ConsoleOperationView): string
   if (link.when && operationValue(item, link.when.path) !== link.when.equals) return undefined
   let complete = true
   const href = link.template.replaceAll(/\{([^}]+)\}/g, (_match, name: string) => {
+    const asHref = name.endsWith(":href")
     const asPath = name.endsWith(":path")
-    const value = operationValue(item, asPath ? name.slice(0, -":path".length) : name)
+    const value = operationValue(item, asPath || asHref ? name.slice(0, name.lastIndexOf(":")) : name)
     if (value === undefined || value === null) {
       complete = false
       return ""
     }
     const text = String(value)
+    if (asHref) {
+      if (pageHref.test(text)) return text
+      complete = false
+      return ""
+    }
     if (!asPath) return encodeURIComponent(text)
     if (!pagePath.test(text)) {
       complete = false

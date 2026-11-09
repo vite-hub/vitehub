@@ -25,7 +25,7 @@ export default {
 For each `POST`, `handleFormRequest()`:
 
 1. Accepts JSON, URL-encoded, and multipart bodies. It answers 415 for other bodies.
-2. Answers 403 when the `Origin` is not the app's origin or one of `origins`.
+2. Answers 403 when the `Origin` is not the app's origin or one of `origins`. Behind a proxy that ends TLS, the app's origin comes from `X-Forwarded-Proto` and `X-Forwarded-Host`. `origins` is for HTML forms on other sites: the route sends no CORS headers, so `fetch` works only from the app's own origin.
 3. Checks `authorize` with the user that `identify` returns. It answers 401 or 403.
 4. Asks `rateLimit` with the key `form:<name>`. The default policy is 5 a minute. It answers 429 with `retry-after`.
 5. Answers 413 above `maxBytes`, 64 KB by default.

@@ -88,7 +88,10 @@ export interface DefineFormOptions<TSchema extends StandardSchemaV1> {
   honeypot?: string | false
   /** Largest body in bytes. Default 64 KB. */
   maxBytes?: number
-  /** Other origins that may post, such as `https://example.com`. The app's own origin may always post. */
+  /**
+   * Other origins that may post an HTML form, such as `https://example.com`. The app's own origin may always post. The
+   * route sends no CORS headers, so `submitForm()` and other `fetch` calls work only from the app's own origin.
+   */
   origins?: readonly string[]
   /** Keep submissions in the Database, for the Console inbox. Default `true`. */
   store?: boolean
