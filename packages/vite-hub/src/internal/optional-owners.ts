@@ -61,7 +61,7 @@ export const optionalFeaturePackages = {
   // The Agent Invocation components of `vite-hub/console/ui`.
   "console ui": ["@vite-hub/ui", "@json-render/core", "@json-render/vue", "@vueuse/core"],
   "content": ["@vite-hub/content"],
-  // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
+  // `vitehub db generate` and `vitehub db migrate` also need `drizzle-kit`, which setup adds as a development dependency.
   "database": features.database.packages,
   "decisions": ["@vite-hub/decisions"],
   "email": features.email.packages,
