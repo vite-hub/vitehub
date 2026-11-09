@@ -28,6 +28,13 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
+`sqlite()` from `@vite-hub/content/sqlite` is an in-memory database for index
+plugins such as `sqlite-full-text-search`. It uses Node SQLite on Node and
+SQLite WASM on Cloudflare Workers, where the `workerd` export condition selects
+it. When `server/content.ts` imports it, the generated
+`.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
+because a Worker compiles WebAssembly only then.
+
 ```ts
 import knap from "comark-knap"
 

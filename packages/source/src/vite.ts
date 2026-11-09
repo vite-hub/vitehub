@@ -31,6 +31,7 @@ const contentPreviewEntry = ".vitehub/content/preview.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
 const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
+const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 // Auth owns this virtual module. Generated routes import it only when Auth is enabled.
 const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
@@ -141,6 +142,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentSqliteEntry,
   ]
   for (const entry of fixedEntries) {
     const path = resolve(projectRoot, entry)
@@ -175,6 +177,7 @@ async function restoreGeneratedSourceArtifacts(
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentSqliteEntry,
   ]) {
     const path = resolve(projectRoot, entry)
     if (!snapshot.files.has(path)) await rm(path, { force: true })
@@ -998,6 +1001,8 @@ export interface ContentEntryFeatures {
   markdown: boolean
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
+  /** The module imports `sqlite` from `vite-hub/content/sqlite`, so SQLite WASM must load when a Worker starts. */
+  sqlite: boolean
 }
 
 type AstNode = Record<string, unknown> & { type?: unknown }
@@ -1033,7 +1038,18 @@ function unwrapAst(node: unknown): unknown {
  * `sitemap`, `robots`, or `markdown` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
-  const maybe: ContentEntryFeatures = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
+  return { ...inspectContentOptions(program, contentImportBase), sqlite: importsContentSqlite(program, contentImportBase) }
+}
+
+function importsContentSqlite(program: unknown, contentImportBase?: string): boolean {
+  const bases = contentImportBase ? new Set([...contentModules, contentImportBase]) : contentModules
+  const modules = new Set([...bases].map(base => `${base}/sqlite`))
+  return (isAstNode(program) ? astNodes(program.body) : [])
+    .some(statement => statement.type === "ImportDeclaration" && isAstNode(statement.source) && modules.has(String(statement.source.value)))
+}
+
+function inspectContentOptions(program: unknown, contentImportBase?: string): Omit<ContentEntryFeatures, "sqlite"> {
+  const maybe: Omit<ContentEntryFeatures, "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -1113,7 +1129,7 @@ export function inspectContentModule(program: unknown, contentImportBase?: strin
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
-  const features: ContentEntryFeatures = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  const features: Omit<ContentEntryFeatures, "sqlite"> = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
@@ -1139,7 +1155,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
+    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true, sqlite: false }
   }
 }
 
@@ -1152,8 +1168,9 @@ async function writeContentArtifact(
   const sitemap = resolve(options.projectRoot, contentSitemapEntry)
   const robots = resolve(options.projectRoot, contentRobotsEntry)
   const markdown = resolve(options.projectRoot, contentMarkdownEntry)
+  const sqlite = resolve(options.projectRoot, contentSqliteEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, sqlite].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -1181,6 +1198,19 @@ async function writeContentArtifact(
     handlers.push({ handler: preview, plugin: true })
   }
   else await rm(preview, { force: true })
+  // A Nitro plugin: loads `vite-hub/content/sqlite` while the server starts. Content loads on its first request, and a
+  // Cloudflare Worker compiles WebAssembly only while it starts, which SQLite WASM needs. On Node it loads Node SQLite.
+  if (features.sqlite) {
+    await writeFileIfChanged(sqlite, [
+      `import { sqlite } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/sqlite`)}`,
+      "",
+      "// Returning the import keeps it in the bundle. A bare import is dropped, because the packages have no side effects.",
+      "export default () => sqlite",
+      "",
+    ].join("\n"))
+    handlers.push({ handler: sqlite, plugin: true })
+  }
+  else await rm(sqlite, { force: true })
   if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
   // `defineContent({ seo: { sitemap, robots, markdown } })` adds the site-wide SEO routes. Markdown copies sit at
   // every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware.

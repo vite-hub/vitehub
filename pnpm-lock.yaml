@@ -1700,6 +1700,9 @@ importers:
       '@comark/html':
         specifier: catalog:markdown-ui
         version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
+      '@sqlite.org/sqlite-wasm':
+        specifier: catalog:database
+        version: 3.53.0-build1
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0

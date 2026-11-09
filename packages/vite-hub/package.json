@@ -668,6 +668,11 @@
       "import": "./dist/content/realtime.js",
       "default": "./dist/content/realtime.js"
     },
+    "./content/sqlite": {
+      "types": "./dist/content/sqlite.d.ts",
+      "import": "./dist/content/sqlite.js",
+      "default": "./dist/content/sqlite.js"
+    },
     "./database": {
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
