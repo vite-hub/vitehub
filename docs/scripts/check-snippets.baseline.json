@@ -105,11 +105,6 @@
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/browser/get-started.md#0c2f133847d3",
-    "label": "server/api/page-html.post.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"page-html\", input: { url: string; }): Promise<Response>', gave the following error.\n    Argument of type '{ url: string; } | undefined' is not assignable to parameter of type '{ url: string; }'.\n      Type 'undefined' is not assignable to type '{ url: string; }'.\n  Overload 2 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/browser/index.md#d1cad0398d09",
     "label": "server/api/page-html.post.ts",
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"page-html\", input: { url: string; }): Promise<Response>', gave the following error.\n    Argument of type '{ url: string; } | undefined' is not assignable to parameter of type '{ url: string; }'.\n      Type 'undefined' is not assignable to type '{ url: string; }'.\n  Overload 2 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'."
@@ -165,14 +160,9 @@
     "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/connections/get-started.md#1f150bc56477",
+    "id": "docs/content/docs/connections/get-started.md#4744d64a62e0",
     "label": "server/connections/google.ts",
-    "error": "TS2322 Type 'false' is not assignable to type 'true | \"approve\" | readonly ConnectionActionPattern<GoogleApis>[] | undefined'.\nTS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#470146cec573",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"google\", options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<GoogleApis, { ...; }, false>', gave the following error.\n    Object literal may only specify known properties, and 'event' does not exist in type 'Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
@@ -345,11 +335,6 @@
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/logs/get-started.md#b7725026293a",
-    "label": "vite.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
     "id": "docs/content/docs/queue/index.md#616f2aae6e84",
     "label": "server/api/signup.post.ts",
     "error": "TS2339 Property 'email' does not exist on type '{ email: string; } | undefined'."
@@ -483,11 +468,6 @@
     "id": "docs/content/docs/workspace/configure.md#c197ab50d2c5",
     "label": null,
     "error": "TS2304 Cannot find name 'github'.\nTS2347 Untyped function calls may not accept type arguments.\nTS7031 Binding element 'channel' implicitly has an 'any' type.\nTS7031 Binding element 'invocation' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/workspace/get-started.md#4123330084f5",
-    "label": "server/api/drafts.post.ts",
-    "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
     "id": "packages/agent/README.md#e0e7838a305c",
