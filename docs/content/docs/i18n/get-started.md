@@ -24,8 +24,37 @@ pnpm add -D @vitejs/plugin-vue
 ::tutorial-step{title="Enable i18n"}
 ## Enable i18n
 
-Add `i18n` to the `vitehub()` options in `vite.config.ts`, and add the Vue plugin. Keep your other plugins and options.
+Add `i18n` to the ViteHub options. In a Vite app, also add the Vue plugin. Keep your other plugins and options.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { preset: "node", i18n: { locales: ["en", "es"] } },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [
+    vue(),
+    vitehub({ preset: "node", i18n: { locales: ["en", "es"] } }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
@@ -39,6 +68,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 The first locale is the **source locale**. It is the language that you write in the code. Here it is English. Every other locale is a translation.
 

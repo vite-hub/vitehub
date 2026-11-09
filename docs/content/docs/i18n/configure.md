@@ -10,8 +10,36 @@ ViteHub uses [Lingui](https://lingui.dev) to extract and compile the messages. Y
 
 ## Choose the locales
 
-Set `i18n.locales` in `vitehub()`. The first locale is the source locale: the language that you write in the code.
+Set `i18n.locales` in the ViteHub options. The first locale is the source locale: the language that you write in the code.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({ preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
@@ -24,6 +52,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -72,17 +102,7 @@ const { locale, locales, setLocale } = useLocale()
 
 ## Use i18n in Nuxt 5
 
-Add `i18n` to the options of the `vite-hub/nuxt` module:
-
-```ts [nuxt.config.ts]
-import viteHubNuxt from "vite-hub/nuxt"
-
-export default defineNuxtConfig({
-  modules: [
-    [viteHubNuxt, { preset: "node", i18n: { locales: ["en", "es"] } }],
-  ],
-})
-```
+Select the Nuxt tab in [Choose the locales](#choose-the-locales) and add `i18n` to the options of the `vite-hub/nuxt` module.
 
 The module installs the Vue plugin for you, so you do not call `createI18n()`. The server renders each page in the locale of the request. The page then loads in the browser in the same locale, so the HTML does not change after load. The module also sets `<html lang>` and auto-imports `useLocale()`.
 
