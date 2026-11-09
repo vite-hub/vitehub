@@ -180,12 +180,15 @@ a {
  * one 2px blue ring.
  *
  * Every element keeps the focus color as its outline color, also without focus. Then `transition-colors` has no color
- * change to animate, and the ring appears at once.
+ * change to animate, and the ring appears at once. The rule sits in the `base` layer, so an outline that a component
+ * draws on purpose, such as a 1px image outline, keeps its own color.
  */
-*,
-::before,
-::after {
-  outline-color: var(--vh-focus);
+@layer base {
+  *,
+  ::before,
+  ::after {
+    outline-color: var(--vh-focus);
+  }
 }
 
 :focus-visible {
