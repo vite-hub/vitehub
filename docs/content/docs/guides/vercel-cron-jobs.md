@@ -19,6 +19,29 @@ ViteHub writes the cron path, the cron entry, and the function that runs your ha
 
 ### Enable Schedule with the Vercel preset
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', schedule: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', schedule: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -27,6 +50,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', schedule: true })],
 })
 ```
+:::
+::
 
 The `vercel` preset writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for every option.
 

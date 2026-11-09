@@ -145,6 +145,50 @@ folder `eval.*` files. The `vitehub agent eval` command is available only when
 at least one Eval file exists. Set defaults for every run under
 `vitehub({ agent: { eval } })`:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: {
+      eval: {
+        cache: true,
+        maxConcurrency: 2,
+        scoreThreshold: 85,
+        testTimeout: 60_000,
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      agent: {
+        eval: {
+          cache: true,
+          maxConcurrency: 2,
+          scoreThreshold: 85,
+          testTimeout: 60_000,
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -164,6 +208,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Use these flags for one run: `--watch`, `--threshold <score>`,
 `--output <path>`, `--hide-table`, and `--no-cache`. A CLI flag overrides the
