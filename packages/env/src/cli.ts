@@ -134,14 +134,24 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
     const modulePath = viteHubEnvServerModulePath(selectedRoot)
     // Nuxt 5 gives `ssr` to Nitro, whose environment does not run modules in the Vite process.
     const ssr = server.environments.ssr
-    const generated = !ssr || vite.isRunnableDevEnvironment(ssr)
-      ? await server.ssrLoadModule(pathToFileURL(modulePath).href)
-      : (await vite.runnerImport<Record<string, unknown>>(modulePath, { configFile: false, logLevel: "silent", root: server.config.root })).module
-    const inspect: unknown = generated.inspectServerEnv
-    if (!v.is(v.function(), inspect)) throw envErrorDiagnostics.ENV_R0027({ message: `[vitehub] The generated Server Env module does not export inspectServerEnv(): ${modulePath}` })
-    const inspection: unknown = await inspect()
-    if (!isInspection(inspection)) throw envErrorDiagnostics.ENV_R0028({ message: "[vitehub] inspectServerEnv() returned an invalid result." })
-    return inspection
+    // Reuse its resolved configuration so providers retain stage aliases and plugin transforms.
+    const runnable = ssr && !vite.isRunnableDevEnvironment(ssr)
+      ? vite.createRunnableDevEnvironment("ssr", server.config, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
+      : undefined
+    try {
+      await runnable?.init()
+      const generated = runnable
+        ? await runnable.runner.import<Record<string, unknown>>(modulePath)
+        : await server.ssrLoadModule(pathToFileURL(modulePath).href)
+      const inspect: unknown = generated.inspectServerEnv
+      if (!v.is(v.function(), inspect)) throw envErrorDiagnostics.ENV_R0027({ message: `[vitehub] The generated Server Env module does not export inspectServerEnv(): ${modulePath}` })
+      const inspection: unknown = await inspect()
+      if (!isInspection(inspection)) throw envErrorDiagnostics.ENV_R0028({ message: "[vitehub] inspectServerEnv() returned an invalid result." })
+      return inspection
+    }
+    finally {
+      await runnable?.close()
+    }
   })
 }
 
