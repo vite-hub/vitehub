@@ -109,6 +109,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/cms": true,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
+  // Static Console files that Nitro serves. Generated server code never imports them.
+  "@vite-hub/console-client": false,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,
@@ -1116,6 +1118,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["browser", options.browser],
     ["channels", options.channels],
     ["comments", options.comments],
+    ["console", configuredConsole],
     ["console agents", configuredConsole && options.agent],
     ["console mcp-client", isConsoleMcpClientEnabled(configuredConsole)],
     ["console sign-in", consoleSignIn],

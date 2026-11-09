@@ -1,5 +1,3 @@
-import { readdirSync } from "node:fs";
-import { resolve } from "node:path";
 
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
@@ -139,18 +137,8 @@ const runtimeEntries = [
   "src/console/runtime/server/status.get.ts",
 ];
 
-const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
 const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
-
-function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
-  const matches = readdirSync(consoleAssetRoot)
-    .filter(file => file.startsWith(prefix) && file.endsWith(extension));
-  if (matches.length !== 1) {
-    throw new TypeError(`Expected one hashed Console ${prefix}*${extension} asset, found ${matches.length}.`);
-  }
-  return matches[0]!;
-}
 
 export default defineConfig({
   pack: [
@@ -161,7 +149,6 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
-        { from: ".vitehub/console", to: "dist/console/runtime/public" },
         { from: ".vitehub/skills", to: "dist/console/runtime/public" },
         { from: ".vitehub/comments-overlay", to: "dist" },
         {
@@ -439,25 +426,6 @@ export default defineConfig({
       // Root declarations are emitted separately so feature exports cannot pull optional types into them.
       dts: { entry: runtimeEntries.filter(entry => !["src/index.ts", "src/nuxt.ts"].includes(entry)) },
       plugins: [
-        {
-          name: "vite-hub-console-assets",
-          generateBundle(_options, bundle) {
-            const page = Object.values(bundle).find(output =>
-              output.type === "chunk"
-              && output.facadeModuleId?.replaceAll("\\", "/").endsWith("/src/console/runtime/server/page.get.ts")
-            );
-            if (!page || page.type !== "chunk") {
-              throw new TypeError("Expected the standalone Console page in the package bundle.");
-            }
-            page.code = page.code
-              .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset("console-", ".css"))
-              .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset("console-", ".js"));
-            const tool = consoleAsset("page-tool-", ".js");
-            for (const output of Object.values(bundle)) {
-              if (output.type === "chunk") output.code = output.code.replaceAll("__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__", tool);
-            }
-          },
-        },
         {
           name: "vite-hub-env-config-declarations",
           generateBundle(_options, bundle) {

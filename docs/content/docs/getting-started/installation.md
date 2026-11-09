@@ -150,10 +150,11 @@ configuration.
 
 ## Add feature packages
 
-`vite-hub` includes Env, Source, Logs, and the Console. Every other feature
-has its own package, so your app installs and loads only the features that it
-uses. An app without features installs no feature package. Add the packages of
-a feature before you enable it. This applies to the Vite and the Nuxt path.
+`vite-hub` includes Env, Source, Logs, and the Console routes. Every other
+feature, and the Console app, has its own package, so your app installs and
+loads only the features that it uses. An app without features installs no
+feature package. Add the packages of a feature before you enable it. This
+applies to the Vite and the Nuxt path.
 
 | Feature | Add these packages |
 | --- | --- |
@@ -163,6 +164,7 @@ a feature before you enable it. This applies to the Vite and the Nuxt path.
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
+| `console` | `@vite-hub/console-client`, the prebuilt Console app |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |

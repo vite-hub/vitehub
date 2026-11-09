@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join, resolve, sep } from "node:path"
+import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
+import { resolveConsoleClient } from "./client.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
@@ -26,16 +27,13 @@ function resolveConsoleRuntimeRoot(): string {
   return root
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
-export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
 /** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
 export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 let consoleRuntimeDigest: string | undefined
 
 /**
- * A digest of the packaged Console runtime, client, and assets.
+ * A digest of the packaged Console runtime. The generated output names the hashed entries of the Console client.
  * The package does not change while the process runs, so read its files once, not on each file change.
- * The Console client build puts a content hash in the name of each file in `public/console`, so the digest reads only
- * those names. A cold dev start does not read the 20 MB client.
  */
 function readConsoleRuntimeDigest(): string {
   if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
@@ -50,8 +48,7 @@ function readConsoleRuntimeDigest(): string {
   }
   if (existsSync(consoleRuntimeRoot)) visit(consoleRuntimeRoot)
   for (const file of files.sort()) {
-    hash.update(file.slice(consoleRuntimeRoot.length)).update("\0")
-    if (!file.startsWith(consolePublicRoot + sep)) hash.update(readFileSync(file)).update("\0")
+    hash.update(file.slice(consoleRuntimeRoot.length)).update("\0").update(readFileSync(file)).update("\0")
   }
   consoleRuntimeDigest = hash.digest("hex")
   return consoleRuntimeDigest
@@ -244,8 +241,10 @@ function renderConsoleNitroPlugin(
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
     ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
   ]
+  // The page loads the prebuilt app of @vite-hub/console-client. A Console that serves only the RPC needs no app.
+  const client = pageTools ? resolveConsoleClient() : undefined
   return [
-    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, installConsoleOrigins as vitehubInstallConsoleOrigins, " : ""}installConsoleBuild, ${client ? "installConsoleClient, " : ""}installConsoleDevelopment, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "vite-hub/_internal/agent/runtime/workflow"`]
@@ -254,6 +253,7 @@ function renderConsoleNitroPlugin(
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
+    ...(client ? [`installConsoleClient(${JSON.stringify({ script: client.script, style: client.style, pageTool: client.pageTool })})`] : []),
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
