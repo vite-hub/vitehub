@@ -153,7 +153,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     name,
     defer: (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflowStart(
       name,
-      async () => await startWorkflow<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options)),
+      async () => await startWorkflowRun<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options), true),
     ),
     getRun: (id: string) => getWorkflowRun(name, id),
     async start(payload?: TPayload, options: WorkflowStartOptions = {}) {
@@ -170,6 +170,15 @@ export async function startWorkflow<TPayload = unknown>(
   payload?: TPayload,
   options: WorkflowStartOptions = {},
 ): Promise<WorkflowRun<TPayload, unknown>> {
+  return await startWorkflowRun(name, payload, options)
+}
+
+async function startWorkflowRun<TPayload>(
+  name: string,
+  payload: TPayload | undefined,
+  options: WorkflowStartOptions,
+  deferred = false,
+): Promise<WorkflowRun<TPayload, unknown>> {
   const config = getActiveWorkflowConfig()
 
   const id = options.id || randomId("wrun")
@@ -181,7 +190,7 @@ export async function startWorkflow<TPayload = unknown>(
     })
   }
   const test = getViteHubTestMode()
-  if (test) return recordWorkflowTestRun(test, config.provider, { deferred: options.deferred === true, id, name, payload })
+  if (test) return recordWorkflowTestRun(test, config.provider, { deferred, id, name, payload })
   return await getWorkflowRuntimeAdapter(config).run<TPayload, unknown>({
     // SAFETY: The named Workflow definition receives the caller-provided payload and its result remains unknown.
     definition: definition as WorkflowDefinition<TPayload, unknown>,
@@ -256,5 +265,5 @@ export function deferWorkflow<TPayload = unknown>(
   payload?: TPayload,
   options: WorkflowStartOptions = {},
 ): void {
-  deferWorkflowStart(name, () => startWorkflow<TPayload>(name, payload, options))
+  deferWorkflowStart(name, () => startWorkflowRun<TPayload>(name, payload, options, true))
 }

@@ -1,16 +1,6 @@
 import { defineCapability } from "../capability-runtime.ts"
 import { ViteHubError } from "@vite-hub/runtime"
-import {
-  confidence,
-  decisionPrompt,
-  generateDecision,
-  jevDecision,
-  latestUserText,
-  normalizeChoices,
-  objectSchema,
-  optionalString,
-  renderHistory,
-} from "./llm-decision-shared.ts"
+import { decide, normalizeChoices } from "./llm-decision-shared.ts"
 
 import type { AiGateway } from "@vite-hub/gateways"
 import type {
@@ -26,20 +16,18 @@ export type LlmGateDecision<TAllow extends string = string, TReject extends stri
   | {
     allowed: true
     category: TAllow
-    confidence?: number
-    /** Probability of each category. Only Jev decisions set it. */
-    probabilities?: Record<string, number>
-    /** The model's reason. Jev decisions have no reason. */
-    reason?: string
+    /** How much the category stands out, from 0 to 1. */
+    confidence: number
+    /** Probability of each category. A chat model sets one number on its answer and shares the rest. */
+    probabilities: Record<string, number>
   }
   | {
     allowed: false
     category: TReject
-    confidence?: number
-    /** Probability of each category. Only Jev decisions set it. */
-    probabilities?: Record<string, number>
-    /** The model's reason. Jev decisions have no reason. */
-    reason?: string
+    /** How much the category stands out, from 0 to 1. */
+    confidence: number
+    /** Probability of each category. A chat model sets one number on its answer and shares the rest. */
+    probabilities: Record<string, number>
   }
 
 export interface LlmGateOptions<
@@ -52,9 +40,9 @@ export interface LlmGateOptions<
   message?: string | ((
     decision: Extract<LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>, { allowed: false }>,
   ) => string)
-  /** Gateway of a Jev decision on a `driver.ask` Agent: `typesafe()`, `vercel()`, or `cloudflare()`. Default: `typesafe()`. */
+  /** Ask TypeSafe Jev through this gateway instead of a chat model: `typesafe()`, `vercel()`, or `cloudflare()`. Ask Driver Agents use `typesafe()` without it. Ignored when `model` is set. */
   gateway?: AiGateway<{ ask: true }>
-  /** Chat model for the decision. Default: the Agent model, or TypeSafe Jev when the Agent uses `driver.ask`. */
+  /** Model that answers the decision. Default: the Agent model. Set `gateway` to ask TypeSafe Jev instead. */
   model?: AgentModelResolver
   prompt?: string
   reject: TReject
@@ -66,7 +54,6 @@ function llmGateRejectedError(capabilityId: string, decision: Extract<LlmGateDec
       capabilityId,
       category: decision.category,
       confidence: decision.confidence,
-      reason: decision.reason?.slice(0, 16_384),
     },
   })
 }
@@ -85,7 +72,7 @@ export function llmGate<
   const categoryKeys = [...allowKeys, ...rejectKeys]
   type Decision = LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>
 
-  function toDecision(category: unknown, details: Pick<LlmGateDecision, "confidence" | "probabilities" | "reason">): Decision {
+  function toDecision(category: unknown, details: Pick<LlmGateDecision, "confidence" | "probabilities">): Decision {
     if (!isRuntimeString(category) || !categoryKeys.includes(category)) {
       throw agentDiagnostics.AGENT_R0111({ message: `[vitehub] ${id} returned an invalid gate category.` })
     }
@@ -102,8 +89,6 @@ export function llmGate<
       context.finish.provide(() => context.context.get(id))
     },
     async input(context) {
-      const input = context.input.get()
-      const messages = context.input.messages()
       if (context.context.has(id)) {
         throw agentDiagnostics.AGENT_R0110({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
@@ -112,38 +97,8 @@ export function llmGate<
         ...reject.map(choice => ({ ...choice, description: `REJECT: ${choice.description}` })),
       ]
       const task = "Classify whether the user request is allowed before the main agent runs."
-      const jev = await jevDecision(context, options, { choices, task })
-      const output = jev
-        ? toDecision(jev.choice, { confidence: jev.confidence, probabilities: jev.probabilities })
-        : await generateDecision<Decision>({
-          id,
-          model: await context.model.resolve(options.model),
-          prompt: decisionPrompt({
-            choices,
-            history: renderHistory(messages, options.history),
-            prompt: options.prompt,
-            task,
-            userMessage: latestUserText(input.prompt, messages),
-          }),
-          schema: objectSchema({
-            additionalProperties: false,
-            properties: {
-              allowed: { type: "boolean" },
-              category: { enum: categoryKeys, type: "string" },
-              confidence: { maximum: 1, minimum: 0, type: "number" },
-              reason: { type: "string" },
-            },
-            required: ["allowed", "category"],
-            type: "object",
-          }, (value) => {
-            // SAFETY: objectSchema validates this callback value as an object before invoking it.
-            const record = value as { allowed?: unknown, category?: unknown, confidence?: unknown, reason?: unknown }
-            return toDecision(record?.category, {
-              ...(confidence(record?.confidence) !== undefined ? { confidence: confidence(record?.confidence) } : {}),
-              ...(optionalString(record?.reason) ? { reason: optionalString(record?.reason) } : {}),
-            })
-          }),
-        })
+      const decision = await decide(context, options, { choices, label: "Category", task })
+      const output = toDecision(decision.choice, { confidence: decision.confidence, probabilities: decision.probabilities })
       context.context.set(id, output)
       if (!output.allowed) {
         const message = typeof options.message === "function"

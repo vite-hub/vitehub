@@ -4,6 +4,7 @@ import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
 
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { getConsoleDatabase } from "./database.ts"
 
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core"
@@ -64,7 +65,7 @@ interface DatabaseTableEntry {
 }
 
 function requestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0050({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0050({ message: statusMessage }))
 }
 
 function integerParameter(value: string | null, name: string, fallback: number, maximum: number): number {

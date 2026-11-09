@@ -37,7 +37,46 @@ export interface BundleEnvironmentReport {
   side: "client" | "server"
   /** The output folder, relative to the project root. */
   outDir: string
+  /** The Nitro preset of the server build, such as `cloudflare-module` or `node-server`. */
+  host?: string
+  /** What the features of this build declare about the server output. Only on the server side. */
+  rules?: BundleStartupRule[]
   chunks: BundleChunk[]
+}
+
+/**
+ * Packages that a feature knows this build never runs at server startup. The feature derives it from its resolved
+ * configuration, for example the Database when every Database uses a D1 binding. It adds the rule in the Nitro hook
+ * `vitehub:bundle:rules`.
+ */
+export interface BundleStartupRule {
+  /** The package that declares the rule. Independent consumers of `packages` suppress the finding. */
+  owner: string
+  /** Package names, as `vitehub bundle` groups them. Put the package that code imports first: findings explain it. */
+  packages: string[]
+  /** Why this build does not need the packages at startup. */
+  why: string
+  /** What to change when one of them loads at startup. */
+  fix: string
+}
+
+export type BundleFindingCode = "BUNDLE_STARTUP_UNUSED" | "BUNDLE_HOST_SIZE_LIMIT"
+
+/**
+ * A problem that the report proves. `error` means that the host rejects the deployment, and `vitehub bundle` exits
+ * with 1. `warning` means that the app works but loads code that it does not need.
+ */
+export interface BundleFinding {
+  code: BundleFindingCode
+  severity: "error" | "warning"
+  side: "client" | "server"
+  why: string
+  fix: string
+  docs: string
+  /** The bytes that the finding is about, before compression. */
+  bytes: number
+  /** The import chain from the entry to the module that the finding is about, as `vitehub bundle why` gives it. */
+  chain: BundleChainStep[]
 }
 
 export interface BundleGroup {
@@ -65,8 +104,12 @@ export interface BundleSide {
 export interface BundleReport {
   schemaVersion: 1
   build: string
+  /** The Nitro preset of the server build. */
+  host?: string
   client?: BundleSide
   server?: BundleSide
+  /** Problems that the report proves. Empty when there are none. */
+  findings: BundleFinding[]
 }
 
 /** One step of an import chain. */

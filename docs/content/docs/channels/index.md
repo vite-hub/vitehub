@@ -8,7 +8,7 @@ icon: i-lucide-send
 ---
 
 ::product-hero{tagline="Receive webhooks with signature checks, dedupe and retry, and send messages from any server code, through one named Channel." hosts="Node, Docker, Cloudflare, Vercel" channels="Stripe, Slack, Teams, Your API" channel-mode="custom"}
-  :::product-files
+  :::code-tree
   ```ts [server/channels/stripe.ts] fragment
   import { defineChannel, stripe } from 'vite-hub/channels'
   import { sendQueue } from 'vite-hub/queue'
