@@ -7,7 +7,7 @@ import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { formsDiagnostics } from "./errors.ts"
-import { formsTableNames } from "./database.ts"
+import { formsTableNames } from "./table-names.ts"
 
 import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { Plugin, UserConfig } from "vite"
