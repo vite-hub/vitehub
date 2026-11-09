@@ -190,6 +190,7 @@ describe("@vite-hub/shell workspace inspection", () => {
     "cat () { rm README.md; }; cat README.md",
     "cat README.md # note \\\nrm README.md",
     "cat <<EOF\nit's\nEOF\ncat README.md # note \\\nrm README.md",
+    "cat <<'E\"'\nE\"\ncat README.md # note \\\nrm README.md",
   ])("checks every statement in %j before a provider runs it", async (command) => {
     const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
     const exec = vi.fn(async (command: string) => ({ command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }))

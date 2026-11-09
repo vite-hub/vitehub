@@ -1,4 +1,4 @@
-import { BinCmdOperator, LangVariant, parseSync, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
+import { BinCmdOperator, LangVariant, parseSync, RedirOperator, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
 
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -103,7 +103,8 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   }
   const toIndex = createSourceIndex(command)
   // sh-syntax joins the next line to a comment that ends in a backslash. Bash does not.
-  if (stripLineContinuations(withoutHeredocBodies(file, command, toIndex)).commentContinuation) {
+  const scanned = withoutHeredocBodies(file, command, toIndex)
+  if (scanned === undefined || stripLineContinuations(scanned).commentContinuation) {
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
   const leaves: StatementLeaf[] = []
@@ -130,9 +131,16 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   return segments
 }
 
-function withoutHeredocBodies(file: File, command: string, toIndex: SourceIndex): string {
-  let result = command
+function withoutHeredocBodies(file: File, command: string, toIndex: SourceIndex): string | undefined {
+  let result: string | undefined = command
   walk(file, (node) => {
+    if (result === undefined) return false
+    // Without a body range, a quoted delimiter line cannot be blanked, so the scan cannot be trusted.
+    if (node.type === "Redirect" && !node.hdoc && (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc)
+      && /['"\\#]/.test(command.slice(toIndex(node.word?.start ?? 0), toIndex(node.word?.end ?? 0)))) {
+      result = undefined
+      return false
+    }
     if (node.type === "Redirect" && node.hdoc) {
       const start = toIndex(node.hdoc.start)
       const end = toIndex(node.hdoc.end)
