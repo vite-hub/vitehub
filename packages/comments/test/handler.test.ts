@@ -487,6 +487,8 @@ describe("Comments API", () => {
     const ahead = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Ahead", revision: 9 } })
     expect(ahead.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
     expect((await call("/threads?subjectKind=drop&subjectId=abc")).body.data).toHaveLength(3)
+    // `?page=` lists the threads of the subject that the page maps to, as the overlay sees them.
+    expect((await call("/threads?page=/d/abc")).body.data.map((thread: { subject: unknown }) => thread.subject)).toEqual(Array.from({ length: 3 }, () => ({ kind: "drop", id: "abc" })))
 
     // Field edits check the policy on the subject of the page.
     expect((await call(`/fields?page=/d/abc&field=${encodeURIComponent("about#hero.title")}`)).response.status).toBe(200)

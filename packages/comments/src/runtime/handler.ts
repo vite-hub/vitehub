@@ -362,11 +362,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   /** The list query of `GET /threads`: the filters of `comments.list` as search parameters. */
-  function listQuery(url: URL): Result<CommentListQuery, "COMMENTS_INVALID_INPUT"> {
+  /** `page`: the subject that `page` of `defineComments()` gives for the `?page=` path, as the overlay sees it. */
+  function listQuery(url: URL, page?: CommentSubject): Result<CommentListQuery, "COMMENTS_INVALID_INPUT"> {
     const params = url.searchParams
     const number = (name: string) => params.has(name) ? Number(params.get(name)) : undefined
     const flag = (name: string) => params.has(name) ? params.get(name) === "true" || params.get(name) === "1" : undefined
-    const page = params.get("page")
     const kind = params.get("subjectKind")
     const subjectId = params.get("subjectId")
     const state = params.get("status")
@@ -374,7 +374,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const beforeId = params.get("beforeId")
     const beforeUpdatedAt = number("beforeUpdatedAt")
     const parsed = v.safeParse(commentInputSchemas.list, {
-      ...(page ? { subject: { kind: "page", id: normalizeCommentPage(page) } } : kind && subjectId ? { subject: { kind, id: subjectId } } : kind ? { subjectKind: kind } : {}),
+      ...(page ? { subject: page } : kind && subjectId ? { subject: { kind, id: subjectId } } : kind ? { subjectKind: kind } : {}),
       ...(state === "open" || state === "resolved" ? { status: state } : {}),
       ...(lte === undefined ? {} : { revision: { lte } }),
       ...(number("limit") === undefined ? {} : { limit: number("limit") }),
@@ -515,7 +515,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
     if (path === "/threads") {
       if (method === "GET") {
-        const [invalidQuery, query] = listQuery(url)
+        const [invalidQuery, query] = listQuery(url, page ? await subjectOf() : undefined)
         if (invalidQuery) return failure(invalidQuery)
         return await act(event, "read", async (who) => {
           await mayRead(who, query.subject)
