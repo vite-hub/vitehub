@@ -2,7 +2,7 @@ import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/inte
 
 import type { ViteHubPageToolsInstallOptions } from "@vite-hub/internal/runtime/page-tools"
 
-import { getConsoleSections } from "./sections.ts"
+import { resolveConsoleSections } from "../../internal.ts"
 
 import type { ConsoleSectionId } from "../sections.ts"
 
@@ -33,7 +33,7 @@ export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageTo
   registerViteHubPageTool(nitroApp, {
     // Eager, so the segment can offer the draft of the open page before the editor opens. The editor frame still waits.
     id: "content", label: "Content", icon: "i-lucide-file-pen", script,
-    allowed: async ({ event }) => getConsoleSections().includes("content") && await consoleAllowsRequest(event, "content", "write"),
+    allowed: async ({ event }) => resolveConsoleSections().includes("content") && await consoleAllowsRequest(event, "content", "write"),
   })
   installViteHubPageTools(nitroApp, options)
 }
