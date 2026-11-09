@@ -438,6 +438,9 @@ export default defineConfig({
       },
       // Root declarations are emitted separately so feature exports cannot pull optional types into them.
       dts: { entry: runtimeEntries.filter(entry => !["src/index.ts", "src/nuxt.ts"].includes(entry)) },
+      // `vite-hub/nuxt` and the Console access checks share the dev peer signer. In its own chunk, loading the Nuxt
+      // module does not load the Console's request runtime and h3 with it.
+      outputOptions: { codeSplitting: { groups: [{ name: "dev-peer", test: /[\\/]internal[\\/]src[\\/]dev-peer\.ts$/ }] } },
       plugins: [
         {
           name: "vite-hub-console-assets",
