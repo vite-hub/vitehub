@@ -37,7 +37,7 @@ For each `POST`, `handleFormRequest()`:
 
 A browser form without JavaScript, which sends form data and accepts HTML, gets a 303 back to its page with `?form=sent` or `?form=error`.
 
-Two fields are not form data: `_page`, the app path of the form (default: the `Referer`), and `_anchor`, the part of the page that the sender pointed at: `{ selector, exact, prefix, suffix }`, the same text quote as a Comments text anchor, so `anchorRange()` from `@vite-hub/comments/client` finds the sentence again.
+Two fields are not form data: `_page`, the app path of the form (default: the `Referer`), and `_anchor`, the part of the page that the sender pointed at: `{ selector, exact, prefix, suffix }`, the same text quote as a Comments text anchor, so `resolveAnchor({ kind: "text", ...anchor })` from `@vite-hub/comments/client` finds the sentence again.
 
 ## Services
 
@@ -98,7 +98,7 @@ const { send, sent } = useFormSubmit("contact", form)
 </script>
 
 <template>
-  <Form :of="form" @submit="send">
+  <Form :of="form" @submit="() => send()">
     <Field v-slot="field" :of="form" :path="['message']">
       <textarea v-model="field.input" v-bind="field.props" />
       <p v-if="field.errors">{{ field.errors[0] }}</p>

@@ -28,6 +28,9 @@ describe("describeFormFields", () => {
       ["notes", "textarea", undefined, true],
     ])
     expect(() => describeFormFields(v.string())).toThrow("Valibot object schema")
+    // A TypeScript numeric enum has reverse keys. The select lists only its values, with their type.
+    enum Size { Small = 1, Large = 2 }
+    expect(describeFormFields(v.object({ size: v.enum(Size), count: v.picklist([1, 2]) })).map(field => field.options)).toEqual([[1, 2], [1, 2]])
   })
 })
 
@@ -37,14 +40,14 @@ describe("AutoForm", () => {
     vi.unstubAllGlobals()
   })
 
-  async function mount(serverSchema: v.GenericSchema<unknown, Record<string, unknown>> = ContactSchema) {
+  async function mount(serverSchema: v.GenericSchema<unknown, Record<string, unknown>> = ContactSchema, clientSchema: v.ObjectSchema<v.ObjectEntries, undefined> = ContactSchema) {
     const store = createMemoryFormsStore()
     const form = defineForm({ schema: serverSchema })
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => handleFormRequest("contact", form, new Request(new URL(String(input), location.origin), init), { store }))
     const root = document.createElement("div")
     document.body.append(root)
     const sent = vi.fn()
-    createApp(AutoForm, { name: "contact", schema: ContactSchema, onSent: sent }).mount(root)
+    createApp(AutoForm, { name: "contact", schema: clientSchema, onSent: sent }).mount(root)
     await nextTick()
     const element = <T extends Element>(selector: string) => root.querySelector<T>(selector)!
     const type = async (selector: string, value: string) => {
@@ -87,7 +90,7 @@ describe("AutoForm", () => {
   it("sends valid values, stores them, and shows the sent message", async () => {
     const { root, store, sent, submit, type } = await mount()
     await type("#vitehub-form-contact-email", "ada@example.com")
-    await type("#vitehub-form-contact-topic", "idea")
+    await type("#vitehub-form-contact-topic", "1")
     await type("#vitehub-form-contact-message", "Add dark mode.")
     await submit()
     expect((await store.list()).map(row => row.data)).toEqual([{ email: "ada@example.com", topic: "idea", message: "Add dark mode." }])
@@ -95,12 +98,27 @@ describe("AutoForm", () => {
     expect(sent).toHaveBeenCalledWith(expect.any(String))
   })
 
+  it("sends an unchecked box as false, a number option as a number, and the input before transforms", async () => {
+    // The server parses the text again, so the client must send the text, not the number of `toNumber()`.
+    const schema = v.object({
+      age: v.pipe(v.string(), v.toNumber()),
+      count: v.picklist([1, 2]),
+      terms: v.boolean(),
+    })
+    const { root, store, submit, type } = await mount(schema, schema)
+    await type("#vitehub-form-contact-age", "42")
+    await type("#vitehub-form-contact-count", "1")
+    await submit()
+    expect(root.querySelector("[data-error]")).toBeNull()
+    expect((await store.list()).map(row => row.data)).toEqual([{ age: 42, count: 2, terms: false }])
+  })
+
   it("puts a server issue under its field", async () => {
     // The server is stricter than the client, as when a server rule changes first.
     const strict = v.object({ ...ContactSchema.entries, message: v.pipe(v.string(), v.minLength(50, "Tell us more on the server.")) })
     const { root, store, submit, type } = await mount(strict)
     await type("#vitehub-form-contact-email", "ada@example.com")
-    await type("#vitehub-form-contact-topic", "bug")
+    await type("#vitehub-form-contact-topic", "0")
     await type("#vitehub-form-contact-message", "Short but valid here.")
     await submit()
     expect(root.querySelector("[data-field=message] [data-error]")?.textContent).toBe("Tell us more on the server.")

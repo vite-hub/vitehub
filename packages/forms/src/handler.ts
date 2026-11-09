@@ -41,20 +41,25 @@ function emailMessage<TSchema extends StandardSchemaV1>(name: string, definition
  */
 export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: string, definition: FormDefinition<TSchema>, request: Request, services: FormServices = {}): Promise<Response> {
   const { options } = definition
+  const caller: { user: FormUser | null } = { user: null }
   const [stopped, guarded] = await guardRequest(request, {
     key: `form:${name}`,
     ...(options.origins ? { origins: options.origins } : {}),
     ...(options.honeypot !== undefined ? { honeypot: options.honeypot } : {}),
     ...(options.maxBytes ? { maxBytes: options.maxBytes } : {}),
     ...(options.rateLimit !== undefined ? { rateLimit: options.rateLimit } : {}),
+    // Before the rate limit and the body: a refused sender uses no budget, and `authorize` can still read the body.
+    check: async () => {
+      caller.user = services.identify ? await services.identify(request) : null
+      if (!options.authorize || await options.authorize({ request, user: caller.user })) return undefined
+      return caller.user ? { status: 403, message: "You may not send this form." } : { status: 401, message: "Sign in to send this form." }
+    },
   }, services)
   if (stopped) return stopped
   const { body: fields, page, anchor, html } = guarded
-
-  const user: FormUser | null = services.identify ? await services.identify(request) : null
-  if (options.authorize && !await options.authorize({ request, user })) {
-    return user ? fail(403, "You may not send this form.") : fail(401, "Sign in to send this form.")
-  }
+  const { user } = caller
+  // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
+  const stop = (status: number, message: string) => html ? back(request, page, "error") : fail(status, message)
 
   const result = await options.schema["~standard"].validate(fields)
   if (result.issues) {
@@ -93,13 +98,13 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     else services.log?.(`[vitehub] The ${name} form stored a submission but the app cannot send email.`, undefined)
   }
   else if (message) {
-    if (!services.email) return fail(503, "This form cannot send messages now.")
+    if (!services.email) return stop(503, "This form cannot send messages now.")
     try {
       await services.email(message)
     }
     catch (error) {
       services.log?.(`[vitehub] The ${name} form could not send its email.`, error)
-      return fail(502, "The message could not be sent. Try again later.")
+      return stop(502, "The message could not be sent. Try again later.")
     }
   }
 

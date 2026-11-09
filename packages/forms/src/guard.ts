@@ -126,6 +126,12 @@ export interface GuardRequestOptions {
   maxBytes?: number
   /** Default `{ limit: 5, window: "1m" }`. `false` turns it off. */
   rateLimit?: FormRateLimit | false
+  /**
+   * Access checks of the app, such as sign-in. They run after the origin check and before the rate limit and the body,
+   * so a refused request uses no rate budget and the check can still read the body. Return a status and a message to
+   * stop the request.
+   */
+  check?: (request: Request) => Promise<{ status: number, message: string } | undefined> | { status: number, message: string } | undefined
 }
 
 export interface GuardRequestServices {
@@ -145,7 +151,7 @@ export interface GuardedRequest {
 
 /**
  * The checks of a public write, before the app reads the body: `POST`, a JSON, URL-encoded, or multipart body, the
- * origin, the rate limit, the size, and the honeypot. Returns `[response]` when a check stops the request, else
+ * origin, the `check` of the app, the rate limit, the size, and the honeypot. Returns `[response]` when a check stops the request, else
  * `[undefined, guarded]`. A filled honeypot answers like a success, so a bot does not try again.
  */
 export async function guardRequest(request: Request, options: GuardRequestOptions, services: GuardRequestServices = {}): Promise<[Response, undefined] | [undefined, GuardedRequest]> {
@@ -154,17 +160,21 @@ export async function guardRequest(request: Request, options: GuardRequestOption
   if (!kind) return [fail(415, "Send JSON or form data."), undefined]
   const origin = request.headers.get("origin")
   if (origin && origin !== new URL(request.url).origin && !options.origins?.includes(origin)) return [fail(403, "This origin may not send this form."), undefined]
+  const html = wantsPage(request, kind)
+  // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
+  const stop = (status: number, message: string, headers?: Record<string, string>): [Response, undefined] => [html ? back(request, appPath(undefined, request), "error") : fail(status, message, headers), undefined]
+  const refused = await options.check?.(request)
+  if (refused) return stop(refused.status, refused.message)
   const rateLimit = options.rateLimit === false ? undefined : options.rateLimit ?? defaultRateLimit
   if (rateLimit && services.rateLimit) {
     const decision = await services.rateLimit(request, options.key, rateLimit)
-    if (!decision.allowed) return [fail(429, "Too many messages. Try again later.", decision.retryAfter ? { "retry-after": String(Math.ceil(decision.retryAfter)) } : undefined), undefined]
+    if (!decision.allowed) return stop(429, "Too many messages. Try again later.", decision.retryAfter ? { "retry-after": String(Math.ceil(decision.retryAfter)) } : undefined)
   }
   const text = await readText(request, options.maxBytes ?? defaultMaxBytes)
-  if (text === undefined) return [fail(413, "The message is too large."), undefined]
+  if (text === undefined) return stop(413, "The message is too large.")
   const raw = await readBody(request, kind, text)
-  if (!raw) return [fail(400, "The body is not a form."), undefined]
+  if (!raw) return stop(400, "The body is not a form.")
   const page = appPath(raw[pageField], request)
-  const html = wantsPage(request, kind)
   const honeypot = options.honeypot === false ? undefined : options.honeypot ?? "website"
   const trap = honeypot ? raw[honeypot] : undefined
   if (typeof trap === "string" && trap.trim()) return [html ? back(request, page, "sent") : json(202, { ok: true }), undefined]
