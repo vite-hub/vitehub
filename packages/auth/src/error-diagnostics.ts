@@ -66,7 +66,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0051: withFix("Add `admin()` from `better-auth/plugins` to the `plugins` of `defineAuth()`, or unset the variable that the message names."),
     AUTH_C0052: withFix("Pass the Database name as one string literal, for example `authDatabase('content')`, or no argument for the `default` Database."),
     AUTH_C0053: withFix("Remove `advanced.database.generateId`, or set it to a function that returns strings. Use another Better Auth adapter for numeric or UUID IDs."),
-    AUTH_C0054: withFix("Call `authDatabase()` inline as `database` in the object of `defineAuth()`, or in the one object that its callback returns. Do not set `database` in `runtime`."),
+    AUTH_C0054: withFix("Call `authDatabase()` inline as `database` in the object of `defineAuth()`, or in the one object that its callback returns. Do not set `database` in `runtime` or in the runtime options that you pass to `createAuth()`."),
     AUTH_C0055: withFix("Remove `additionalFields` from the model that the message names, or use another Better Auth adapter with a schema that has your fields."),
     AUTH_C0056: withFix("Remove the `modelName` or `fieldName` change, or the plugin that adds the column. Or use another Better Auth adapter with a schema that matches your options."),
     AUTH_C0057: withFix("Unset `VITEHUB_ADMIN_EMAILS`. List each admin's social account in `VITEHUB_ADMINS`, for example `VITEHUB_ADMINS=github:22072217`."),
