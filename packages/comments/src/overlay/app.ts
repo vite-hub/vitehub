@@ -213,8 +213,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     return user && !(user.guest && user.id === "guest:console") ? user : undefined
   }
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
-  const canComment = Boolean(session?.can.comment)
-  const needsName = computed(() => canComment && !me.value)
+  /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
+  const pageCan = shallowRef(session?.can)
+  const canComment = computed(() => Boolean(pageCan.value?.comment))
+  const needsName = computed(() => canComment.value && !me.value)
 
   /**
    * What this person may do in a thread, for the parts' controls. Each thread from the API carries `can` for its own
@@ -223,7 +225,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const can: CommentCan = (action, { thread, message }) => {
     const user = me.value
     if (!user || needsName.value) return false
-    const allowed = (thread as RestCommentThread).can ?? { comment: canComment, resolve: Boolean(session?.can.resolve), delete: Boolean(session?.can.delete) }
+    const allowed = (thread as RestCommentThread).can ?? { comment: canComment.value, resolve: Boolean(pageCan.value?.resolve), delete: Boolean(pageCan.value?.delete) }
     if (action === "reply") return thread.status === "open" && allowed.comment
     if (action === "resolve") return allowed.resolve
     // A guest id proves nothing, so a guest owns no message.
@@ -277,11 +279,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function setMode(next: Mode) {
     if (resolving.value && next !== "edit") {
-      paused = next === "comment" && canComment
+      paused = next === "comment" && canComment.value
       return
     }
     if (next === "comment") {
-      if (!canComment) return
+      if (!canComment.value) return
       if (needsName.value) {
         namedQuote = undefined
         naming.value = true
@@ -292,7 +294,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       state.enter()
     }
     else if (next === "edit") {
-      if (!session?.content || !canComment) return
+      if (!session?.content || !canComment.value) return
       state.exit()
       if (state.active.value) return
       editing.value = true
@@ -396,7 +398,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** The text that the reader selected on the page, when they may comment on it. */
   function pageSelection(): Selection | undefined {
     const selection = getSelection()
-    if (!canComment || editing.value || resolving.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
+    if (!canComment.value || editing.value || resolving.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
     const container = selection.getRangeAt(0).commonAncestorContainer
     const element = container instanceof Element ? container : container.parentElement
     if (!element?.isConnected || ignored(element) || element.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return
@@ -523,8 +525,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
       return () => {
         const nodes: Array<VNode | null> = []
-        if (session?.can.read && !resolving.value) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
+        if (pageCan.value?.read && !resolving.value) {
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment.value ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors" }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
@@ -546,12 +548,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               key: page.value,
               comments: state,
               attachmentUrl: transport.attachmentUrl,
-              readOnly: !me.value || (!state.threads.value.some(thread => thread.id === panelThread.value) && !canComment),
+              readOnly: !me.value || (!state.threads.value.some(thread => thread.id === panelThread.value) && !canComment.value),
               "onUpdate:thread": (value: string | null) => (panelThread.value = value),
               status: panelStatus.value,
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
-              upload: canComment ? upload : undefined,
+              upload: canComment.value ? upload : undefined,
               // The thread opens in the list. Its spot on the page comes into view.
               onSelect: (thread: { id: string }) => {
                 const position = state.positions.value.get(thread.id)
@@ -585,8 +587,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const count = `${open} open ${open === 1 ? "thread" : "threads"}`
     const signOutUrl = session?.signOut
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
-      canComment ? h("button", { "aria-keyshortcuts": "C", "aria-pressed": String(mode.value === "comment"), onClick: () => setMode(mode.value === "comment" ? "view" : "comment"), title: "Comment (C)", type: "button" }, "Comment") : null,
-      session?.content && canComment ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, "Edit") : null,
+      canComment.value ? h("button", { "aria-keyshortcuts": "C", "aria-pressed": String(mode.value === "comment"), onClick: () => setMode(mode.value === "comment" ? "view" : "comment"), title: "Comment (C)", type: "button" }, "Comment") : null,
+      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, "Edit") : null,
       h("span", { class: "sep" }),
       h("button", {
         "aria-label": `Comments on this page, ${count}`,
@@ -697,12 +699,13 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       resolving.value = true
       void api.session(next).then(([error, answer]) => {
         if (page.value !== next) return
+        if (!error) pageCan.value = answer.can
         const mapped = !error && answer.subject ? answer.subject : { kind: "page", id: next }
         if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
         // The same subject lists no threads again, so the new page joins its room here.
         else if (!room && state.status.value === "ready") void joinRoom()
         resolving.value = false
-        state.active.value = paused
+        state.active.value = paused && canComment.value
         paused = false
       })
       // The state lists the threads of the new page. The page then joins its room.
@@ -741,12 +744,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
       // The key acts here only. Without preventDefault it would also type into the name box that comment mode opens.
-      if (event.key === "c" && canComment) {
+      if (event.key === "c" && canComment.value) {
         event.preventDefault()
         // With text selected, C comments on it and leaves the mode as it is, like Drop's selection bar.
         if (!commentOnSelection()) setMode(mode.value === "comment" ? "view" : "comment")
       }
-      if (event.key === "e" && session?.content && canComment) {
+      if (event.key === "e" && session?.content && canComment.value) {
         event.preventDefault()
         setMode(mode.value === "edit" ? "view" : "edit")
       }

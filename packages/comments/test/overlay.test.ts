@@ -383,6 +383,17 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=page&subjectId=%2Fplain"))).toBe(true))
   })
 
+  it("follows the permissions of the new page after a navigation", async () => {
+    const { bar } = await site(ada, { authorize: ({ action, subject }) => action === "read" || subject?.id === "/pricing" })
+    await vi.waitFor(() => expect(tool(bar, "Comment (C)")).not.toBeNull())
+    history.pushState(null, "", "/docs")
+    await vi.waitFor(() => expect(tool(bar, "Comment (C)")).toBeNull())
+    press(document.body, "c")
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
+    history.pushState(null, "", "/pricing")
+    await vi.waitFor(() => expect(tool(bar, "Comment (C)")).not.toBeNull())
+  })
+
   it("starts no comment and lists no threads until the server names the subject of the new page", async () => {
     let answer!: () => void
     const answered = new Promise<void>((resolve) => { answer = resolve })
