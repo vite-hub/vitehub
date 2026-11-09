@@ -13,15 +13,15 @@ const baselineFile = join(import.meta.dirname, "fixtures/diagnostics-ratchet.jso
 const update = process.env.VITEHUB_UPDATE_DIAGNOSTICS_BASELINE === "1"
 
 /** A plain error that the reader of an app sees has no code, fix, or docs link. */
-const rawError = /\bthrow new (?:Error|TypeError|RangeError|SyntaxError)\(|\bclass \w+ extends (?:Error|TypeError)\b/
+const rawError = /\bthrow\s+new\s+(?:Error|TypeError|RangeError|SyntaxError)\s*\(|\bclass\s+\w+\s+extends\s+(?:Error|TypeError|RangeError|SyntaxError)\b/
 /** The comment that marks a plain error as an internal invariant. It must say why. */
 const internalMarker = /\/\/ Internal invariant: \S/
 
 interface Baseline {
   /** Plain errors by source file. */
   rawErrors: Record<string, number>
-  /** Diagnostic codes without a `fix`, by package. */
-  codesWithoutFix: Record<string, number>
+  /** Diagnostic codes without a `fix`. A list, so a fix for one code does not allow a new code without a fix. */
+  codesWithoutFix: string[]
 }
 
 function sourceFiles(dir: string): string[] {
@@ -43,12 +43,8 @@ function countRawErrors(): Record<string, number> {
   return sortKeys(counts)
 }
 
-function countCodesWithoutFix(): Record<string, number> {
-  const counts: Record<string, number> = {}
-  for (const code of readDiagnosticCodes(repoRoot)) {
-    if (!code.fix) counts[code.pkg] = (counts[code.pkg] ?? 0) + 1
-  }
-  return sortKeys(counts)
+function codesWithoutFix(): string[] {
+  return readDiagnosticCodes(repoRoot).filter(code => !code.fix).map(code => code.code).sort()
 }
 
 function sortKeys(record: Record<string, number>): Record<string, number> {
@@ -62,7 +58,7 @@ function changes(current: Record<string, number>, baseline: Record<string, numbe
     .map(key => ({ key, baseline: baseline[key] ?? 0, current: current[key] ?? 0 }))
 }
 
-const current: Baseline = { rawErrors: countRawErrors(), codesWithoutFix: countCodesWithoutFix() }
+const current: Baseline = { rawErrors: countRawErrors(), codesWithoutFix: codesWithoutFix() }
 if (update) writeFileSync(baselineFile, `${JSON.stringify(current, null, 2)}\n`)
 const baseline: Baseline = JSON.parse(readFileSync(baselineFile, "utf8"))
 
@@ -76,7 +72,7 @@ it("adds no plain errors to package sources", () => {
 })
 
 it("adds no diagnostic codes without a fix", () => {
-  const added = changes(current.codesWithoutFix, baseline.codesWithoutFix).filter(change => change.current > change.baseline)
-  expect(added, "These packages have more diagnostic codes without a `fix` than test/fixtures/diagnostics-ratchet.json allows. Give each new code a `fix` that tells the reader what to change with `{ why, fix }` in its catalog entry.").toEqual([])
+  const added = current.codesWithoutFix.filter(code => !baseline.codesWithoutFix.includes(code))
+  expect(added, "These diagnostic codes have no `fix` and are not in test/fixtures/diagnostics-ratchet.json. Give each new code a `fix` that tells the reader what to change with `{ why, fix }` in its catalog entry.").toEqual([])
 })
 
