@@ -3,12 +3,12 @@ title: Diff
 description: "Render unified patches, file comparisons, parsed diffs, and merge conflicts with Pierre."
 navigation.order: 37
 navigation.group: Agent work
-icon: i-ph-file-code-light
+icon: i-lucide-file-code
 ---
 
 The diff components are Vue adapters for Pierre's `@pierre/diffs` views. They use Nuxt UI backgrounds, borders, radius, typography, and semantic colors. Pierre owns parsing, syntax highlighting, selection, and rendering. Use them to review the changes an Agent made.
 
-::component-preview{name="PatchDiffExample"}
+::example{name="PatchDiffExample" height=18}
 ::
 
 ## Installation
@@ -55,21 +55,21 @@ Pick the component that matches the input you have:
 
 Pass `null` for the missing side of an added or deleted file. Set `options.diffStyle` to `'split'` or `'unified'`.
 
-::component-preview{name="MultiFileDiffExample"}
+::example{name="MultiFileDiffExample" height=24}
 ::
 
 ## Parsed Diffs
 
 Parse a multi-file patch once with `parsePatchFiles()`, then render each file from its metadata.
 
-::component-preview{name="FileDiffExample"}
+::example{name="FileDiffExample" height=24}
 ::
 
 ## Merge Conflict
 
 `UnresolvedFile` renders conflict markers with controls to resolve each conflict.
 
-::component-preview{name="UnresolvedFileExample"}
+::example{name="UnresolvedFileExample" height=8}
 ::
 
 ## Helpers

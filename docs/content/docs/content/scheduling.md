@@ -35,11 +35,39 @@ export default defineSchedule({
 })
 ```
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', schedule: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-vitehub({ preset: 'cloudflare', schedule: true })
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', schedule: true }), nitro()],
+})
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', schedule: true })],
+})
+```
+:::
+::
 
 Each run publishes every pending or overdue schedule whose time has come, earliest first, and returns `{ published, failed }`. `published` lists `{ schedule, revision, documents }` for each schedule that ran. Content does not wake on its own: without a runner, schedules stay pending and turn [overdue](#statuses).
 

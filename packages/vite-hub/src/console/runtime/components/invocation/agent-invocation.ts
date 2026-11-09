@@ -1,3 +1,4 @@
+import { consoleDateTime, consoleDuration, consoleNumber } from "../../client/format.ts";
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
@@ -29,7 +30,7 @@ import { buildInvocationConversation, type InvocationConversation } from "./inte
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
 import { isSafeExternalUrl } from "./internal/url.ts";
-import { Markdown, ToolList } from "@vite-hub/ui";
+import { Markdown, ToolList, useCopy } from "@vite-hub/ui";
 
 const InvocationPatchDiff = defineAsyncComponent(() => import("../console-lazy-views.ts").then(module => module.PatchDiff));
 
@@ -57,13 +58,7 @@ function formatTokens(value: number | undefined): string | undefined {
 
 function formatDuration(startedAt: string | undefined, completedAt: string | undefined): string | undefined {
   if (!startedAt || !completedAt) return;
-  const duration = Date.parse(completedAt) - Date.parse(startedAt);
-  if (!Number.isFinite(duration) || duration < 0) return;
-  const seconds = Math.round(duration / 1_000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return consoleDuration(Date.parse(completedAt) - Date.parse(startedAt), { wholeSeconds: true });
 }
 
 /** Elapsed time of a live session as `m:ss`, or `h:mm:ss` after the first hour. */
@@ -158,23 +153,9 @@ const InvocationError = defineComponent({
     const titleId = useId();
     const detailsId = useId();
     const detailsOpen = ref(false);
-    const copyStatus = ref<"copied" | "failed">();
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
-
-    async function copyError() {
-      try {
-        if (!("navigator" in globalThis) || !navigator.clipboard) throw new Error("Clipboard unavailable");
-        await navigator.clipboard.writeText(payloadText(diagnosticPayload(props.error)));
-        copyStatus.value = "copied";
-      } catch {
-        copyStatus.value = "failed";
-      }
-      if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => copyStatus.value = undefined, 2_000);
-    }
+    const clipboard = useCopy();
+    const copyStatus = computed(() => clipboard.copied.value ? "copied" : clipboard.failed.value ? "failed" : undefined);
+    const copyError = () => clipboard.copy(() => payloadText(diagnosticPayload(props.error)));
 
     return () => {
       const error = props.error;
@@ -341,9 +322,7 @@ const InvocationPayload = defineComponent({
     const mode = ref<"tree" | "raw">("tree");
     const query = ref("");
     const open = ref(false);
-    const copied = ref(false);
-    const copyFailed = ref(false);
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
+    const { copied, copy, failed: copyFailed } = useCopy({ duration: 1_600 });
     const text = computed(() => payloadText(props.value));
     const normalized = computed<unknown>(() => {
       if (!hasRuntimeType(props.value, "object") || props.value === null) return props.value;
@@ -363,25 +342,7 @@ const InvocationPayload = defineComponent({
       return text.value.split("\n").filter(line => line.toLocaleLowerCase().includes(normalizedQuery)).join("\n");
     });
 
-    async function copyPayload() {
-      copyFailed.value = false;
-      if (!("navigator" in globalThis) || !navigator.clipboard) {
-        copyFailed.value = true;
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(text.value);
-        copied.value = true;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = setTimeout(() => { copied.value = false; }, 1_600);
-      } catch {
-        copyFailed.value = true;
-      }
-    }
-
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
+    const copyPayload = () => copy(text.value);
 
     // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
     return () => h("details", {
@@ -541,7 +502,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
       : `${new Intl.DateTimeFormat("en", dateOptions).format(date)} ${time}`;
   return {
     short,
-    title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
+    title: consoleDateTime(value),
     value,
   };
 }
@@ -1042,7 +1003,8 @@ function labelStyle(color: string | undefined): Record<string, string> {
   const luminance = (red * 299 + green * 587 + blue * 114) / 1_000;
   return {
     "--vh-invocation-label-bg": `#${normalized}`,
-    "--vh-invocation-label-fg": luminance > 150 ? "#1f2328" : "#ffffff",
+    // The label color is GitHub data. Its text is the darkest or lightest neutral, whichever keeps it readable.
+    "--vh-invocation-label-fg": luminance > 150 ? "var(--ui-color-neutral-900)" : "var(--ui-color-neutral-50)",
   };
 }
 
@@ -1593,10 +1555,14 @@ const agentInvocation = defineComponent({
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);
     const openActivities = ref<ReadonlySet<string>>(new Set());
-    const messageCopy = ref<{ id: string; status: "copied" | "failed" }>();
+    const clipboard = useCopy();
+    const copiedMessageId = ref<string>();
+    const messageCopy = computed<{ id: string; status: "copied" | "failed" } | undefined>(() => {
+      const status = clipboard.copied.value ? "copied" : clipboard.failed.value ? "failed" : undefined;
+      return copiedMessageId.value && status ? { id: copiedMessageId.value, status } : undefined;
+    });
     const root = ref<HTMLElement>();
     let selectedElement: HTMLElement | undefined;
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
     function toggleExpanded(id: string) {
       const next = new Set(expandedMessages.value);
@@ -1629,23 +1595,15 @@ const agentInvocation = defineComponent({
     }
 
     async function copyMessage(activity: InvocationActivity) {
-      try {
-        if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-        const url = agentInvocationExternalUrl(props.invocation);
-        const metadata = [
-          `Invocation ID: ${props.invocation.id}`,
-          `Trace ID: ${props.invocation.traceId}`,
-          props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
-          url ? `URL: ${url}` : undefined,
-        ].filter((value): value is string => value !== undefined);
-        await navigator.clipboard.writeText(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
-        messageCopy.value = { id: activity.id, status: "copied" };
-      }
-      catch {
-        messageCopy.value = { id: activity.id, status: "failed" };
-      }
-      if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => messageCopy.value = undefined, 2_000);
+      copiedMessageId.value = activity.id;
+      const url = agentInvocationExternalUrl(props.invocation);
+      const metadata = [
+        `Invocation ID: ${props.invocation.id}`,
+        `Trace ID: ${props.invocation.traceId}`,
+        props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
+        url ? `URL: ${url}` : undefined,
+      ].filter((value): value is string => value !== undefined);
+      await clipboard.copy(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
     }
 
     async function focusActivity(id: string | undefined) {
@@ -1677,7 +1635,7 @@ const agentInvocation = defineComponent({
     watch(() => props.invocation.id, () => {
       workOpen.value = false;
       openActivities.value = new Set();
-      messageCopy.value = undefined;
+      copiedMessageId.value = undefined;
     });
     watch(() => props.invocation.status, (status, previousStatus) => {
       if ((previousStatus === "pending" || previousStatus === "running")
@@ -1692,7 +1650,6 @@ const agentInvocation = defineComponent({
     }, { immediate: true });
     onBeforeUnmount(() => {
       clearSelectedElement();
-      if (copyTimer) clearTimeout(copyTimer);
       if (liveClock) clearInterval(liveClock);
     });
 
@@ -1786,9 +1743,10 @@ const agentInvocationInspector = defineComponent({
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
     const conversation = computed(() => buildInvocationConversation(activities.value));
-    const copied = ref<"invocation" | "trace">();
-    const copyError = ref<"invocation" | "trace">();
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
+    const clipboard = useCopy({ duration: 1_600 });
+    const copyKind = ref<"invocation" | "trace">();
+    const copied = computed(() => clipboard.copied.value ? copyKind.value : undefined);
+    const copyError = computed(() => clipboard.failed.value ? copyKind.value : undefined);
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
       messages: (conversation.value.kind === "activities"
@@ -1809,23 +1767,8 @@ const agentInvocationInspector = defineComponent({
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
       if (!value) return;
-      copyError.value = undefined;
-      await nextTick();
-      if (!("navigator" in globalThis) || !navigator.clipboard) {
-        copied.value = undefined;
-        copyError.value = kind;
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(value);
-        copied.value = kind;
-        copyError.value = undefined;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = setTimeout(() => { copied.value = undefined; }, 1_600);
-      } catch {
-        copied.value = undefined;
-        copyError.value = kind;
-      }
+      copyKind.value = kind;
+      await clipboard.copy(value);
     }
 
     function copyAction(kind: "invocation" | "trace", label: string, value: string | undefined) {
@@ -1847,10 +1790,6 @@ const agentInvocationInspector = defineComponent({
         ],
       );
     }
-
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
 
     return () => {
       const configuration = props.invocation.configuration;
@@ -1940,7 +1879,7 @@ const agentInvocationInspector = defineComponent({
                   : null,
                 inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
                   ? "Unknown"
-                  : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
+                  : consoleNumber((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
                 // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
                 inspectorRow(
                   usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
@@ -1954,7 +1893,7 @@ const agentInvocationInspector = defineComponent({
                   ["Reasoning", partition?.reasoningTokens],
                 ] as const).flatMap(([label, value]) => value === undefined
                   ? []
-                  : [inspectorRow(label, new Intl.NumberFormat("en").format(value))]),
+                  : [inspectorRow(label, consoleNumber(value))]),
               ]),
             ),
             props.showTimeline

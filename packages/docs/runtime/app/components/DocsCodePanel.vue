@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useClipboard } from "@vueuse/core"
+import { CopyButton } from "@vite-hub/ui"
 import { buildFileTree } from "../utils/file-tree"
 
 // The sticky code panel beside a tutorial. It reads the code blocks of the article body in order.
@@ -98,14 +98,6 @@ function selectBlock(index: number) {
   selectFile(blocks.value[index]?.path)
 }
 
-const { copy, copied } = useClipboard({ copiedDuring: 1500 })
-async function copyFile() {
-  const file = selected.value
-  if (!file) return
-  await copy(file.pre.textContent ?? "")
-  announcement.value = `Copied ${file.path}`
-}
-
 // Each source block gets a class for the wide-screen styles and a click on its name bar.
 const releases: (() => void)[] = []
 function releaseSources() {
@@ -198,34 +190,33 @@ onBeforeUnmount(() => {
           <UIcon name="i-lucide-folder-open" class="size-3.5 shrink-0" aria-hidden="true" />
           <span>{{ row.name }}</span>
         </div>
-        <button
+        <UButton
           v-else
-          type="button"
+          variant="ghost"
+          size="xs"
+          icon="i-lucide-file"
+          :label="row.name"
           class="vh-code-panel-row is-file"
           :class="{ 'is-active': row.path === selectedPath }"
           :style="{ '--depth': row.depth }"
           :aria-current="row.path === selectedPath ? 'true' : undefined"
           :aria-label="row.path"
           @click="selectFile(row.path)"
-        >
-          <UIcon name="i-lucide-file" class="size-3.5 shrink-0" aria-hidden="true" />
-          <span>{{ row.name }}</span>
-        </button>
+        />
       </template>
     </nav>
 
     <div class="vh-code-panel-file">
       <div class="vh-code-panel-path">
         <p :id="`${codeId}-path`" class="vh-code-panel-path-name">{{ selected?.path }}</p>
-        <UButton
+        <!-- The key resets the check when the panel shows another file. -->
+        <CopyButton
           v-if="selected"
-          :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-          color="neutral"
-          variant="ghost"
+          :key="selected.path"
+          :value="() => selected?.pre.textContent ?? ''"
           size="xs"
-          :aria-label="copied ? 'Copied' : `Copy ${selected.path}`"
+          :aria-label="`Copy ${selected.path}`"
           class="vh-code-panel-copy"
-          @click="copyFile"
         />
       </div>
       <div :id="codeId" ref="code" class="vh-code-panel-code" role="region" :aria-labelledby="`${codeId}-path`" tabindex="0" />
@@ -270,14 +261,16 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+/* Rows indent by depth. File rows are ghost buttons, so only the indent, the font, and the current file are set here. */
 .vh-code-panel-row {
   display: flex;
   min-height: 1.75rem;
+  flex: none;
   align-items: center;
   gap: 0.4375rem;
-  border-radius: var(--ui-radius);
   padding-inline: calc(0.375rem + var(--depth) * 0.75rem) 0.5rem;
   color: var(--ui-text-muted);
+  font: inherit;
   text-align: start;
 }
 
@@ -285,25 +278,9 @@ onBeforeUnmount(() => {
   color: var(--ui-text-dimmed);
 }
 
-.vh-code-panel-row.is-file {
-  cursor: pointer;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.vh-code-panel-row.is-file:hover {
-  color: var(--ui-text-highlighted);
-}
-
 .vh-code-panel-row.is-file.is-active {
-  background: color-mix(in srgb, var(--ui-text-highlighted) 7%, transparent);
+  background: var(--ui-bg-elevated);
   color: var(--ui-text-highlighted);
-}
-
-.vh-code-panel-row.is-file:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 .vh-code-panel-file {
@@ -346,11 +323,6 @@ onBeforeUnmount(() => {
   padding: 1rem;
 }
 
-.vh-code-panel-code:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
-}
-
 .vh-code-panel-code :deep(pre) {
   margin: 0;
   border: 0;
@@ -377,8 +349,13 @@ onBeforeUnmount(() => {
     display: none;
   }
 
-  .vh-code-panel-source > :first-child {
-    border-bottom-width: 1px;
+  /* The name bar is the whole block now. The wrapper draws the frame, so the bar drops its bottom rule and takes all
+     four corners, and the copy button is hidden, so "View file" sits at the end. Two classes, so it wins over the
+     scoped style of the bar. */
+  .code-block-wrapper.vh-code-panel-source > :first-child {
+    border-bottom-width: 0;
+    border-radius: inherit;
+    padding-inline-end: 0.375rem;
     cursor: pointer;
     transition:
       background-color 150ms ease,
@@ -389,7 +366,7 @@ onBeforeUnmount(() => {
     display: inline-flex;
     flex: none;
     margin-inline-start: auto;
-    border-radius: var(--ui-radius);
+    border-radius: calc(var(--ui-radius) * 1.5);
     padding: 0.25rem 0.5rem;
     color: var(--ui-text);
     font: inherit;
@@ -398,18 +375,13 @@ onBeforeUnmount(() => {
 
   @media (hover: hover) {
     .vh-code-panel-source > :first-child:hover {
-      background: color-mix(in srgb, var(--ui-text-highlighted) 5%, var(--ui-bg));
+      background: var(--ui-bg-elevated);
       color: var(--ui-text-highlighted);
     }
   }
 
-  .vh-code-panel-trigger:focus-visible {
-    outline: 2px solid var(--ui-text-highlighted);
-    outline-offset: 2px;
-  }
-
   .vh-code-panel-source.is-active > :first-child {
-    background: color-mix(in srgb, var(--ui-text-highlighted) 5%, var(--ui-bg));
+    background: var(--ui-bg-elevated);
     color: var(--ui-text-highlighted);
   }
 }

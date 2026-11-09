@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findDocsPage } from "@vite-hub/docs";
@@ -156,11 +156,14 @@ describe("trust and developer discovery content", () => {
 
   it("renders no site footer and keeps recovery links on the 404 page", () => {
     const app = readFileSync(resolve(packageRoot, "runtime/app/app.vue"), "utf8");
-    const error = readFileSync(resolve(docsRoot, "app/error.vue"), "utf8");
+    // The site uses the error page of @vite-hub/docs. It links the docs home, the start section, and `start.links`.
+    expect(existsSync(resolve(docsRoot, "app/error.vue"))).toBe(false);
+    const error = readFileSync(resolve(packageRoot, "runtime/app/error.vue"), "utf8");
 
     expect(app).not.toMatch(/<(?:AppFooter|UFooter)\b/);
     expect(error).not.toMatch(/<(?:AppFooter|UFooter)\b/);
-    expect(error).toContain("label: \"Docs\", to: \"/docs\"");
+    expect(error).toContain("config.start?.links");
+    expect(config.docs?.start?.links?.map(link => link.to)).toEqual(expect.arrayContaining(["/learn", "/projects", "/templates"]));
     expect(error).toContain("<AppSearch");
     expect(error).toContain("llms.txt");
     expect(error).toContain("Sitemap");

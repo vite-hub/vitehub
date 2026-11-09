@@ -6,7 +6,6 @@
   },
   "include": [
     "src/primitive-rail.ts",
-    "src/connect-panel.ts",
     "src/components/*.ts"
   ],
   "exclude": [

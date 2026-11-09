@@ -8,6 +8,7 @@ import type { ConsoleLinkedProject } from "../client/projects";
 import { checkConsoleProjects, forgetConsoleProject, openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleProjectLink from "./console-project-link.vue";
+import ConsoleConfirm from "./console-confirm.vue";
 
 const projects = useConsoleProjects();
 const forgetting = shallowRef<ConsoleLinkedProject>();
@@ -109,25 +110,15 @@ function forget(): void {
     </template>
   </UDropdownMenu>
 
-  <UModal
+  <ConsoleConfirm
     :open="Boolean(forgetting)"
     :title="forgetting ? `Forget ${consoleProjectName(forgetting)}?` : 'Forget project?'"
-    :content="{ role: 'alertdialog' }"
-    :ui="{ content: 'sm:max-w-[440px]' }"
+    :description="`This browser removes the URL and the tokens of ${forgetting ? consoleProjectHost(forgetting) : 'the project'}, and signs out of it. The project does not change. To open it again, link it again.`"
+    confirm-label="Forget project"
+    destructive
     @update:open="(value: boolean) => { if (!value) forgetting = undefined; }"
-  >
-    <template #body>
-      <p class="text-pretty text-[13px] text-muted">
-        This browser removes the URL and the tokens of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}, and signs out of it. The project does not change. To open it again, link it again.
-      </p>
-    </template>
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="ghost" label="Cancel" @click="forgetting = undefined" />
-        <UButton color="error" label="Forget project" @click="forget" />
-      </div>
-    </template>
-  </UModal>
+    @confirm="forget"
+  />
 
   <ConsoleProjectLink v-model:open="projects.linkOpen.value" />
 </template>
@@ -141,7 +132,7 @@ function forget(): void {
 .vitehub-project-switcher__mark {
   align-items: center;
   border: 1px solid var(--ui-border-accented);
-  border-radius: 0.3125rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   color: var(--ui-text-highlighted);
   display: inline-flex;
   font-size: 0.6875rem;
@@ -160,7 +151,7 @@ function forget(): void {
 
 .vitehub-project-switcher__host {
   color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -3,14 +3,14 @@ title: Message Scroller
 description: "Compose headless message scrolling with live-edge following, prepend preservation, and message jumps."
 navigation.order: 41
 navigation.group: Utilities
-icon: i-ph-scroll-light
+icon: i-lucide-scroll-text
 ---
 
 The message scroller is the scrolling layer under `Chat`. It follows new content only while the reader stays at the live edge, keeps the position when older messages are added above, and can jump to a message ID. The parts have the same names and `data-slot` attributes as the [shadcn/ui Message Scroller](https://ui.shadcn.com/docs/components/message-scroller).
 
 The scroller does not own messages, Agent state, transport, or persistence. Put any row in it: a message, a marker, a log line, or a "load earlier" row.
 
-::component-preview{name="MessageScrollerExample"}
+::example{name="MessageScrollerExample" height=20}
 ::
 
 ## Installation
@@ -106,7 +106,7 @@ A turn starts a new exchange. In an Agent chat, it is usually the user message a
 
 Any row can be an anchor: a user message, an assistant reply, or a marker. Select **User** or **Assistant** in the example below, then send a message.
 
-::component-preview{name="MessageScrollerAnchorExample" reset}
+::example{name="MessageScrollerAnchorExample" reset height=30}
 ::
 
 The anchor can only move as far up as the content allows. Give the content bottom padding, as `Chat` does, so a new turn has room to reach the top.
@@ -130,7 +130,7 @@ When the reader is at the end, `autoScroll` keeps new content in view. It reacts
 
 `edgeThreshold` sets how many pixels from the end still count as the end.
 
-::component-preview{name="MessageScrollerStreamingExample" reset}
+::example{name="MessageScrollerStreamingExample" reset height=19}
 ::
 
 ## Opening Saved Threads
@@ -153,7 +153,7 @@ Loading older messages must not move the messages that the reader sees. When a n
 
 Scroll up in the example below, then select **Load earlier messages**.
 
-::component-preview{name="MessageScrollerPrependExample" reset}
+::example{name="MessageScrollerPrependExample" reset height=23}
 ::
 
 Pass message IDs to `items`, in order. Rows that are not messages, such as a "load earlier" button, do not need an ID in the list.
@@ -162,7 +162,7 @@ Pass message IDs to `items`, in order. Rows that are not messages, such as a "lo
 
 Search results, permalinks, and outlines move the transcript from outside the list. The root slot gives `scrollToMessage(id, options)` to every control inside `MessageScroller`. The control can be outside the viewport, as the turn buttons in this example are.
 
-::component-preview{name="MessageScrollerJumpExample"}
+::example{name="MessageScrollerJumpExample" height=20}
 ::
 
 `scrollToMessage()` stops following, unless you pass `block: 'end'`. In a nested component, call `useMessageScroller()` instead:
@@ -186,7 +186,7 @@ const { scrollToMessage } = useMessageScroller();
 
 Read `atEnd` and `isScrollable` when you need scroll state in code, for example for a status line or your own "jump to latest" control. The root slot gives them with `scrollToEnd` and `scrollToMessage`. `useMessageScroller()` gives them as read-only refs.
 
-::component-preview{name="MessageScrollerStateExample"}
+::example{name="MessageScrollerStateExample" height=20}
 ::
 
 For styles, use the data attributes. The viewport has `data-at-end` at the live edge. The button has `data-active="true"` when it can scroll.

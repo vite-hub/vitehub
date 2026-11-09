@@ -27,7 +27,8 @@
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/styles.css"
+    "./dist/styles.css",
+    "./dist/theme.css"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -51,6 +52,16 @@
       "import": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./playground": {
+      "types": "./dist/playground.d.ts",
+      "import": "./dist/playground.js",
+      "default": "./dist/playground.js"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js",
+      "default": "./dist/theme.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -62,7 +73,8 @@
       "default": "./dist/workspace.js"
     },
     "./package.json": "./package.json",
-    "./styles.css": "./dist/styles.css"
+    "./styles.css": "./dist/styles.css",
+    "./theme.css": "./dist/theme.css"
   },
   "scripts": {
     "build": "vp pack",
@@ -102,7 +114,7 @@
   },
   "devDependencies": {
     "@ai-sdk/vue": "catalog:ai",
-    "@iconify-json/ph": "catalog:ui",
+    "@iconify-json/lucide": "catalog:ui",
     "@nuxt/schema": "4.6.3",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
@@ -138,7 +150,7 @@
     "@vite-hub/blob": "workspace:*"
   },
   "peerDependencies": {
-    "@iconify-json/ph": "catalog:ui",
+    "@iconify-json/lucide": "catalog:ui",
     "@nuxt/ui": "^4.11.0",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
@@ -152,7 +164,7 @@
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
-    "@iconify-json/ph": {
+    "@iconify-json/lucide": {
       "optional": true
     },
     "@nuxt/ui": {

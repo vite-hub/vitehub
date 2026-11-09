@@ -195,7 +195,7 @@ useHead(computed(() => contentHead(page.value, { site: { url: 'https://vitehub.d
 
 `/es/docs/guide` shows the Spanish document, and `/docs/guide` the English one. Before a translation exists, `/es/docs/guide` shows the English document with `fallback: true`. In a collection with `url`, `get()` also returns `alternates`: the URL of each locale that has its own version, source locale first, such as `[{ locale: 'en', url: '/docs/guide' }, { locale: 'es', url: '/es/docs/guide' }]`. Use it for a language switcher. [`contentHead()`](/docs/content/seo#pages-in-several-locales) turns `locale` and `alternates` into `<html lang>`, `hreflang` links, and the canonical link.
 
-The Console editor and live editing work on the source locale. Edit leases and live rooms belong to the source locale document, so a translation save does not wait for the person who edits the source.
+The [Console editor](/docs/content/console#translations) switches between locales and shows the state of each translation. Edit leases and live rooms belong to the source locale document, so a translation save does not wait for the person who edits the source.
 
 ### Fields
 
@@ -377,6 +377,18 @@ authorize: ({ user, actor, action }) => {
 
 Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default policy: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
 
+### Sources parsed at build
+
+A server build parses each `glob()` and `files()` Source once and ships the parsed documents with the server. A cold server, such as a new Cloudflare Worker isolate, then reads them and does not parse the Markdown again. `list()` and `navigation()` read only the index of the documents, `get()` reads the part of the snapshot that holds its document, and the first search reads all of it. `vite dev` parses the files live, so edits show at once. Collections are not parsed at build, because their documents change at run time.
+
+- The build loads `server/content.ts` in Node. When it cannot, for example because the file imports a module that only the host provides, the build warns and the server parses the Sources on its first Content request.
+- Parse plugins and `file:parsed` hooks run at build, so their options must give the same result there as on the server. `file:bulk:load` runs on the server when all the parsed documents load, such as on the first search, with full bodies. It does not run at build, so index plugins such as `sql-query` do not write to your Database during the build.
+- `list()` entries carry the metadata of a full parse, such as `readingTime`, and their `meta.partial` is `false`.
+- `refresh()` parses the Source again.
+- A `glob()` whose options are not literals reads its files from disk at run time, so the server parses it.
+
+The parsed documents add to the server bundle. The 344 pages of the ViteHub docs add about 5 MB, or 1.1 MB with gzip.
+
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 
 ## Providers
@@ -407,8 +419,10 @@ For client search, pass `searchClient()` from `comark-content/plugins/sqlite-ful
 
 | Database | Import | Use |
 | --- | --- | --- |
-| Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite. |
-| SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. |
+| Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite, such as the Node, Vercel, and Netlify presets. |
+| SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. Install `@sqlite.org/sqlite-wasm` too, because `comark-content` does not install it. |
+
+Full-text search does not run on Cloudflare Workers yet. Workers have no Node SQLite, and SQLite WASM cannot start inside a request there, which is where Content loads.
 
 The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 

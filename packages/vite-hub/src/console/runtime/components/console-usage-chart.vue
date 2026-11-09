@@ -157,7 +157,7 @@ function hover(event: PointerEvent): void {
           aria-hidden="true"
         >
           <div
-            class="absolute top-0 w-max max-w-48 rounded-md border border-default bg-default px-2 py-1 text-xs shadow-sm"
+            class="absolute top-0 w-max max-w-48 rounded-md bg-(--vh-floating) px-2 py-1 text-xs shadow-(--vh-shadow-floating) backdrop-blur-md"
             :class="hovered.x > width / 2 ? 'right-2' : 'left-2'"
           >
             <span class="block text-muted">{{ hovered.period }}</span>
@@ -168,25 +168,26 @@ function hover(event: PointerEvent): void {
         <span class="absolute top-full right-0 mt-2 text-xs text-muted" aria-hidden="true">{{ to }} UTC</span>
       </div>
     </div>
-    <div
+    <!-- The empty chart keeps the height of the chart, so the first point moves nothing. -->
+    <UEmpty
       v-else
-      class="grid h-40 place-content-center justify-items-center gap-2 rounded-md border border-dashed border-default px-4 text-center"
+      class="h-40"
+      :title="state === 'unavailable' ? unavailable : empty"
+      :description="`${from} to ${to} UTC`"
       :data-state="state"
       data-slot="usage-chart-empty"
     >
-      <p class="text-sm font-medium" :class="state === 'unavailable' ? 'text-highlighted' : 'text-muted'">
-        {{ state === "unavailable" ? unavailable : empty }}
-      </p>
-      <p class="text-xs text-muted">{{ from }} to {{ to }} UTC</p>
       <!-- Actions for the unavailable state, for example a switch to another metric. -->
-      <slot v-if="state === 'unavailable'" name="unavailable" />
-    </div>
+      <template v-if="state === 'unavailable' && $slots.unavailable" #actions>
+        <slot name="unavailable" />
+      </template>
+    </UEmpty>
     <details v-if="points.length" class="group mt-3 text-xs" data-slot="usage-chart-data">
-      <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm text-muted select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--vitehub-console-focus)">
+      <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md text-muted select-none hover:text-highlighted">
         <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
         Show data table
       </summary>
-      <div class="mt-2 max-h-64 overflow-y-auto rounded-md border border-default">
+      <div class="mt-2 max-h-64 overflow-y-auto rounded-lg border border-default">
         <table class="w-full text-xs">
           <caption class="sr-only">{{ title }}, {{ from }} to {{ to }} UTC</caption>
           <thead class="sticky top-0 bg-default text-left text-muted">

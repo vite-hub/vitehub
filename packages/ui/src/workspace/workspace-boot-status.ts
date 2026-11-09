@@ -1,5 +1,6 @@
 import type { WebContainerStage, WebContainerStep } from "@vite-hub/web-container";
 import { computed, defineComponent, h, onBeforeUnmount, type PropType, ref, watch } from "vue";
+import { formatDuration } from "../internal/format.ts";
 import { icon } from "./icons.ts";
 import type { UseWebContainerStatus, WebContainerFailure } from "@vite-hub/web-container/vue";
 
@@ -16,13 +17,6 @@ const checklist: readonly { stage: ChecklistStage, label: string }[] = [
 
 /** The install hint shows after this many milliseconds. */
 const slowInstallMs = 20_000;
-
-export function formatElapsed(ms: number): string {
-  const seconds = ms / 1000;
-  if (seconds < 10) return `${seconds.toFixed(1)} s`;
-  if (seconds < 60) return `${Math.floor(seconds)} s`;
-  return `${Math.floor(seconds / 60)} min ${Math.floor(seconds % 60)} s`;
-}
 
 export interface BootStepView {
   stage: ChecklistStage
@@ -131,7 +125,7 @@ export const WorkspaceBootStatus = defineComponent({
           stateIcon[row.state](),
           h("span", { class: "vh-ws-step-label" }, row.label),
           h("span", { class: "vh-ws-sr-only" }, `, ${stateText[row.state]}`),
-          h("span", { class: "vh-ws-step-time" }, row.ms === undefined ? "" : formatElapsed(row.ms)),
+          h("span", { class: "vh-ws-step-time" }, row.ms === undefined ? "" : formatDuration(row.ms)),
         ]))),
         slowInstall ? h("p", { class: "vh-ws-muted vh-ws-boot-hint" }, "First install downloads packages. Later steps reuse them.") : undefined,
         props.online ? undefined : h("p", { class: "vh-ws-notice", role: "alert" }, [

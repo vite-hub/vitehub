@@ -106,6 +106,38 @@ Set the `cloudflare` preset and enable `agent`. The build writes the Worker and
 its `wrangler.json` under `.output/server`, with the bindings that the enabled
 features need.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    agent: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      agent: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -119,6 +151,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Read [Cloudflare](/docs/frameworks-hosts/cloudflare) for bindings, provisioning,
 and Workers Builds. Start with [First Agent](/docs/getting-started/first-agent)

@@ -3,12 +3,12 @@ title: Message
 description: "Lay out one conversation turn with an avatar, a header, content, and a footer."
 navigation.order: 10
 navigation.group: Parts
-icon: i-ph-chat-centered-text-light
+icon: i-lucide-message-square-text
 ---
 
 `Message` is one row of a conversation. It aligns the turn to the start or the end and holds an avatar, a header, the content, and a footer. Put a [Bubble](/docs/ui/bubble), a [Trace](/docs/ui/trace), or any other content inside `MessageContent`. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Message](https://ui.shadcn.com/docs/components/message).
 
-::component-preview{name="MessageExample"}
+::example{name="MessageExample" height=25}
 ::
 
 ## Installation
@@ -74,7 +74,7 @@ MessageGroup
 
 Use `MessageAvatar` to show an avatar next to the message. Set `align="end"` on the message to put the avatar at the end.
 
-::component-preview{name="MessageAvatarExample"}
+::example{name="MessageAvatarExample" height=20}
 ::
 
 | Align   | Description                                          |
@@ -86,28 +86,28 @@ Use `MessageAvatar` to show an avatar next to the message. Set `align="end"` on 
 
 Use `MessageGroup` to stack consecutive messages from the same sender. Put an empty `MessageAvatar` on the earlier messages, so they align with the avatar on the last one.
 
-::component-preview{name="MessageGroupExample"}
+::example{name="MessageGroupExample" height=8}
 ::
 
 ## Header and Footer
 
 Use `MessageHeader` for a sender name and `MessageFooter` for metadata, such as a delivery or read status. Without a framed bubble, the header and footer align with the unframed content.
 
-::component-preview{name="MessageHeaderFooterExample"}
+::example{name="MessageHeaderFooterExample" height=12}
 ::
 
 ## Actions
 
 Put message actions in `MessageFooter`, such as copy, retry, or feedback buttons.
 
-::component-preview{name="MessageActionsExample"}
+::example{name="MessageActionsExample" height=14}
 ::
 
 ## Attachment
 
 Put an [Attachment](/docs/ui/attachment) in `MessageContent` next to the bubble to show an image or a file in the turn.
 
-::component-preview{name="MessageAttachmentExample"}
+::example{name="MessageAttachmentExample" height=30}
 ::
 
 ## Accessibility
@@ -120,7 +120,7 @@ Action buttons in `MessageFooter` often show only an icon. Give each one an `ari
 
 ```vue
 <MessageFooter>
-  <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-copy-light" aria-label="Copy" />
+  <UButton color="neutral" variant="ghost" size="sm" square icon="i-lucide-copy" aria-label="Copy" />
 </MessageFooter>
 ```
 
@@ -130,7 +130,7 @@ The parts do not announce new messages. Put the conversation in an element with 
 
 ```vue
 <Marker role="status">
-  <MarkerIcon><UIcon name="i-ph-circle-dashed-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-circle-dashed" /></MarkerIcon>
   <MarkerContent>Checking the logs</MarkerContent>
 </Marker>
 ```

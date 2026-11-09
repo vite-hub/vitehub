@@ -204,12 +204,14 @@ describe("WorkspaceShell", () => {
         terminal: () => h("p", "terminal"),
       },
     });
+    // The strip is Nuxt UI's UTabs, which loads on first render. It selects a tab on mouse down, as reka-ui does.
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']")).toHaveLength(3), { timeout: 5_000 });
     const tabs = wrapper.findAll("[role='tab']");
     expect(tabs.map(tab => tab.text())).toEqual(["Preview", "Terminal", "Connect"]);
     expect(wrapper.get("[data-tab='terminal']").attributes()).toHaveProperty("inert");
     expect(wrapper.get("[data-tab='preview']").attributes()).not.toHaveProperty("inert");
 
-    await tabs[1]?.trigger("click");
+    await tabs[1]?.trigger("mousedown", { button: 0 });
     expect(wrapper.emitted("update:tab")).toEqual([["terminal"]]);
     expect(wrapper.get("[data-tab='preview']").attributes()).toHaveProperty("inert");
 
@@ -224,13 +226,22 @@ describe("WorkspaceShell", () => {
     expect(again.get("[data-split='main']").attributes("aria-valuenow")).toBe("60");
   });
 
-  it("puts the terminal under the editor in a playground", () => {
+  it("puts the panels under the editor and the preview at the side in a playground", async () => {
     const wrapper = mount(WorkspaceShell, {
       props: { layout: "playground", storageKey: false },
       slots: { editor: () => h("p", "editor"), preview: () => h("p", "preview"), terminal: () => h("p", "terminal") },
     });
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview"]);
-    expect(wrapper.get(".vh-ws-pane--terminal").text()).toBe("terminal");
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Terminal"]), { timeout: 5_000 });
+    expect(wrapper.get(".vh-ws-pane--side").text()).toBe("preview");
+  });
+
+  it("shows the tabs of the page, in order, with their badges", async () => {
+    const wrapper = mount(WorkspaceShell, {
+      props: { layout: "tutorial", storageKey: false, tabs: [{ label: "Console", value: "terminal" }, { badge: 2, label: "Messages", value: "messages" }] },
+      slots: { editor: () => h("p", "editor"), messages: () => h("p", "messages"), terminal: () => h("p", "terminal") },
+    });
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Console", "Messages2"]), { timeout: 5_000 });
+    expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
   });
 });
 
@@ -245,6 +256,8 @@ describe("WorkspacePreview", () => {
     expect(frame.attributes("src")).toBe("https://abc.webcontainer.io/api/hello");
     expect(wrapper.get("a[aria-label='Open preview in a new tab']").attributes()).toMatchObject({ href: "https://abc.webcontainer.io/api/hello", target: "_blank" });
 
+    // The path field is Nuxt UI's UInput, which loads on first render.
+    await vi.waitFor(() => expect(wrapper.find("input").exists()).toBe(true), { timeout: 5_000 });
     await wrapper.get("input").setValue("todos");
     await wrapper.get("form").trigger("submit");
     expect(wrapper.emitted("update:path")).toEqual([["/todos"]]);

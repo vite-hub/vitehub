@@ -5,7 +5,7 @@ import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 // One build input for each component module. The package exports only the entries below, but separate files let an
 // app's bundler drop every component that it does not import, with the code of their dependencies.
-const parts = Object.fromEntries(["components", "composables", "headless", "workspace"].flatMap((dir) =>
+const parts = Object.fromEntries(["components", "composables", "headless", "playground", "workspace"].flatMap((dir) =>
   readdirSync(new URL(`src/${dir}/`, import.meta.url))
     .filter((file) => file.endsWith(".ts") && !file.startsWith("agent-"))
     .map((file) => [`parts/${dir}/${file.slice(0, -3)}`, `src/${dir}/${file}`]),
@@ -19,7 +19,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     alias: { "vega-canvas": vegaCanvasBrowser },
-    copy: [{ from: "styles.css", to: "dist" }],
+    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }],
     deps: {
       alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", "@vite-hub/blob/client", /^comark-(?!chat(?:\/|$))/, "vega-canvas"],
       // Keep vega-loader's Node/browser exports selectable by the consuming host.
@@ -49,6 +49,10 @@ export default defineConfig({
       ...parts,
       index: "src/index.ts",
       headless: "src/headless.ts",
+      // Apps import the theme from nuxt.config, so it must load without the components of the root.
+      theme: "src/theme.ts",
+      // Share links and zips, with no UI. They run in Node too, so a build or a server can write links.
+      playground: "src/playground.ts",
       // Outside the root barrel, so pages that only render Markdown never load Tiptap.
       "markdown-editor": "src/markdown-editor.ts",
       // Outside the root barrel, so chat pages never load CodeMirror or xterm.
@@ -74,7 +78,7 @@ export default defineConfig({
             if (entry && typeof entry === "object") delete entry.require;
           }
         }
-        return { ...normalized, "./styles.css": "./dist/styles.css" };
+        return { ...normalized, "./styles.css": "./dist/styles.css", "./theme.css": "./dist/theme.css" };
       },
       inlinedDependencies: false,
     },

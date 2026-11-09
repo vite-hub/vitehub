@@ -2,9 +2,11 @@
 // A docs tutorial layout: the lesson on the left and the live workspace on the right.
 // Query parameters pick a state for screenshots: ?fail=install, ?notice=safari, ?tab=connect.
 import { defineConnect } from "@vite-hub/web-container/connect";
-import { ConnectPanel, type ConnectProviderState, useConnectStore } from "@vite-hub/docs/connect-panel";
 import {
   BrowserSupportNotice,
+  ConnectPanel,
+  type ConnectProviderState,
+  useConnectStore,
   WorkspaceBootStatus,
   WorkspaceEditor,
   WorkspaceFileTree,

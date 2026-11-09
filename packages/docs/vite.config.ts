@@ -7,7 +7,7 @@ export default defineConfig({
     // Vue components. Their declarations need the full type checker: `defineComponent()` types cannot be written by hand.
     // This config runs first and cleans `dist`. The next one writes the package exports, these two included.
     deps: { alwaysBundle: ["@vite-hub/icons"], neverBundle: ["vue", /^@vite-hub\/(?!icons$)/], onlyBundle: false },
-    entry: ["src/connect-panel.ts", "src/primitive-rail.ts"],
+    entry: ["src/primitive-rail.ts"],
     outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
     tsconfig: "tsconfig.vue.json",
   }, {
@@ -28,7 +28,7 @@ export default defineConfig({
         // A Worker cannot start Codex, so a Worker build resolves the assistant with a model-backed Driver.
         const worker = "./dist/assistant-worker.js"
         // The Vue parts build in the first config.
-        const vue = Object.fromEntries(["./connect-panel", "./primitive-rail"].map(key => [key, { types: `./dist${key.slice(1)}.d.ts`, import: `./dist${key.slice(1)}.js`, default: `./dist${key.slice(1)}.js` }]))
+        const vue = Object.fromEntries(["./primitive-rail"].map(key => [key, { types: `./dist${key.slice(1)}.d.ts`, import: `./dist${key.slice(1)}.js`, default: `./dist${key.slice(1)}.js` }]))
         return { ...entries, ...vue, "./assistant": { types: "./dist/assistant.d.ts", workerd: worker, worker, import: "./dist/assistant.js", default: "./dist/assistant.js" } }
       },
       inlinedDependencies: false,
