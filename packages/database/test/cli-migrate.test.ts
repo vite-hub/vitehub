@@ -470,6 +470,10 @@ describe("vitehub db migrate with D1 over HTTP", () => {
     // A merge that gives two folders one name fails instead of staging one file over the other.
     await writeFile(join(migrationsDir, d1MigrationNamesFile), JSON.stringify({ "20261001000000_early": "0000_init.sql", "20261109120000_init": "0000_init.sql" }))
     expect(() => listD1Migrations(migrationsDir)).toThrow("gives two migrations the Wrangler name 0000_init.sql")
+
+    // A merge conflict leaves markers in the file. The error names the file instead of a bare SyntaxError.
+    await writeFile(join(migrationsDir, d1MigrationNamesFile), '{\n<<<<<<< HEAD\n  "20261001000000_early": "0001_early.sql"\n=======\n  "20261002000000_other": "0001_other.sql"\n>>>>>>> branch\n}\n')
+    expect(() => listD1Migrations(migrationsDir)).toThrow(`${join(migrationsDir, d1MigrationNamesFile)} is not valid JSON. Fix the JSON.`)
   })
 
   it("records the Wrangler names when vitehub db generate writes a D1 migration", async () => {
