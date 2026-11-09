@@ -135,9 +135,11 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
   "@vite-hub/ui/primitive-rail",
-  // The design system: surfaces import the theme from @vite-hub/ui directly.
+  // The design system: surfaces import the theme and its shared parts from @vite-hub/ui directly.
   "@vite-hub/ui/theme",
   "@vite-hub/ui/theme.css",
+  "@vite-hub/ui/copy-button",
+  "@vite-hub/ui/status",
   "@vite-hub/ui/browser-support-notice",
   "@vite-hub/ui/connect-panel",
   "@vite-hub/ui/workspace",
@@ -485,7 +487,7 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/format");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/appearance");
     expect(consolePage).toContain("AgentInvocationList");
-    expect(consolePage).toContain('aria-label="Filter sessions"');
+    expect(consolePage).toMatch(/aria-label="[^"]*'Filter sessions'"/);
     expect(consolePage).toContain("selectedCapabilityId");
     expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(3);
     expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
@@ -599,7 +601,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
     expect(sessionInspector).toContain("workspaceRequest = undefined;");
-    expect(sessionInspector).toMatch(/<button\s+v-if="props.workspaceBase"/);
+    expect(sessionInspector).toMatch(/<UButton\s+v-if="props.workspaceBase"/);
     expect(sessionInspector).toMatch(
       /const invocationId = props\.invocation\.id;[\s\S]*?if \(!workspace\.value\) await loadWorkspace\(\);[\s\S]*?if \(props\.invocation\.id !== invocationId\) return;/,
     );
@@ -666,7 +668,7 @@ describe("framework package contract", () => {
     expect(sessionCodePreview).toContain('class="line"');
     expect(sessionCodePreview).toContain("plainLines");
     expect(consoleSessionCss).toMatch(
-      /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.6875rem;/,
+      /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.75rem;/,
     );
     expect(consoleSessionCss).toMatch(
       /\.session-inspector__file \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?height: 100%;/,
