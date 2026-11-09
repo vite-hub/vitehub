@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { defineCommentSubject } from "../src/operations-core/define.ts"
 import { readGuest, saveGuest } from "../src/overlay/api.ts"
 import { clickPage, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
@@ -355,6 +356,31 @@ describe("the Comments overlay on the comment parts", () => {
     expect(stored).toEqual([{ name: "shot.png", type: "image/png", size: 9 }])
     expect(requests.find(request => request.path.endsWith("/attachments"))?.body).toMatchObject({ name: "shot.png", type: "image/png", subject: { kind: "page", id: "/pricing" } })
     expect((await comments.list())[1]![0]!.messages[0]!.attachments).toEqual(["files/shot.png"])
+  })
+
+  it("comments and uploads on the subject that the server maps the page to, also after navigation", async () => {
+    const { shadow, comments, requests } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3), revision: 2 } : url.pathname === "/pricing" ? { kind: "drop", id: "pricing" } : undefined,
+      storeAttachment: file => `files/${file.name}`,
+    })
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    const picker = shadow.querySelector<HTMLInputElement>('[data-slot="comment-layer-popover"] input[type="file"]')!
+    Object.defineProperty(picker, "files", { configurable: true, value: [new File(["png"], "shot.png", { type: "image/png" })] })
+    picker.dispatchEvent(new Event("change", { bubbles: true }))
+    await type(composer(shadow, "Comment")!, "On the drop")
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.subject).toEqual({ kind: "drop", id: "pricing" })
+    expect(requests.find(request => request.path.endsWith("/attachments"))?.body).toMatchObject({ subject: { kind: "drop", id: "pricing" } })
+
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=drop&subjectId=abc"))).toBe(true))
+    history.pushState(null, "", "/plain")
+    await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=page&subjectId=%2Fplain"))).toBe(true))
   })
 
   it("lists the page's threads in the pill's window with Open and Resolved", async () => {

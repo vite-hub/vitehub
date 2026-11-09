@@ -1,6 +1,6 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext, installStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { defineEventHandler } from "h3"
 import * as v from "valibot"
@@ -307,8 +307,22 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(issues) }))
   }
 
-  /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
-  async function session(event: H3Event, subject?: CommentSubject): Promise<Response> {
+  /**
+   * The subject of an app page: what `page` of `defineComments()` gives for its URL, else `{ kind: "page", id }` with
+   * the normalized path.
+   */
+  async function pageSubject(event: H3Event, request: Request, path: string): Promise<{ subject: CommentSubject, revision?: number }> {
+    const id = normalizeCommentPage(path)
+    if (!comments.options.page) return { subject: { kind: "page", id } }
+    // `page` reads `event["~standard"]`. Set it when Nitro did not, as for `identify`.
+    installStandardContext(event)
+    const mapped = await comments.options.page({ url: new URL(id, forwardedRequestOrigin(request)), event })
+    if (!mapped) return { subject: { kind: "page", id } }
+    return { subject: { kind: mapped.kind, id: mapped.id }, ...(mapped.revision === undefined ? {} : { revision: mapped.revision }) }
+  }
+
+  /** Who the overlay's person is, what they may do, and the subject of the page. The page tools session decides whether the overlay loads. */
+  async function session(event: H3Event, subject?: CommentSubject, revision?: number): Promise<Response> {
     const identity = await identityOf(event)
     const user = identity === false ? false : identity.user
     const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, identity, action, undefined, subject)))
@@ -327,6 +341,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         ...(signOut ? { signOut } : {}),
         realtime: options.realtime,
         content: Boolean(options.content),
+        ...(subject ? { subject } : {}),
+        ...(revision === undefined ? {} : { revision }),
       },
     })
   }
@@ -383,9 +399,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return parsed.success ? [undefined, parsed.output] : [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
   }
 
-  /** Checks the page context that the overlay read: same origin, same page. Keeps only the origin and the path. */
-  function checkContext(request: Request, context: CommentContext, subject: CommentSubject): Result<CommentContext, "COMMENTS_INVALID_INPUT"> {
-    if (subject.kind !== "page") return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context: Only a page thread keeps the page context." }), undefined]
+  /**
+   * Checks the page context that the overlay read: same origin, and a thread on the subject of that page. Keeps only
+   * the origin and the path, and gives the revision of the page subject.
+   */
+  async function checkContext(event: H3Event, request: Request, context: CommentContext, subject: CommentSubject): Promise<Result<{ context: CommentContext, revision?: number }, "COMMENTS_INVALID_INPUT">> {
     const origin = forwardedRequestOrigin(request)
     let submitted: URL
     try {
@@ -394,11 +412,15 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     catch {
       return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }), undefined]
     }
-    if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== subject.id) {
+    if (submitted.origin !== origin) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }), undefined]
+    // The server decides the subject of a page. The overlay may not start a thread on another subject.
+    const page = normalizeCommentPage(submitted.pathname)
+    const expected = await pageSubject(event, request, page)
+    if (expected.subject.kind !== subject.kind || expected.subject.id !== subject.id) {
       return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }), undefined]
     }
     // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
-    return [undefined, completeContext({ ...context, url: `${origin}${subject.id}` })]
+    return [undefined, { context: completeContext({ ...context, url: `${origin}${page}` }), ...(expected.revision === undefined ? {} : { revision: expected.revision }) }]
   }
 
   async function fieldTarget(event: H3Event, address: string, subject?: CommentSubject): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
@@ -493,10 +515,15 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const page = url.searchParams.get("page")
     const subjectKind = url.searchParams.get("subjectKind")
     const subjectId = url.searchParams.get("subjectId")
-    const subject: CommentSubject | undefined = page ? { kind: "page", id: normalizeCommentPage(page) } : subjectKind && subjectId ? { kind: subjectKind, id: subjectId } : undefined
+    // Only the routes that read the subject call `page` of `defineComments()`.
+    const pageOf = async () => page ? await pageSubject(event, request, page) : subjectKind && subjectId ? { subject: { kind: subjectKind, id: subjectId } } : undefined
+    const subjectOf = async (): Promise<CommentSubject | undefined> => (await pageOf())?.subject
     if (method !== "GET" && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
 
-    if (method === "GET" && path === "/session") return await session(event, subject)
+    if (method === "GET" && path === "/session") {
+      const current = await pageOf()
+      return await session(event, current?.subject, current?.revision)
+    }
     // Better Auth checks the origin of its own POST routes.
     if (path.startsWith("/auth/") && options.githubLogin) return await options.githubLogin.handle(event, path)
 
@@ -515,9 +542,13 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const { page, subject: given, context, anchor, ...input } = parsed.output
         const target = given ?? (page === undefined ? undefined : { kind: "page", id: normalizeCommentPage(page) })
         if (!target) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }))
-        const [badContext, checked] = context ? checkContext(request, context, target) : [undefined, undefined]
+        const [badContext, checked] = context ? await checkContext(event, request, context, target) : [undefined, undefined]
         if (badContext) return failure(badContext)
-        return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked } : {}) }, who), (thread, who) => threadResponse(event, who, thread))
+        if (checked?.revision !== undefined && input.revision !== undefined && input.revision !== checked.revision) {
+          return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "revision: Must be the revision of the page subject." }))
+        }
+        const revision = checked?.revision ?? input.revision
+        return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked.context } : {}), ...(revision === undefined ? {} : { revision }) }, who), (thread, who) => threadResponse(event, who, thread))
       }
     }
 
@@ -571,7 +602,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       const threadId = url.searchParams.get("thread")
       const [missing, current] = threadId ? await comments.get(threadId) : [undefined, undefined]
       if (missing) return failure(missing)
-      const target = current?.subject ?? subject
+      const target = current?.subject ?? await subjectOf()
       const [denied, allowed] = await access(event, "read", current, target)
       if (denied) return failure(denied)
       const limit = Number(url.searchParams.get("limit") ?? 20)
@@ -579,7 +610,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
 
     if (path === "/fields") {
-      if (!subject || subject.kind !== "page") return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "page: Give the current page for a field edit." }))
+      const subject = page ? await subjectOf() : undefined
+      if (!subject) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "page: Give the current page for a field edit." }))
       if (method === "GET") return await readField(event, url.searchParams.get("field") ?? "", subject)
       if (method === "POST") return await saveField(event, subject)
     }

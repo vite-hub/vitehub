@@ -51,6 +51,22 @@ A single page app whose `index.html` Vite serves or builds gets a short inline c
 
 Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
+By default the overlay comments on the page itself, `{ kind: "page", id: "/pricing" }`. `page` maps a page to a subject of your own. The server decides: the overlay reads the subject from the session route, and a thread that the overlay starts must be on that subject. `authorize` still runs on it.
+
+```ts fragment
+import { defineCommentSubject, defineComments } from "vite-hub/comments"
+
+export const comments = defineComments({
+  subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+  page: async ({ url }) => {
+    const id = url.pathname.match(/^\/d\/([^/]+)/)?.[1]
+    return id ? { kind: "drop", id, revision: await latestRevision(id) } : undefined
+  },
+})
+```
+
+`url` has the origin and the normalized path, without query and hash. Return `undefined` or `null` for the page itself. With `revision`, new threads from the overlay start on that version of the subject.
+
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
 Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:

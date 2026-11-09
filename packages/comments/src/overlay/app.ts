@@ -8,7 +8,7 @@ import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Tel
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { overlayStyles, panelStyles } from "./styles.ts"
@@ -18,7 +18,7 @@ import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentCan } from "@vite-hub/ui/headless"
 import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 
 interface Cursor {
@@ -167,6 +167,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   shadow.replaceChildren(style(shadowCss(overlayStyles)), root)
 
   const page = ref(normalizeCommentPage(location.pathname))
+  /** The server decides the subject of a page. Until it answers, it is the page itself. */
+  const subject = shallowRef<CommentSubject>(session?.subject ?? { kind: "page", id: page.value })
   const search = ref(location.search)
   const toast = shallowRef<Toast>()
   const panelOpen = ref(false)
@@ -251,7 +253,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
   const upload = async (files: File[]) => await Promise.all(files.map(async file =>
-    (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: { kind: "page", id: page.value } })).key))
+    (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
 
   const edit = createInlineEdit({
     page: () => page.value,
@@ -428,7 +430,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const active = new Set([state.openId.value, state.hoverId.value].filter(Boolean))
     const threads: CommentThread[] = [...state.pageThreads.value]
     const opened = state.opened.value
-    if (opened && opened.subject.id === page.value && !threads.includes(opened)) threads.push(opened)
+    if (opened && opened.subject.kind === subject.value.kind && opened.subject.id === subject.value.id && !threads.includes(opened)) threads.push(opened)
     for (const thread of threads) {
       if (thread.anchor.kind !== "text") continue
       const range = anchorRange(thread.anchor)
@@ -470,7 +472,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     setup() {
       state = useComments({
         client,
-        subject: () => ({ kind: "page", id: page.value }),
+        subject: () => subject.value,
         location: () => ({ href: location.href, origin: location.origin, search: search.value }),
         user: () => me.value,
         people: known,
@@ -676,8 +678,13 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
       if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
       page.value = next
+      subject.value = { kind: "page", id: next }
       search.value = location.search
       panelThread.value = null
+      void api.session(next).then(([error, answer]) => {
+        const mapped = answer?.subject
+        if (!error && mapped && page.value === next && (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id)) subject.value = mapped
+      })
       // The state lists the threads of the new page. The page then joins its room.
       leaveRoom()
     },
