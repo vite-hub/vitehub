@@ -8,7 +8,7 @@ icon: i-lucide-copy
 
 `CopyButton` copies text to the clipboard. After a copy it shows a check for 2 seconds and tells screen readers "Copied". It is a Nuxt UI `UButton` with the theme defaults: neutral, ghost, and icon-only unless you give it a label.
 
-::component-preview{name="CopyButtonExample"}
+::example{name="CopyButtonExample" height=8}
 ::
 
 ## Installation

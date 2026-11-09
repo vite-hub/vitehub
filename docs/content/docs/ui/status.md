@@ -8,7 +8,7 @@ icon: i-lucide-circle
 
 `Status` shows a state as a 6px dot and a label, as [Geist's Status Dot](https://vercel.com/geist/status-dot). The dot takes the color of the tone. The label keeps the color of the text around it, so color is never the only signal.
 
-::component-preview{name="StatusExample"}
+::example{name="StatusExample" height=12}
 ::
 
 ## Installation
