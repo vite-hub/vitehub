@@ -102,9 +102,38 @@ function rememberOff(off: boolean): void {
   catch {}
 }
 
-/** Whether the page asks for the mark only, with `<html data-vitehub-pill="mark">`, because its own bar is there. */
+/**
+ * Whether the page asks for the mark only: with `<html data-vitehub-pill="mark">`, because its own bar is there, or
+ * because one of its own floating controls sits where the pill docks by default and the person has not moved the pill.
+ */
 function pageAsksForMark(): boolean {
-  return document.documentElement.getAttribute(viteHubPillAttribute) === "mark"
+  return document.documentElement.getAttribute(viteHubPillAttribute) === "mark" || crowded
+}
+
+/** Whether a floating control of the page sits at the pill's default place. `watchPageAsk()` keeps it current. */
+let crowded = false
+
+/**
+ * Whether a fixed or sticky element of the page, such as its own floating menu button, lies in the middle of the bottom
+ * edge, where the pill docks until the person drags it. Elements in the page's flow do not count: the pill floats over
+ * text anyway. A layer over most of the screen, such as a backdrop, is no control.
+ */
+function pageControlAtPillPlace(): boolean {
+  if (storedViteHubPageDock(dockKey)) return false
+  const y = innerHeight - 35
+  for (const dx of [-120, -60, 0, 60, 120]) {
+    for (const element of document.elementsFromPoint(innerWidth / 2 + dx, y)) {
+      for (let node: Element | null = element; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+        if (node.localName.startsWith("vitehub-")) break
+        const { position } = getComputedStyle(node)
+        if (position !== "fixed" && position !== "sticky") continue
+        const box = node.getBoundingClientRect()
+        if (box.width * box.height < innerWidth * innerHeight / 2) return true
+        break
+      }
+    }
+  }
+  return false
 }
 
 /**
@@ -115,16 +144,32 @@ function asideOf(dock: ViteHubPageToolsDock): ViteHubPageToolsDock {
   return dock.edge === "bottom" ? { edge: "bottom", at: dock.at < 50 ? 0 : 100 } : dock
 }
 
-/** Calls `change` each time the page starts or stops asking for the mark, until `signal` aborts. */
+/**
+ * Calls `change` each time the page starts or stops asking for the mark, until `signal` aborts. A resize or a drop of
+ * the pill can uncover or cover the pill's default place, so both check it again.
+ */
 function watchPageAsk(change: () => void, signal: AbortSignal): void {
   let asked = pageAsksForMark()
-  const observer = new MutationObserver(() => {
+  const check = () => {
+    crowded = pageControlAtPillPlace()
     if (pageAsksForMark() === asked) return
     asked = !asked
     change()
-  })
+  }
+  const observer = new MutationObserver(check)
   observer.observe(document.documentElement, { attributes: true, attributeFilter: [viteHubPillAttribute] })
-  signal.addEventListener("abort", () => observer.disconnect(), { once: true })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const later = () => {
+    clearTimeout(timer)
+    timer = setTimeout(check, 200)
+  }
+  addEventListener("resize", later, { signal })
+  addEventListener("storage", later, { signal })
+  document.addEventListener("pointerup", later, { signal })
+  signal.addEventListener("abort", () => {
+    observer.disconnect()
+    clearTimeout(timer)
+  }, { once: true })
 }
 
 /**
@@ -204,6 +249,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
   const query = new URLSearchParams(location.search)
   if (!viteHubPageToolsWanted(location.search, document.cookie)) return []
+  crowded = pageControlAtPillPlace()
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {

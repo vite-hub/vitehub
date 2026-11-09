@@ -60,6 +60,8 @@ function lazyControl(): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  // happy-dom has no layout and no `elementsFromPoint`: by default, nothing of the page is under the pill.
+  Object.defineProperty(document, "elementsFromPoint", { configurable: true, writable: true, value: () => [] })
   sessionStorage.clear()
   localStorage.clear()
   vi.spyOn(console, "error").mockImplementation(() => {})
@@ -217,6 +219,37 @@ describe("loadViteHubPageTools", () => {
     document.documentElement.removeAttribute("data-vitehub-pill")
     await vi.waitFor(() => expect(element.style.getPropertyValue("--at")).toBe("50"))
     expect(element.hasAttribute("collapsed")).toBe(false)
+  })
+
+  it("folds to the mark at an end of its edge when the page's own floating control is where it docks", async () => {
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    const under = vi.fn((x: number, y: number) => (Math.abs(x - innerWidth / 2) <= 110 && y > innerHeight - 80 ? [menu, document.body, document.documentElement] : [document.body, document.documentElement]))
+    vi.spyOn(document, "elementsFromPoint").mockImplementation(under)
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect([element.hasAttribute("collapsed"), element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([true, "bottom", "100"])
+    expect([localStorage.getItem("vitehub-tools-collapsed"), localStorage.getItem("vitehub-tools-dock")]).toEqual([null, null])
+    menu.remove()
+  })
+
+  it("keeps the place where the person docked the pill, even over the page's floating control", async () => {
+    page("/?vitehub")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "bottom", at: 50 }))
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect([element.hasAttribute("collapsed"), element.style.getPropertyValue("--at")]).toEqual([false, "50"])
+    menu.remove()
   })
 
   it("follows the page's ask after it loads, back to the person's own choices", async () => {
