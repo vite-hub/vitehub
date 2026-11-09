@@ -526,13 +526,15 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const parsed = v.safeParse(createBody, await readJson(event))
         if (!parsed.success) return invalid(parsed.issues)
         const { page, subject: given, context, anchor, ...input } = parsed.output
-        const target = given ?? (page === undefined ? undefined : { kind: "page", id: normalizeCommentPage(page) })
+        // A page means the subject that `page` of `defineComments()` gives for it, as on the other routes.
+        const mappedPage = given || page === undefined ? undefined : await resolveCommentsPage(comments, event, request, page)
+        const target = given ?? mappedPage?.subject
         if (!target) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }))
         const [badContext, checked] = context ? await checkContext(event, request, context, target) : [undefined, undefined]
         if (badContext) return failure(badContext)
         // The overlay sends the revision that `/session` gave it, which a new version can pass while the person types.
         // That revision, or an older one, stays. A missing or newer one becomes the revision of the page subject.
-        const mapped = checked?.revision
+        const mapped = checked?.revision ?? mappedPage?.revision
         const revision = mapped === undefined ? input.revision : input.revision !== undefined && input.revision <= mapped ? input.revision : mapped
         return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked.context } : {}), ...(revision === undefined ? {} : { revision }) }, who), (thread, who) => threadResponse(event, who, thread))
       }

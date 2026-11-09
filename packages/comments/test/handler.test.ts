@@ -471,7 +471,6 @@ describe("Comments API", () => {
     // The overlay may not start a thread on a subject that `page` did not give for its page.
     for (const json of [
       { subject: { kind: "page", id: "/d/abc" }, anchor, context, body: "Page" },
-      { page: "/d/abc", anchor, context, body: "Page" },
       { subject: { kind: "drop", id: "xyz" }, anchor, context, body: "Other drop" },
     ]) {
       const refused = await call("/threads", { method: "POST", json })
@@ -487,6 +486,10 @@ describe("Comments API", () => {
     const ahead = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Ahead", revision: 9 } })
     expect(ahead.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
     expect((await call("/threads?subjectKind=drop&subjectId=abc")).body.data).toHaveLength(3)
+    // A create with a page and no page context starts on the subject and the revision that the page maps to.
+    const byPage = await call("/threads", { method: "POST", json: { page: "/d/abc", anchor, body: "From the API" } })
+    expect(byPage.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
+    await call(`/threads/${encodeURIComponent(byPage.body.data.id)}`, { method: "DELETE" })
     // `?page=` lists the threads of the subject that the page maps to, as the overlay sees them.
     expect((await call("/threads?page=/d/abc")).body.data.map((thread: { subject: unknown }) => thread.subject)).toEqual(Array.from({ length: 3 }, () => ({ kind: "drop", id: "abc" })))
 
