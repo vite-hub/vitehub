@@ -6,9 +6,9 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-vercel
 ---
 
-Use the `vercel` host to deploy a ViteHub application to Vercel. A production
-build writes Vercel Build Output under `.vercel/output`. Definitions stay
-portable; Vercel-specific behavior stays in the config and the generated output.
+The `vercel` host deploys your app to Vercel. A production build writes
+Vercel Build Output under `.vercel/output`. Definitions stay portable;
+Vercel details stay in the config and output.
 
 | Feature | Default on the `vercel` host |
 | --- | --- |
@@ -24,18 +24,52 @@ portable; Vercel-specific behavior stays in the config and the generated output.
 
 | Concern | ViteHub boundary |
 | --- | --- |
-| Build Output | Generated `.vercel/output/**` files written by package integrations. |
-| Vercel Blob | Blob Store or Workspace Store configuration, depending on which primitive owns the behavior. |
-| Vercel Queues | Queue provider configuration and generated callback output. |
-| Vercel Workflow | Workflow provider configuration and generated runtime output. |
-| Vercel Sandbox | Sandbox Provider configuration, with Sandbox Identity passed only when the run needs reuse. |
-| External Database | A Database Definition backed by Cloudflare D1 over authenticated HTTP, or Database integration `connection` backed by hosted libSQL. |
-| Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` for Blob Provision, with an optional team id; Server Env for app runtime secrets. |
+| Build Output | `.vercel/output/**` files that package integrations write. |
+| Vercel Blob | Blob Store or Workspace Store configuration, by owning primitive. |
+| Vercel Queues | Queue provider config and generated callback output. |
+| Vercel Workflow | Workflow provider config and generated runtime output. |
+| Vercel Sandbox | Sandbox Provider config. Sandbox Identity only when a run reuses a sandbox. |
+| External Database | A Database Definition on Cloudflare D1 over authenticated HTTP, or a Database integration `connection` to hosted libSQL. |
+| Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`, plus an optional team id, for Blob Provision. Server Env for runtime secrets. |
 
 ## Configure the host
 
-Select the `vercel` host and enable the features the application uses.
+Select the `vercel` host and turn on the features you use.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'vercel',
+    blob: true,
+    queue: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'vercel',
+      blob: true,
+      queue: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -50,14 +84,16 @@ export default defineConfig({
   ],
 })
 ```
-
-::warning
-Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with a connected store (`BLOB_STORE_ID`) for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
+:::
 ::
 
-Database Definitions own tables and identity, while the Database Integration selects the hosted connection used by Vercel output. Use Runtime Env declarations for Marketplace-provisioned credentials so generated output reads them at runtime.
+::warning
+State on Vercel needs hosted stores. For Blob, use `driver: 'vercel-blob'` with a connected store (`BLOB_STORE_ID`). For KV, use Upstash with `KV_REST_API_URL` and `KV_REST_API_TOKEN`. Local filesystem stores work only in development.
+::
 
-A Definition uses Cloudflare D1 from Vercel only when it declares `cloudflare.http`. Set it to `true` for Cloudflare's D1 raw API, then configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as Vercel Server Env. Cloudflare deployments still prefer the D1 binding.
+Database Definitions own tables and identity. The Database integration selects the hosted connection for Vercel output. Declare Marketplace credentials as Runtime Env so the output reads them at runtime.
+
+A Definition uses Cloudflare D1 from Vercel only when it declares `cloudflare.http`. Set it to `true` for Cloudflare's D1 raw API, and set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as Vercel Server Env. Cloudflare deployments still prefer the D1 binding.
 
 ```ts [server/databases/config.ts] fragment
 import { defineDatabase } from 'vite-hub/database'
@@ -74,8 +110,53 @@ export default defineDatabase({
 })
 ```
 
-For sustained application traffic, Cloudflare recommends a proxy Worker because its built-in D1 REST API is intended primarily for administrative use and shares the global Cloudflare API rate limit. Set `cloudflare.http` to `{ url, authToken }` for an authenticated raw-compatible HTTP(S) proxy. Omitting `cloudflare.http` preserves the hosted libSQL selection even when the Definition includes a D1 database id.
+For steady app traffic, Cloudflare recommends a proxy Worker, because the D1 REST API is for admin use and shares the global Cloudflare API rate limit. Set `cloudflare.http` to `{ url, authToken }` for an authenticated, raw-compatible HTTP(S) proxy. Without `cloudflare.http`, the Definition keeps hosted libSQL, even with a D1 database id.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'vercel',
+    database: {
+      connection: {
+        url: env({ source: env.source('TURSO_DATABASE_URL') }),
+        authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'vercel',
+      database: {
+        connection: {
+          url: env({ source: env.source('TURSO_DATABASE_URL') }),
+          authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -95,10 +176,12 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 ## Provision boundary
 
-Provision exposes a dry-run plan before applying actions. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` supplies team scope when the token requires it.
+Provision shows a dry-run plan before it applies actions. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` gives the team scope when the token needs it.
 
 ```bash [Terminal]
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
@@ -107,7 +190,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision
 
 ## Generated output
 
-Vercel output appears under `.vercel/output`. Server functions include their own `.vc-config.json`, while the root output config describes routing and build metadata.
+Output goes to `.vercel/output`. Each server function has its own `.vc-config.json`. The root config describes routing and build metadata.
 
 ```bash [Terminal]
 pnpm build
@@ -116,10 +199,9 @@ find .vercel/output -maxdepth 4 -type f | sort
 
 ## Production notes
 
-Vercel provider output makes provider-specific runtime packages reachable only when selected.
-If a build bundles an unselected provider dependency, treat that as a Provider Output Contract issue in the owning package.
+The output bundles a provider's runtime package only when you select it. If it bundles an unselected one, that is a Provider Output Contract bug in the owning package.
 
-Agent Definitions run on Vercel through generated host output where the Agent integration owns the route. Keep model keys, state credentials, and other Runtime Env in Vercel environment variables.
+Agent Definitions run through generated output when the Agent integration owns the route. Keep model keys, state credentials, and other Runtime Env in Vercel environment variables.
 
 ## Next steps
 
@@ -130,7 +212,6 @@ Agent Definitions run on Vercel through generated host output where the Agent in
 
 ## Related guides
 
-Use [Deploy an Agent](/docs/guides/deploy-agent-cloudflare-vercel),
+For provider setup and checks, see [Deploy an Agent](/docs/guides/deploy-agent-cloudflare-vercel),
 [private Blob storage](/docs/guides/vercel-blob),
-[Upstash KV](/docs/guides/upstash-redis), or [Turso](/docs/guides/turso) for
-provider setup and verification.
+[Upstash KV](/docs/guides/upstash-redis), or [Turso](/docs/guides/turso).

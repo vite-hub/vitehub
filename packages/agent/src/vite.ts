@@ -1064,23 +1064,52 @@ function applyCodeReplacements(
   return transformed
 }
 
-// Direct imports can create derived Agents before any generated registry loads the parent.
-function transformDiscoveredAgentSkills(
-  code: string,
-  parse: (code: string) => unknown,
+interface DiscoveredAgentExportDecorator {
+  decorate: (value: string) => string
+  imports: string[]
+}
+
+function colocatedAgentSkillsDecorator(
   skills: NonNullable<ReturnType<typeof readColocatedAgentSkills>>,
   agentImportBase: string,
+): DiscoveredAgentExportDecorator {
+  return {
+    decorate: value => `vitehubWithColocatedAgentSkills(${value}, vitehubDecodeColocatedAgentSkills(${JSON.stringify(skills)}))`,
+    imports: [`import { decodeColocatedAgentSkills as vitehubDecodeColocatedAgentSkills, withColocatedAgentSkills as vitehubWithColocatedAgentSkills } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],
+  }
+}
+
+/** The name and Workspace arguments that mark a discovered Agent with its host identity. */
+function discoveredAgentIdentityArguments(definition: DiscoveredAgentDefinition): string {
+  return [definition.name, ...(definition.workspace ? [definition.workspace] : [])].map(value => JSON.stringify(value)).join(", ")
+}
+
+// A route that imports the Definition runs it with its host identity, also before the host routes load.
+function discoveredAgentIdentityDecorator(definition: DiscoveredAgentDefinition, agentImportBase: string): DiscoveredAgentExportDecorator {
+  return {
+    decorate: value => `vitehubWithDiscoveredAgentName(${value}, ${discoveredAgentIdentityArguments(definition)})`,
+    imports: [`import { withDiscoveredAgentName as vitehubWithDiscoveredAgentName } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],
+  }
+}
+
+// Direct imports can create derived Agents before any generated registry loads the parent.
+function decorateDiscoveredAgentExport(
+  code: string,
+  parse: (code: string) => unknown,
+  decorators: DiscoveredAgentExportDecorator[],
 ): string | undefined {
+  if (!decorators.length) return
   const program = parse(code)
   if (!isPositionedNode(program) || !Array.isArray(program.body)) return
-  const decorate = (value: string) => `vitehubWithColocatedAgentSkills(${value}, vitehubDecodeColocatedAgentSkills(${JSON.stringify(skills)}))`
+  const imports = decorators.flatMap(decorator => decorator.imports)
+  const decorate = (value: string) => decorators.reduce((decorated, decorator) => decorator.decorate(decorated), value)
   for (const statement of program.body) {
     if (!isPositionedNode(statement)) continue
     const declaration = statement.declaration
     if (statement.type === "ExportDefaultDeclaration" && isPositionedNode(declaration)) {
       if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") return
       return [
-        `import { decodeColocatedAgentSkills as vitehubDecodeColocatedAgentSkills, withColocatedAgentSkills as vitehubWithColocatedAgentSkills } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+        ...imports,
         applyCodeReplacements(code, [{ start: declaration.start, end: declaration.end, value: decorate(code.slice(declaration.start, declaration.end)) }]),
       ].join("\n")
     }
@@ -1091,14 +1120,14 @@ function transformDiscoveredAgentSkills(
       if (isPositionedNode(statement.source)) {
         const source = code.slice(statement.source.start, statement.source.end)
         return [
-          `import { decodeColocatedAgentSkills as vitehubDecodeColocatedAgentSkills, withColocatedAgentSkills as vitehubWithColocatedAgentSkills } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+          ...imports,
           `import { ${specifier.local.name} as vitehubReexportedAgent } from ${source}`,
           code,
           `${decorate("vitehubReexportedAgent")}`,
         ].join("\n")
       }
       return [
-        `import { decodeColocatedAgentSkills as vitehubDecodeColocatedAgentSkills, withColocatedAgentSkills as vitehubWithColocatedAgentSkills } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+        ...imports,
         code,
         `${decorate(specifier.local.name)}`,
       ].join("\n")
@@ -2009,7 +2038,7 @@ async function generateAgentDeploymentCatalog(
         : []),
       `const agents${typescript ? ": Record<string, AgentInput>" : ""} = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
       ...(options.resetPublicUrlAgentNames === false ? [] : ["resetPublicUrlAgentNames()"]),
-      ...definitions.map(definition => `markDiscoveredAgentName(agents[${JSON.stringify(definition.name)}], ${JSON.stringify(definition.name)})`),
+      ...definitions.map(definition => `markDiscoveredAgentName(agents[${JSON.stringify(definition.name)}], ${discoveredAgentIdentityArguments(definition)})`),
       ...registeredAgentWorkspaceEntries,
       `const agentIdentities${typescript ? ": Record<string, AgentHostIdentity>" : ""} = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
       ...(channelHandlers
@@ -3317,9 +3346,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
         const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
           .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
-        const skills = definition && readColocatedAgentSkills(definition.handler)
-        if (skills) {
-          transformed = transformDiscoveredAgentSkills(transformed, value => this.parse(value), skills, getAgentImportBase(agent, frameworkOptions)) ?? transformed
+        if (definition) {
+          const agentImportBase = getAgentImportBase(agent, frameworkOptions)
+          const skills = readColocatedAgentSkills(definition.handler)
+          transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
+            ...(skills ? [colocatedAgentSkillsDecorator(skills, agentImportBase)] : []),
+            discoveredAgentIdentityDecorator(definition, agentImportBase),
+          ]) ?? transformed
         }
         if (transformed !== code) return transformed
       }
@@ -3343,11 +3376,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           const parse = await parseTypeScript()
           for (const definition of discoverProjectAgentDefinitions(resolved.root, serverDirs)) {
             const skills = readColocatedAgentSkills(definition.handler)
-            if (!skills) continue
             const handler = sources.resolve(definition.handler)
             if (handler === definition.handler || !existsSync(handler)) continue
             const code = await readFile(handler, "utf8")
-            const transformed = transformDiscoveredAgentSkills(code, parse, skills, getAgentImportBase(agent, frameworkOptions))
+            const agentImportBase = getAgentImportBase(agent, frameworkOptions)
+            const transformed = decorateDiscoveredAgentExport(code, parse, [
+              ...(skills ? [colocatedAgentSkillsDecorator(skills, agentImportBase)] : []),
+              discoveredAgentIdentityDecorator(definition, agentImportBase),
+            ])
             if (transformed) await writeFile(handler, transformed, "utf8")
           }
         },

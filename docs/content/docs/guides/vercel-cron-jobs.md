@@ -7,18 +7,41 @@ navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
-To run a Vercel Cron Job from a Vite app, set `host: 'vercel'` and `schedule: true` in `vitehub()`, then add a file in `server/schedules/` that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function for each file. Vercel calls that function at the cron time, and the function runs your handler. You do not edit `vercel.json`.
+Set `host: 'vercel'` and `schedule: true` in `vitehub()`, then add a file in `server/schedules/` that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function per file. Vercel calls that function at the cron time, and it runs your handler. You do not edit `vercel.json`.
 
 ## What Vercel Cron Jobs is
 
-[Vercel Cron Jobs](https://vercel.com/docs/cron-jobs) calls a Vercel Function on a cron schedule. At the cron time, Vercel sends an HTTP `GET` request to a path of the production deployment. Cron Jobs is available on all plans.
+[Vercel Cron Jobs](https://vercel.com/docs/cron-jobs), on all plans, calls a Vercel Function on a cron schedule. At the cron time, Vercel sends an HTTP `GET` to a path of the production deployment.
 
-ViteHub writes the cron path, the cron entry, and the function that runs your handler. You write the cron expression and the handler in one file.
+You write the cron expression and handler in one file. ViteHub writes the path, the cron entry, and the function.
 
 ## Set up Vercel Cron Jobs
 
 ### Enable Schedule with the Vercel host
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'vercel', schedule: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'vercel', schedule: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -27,8 +50,10 @@ export default defineConfig({
   plugins: [vitehub({ host: 'vercel', schedule: true })],
 })
 ```
+:::
+::
 
-The `vercel` host writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for every option.
+The `vercel` host writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for all options.
 
 ### Define a schedule
 
@@ -46,17 +71,19 @@ export default defineSchedule({
 })
 ```
 
-The file name is the schedule name, `daily-report`. Write `cron` and `manual` as literal values, because the build reads them from the source file. See [Schedule Definition options](/docs/schedule/configure#schedule-definition-options).
+The file name is the schedule name, `daily-report`. The build reads `cron` and `manual` from the source, so write them as literal values. See [Schedule Definition options](/docs/schedule/configure#schedule-definition-options).
 
 ### Protect the cron function with `CRON_SECRET`
 
-Add a `CRON_SECRET` environment variable to the Vercel project. Vercel recommends a random string of at least 16 characters. Vercel sends its value as `Authorization: Bearer <CRON_SECRET>` when it calls a cron job. The generated function compares that header with `CRON_SECRET` and returns `401` when they differ.
+Add a `CRON_SECRET` environment variable to the Vercel project. Vercel recommends a random string of at least 16 characters. Vercel sends it as `Authorization: Bearer <CRON_SECRET>`, and the generated function returns `401` if the header does not match.
 
-When `CRON_SECRET` is not set, the generated function does not check the header. Any client that knows the path can then run the schedule. Set the secret before you deploy a schedule that changes data. See [securing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs).
+::warning
+Without `CRON_SECRET`, the function does not check the header, so anyone who knows the path can run the schedule. Set it before you deploy a schedule that changes data. See [securing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs).
+::
 
 ## What the build generates
 
-`vite build` adds one entry to the `crons` array in `.vercel/output/config.json` for each Static Schedule Definition:
+`vite build` adds one `crons` entry in `.vercel/output/config.json` per static Schedule Definition (schedule file):
 
 ```json [.vercel/output/config.json]
 {
@@ -66,11 +93,11 @@ When `CRON_SECRET` is not set, the generated function does not check the header.
 }
 ```
 
-It also writes the function for that path in `.vercel/output/functions/api/vitehub/schedules/vercel/daily-report.func/`. The function loads the Definition, runs the handler, and returns `204`. Cron entries that your app already has keep their place. ViteHub replaces only the entries under `/api/vitehub/schedules/vercel/`.
+It also writes the function in `.vercel/output/functions/api/vitehub/schedules/vercel/daily-report.func/`. The function loads the Definition, runs the handler, and returns `204`. ViteHub replaces only entries under `/api/vitehub/schedules/vercel/` and keeps your other cron entries.
 
 ## Cron rules on Vercel
 
-Vercel reads every cron expression in UTC. ViteHub checks each cron at build time, so a cron that Vercel cannot run fails the build with `SCHEDULE_R0003`:
+Vercel reads cron in UTC. ViteHub checks each cron at build time, and a cron that Vercel cannot run fails the build with `SCHEDULE_R0003`:
 
 - The cron must have five fields that use only digits, `*`, `,`, `/`, and `-`. Names such as `MON` or `JAN` fail.
 - The day of the month and the day of the week cannot both have a value. One of them must be `*`.
@@ -80,7 +107,7 @@ These rules match the [Vercel cron expression limits](https://vercel.com/docs/cr
 
 ## How to run a Vercel cron job locally
 
-Vercel does not run cron jobs on a local dev server. To test the handler, start the Vite dev server:
+Vercel does not run cron jobs locally. To test the handler, start the dev server:
 
 ```bash [Terminal]
 pnpm dev
@@ -93,9 +120,9 @@ pnpm vitehub schedule run daily-report
 pnpm vitehub schedule runs daily-report --limit 5
 ```
 
-`schedule run` needs `manual: true` in the Definition. It runs the handler in the dev server, records a Schedule Run, and prints its status. `schedule runs` lists the recorded runs. Read [Run and inspect Schedules during development](/docs/schedule/hosts#run-and-inspect-schedules-during-development).
+`schedule run` needs `manual: true`. It runs the handler in the dev server, records a Schedule Run, and prints its status. `schedule runs` lists recorded runs. See [Run and inspect Schedules during development](/docs/schedule/hosts#run-and-inspect-schedules-during-development).
 
-To check the Vercel output, build the app and read the generated config:
+To check the Vercel output, build and read the config:
 
 ```bash [Terminal]
 pnpm vite build
@@ -104,13 +131,13 @@ cat .vercel/output/config.json
 
 ## Deploy to Vercel
 
-Vercel deploys Vite and Nitro apps with [zero configuration](https://vercel.com/docs/frameworks/full-stack/vite-with-nitro). Connect the Git repository to a Vercel project, or run `vercel deploy` from the app root. Vercel calls the cron paths on the production deployment. The project **Settings** page lists them under **Cron Jobs**, with a link to their logs.
+Vercel deploys Vite and Nitro apps with [zero configuration](https://vercel.com/docs/frameworks/full-stack/vite-with-nitro). Connect the Git repository to a Vercel project, or run `vercel deploy` from the app root. Vercel calls the cron paths on production. The project **Settings** page lists them under **Cron Jobs**, with their logs.
 
-To run a schedule on the deployment outside its cron time, use `vitehub schedule run daily-report --url https://your-app.vercel.app`. The deployment needs the [Console](/docs/development/console) with `invoke` enabled. When `VITEHUB_DISPATCH_KEY` is set, the CLI sends a [signed dispatch](/docs/development/cli#signed-dispatch) instead of a Console login.
+To run a schedule outside its cron time, use `vitehub schedule run daily-report --url https://your-app.vercel.app`. The deployment needs the [Console](/docs/development/console) with `invoke` enabled. If `VITEHUB_DISPATCH_KEY` is set, the CLI sends a [signed dispatch](/docs/development/cli#signed-dispatch) instead of a Console login.
 
 ## Vercel Cron Jobs limits
 
-These limits come from Vercel. Read [Cron Jobs usage and pricing](https://vercel.com/docs/cron-jobs/usage-and-pricing) and [Managing Cron Jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
+Vercel sets these limits. Read [Cron Jobs usage and pricing](https://vercel.com/docs/cron-jobs/usage-and-pricing) and [Managing Cron Jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
 
 | Plan | Cron jobs per project | Shortest interval | Timing |
 | --- | --- | --- | --- |
@@ -121,18 +148,18 @@ These limits come from Vercel. Read [Cron Jobs usage and pricing](https://vercel
 On Hobby, a cron that runs more than once per day fails the deployment.
 
 - A cron job has the same maximum duration as other [Vercel Functions](https://vercel.com/docs/functions/limitations#max-duration).
-- Vercel does not retry a cron job that fails. ViteHub does not retry it either. The handler error goes to the function log with `[vitehub:schedule]`, and the next cron time runs the schedule again. See [Failed runs](/docs/schedule/hosts#failed-runs).
-- Vercel delivers cron calls on a best effort basis. A call can be missed, and the same call can arrive two times. Write handlers that are safe to run again and that catch up on the work since the last success.
-- A run that takes longer than the interval can overlap with the next run. Vercel suggests a lock, such as a Redis lock, to stop two runs at the same time.
-- Runs from Vercel cron calls do not create Schedule Run records. Schedule records only manual runs and [Process Runtime](/docs/schedule/configure#configure-the-vite-integration) runs. See [Storage](/docs/schedule/configure#storage).
+- Neither Vercel nor ViteHub retries a failed cron job. The error goes to the function log with `[vitehub:schedule]`, and the next cron time runs it again. See [Failed runs](/docs/schedule/hosts#failed-runs).
+- Delivery is best effort: a call can be missed or arrive twice. Make handlers safe to run again, and catch up on work since the last success.
+- A run longer than the interval can overlap the next one. Vercel suggests a lock, such as a Redis lock.
+- Vercel cron calls create no Schedule Run records. Only manual runs and [Process Runtime](/docs/schedule/configure#configure-the-vite-integration) runs do. See [Storage](/docs/schedule/configure#storage).
 
 ## Move the same schedule to another host
 
-The schedule file stays the same. Change the host, and the build writes the cron config of the new host:
+The schedule file stays the same. Change the host, and the build writes the new host's cron config:
 
 | Host | What runs the schedule |
 | --- | --- |
 | `cloudflare` | A Cloudflare Cron Trigger in the generated `wrangler.json`. |
-| `node` | The Process Runtime, with `schedule: { runtime: { driver: 'process' } }`. Use one long-lived process, and enable `kv` to keep Schedule Runs across restarts. |
+| `node` | The Process Runtime, with `schedule: { runtime: { driver: 'process' } }`. Use one long-lived process, and enable `kv` to keep Schedule Runs after restarts. |
 
 Cloudflare also reads cron in UTC only, and ViteHub handles `timeZone` there the same way. Read [Schedule hosts](/docs/schedule/hosts#provider-output) for each output.

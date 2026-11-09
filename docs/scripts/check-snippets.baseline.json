@@ -115,7 +115,7 @@
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/browser/get-started.md#0c2f133847d3",
+    "id": "docs/content/docs/browser/get-started.md#d06e9a8b1cda",
     "label": "server/api/page-html.post.ts",
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, input?: unknown): Promise<Response>', gave the following error.\n    Argument of type '\"page-html\"' is not assignable to parameter of type 'never'."
   },
@@ -175,12 +175,12 @@
     "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/connections/get-started.md#1f150bc56477",
+    "id": "docs/content/docs/connections/get-started.md#4744d64a62e0",
     "label": "server/connections/google.ts",
-    "error": "TS2322 Type 'false' is not assignable to type 'true | \"approve\" | readonly ConnectionActionPattern<GoogleApis>[] | undefined'.\nTS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/connections/get-started.md#470146cec573",
+    "id": "docs/content/docs/connections/get-started.md#819c4cae6047",
     "label": "server/api/labels.get.ts",
     "error": "TS2339 Property 'gmail' does not exist on type 'ConnectionClient<object, object, false>'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
   },
@@ -348,11 +348,6 @@
     "id": "docs/content/docs/development/operations.md#e4b8751bd4fb",
     "label": "server/agents/editor.ts",
     "error": "TS2304 Cannot find name 'defineAgent'."
-  },
-  {
-    "id": "docs/content/docs/docs-site/configure.md#df8523d04622",
-    "label": "docs.parser.ts",
-    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
   },
   {
     "id": "docs/content/docs/env/app-secret.md#0b0e47c788ee",
@@ -580,11 +575,6 @@
     "error": "TS2304 Cannot find name 'github'.\nTS2347 Untyped function calls may not accept type arguments.\nTS2717 Subsequent property declarations must have the same type.  Property 'channel' must be of type 'AgentChannelContext<Record<string, unknown>, Record<string, unknown>, Record<string, unknown>>', but here has type '{ meta?: { customer?: string | undefined; } | undefined; }'.\nTS7031 Binding element 'channel' implicitly has an 'any' type.\nTS7031 Binding element 'invocation' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/workspace/get-started.md#4123330084f5",
-    "label": "server/api/drafts.post.ts",
-    "error": "TS18048 'body' is possibly 'undefined'."
-  },
-  {
     "id": "packages/agent/README.md#e0e7838a305c",
     "label": null,
     "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'.\n  Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type '(context: AgentProviderCredentialContext<AgentRuntimeConfig>) => MaybePromise<AgentProviderCredentialValue>'.\n    Type 'Promise<unknown>' is not assignable to type 'MaybePromise<AgentProviderCredentialValue>'.\n      Type 'Promise<unknown>' is not assignable to type 'Promise<AgentProviderCredentialValue>'.\n        Type 'unknown' is not assignable to type 'AgentProviderCredentialValue'."
@@ -663,11 +653,6 @@
     "id": "packages/database/README.md#4de5ceb072d1",
     "label": null,
     "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
-  },
-  {
-    "id": "packages/docs/README.md#d1050de4115a",
-    "label": null,
-    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
   },
   {
     "id": "packages/env/README.md#a9239e812708",

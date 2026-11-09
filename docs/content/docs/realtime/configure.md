@@ -9,53 +9,51 @@ icon: i-lucide-sliders-horizontal
 ## Choose a room authority
 
 A room authority is the one place that holds a document's live Yjs state.
-Every client of a document must reach the same authority. Set it with the
-`realtime.authority` option of `vitehub()`, as in
+Every client of a document must reach the same authority. Set it with
+`realtime.authority` in `vitehub()`, as in
 [Get started](/docs/realtime/get-started#configure-realtime).
 
 | Authority | Use |
 | --- | --- |
-| `auto` | Uses Cloudflare Durable Objects in a build that resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ host: 'cloudflare' })`. Other production builds fail until an authority is selected. On the dev server, rooms run in memory. |
-| `cloudflare` | Generates a SQLite-backed Durable Object binding and migration. Use it for durable, distributed rooms on Cloudflare. On the Vite dev server, it also selects Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
-| `memory` | Keeps rooms in one process. Use it for local development or an explicitly single-process Node deployment. Room state is lost when the process stops. |
+| `auto` | Uses Cloudflare Durable Objects when the build resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ host: 'cloudflare' })`. Other production builds fail until you pick an authority. On the dev server, rooms run in memory. |
+| `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
+| `memory` | Keeps rooms in one process, for local development or a single-process Node deploy. Room state is lost when the process stops. |
 
-ViteHub rejects the memory authority on distributed hosts. It also
-rejects a Cloudflare authority paired with another host.
+ViteHub rejects the memory authority on distributed hosts, and a
+Cloudflare authority with another deploy host.
 
 ## Develop locally
 
 The dev server holds rooms in its own process, with every authority. Nitro's
-default Cloudflare dev runtime reads your own wrangler config, which does not
-have the generated `$DurableObject` binding, so the room handler opens memory
-rooms. Auth, `authorize()`, and document adapters run as they do in production.
-To exercise Durable Objects, build and run the output with
+Cloudflare dev runtime reads your own wrangler config, which lacks the
+generated `$DurableObject` binding, so the room handler opens memory rooms.
+Auth, `authorize()`, and document adapters run as in production. To test
+Durable Objects, build and run the output with
 `npx wrangler dev --config .output/server/wrangler.json`.
 
-Room WebSockets need a dev server that passes upgrade requests to Nitro.
+Room WebSockets need a dev server that passes upgrade requests to Nitro, as
 `vite dev` does. Some `nuxt dev` CLI versions give Vite no HTTP server, so
-upgrades never reach Nitro. With those versions, build and preview to test
-rooms.
+upgrades never reach Nitro. There, build and preview to test rooms.
 
 ## Host support
 
 | Host | Authority | Live state | What survives a restart |
 | --- | --- | --- | --- |
 | Node, Docker (one process) | `memory` | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
-| Cloudflare Workers | `cloudflare` | Nitro's Cloudflare Durable Object instance, one room per document, Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
-| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds that enable Realtime fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |
+| Cloudflare Workers | `cloudflare` | One Durable Object per document, with Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
+| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds with Realtime on fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
-database for CRDT updates races and loads the database; WordPress removed
-HTTP-polling collaboration from 7.0 for those reasons. Use a single-writer
-flow, or a Workspace or Content lease, on hosts without an authority.
+database for CRDT updates causes races and load. WordPress removed
+HTTP-polling collaboration from 7.0 for those reasons. On hosts without an
+authority, use a single-writer flow, or a Workspace or Content lease.
 
 ## Builds without Realtime
 
-An application that deploys to more than one host can import
-`vite-hub/realtime/server` on every host. A build that does not enable
-Realtime still builds. It has no rooms, so `refreshRealtimeDocument()`
-resolves `false`. Call `isRealtimeAvailable()` to turn off features that need
-rooms:
+An app that deploys to several hosts can import `vite-hub/realtime/server`
+on every host. A build without Realtime still works but has no rooms, so
+`refreshRealtimeDocument()` resolves `false`. Call `isRealtimeAvailable()` to
+turn off features that need rooms:
 
 ```ts [server/api/drafts/[id].post.ts]
 import { defineEventHandler } from 'h3'
@@ -72,9 +70,9 @@ on the dev server.
 
 ## Control saves
 
-Realtime saves each room through its document adapter. The default timing
-follows Hocuspocus: 2 seconds after the last edit, at most 10 seconds while
-editing continues, and immediately when the last client leaves.
+Realtime saves each room through its document adapter. The defaults follow
+Hocuspocus: 2 seconds after the last edit, at most 10 seconds while edits
+continue, and at once when the last client leaves.
 
 ```ts [server/realtime/docs.ts]
 import { defineRealtime } from 'vite-hub/realtime'
@@ -85,28 +83,24 @@ export default defineRealtime({
 })
 ```
 
-Set `persistence: false` to save only when a client calls `save()` or
-`history.checkpoint()`. A memory room with unsaved edits stays in memory and
-is not reclaimed.
-
-A failed save writes its message to the room `status` map, keeps the edits,
-and retries with backoff up to one minute.
-
-A save that would store the same document writes nothing: when the edits
-cancel out, or when the body equals the `canonical` form from the editor's
-`verify()`. A room that `verify()` marks read-only never saves. See
-[Guard documents the codec cannot keep](/docs/realtime/server-api#guard-documents-the-codec-cannot-keep).
-
-On Cloudflare, idle saves run while the Durable Object is in memory. If it is
-evicted with unsaved edits, the edits stay in SQLite and the room saves them
-when the next client wakes it.
+- `persistence: false` saves only when a client calls `save()` or
+  `history.checkpoint()`. A memory room with unsaved edits stays in memory and
+  is not reclaimed.
+- A failed save writes its message to the room `status` map, keeps the edits,
+  and retries with backoff up to one minute.
+- A save writes nothing when the document is unchanged: the edits cancel out,
+  or the body equals the `canonical` form from the editor's `verify()`. A room that `verify()` marks read-only never saves
+  ([Guard documents the codec cannot keep](/docs/realtime/server-api#guard-documents-the-codec-cannot-keep)).
+- On Cloudflare, idle saves run while the Durable Object is in memory. If it
+  is evicted with unsaved edits, they stay in SQLite until the next client
+  wakes the room and it saves them.
 
 ## Limits
 
 | Boundary | Limit |
 | --- | --- |
 | WebSocket message | 1 MiB |
-| Document updates per client | Bursts of 40, refilled at 20 per second; a client that keeps sending faster is disconnected |
+| Document updates per client | Bursts of 40, refilled at 20 per second. A client that keeps sending faster is disconnected. |
 | Document state per room | 8 MiB |
 | Awareness state per room | 8 MiB |
 | Awareness clients per peer | 1,024 |
@@ -116,5 +110,4 @@ when the next client wakes it.
 
 `vitehub inspect definitions` lists each Realtime Definition with its document
 adapter, editor codec, identity, authorization, persistence, history, and room
-authority. Inspection reads the definition files statically; it never runs
-them.
+authority. It reads the files without running them.

@@ -1,8 +1,11 @@
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default {
-  plugins: vitehub({
-    host: 'cloudflare',
-    cloudflare: { secretsFile: '.env' },
-  }),
-}
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      cloudflare: { secretsFile: '.env' },
+    }),
+  ],
+})

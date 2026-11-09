@@ -878,21 +878,25 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         artifactDir = resolve(rootDir, ".vitehub/schedule-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const workflow = await prepareWorkflow?.(resolve(contributionArtifactDir, "workflow"))
-        const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+        // Only provider functions bundle with these aliases, and resolving every owner package export costs time.
+        const bundles = definitions.length > 0 || Boolean(workflow)
+        const contributedAliases = bundles
+          ? await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
+          : {}
         const aliases = {
           ...resolveStringAliases(config),
           ...contributedAliases,
           ...internalOptions.providerImportAliases,
           ...workflow?.bundleAlias,
         }
-        const retainedSources = definitions.length || workflow
+        const retainedSources = bundles
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
               paths: [...definitions.map(definition => definition.handler), ...providerOutputAliasSources(aliases, [rootDir])],
               roots: [rootDir],
             })
           : { resolve: (path: string) => path }
-        if (definitions.length || workflow) {
+        if (bundles) {
           // SAFETY: Configured plugins may expose the optional ViteHub provider contribution contract.
           await prepareViteHubProviderSources((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>, retainedSources)
         }

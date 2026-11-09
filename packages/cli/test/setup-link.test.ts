@@ -61,8 +61,12 @@ async function readLink(root: string): Promise<SetupLink> {
 function wranglerLogin(accounts: readonly { id: string, name: string }[]): { run: HostCliRun, calls: string[] } {
   const calls: string[] = []
   const run: HostCliRun = async (command, args) => {
-    calls.push([command, ...args].join(" "))
-    if (args[0] === "auth") return { exitCode: 0, stdout: JSON.stringify({ token: TOKEN, type: "oauth" }) }
+    // A project-local Wrangler runs through Node with its entry point before the CLI arguments.
+    if (command === process.execPath) expect(args[0]).toMatch(/[/\\]wrangler[/\\]/u)
+    else expect(command).toBe("wrangler")
+    const cliArgs = command === process.execPath ? args.slice(1) : args
+    calls.push(["wrangler", ...cliArgs].join(" "))
+    if (cliArgs[0] === "auth") return { exitCode: 0, stdout: JSON.stringify({ token: TOKEN, type: "oauth" }) }
     return { exitCode: 0, stdout: JSON.stringify({ accounts, loggedIn: true }) }
   }
   return { calls, run }

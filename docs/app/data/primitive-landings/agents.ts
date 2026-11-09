@@ -73,7 +73,7 @@ export default defineNuxtConfig({
       }, {
         path: "README.md",
         language: "markdown",
-        content: "Add these files to a Nuxt 4.5.2 or newer application. Install vite-hub, then run pnpm nuxt dev. Nuxt provides Nitro. The greeting Agent uses a local Driver and needs no model credentials.",
+        content: "Add these files to a Nuxt 5 application. Use pnpm 11.5 or newer and install vite-hub and Nuxt with pnpm add vite-hub nuxt@npm:nuxt-nightly@5x, then run pnpm nuxt dev. Nuxt provides Nitro 3. The greeting Agent uses a local Driver and needs no model credentials.",
       }],
     },
   ],

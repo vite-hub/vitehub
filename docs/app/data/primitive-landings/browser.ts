@@ -61,7 +61,9 @@ export default defineConfig({
         {
           path: "nuxt.config.ts",
           language: "typescript",
-          content: `import { defineNuxtConfig } from "nuxt/config"
+          content: `// Use pnpm 11.5 or newer for the Nuxt 5 nightly alias.
+// Install: pnpm add vite-hub nuxt@npm:nuxt-nightly@5x
+import { defineNuxtConfig } from "nuxt/config"
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({

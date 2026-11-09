@@ -7,19 +7,17 @@ navigation.group: Databases
 icon: i-simple-icons-cloudflare
 ---
 
-Use a native D1 binding when the app runs on Cloudflare Workers. ViteHub keeps
-the Drizzle schema in a Database Definition and writes the binding into the
-generated Worker configuration.
+Use a native D1 binding when your app runs on Cloudflare Workers. ViteHub
+writes the binding into the generated Worker config.
 
-Start with [Save your first Database row](/docs/database/get-started). Keep its
-SQLite schema and notes routes. Create a new D1 database for this check and
-record its name and ID. Do not point these first migrations at an existing
-database with its own migration history.
+Start with [Save your first Database row](/docs/database/get-started) and keep
+its schema and notes routes. Create a new D1 database and note its name and
+ID. Do not use a database that has its own migration history.
 
 ## Select Cloudflare and identify the database
 
-Set `host: 'cloudflare'` and `database: true` in the existing ViteHub config.
-Add this literal `cloudflare` block to the tutorial's Database Definition:
+Set `host: 'cloudflare'` and `database: true` in your ViteHub config. Add
+this `cloudflare` block to the Database Definition:
 
 ```ts [server/databases/config.ts]
 import { defineDatabase } from 'vite-hub/database'
@@ -40,13 +38,12 @@ export default defineDatabase({
 })
 ```
 
-Set both resource variables before the build. A native D1 deployment must
-resolve the database ID and name. The binding name alone does not identify
+Set both variables before you build. The binding name alone does not identify
 the remote database.
 
 ## Generate and apply the D1 migration
 
-Install Wrangler in the app if it is absent:
+Install Wrangler if you do not have it, then generate and build:
 
 ```bash [Terminal]
 pnpm add -D wrangler
@@ -54,8 +51,8 @@ pnpm vitehub db generate
 pnpm build
 ```
 
-Inspect the `d1_databases` entry in `.output/server/wrangler.json`. Confirm the
-database ID, name, binding, and migrations directory before applying SQL.
+Before you apply SQL, check the ID, name, binding, and migrations directory in
+the `d1_databases` entry of `.output/server/wrangler.json`.
 
 ```bash [Terminal]
 pnpm wrangler d1 migrations list "$CLOUDFLARE_D1_DATABASE_NAME" \
@@ -64,22 +61,21 @@ pnpm wrangler d1 migrations apply "$CLOUDFLARE_D1_DATABASE_NAME" \
   --remote --config .output/server/wrangler.json
 ```
 
-Wrangler applies migrations for native bindings. `vitehub db migrate` is not
-the native-binding migration runner. Review each pending migration first.
+Wrangler applies migrations for native bindings, not `vitehub db migrate`.
+Review each pending migration first.
 
 Deploy with `pnpm exec nitro deploy --prebuilt`. Call the notes POST and GET
-routes on the Worker URL. Confirm that the inserted row appears in D1.
+routes on the Worker URL, and check that the row is in D1.
 
 ## Separate local and remote development
 
-Without `cloudflare.http`, ordinary local development uses SQLite. A local row
-does not prove that the remote D1 database has the same schema or data.
+Without `cloudflare.http`, local dev uses SQLite. A local row does not prove
+that remote D1 has the same schema or data.
 
-Use [D1 over HTTP](/docs/database/hosts) only when remote access is intentional.
-Cloudflare's direct D1 REST API shares administrative API limits. For sustained
-application traffic outside Workers, assess an authenticated proxy or a hosted
-database such as [Turso](/docs/guides/turso).
+Use [D1 over HTTP](/docs/database/hosts) only on purpose. It shares
+Cloudflare's admin API limits. For steady traffic from outside Workers, use an
+authenticated proxy or a hosted database such as [Turso](/docs/guides/turso).
 
-Read [Database configuration](/docs/database/configure) for resource inheritance
-and [Cloudflare D1 documentation](https://developers.cloudflare.com/d1/) for
-current quotas and migration tools.
+See [Database configuration](/docs/database/configure) for resource inheritance
+and the [Cloudflare D1 docs](https://developers.cloudflare.com/d1/) for quotas
+and migration tools.

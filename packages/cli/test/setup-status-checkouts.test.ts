@@ -35,6 +35,14 @@ describe("vitehub status with vitehub.lock", () => {
     expect(json.json).toMatchObject({ link: { host: "deno", project: { name: "app" }, verified: false }, stack: { command } })
     expect(json.json.checkouts).toEqual([{ root, workspace: "site" }])
     expect(text.loadConfig).not.toHaveBeenCalled()
+
+    const offline = await runSetup(["status", "--offline"], root)
+    const offlineJson = await runSetup<{ checkouts: unknown }>(["status", "--offline", "--json"], root)
+    expect(offline.exitCode).toBe(0)
+    expect(offline.stdout).toMatch(/^live +not checked \(--offline\)$/mu)
+    expect(offline.stdout).toContain("\nCheckouts (vitehub.lock):\nsite: content/ has 1 conflict\n")
+    expect(offlineJson.exitCode).toBe(0)
+    expect(offlineJson.json).toMatchObject({ checkouts: [{ root, workspace: "site" }], live: null, liveReason: "offline" })
   })
 
   it("says so when no installed package can read the lock file, and adds nothing without one", async () => {

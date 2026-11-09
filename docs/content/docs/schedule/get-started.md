@@ -1,105 +1,221 @@
 ---
 title: Run a daily report with Schedule
-description: Write a job that runs every day at 08:00 UTC, then run it once to test it now.
+description: Write a schedule that runs every day at 08:00 UTC, then start it by hand to see it work now.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-You write a job that runs every day at 08:00 UTC. Then you run it once from a script, so you can test it now and not wait until tomorrow.
+A Schedule is server code that runs at set times, like an alarm clock for your app. You write the time and the code in one file. ViteHub tells your host when to run it.
 
-You need:
+In this tutorial, you write a daily report that runs every day at 08:00 UTC. Then you start it by hand, so you see it work now and not tomorrow morning.
 
-- Node.js 22.18 or newer
-- pnpm
-- an empty folder
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). You need no account and no API key. Everything runs on your computer.
 
-You do not need a Vite app or a cloud account.
+::tutorial-step{title="Turn on Schedule"}
+## Turn on Schedule
 
-::tutorial-step{title="Install"}
-## Install
+Schedule and KV are separate packages. Add them to your app:
 
-Create a `package.json` file with this content. `"type": "module"` tells Node.js that your files use `import` and `export`.
-
-```json [package.json]
-{
-  "type": "module"
-}
+```bash pm [commands/install]
+pnpm add @vite-hub/schedule @vite-hub/kv
 ```
 
-Then install Schedule:
+Then add `kv` and `schedule` to the ViteHub options. Keep the other options of your app.
 
-```bash [commands/install]
-pnpm add @vite-hub/schedule
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    kv: true,
+    schedule: { runtime: { driver: 'process' } },
+  },
+})
 ```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      kv: true,
+      schedule: { runtime: { driver: 'process' } },
+    }), nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      kv: true,
+      schedule: { runtime: { driver: 'process' } },
+    }),
+  ],
+})
+```
+::::
+:::
+
+- `schedule` turns on Schedule. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
+- `kv` gives Schedule a place to save each run. You read those runs in the last step.
 
 ::
 
-::tutorial-step{title="Write the job"}
-## Write the job
+::tutorial-step{title="Write the schedule"}
+## Write the schedule
 
-Create `server/schedules/daily-report.ts`:
+Create `server/schedules/daily-report.ts`. The file name is the name of the schedule: `daily-report`.
 
 ```ts [server/schedules/daily-report.ts]
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',
   manual: true,
   handler({ scheduledAt }) {
-    console.log(`Daily report scheduled for ${scheduledAt.toISOString()}`)
+    console.log(`Daily report for ${scheduledAt.toISOString()}`)
   },
 })
 ```
 
-- `cron` sets when the job runs. `0 8 * * *` means minute 0 of hour 8, every day. The time is in UTC. To use your own time zone, see [Configure](/docs/schedule/configure#run-a-static-schedule-in-a-time-zone).
-- `manual: true` lets you run the job yourself, at a time that is not in `cron`.
-- `handler` is the job. `scheduledAt` is the time that the run was planned for. It is not the current time.
+- `cron: '0 8 * * *'` means "at minute 0 of hour 8, every day". The time is in UTC. Set `timeZone` to use another time zone.
+- `manual: true` lets you start the schedule by hand. Without it, only the clock can start it.
+- `scheduledAt` is the time that the run is for, not the time that it started. A run that starts late still gets `08:00`. Use it to know which day the report is for.
 
-Later, replace the `console.log` with your report code.
+Later, put your report code in `handler`. For now, it only writes a line to the log.
 
 ::
 
-::tutorial-step{title="Run it once"}
-## Run it once
+::tutorial-step{title="Run it now"}
+## Run it now
 
-Create `run.ts` next to `package.json`. It runs the job one time, as if the clock showed 08:00 UTC on 27 August 2026:
+Start the dev server:
 
-```ts [run.ts]
-import { executeStaticSchedule } from '@vite-hub/schedule/runtime'
-import dailyReport from './server/schedules/daily-report.ts'
-
-const run = await executeStaticSchedule({
-  cron: dailyReport.cron,
-  definition: dailyReport,
-  name: 'daily-report',
-  scheduledAt: new Date('2026-08-27T08:00:00.000Z'),
-})
-
-console.log(run.status)
+```bash [commands/dev]
+pnpm dev
 ```
 
-A fixed date gives the same output each time. This script does not start a timer, so the job does not run again tomorrow.
-
-Run the script. Node.js 22.18 and newer run TypeScript files directly:
+Open a second terminal in the same folder, and start the schedule by hand:
 
 ```bash [commands/run]
-node run.ts
+pnpm vitehub schedule run daily-report
 ```
 
-You see:
+The command prints the result of the run:
 
-```txt [output/daily-report.txt]
-Daily report scheduled for 2026-08-27T08:00:00.000Z
-succeeded
+```txt [output/run.txt]
+succeeded daily-report in 7 ms
+Run srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg
+Scheduled at 2026-11-07T12:33:04.174Z
 ```
 
-The first line comes from your job. `succeeded` means that the job finished without an error.
+The dev server terminal shows the line from your handler:
+
+```txt [output/dev-server.txt]
+Daily report for 2026-11-07T12:33:04.174Z
+```
+
+To test a given day, add `--at`. The handler gets that time as `scheduledAt`:
+
+```bash [commands/run-at]
+pnpm vitehub schedule run daily-report --at 2026-01-31T08:00:00Z
+```
 
 ::
+
+::tutorial-step{title="See the runs"}
+## See the runs
+
+ViteHub saves each manual run and Process Runtime run, with its status and its time. List the runs of `daily-report`, newest first:
+
+```bash [commands/runs]
+pnpm vitehub schedule runs daily-report
+```
+
+```txt [output/runs.txt]
+RUN                                                                         STATUS     SCHEDULED AT              ATTEMPTS  ERROR
+srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg  succeeded  2026-11-07T12:33:04.174Z  1         -
+srun_manual_daily-report_2026-01-31T08:00:00.000Z_manual_mw6dwbtr_3xkimura  succeeded  2026-01-31T08:00:00.000Z  1         -
+```
+
+A saved run that throws shows `failed` and its error. Provider cron executions do not create saved runs.
+
+To see the same runs in a page, with a button to run the schedule, turn on the [Console](/docs/development/console).
+
+::
+
+## What happens when you deploy
+
+You keep the schedule file. You change the `schedule` option for the host:
+
+- **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. Keep exactly one process running. Two processes would both run it, and a stopped process runs nothing.
+- **Cloudflare, Vercel, or Netlify**: set the host of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
+
+For example, on Vercel:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [vercel/nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'vercel', schedule: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vercel/vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'vercel', schedule: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vercel/vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'vercel', schedule: true })],
+})
+```
+:::
+::
+
+The `deno` host does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
 ## Next steps
 
-- [Configure](/docs/schedule/configure): add Schedule to a Vite app, so the app finds every file in `server/schedules/`.
-- [Hosts](/docs/schedule/hosts): run the job every day on Cloudflare, Vercel, Netlify, or your own Node.js server.
+::card-group
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/schedule/configure"}
+Set a time zone, change the cron on one host, and see every option.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/schedule/hosts"}
+See what the build writes for Cloudflare, Vercel, Netlify, Deno, and Node.
+:::
+::

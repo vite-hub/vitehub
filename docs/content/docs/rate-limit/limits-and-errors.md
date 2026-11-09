@@ -1,6 +1,6 @@
 ---
 title: Rate Limit limits and errors
-description: Know the enforcement, identity, and provider limits of Rate Limit before you rely on it in a production deployment.
+description: Rate Limit enforcement, identity, and provider limits to know before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -8,22 +8,22 @@ icon: i-lucide-circle-alert
 
 ## Limitations
 
-- Memory enforcement is local and single-process. It is not a production default for horizontally scaled or request-scoped hosts.
-- A production build with unknown hosting must select a provider explicitly or use a direct Rate Limiter.
-- Request identity defaults to the client address in the event's Standard Context; explicit user or tenant identities remain application policy.
-- Managed policies must be static so ViteHub can provision provider infrastructure.
-- The package exposes atomic consumption, not a non-consuming check that providers cannot implement consistently.
+- Memory counts live in one process. Do not use them in production on scaled-out or per-request hosts.
+- A production build for an unknown host must set a provider or use a direct Rate Limiter.
+- The request identity defaults to the client address in the event's Standard Context, and explicit user or tenant identities remain application policy.
+- Managed policies must be static, so ViteHub can create the provider resources.
+- The package has only atomic consume. Providers cannot all check without consuming.
 
 ## Cloudflare limits
 
-The [Cloudflare Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) accepts a `period` of 10 or 60 seconds, and it is best-effort. A Cloudflare build fails when a policy needs something else:
+The [Cloudflare Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) accepts a `period` of 10 or 60 seconds and is best-effort. A Cloudflare build fails when a policy needs more:
 
 | Policy | Code |
 | --- | --- |
 | `enforcement: 'strict'` | `RATE_LIMIT_R0015` |
 | `window` other than `10s` or `1m`, for example `30s` or `1h` | `RATE_LIMIT_R0016` |
 
-The dev server counts in memory, but it checks the same policies when the build targets Cloudflare: with `vitehub({ host: 'cloudflare' })`, with `hubRateLimit({ provider: 'cloudflare' })`, or with the Cloudflare Nitro preset and no explicit provider. `vite dev` then fails to start with the same code, and a file that adds an unsupported policy logs the error when you save it. Without a Cloudflare target, the dev server accepts every valid policy, as before.
+The dev server counts in memory, but checks the same policies when the build targets Cloudflare: `vitehub({ host: 'cloudflare' })`, `hubRateLimit({ provider: 'cloudflare' })`, or the Cloudflare Nitro preset with no provider set. Then `vite dev` fails to start with the same code, and saving a file with an unsupported policy logs the error. Without a Cloudflare target, the dev server accepts every valid policy.
 
 ## Memory limits
 

@@ -11,7 +11,7 @@ import { basename, join } from "pathe"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { checkoutPushError, formatDeployCheckouts, prepareDeployCheckouts, pushDeployCheckouts } from "./deploy/checkouts.ts"
 import { cloudflareAdapter } from "./deploy/cloudflare.ts"
-import { denoAdapter } from "./deploy/deno.ts"
+import { denoAdapter, denoOrganization } from "./deploy/deno.ts"
 import { createDeployRun, isRecord, optionalString, readDeployCommit } from "./deploy/host.ts"
 import { netlifyAdapter } from "./deploy/netlify.ts"
 import { hasVercelLogin, vercelAdapter } from "./deploy/vercel.ts"
@@ -170,12 +170,6 @@ async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOut
   if (built !== host) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
   const identityName = isRecord(manifest) && isRecord(manifest.identity) ? optionalString(manifest.identity.name) : undefined
   return { outputDir, ...(identityName ? { identityName } : {}) }
-}
-
-function denoOrganization(link: SetupLink | undefined, env: NodeJS.ProcessEnv): string {
-  const organization = (link?.host === "deno" ? link.account?.id : undefined) ?? env.DENO_DEPLOY_ORG?.trim()
-  if (!organization) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
-  return organization
 }
 
 async function hostAdapter(host: DeployHost, context: DeployContext): Promise<DeployAdapter> {

@@ -37,10 +37,10 @@ const packageManagers: readonly SetupPackageManager[] = ["pnpm", "npm", "yarn", 
 
 /**
  * The packages of a new app, as `getting-started/installation.md` installs them. The Nitro and H3 versions match the
- * server integration of ViteHub. Nuxt supplies Nitro, and its tutorials import H3 1.
+ * server integration of ViteHub. Nuxt 5 supplies Nitro 3, and its tutorials import H3 2.
  */
 export const initPackages: Readonly<Record<InitFramework, { prod: readonly string[], dev: readonly string[] }>> = {
-  nuxt: { dev: [], prod: ["vite-hub", "h3@^1.15.11"] },
+  nuxt: { dev: [], prod: ["vite-hub", "h3@^2.0.8"] },
   vite: { dev: ["vite@^8", "typescript@^6", "@types/node@^24"], prod: ["vite-hub", "nitro@3.0.261102-rc", "h3@2.0.8"] },
 }
 

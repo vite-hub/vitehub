@@ -13,7 +13,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
-import { discoverRateLimitCatalog } from "./discovery.ts"
+import { createRateLimitCatalogDiscovery } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
@@ -119,6 +119,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   let provider: "cloudflare" | "memory" = "memory"
   let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
+
+  const discoverRateLimitCatalog = createRateLimitCatalogDiscovery()
 
   const collectDeclarations = (): void => {
     if (!projectRoot) return

@@ -1,6 +1,6 @@
 ---
 title: Browser hosts
-description: "Choose a Browser provider for each host: Cloudflare Browser Run on Workers, or a local Chromium process on trusted Node hosts."
+description: "Choose a Browser provider per host: Cloudflare Browser Run on Workers, or local Chromium on trusted Node hosts."
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
@@ -12,17 +12,17 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- |
 | Browser Definitions and actions | Cloudflare Browser Run | Cloudflare host only. `browser: true` with another host fails the build. |
 | `createBrowser()` with `cloudflareBrowser()` | Cloudflare Browser Run | Cloudflare Workers with a Browser binding. |
-| `createBrowser()` with `localBrowser()` | Local Chromium process | Trusted Node hosts. `browser: true` never selects it. |
+| `createBrowser()` with `localBrowser()` | Local Chromium | Trusted Node hosts. `browser: true` never picks it. |
 
-The Cloudflare host writes the Browser Run binding, a default `compatibility_date`, and the `nodejs_compat` flag to the generated `wrangler.json`. Both the root integration and `hubBrowser()` preserve unrelated Wrangler fields.
+The Cloudflare host writes the Browser Run binding, a default `compatibility_date`, and the `nodejs_compat` flag to the generated `wrangler.json`. `vitehub()` and `hubBrowser()` keep your other Wrangler fields.
 
-Cloudflare's Worker `quickAction()` requires remote mode during local development. Set `remote: true` when local Wrangler development must call Browser Run. This uses a Cloudflare account and network access.
+The Cloudflare Worker `quickAction()` needs remote mode in local development. Set `remote: true` so local Wrangler can call Browser Run. This needs a Cloudflare account and network access.
 
-Install `@cloudflare/playwright` and `playwright-core` when you set `engine: 'chromium'`. Stateless actions and the default Kitesurf engine do not need these optional peers.
+With `engine: 'chromium'`, install `@cloudflare/playwright` and `playwright-core`. Stateless actions and the default Kitesurf engine do not need them.
 
 ## Builds without Browser
 
-An application that deploys to more than one host can import Browser on every host. A build that does not enable Browser still builds. Calls fail with `BROWSER_UNAVAILABLE`, and the message names the host, the reason, and the fix. Call `isBrowserAvailable()` to branch before you call Browser:
+An app that deploys to several hosts can import Browser on all of them. A build without Browser still builds, but calls fail with `BROWSER_UNAVAILABLE`. The message names the host, the reason, and the fix. Call `isBrowserAvailable()` first to branch:
 
 ```ts [server/api/example-html.get.ts]
 import { defineEventHandler } from 'h3'
@@ -34,9 +34,8 @@ export default defineEventHandler(async () => {
 })
 ```
 
-`isBrowserAvailable()` reads the build, not the provider. It returns `true` in a build with `browser: true`, also when the Browser Run binding is missing at runtime.
+`isBrowserAvailable()` reads the build, not the provider. It returns `true` in a build with `browser: true`, even when the binding is missing at runtime.
 
 ## Related guides
 
-Use [Cloudflare Browser Run](/docs/guides/cloudflare-browser) for binding
-setup and a rendered HTML check.
+Read [Cloudflare Browser Run](/docs/guides/cloudflare-browser) for binding setup and a rendered HTML check.

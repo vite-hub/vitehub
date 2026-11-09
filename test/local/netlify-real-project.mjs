@@ -123,6 +123,7 @@ async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
     "  plugins: [vitehub({",
     "    host: \"netlify\",",
     "    agent: {",
+    "      invocations: false,",
     "      providers: { state: { provider: \"memory\" } },",
     "    },",
     "    blob: {},",

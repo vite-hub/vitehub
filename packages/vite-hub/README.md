@@ -17,6 +17,8 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
+If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script.
+
 `vite-hub` includes Env, Source, Logs, and the Console. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |

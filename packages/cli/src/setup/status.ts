@@ -45,6 +45,13 @@ export function installArgs(packageManager: SetupPackageManager, packages: reado
   return [...addArgs[packageManager][dev ? "dev" : "prod"], ...packages]
 }
 
+const removeArgs: Record<SetupPackageManager, readonly string[]> = { bun: ["remove"], npm: ["uninstall"], pnpm: ["remove"], yarn: ["remove"] }
+
+/** The arguments of the `packageManager` command that uninstalls `packages`, such as `["remove", "@vite-hub/queue"]`. */
+export function uninstallArgs(packageManager: SetupPackageManager, packages: readonly string[]): string[] {
+  return [...removeArgs[packageManager], ...packages]
+}
+
 /** The shell command that installs `prod` and then `dev`, such as `pnpm add kv && pnpm add -D drizzle-kit`. */
 export function installCommand(packageManager: SetupPackageManager, prod: readonly string[], dev: readonly string[]): string | undefined {
   const commands = [

@@ -8,9 +8,9 @@ icon: i-lucide-cloud-cog
 
 ## Inspect generated guarantees
 
-The integration writes `.vitehub/rate-limit/manifest.json` during configuration. Agents and tooling can inspect it. Application code keeps using the guard.
+ViteHub writes `.vitehub/rate-limit/manifest.json` at config time for agents and tools to inspect. Application code keeps using the guard.
 
-The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows` without duplicating optional response metadata contracts.
+The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows`. It does not repeat the optional response metadata.
 
 ```json [.vitehub/rate-limit/manifest.json]
 {
@@ -32,19 +32,47 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Deploy to Cloudflare
 
-With a Cloudflare Nitro preset, `hubRateLimit()` infers the provider. Set a deployment-unique namespace so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
+With the `cloudflare` host, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
 
-```ts [vite.config.ts]
-import { hubRateLimit } from '@vite-hub/rate-limit/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubRateLimit({ namespace: 'acme-image-service-production' })],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true },
 })
 ```
+:::
 
-`vitehub({ host: 'cloudflare', rateLimit: true })` sets the namespace to the deployment name and ignores a configured `rateLimit.namespace`. The deployment name comes from `vitehub({ name })`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-Cloudflare native enforcement is best-effort and exposes only 10-second and 60-second windows. It does not return portable quota metadata, so incompatible policies fail during the build. Use a different namespace for staging, production, and any separately deployed Worker because Cloudflare shares counters with the same namespace ID across Workers.
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true }),
+    nitro(),
+  ],
+})
+```
+:::
 
-Inspect generated `wrangler.json` entries and exercise the deployed Worker. A request-scoped Cloudflare binding cannot be validated from an unrelated Node script.
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true })],
+})
+```
+:::
+::
+
+The deployment name comes from `name`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
+
+Cloudflare native enforcement is best-effort and has only 10-second and 60-second windows. It returns no portable quota metadata, so policies it cannot meet fail the build.
+
+Inspect the generated `wrangler.json` entries and test the deployed Worker. A Node script cannot check a request-scoped Cloudflare binding.

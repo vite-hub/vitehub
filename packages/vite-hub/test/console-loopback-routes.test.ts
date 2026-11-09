@@ -120,6 +120,8 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
       { key: true, remoteAddress: "127.0.0.1" },
       // Plain `vite dev` reports the client's address.
       { key: false, remoteAddress: "192.168.0.38" },
+      // A local tunnel has a loopback socket and a localhost Host, but sends forwarding headers.
+      { key: false, remoteAddress: "127.0.0.1" },
       // Without a key and without an address, nothing proves the peer.
       { key: false, remoteAddress: undefined },
     ]) {
