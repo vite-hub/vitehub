@@ -7,7 +7,7 @@ const windowPattern = /^\d+(?:ms|s|m|h|d)$/
 const fieldPattern = /^[A-Za-z_][\w-]*$/
 
 function invalid(message: string): Error {
-  return formsDiagnostics.FORMS_D0001({ message: `[vitehub] defineForm(): ${message}` })
+  return formsDiagnostics.FORMS_C0001({ message: `[vitehub] defineForm(): ${message}` })
 }
 
 /**

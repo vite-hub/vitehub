@@ -16,6 +16,7 @@ export const diagnosticSections: Record<string, string> = {
   "decisions": "decisions",
   "email": "email",
   "env": "env",
+  "forms": "development",
   "forge": "agents",
   "gateways": "agents",
   "internal": "development",
