@@ -43,7 +43,7 @@ Pass Integration Options to `hubEnv()`.
 | `projectRoot` | `string` | ViteHub project root | Resolves generated files and package import updates from a custom project root. |
 | `providers` | `Record<string, string>` | None | Maps runtime provider names to application module specifiers. Relative specifiers resolve from the ViteHub project root. |
 | `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the type import used for `SecretEnv` in generated Server Env modules. Framework integrations can point generated code at their runtime-owned entry point. |
-| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, and `inspectServerEnv`, and the `EnvAccessContext` type used by generated declarations. Export `createServerEnvManagement` to enable credential management; without it, the other Env operations still work. Framework integrations can point generated code at their runtime-owned entry point. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime facade used by generated Server Env modules. The facade must export `resolveServerEnv`, `loadServerEnv`, and `inspectServerEnv`, and the `EnvAccessContext` type used by generated declarations. Export `createServerEnvManagement` to enable credential management; without it, the other Env operations still work. Export `bindServerEnvSchemas` when declarations use `env.schemaFrom()`. Framework integrations can point generated code at their runtime-owned entry point. |
 
 ## Env config sections
 
@@ -64,9 +64,9 @@ Pass Integration Options to `hubEnv()`.
 | `required` | `boolean` | `true` unless `optional` is set | Throws when a runtime value is missing. Server Env checks every declared value together, so a missing required value also fails code that reads only another value. |
 | `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
 | `mode` | `EnvMode` | `runtime` | Marks the value as Build Env or Runtime Env. Values: `build`, `runtime`. |
-| `schema` | Standard Schema-compatible parser | string parser | Validates and parses `env.public` and `env.define` values. `env.server` accepts only the built-in parsers below because the generated runtime must serialize them. |
+| `schema` | Standard Schema-compatible parser, or `env.schemaFrom()` | string parser | Validates and parses `env.public` and `env.define` values. `env.server` accepts the built-in parsers below, or a schema from a module through [`env.schemaFrom()`](#validate-server-env-with-your-own-schema). |
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
-| `type` | `string` | Inferred | Overrides the generated type label for `env.public` and `env.define`. In `env.server`, it must match the parser. |
+| `type` | `string` | Inferred | Overrides the generated type label for `env.public` and `env.define`. In `env.server`, it must match the parser, and `env.schemaFrom()` does not accept it. |
 
 ## Typed values
 
@@ -112,6 +112,45 @@ The typed helpers accept every `env()` option except `schema` and `type`. A `def
 The error details contain the declaration path and source kind. The rejected value is never included. `inspectServerEnv()` reports a value that does not parse as `invalid`.
 
 The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
+
+## Validate Server Env with your own schema
+
+Use `env.schemaFrom(module, exportName)` when a Server Env value needs more than the built-in parsers, such as a pattern, a custom refinement, or a transform. Export a [Standard Schema](https://standardschema.dev) from a module. The server build imports that module, and Server Env runs the schema on the raw value each time it resolves.
+
+```ts [server/env.schema.ts]
+import { z } from 'zod'
+
+export const apiUrl = z.url().refine(url => url.startsWith('https://'), 'Use an https URL.')
+export const retries = z.coerce.number().int().min(1).max(5)
+export const tags = z.string().transform(value => value.split(','))
+export const token = z.string().min(20)
+```
+
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv()],
+  env: {
+    server: {
+      apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+      retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+      tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+      token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+    },
+  },
+})
+```
+
+`useServerEnv().retries` is a `number`, `tags` is a `string[]`, and `token` is a `SecretEnv<string>`. The generated types read the output type of each export.
+
+- A relative module path resolves from the project root, as `providers` does. `exportName` defaults to `default`.
+- The schema gets the raw host string, or the default as written. Use coercion, such as `z.coerce.number()`, for other types.
+- The schema must be synchronous. An async schema fails with `ENV_RUNTIME_VALUE_INVALID`.
+- An export that is not a Standard Schema fails when the server module loads, with `ENV_DECLARATION_INVALID`.
+- For a non-secret value, the error cause contains the schema issue messages. For a secret value, it contains only the path, because issue messages can quote the input.
+- `env.schemaFrom()` works only in `env.server`. In `env.public` and `env.define`, pass the schema object directly: those values resolve during the build, where the config can run it.
 
 ## Import an environment schema
 

@@ -90,6 +90,31 @@ Definition.
 | Database tables from modules | A Nuxt module adds Database tables with the same Vite plugin contribution as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. Read [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | `connections` enables `database`, and without a Database Definition it adds the empty `default` Database, as the Vite integration does. Production builds mount the management API only with `connections: { management: true }`, behind the Console sign-in. |
 
+## Env and Nuxt runtime config
+
+Nuxt 5 can validate `runtimeConfig` itself. Put a Standard Schema as a
+`runtimeConfig` value, and Nuxt applies `NUXT_*` variables, coerces them, and
+checks them when the server starts. `useRuntimeConfig()` gets the types of the
+schemas. Nuxt converts each schema to JSON Schema, so it checks types,
+required keys, enums, objects, and arrays, but not formats, ranges, patterns,
+refinements, or transforms.
+
+Env does not read or write `runtimeConfig`. The two work side by side in one
+application, so pick per value:
+
+| You need | Use |
+| --- | --- |
+| A value that `useRuntimeConfig()` and other Nuxt modules read | Nuxt `runtimeConfig` |
+| A secret that stays wrapped until code unseals it | `env.server` with `secret: true` |
+| A browser value that is fixed during the build | `env.public` |
+| A URL, range, pattern, refinement, or transform check on a server value | `env.server` with [`env.schemaFrom()`](/docs/env/configure#validate-server-env-with-your-own-schema) |
+| Values from a secret manager | `env.server` with [`env.provider()`](/docs/env/server-api) |
+
+Nuxt reads `runtimeConfig.public` again when the server starts. Env Public
+values do not change after the build. Env checks Server Env when server code
+reads it, not when the server starts. Run `pnpm vitehub env check --stage production`
+with the production variables to find a missing or invalid value before you deploy.
+
 ## Inspect the output
 
 Inspect generated Agent files in Nuxt's build directory. Other `.vitehub` files
