@@ -331,8 +331,8 @@ function configureConsoleNitroRoutes(
       ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/_vitehub/api/logs"), method: "get" }] : []),
       ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/_vitehub/api/usage"), method: "get" }] : []),
       ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(mount, "/_vitehub/sign-in"), method: "get" }] : []),
-      { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub") },
-      { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub/**") },
+      { handler: join(consoleRuntimeRoot, "server/page.get.js"), method: "get", route: consoleMountPath(mount, "/_vitehub") },
+      { handler: join(consoleRuntimeRoot, "server/page.get.js"), method: "get", route: consoleMountPath(mount, "/_vitehub/**") },
     ]) kit.addHandler({ ...handler, lazy: true })
     kit.addHandler({
       handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
