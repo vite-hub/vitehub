@@ -164,7 +164,7 @@ The rule checks these calls:
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
-- `runAgent(agent, input)` from `vite-hub/agent`, and `runAgent(agent, input, { output: 'drained' })`
+- `runAgent()` and `streamAgent()` from `vite-hub/agent`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and the helpers that Nuxt auto-imports into `server/`. It reports a result that code:
 
@@ -622,7 +622,7 @@ const [error, run] = await runWorkflow('onboard-user', body)
 const run = await runWorkflow('onboard-user', body)
 ```
 
-The rule does not check `runAgent()`. Its tuple forms are tuples, and `runAgent(agent, context, input)` returns the Agent's output, which can be an array.
+The rule does not check `runAgent()` and `streamAgent()`, because they return tuples.
 
 ## VHUB0019
 

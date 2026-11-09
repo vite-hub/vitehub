@@ -297,7 +297,10 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
       definition: { export: "commentsSchema", module: "@vite-hub/comments/database" },
       name: "comments",
     })])
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("selectCommentsDatabase(databases, \"content\")")
+    const pluginSource = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(pluginSource).toContain(".databases, \"content\")")
+    // The Database registry imports the app's schema and drizzle-orm. It loads on the first Comments call.
+    expect(pluginSource).not.toMatch(/^import .* from "[^"]*database\/drizzle"/m)
   })
 
   it.each([
@@ -341,7 +344,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     expect(contributions).toHaveLength(1)
     if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
     else expect(contributions[0]).toHaveProperty("database", database)
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`selectCommentsDatabase(databases${database ? `, ${JSON.stringify(database)}` : ""})`)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`.databases${database ? `, ${JSON.stringify(database)}` : ""})`)
   })
 
   it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {
@@ -579,11 +582,17 @@ describe("comments() without vite-hub", () => {
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
   })
 
-  it("steps aside, with its Nitro, when vitehub() runs Comments", () => {
+  it.each([
+    ["@vite-hub/comments/vite", "serve"],
+    ["@vite-hub/comments/vite", "build"],
+    ["vite-hub/comments-off", "serve"],
+    ["vite-hub/comments-off", "build"],
+  ] as const)("fails next to %s during %s and adds no second Nitro", (name, command) => {
     const [plugin, ...nitro] = comments() as Plugin[]
-    const config: UserConfig = { plugins: [[{ name: "@vite-hub/comments/vite" }]] }
-    const env: ConfigEnv = { command: "serve", mode: "development" }
-    expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env)).toBe(false)
+    const config: UserConfig = { plugins: [[{ name }]] }
+    const env: ConfigEnv = { command, mode: command === "serve" ? "development" : "production" }
+    expect(() => (plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env))
+      .toThrow(expect.objectContaining({ code: "COMMENTS_B0003", fix: expect.stringContaining("vitehub({ comments: true })") }))
     expect(nitro.length).toBeGreaterThan(0)
     for (const part of nitro) expect(typeof part.apply === "function" ? part.apply(config, env) : true).toBe(false)
     expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)({ plugins: [] }, env)).toBe(true)

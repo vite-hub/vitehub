@@ -19,6 +19,27 @@ Use this when a task asks how big the app is, why the server starts slowly or hi
 
 Use `--json` on both commands when you compare numbers or write them into a report.
 
+## Act on findings
+
+`vitehub bundle` ends with its checks. `--json` gives them in `findings`. Each finding has `code`, `severity`, `why`, `fix`, `docs`, `bytes`, and `chain`, the import chain from the server entry. The checks report only what the build proves: a feature declares from its resolved configuration what the server never runs, and a host limit comes from the host's documentation.
+
+- `BUNDLE_STARTUP_UNUSED` (warning): a package loads at server startup, and a feature of this build never runs it there. Example: `@libsql/client` on a Cloudflare app where every Database is D1. Read `chain` from the end and update the ViteHub package that imports it. Independent imports from app code or other packages suppress the finding, because the feature cannot prove what those consumers need.
+- `BUNDLE_HOST_SIZE_LIMIT` (error): the server JavaScript is over the host limit, so the deployment fails. Cloudflare accepts a Worker up to 64 MiB before compression. Start with the largest groups.
+
+An error makes `vitehub bundle` exit with 1, so CI can run `vite build && vitehub bundle`. A warning keeps exit code 0. After a fix, build again and check that the finding is gone.
+
 ## Prove a change
 
-Run the build and `vitehub bundle` before and after the change. Report both numbers for the side and the group that changed, and the import chain that you removed.
+Save the report before you change the code, then compare after the next build:
+
+```sh
+nuxt build                                            # or vite build, with bundle: true
+vitehub bundle --json > .vitehub/bundle-before.json
+# change the code
+nuxt build
+vitehub bundle --against .vitehub/bundle-before.json
+```
+
+`--against` prints, for the client and the server, the bytes and gzip bytes before and after, the same for the startup code, and each group that grew, shrank, was added, or was removed, with its total and startup delta. Groups that did not change are not shown. Add `--json` to get the same data. `--against` also reads a copy of `.vitehub/bundle/` or the project root of another checkout that has one.
+
+If the output says that both reports are from the same build, you did not build again after the change. Report the side and startup deltas and the groups that changed. When you removed a package, also give the import chain from `vitehub bundle why <package>` on the old build.

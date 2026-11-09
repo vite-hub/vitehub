@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { buildRunnableTutorial, createZip, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
+import { zipFiles } from "@vite-hub/ui/playground";
+import { buildRunnableTutorial, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
 import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
@@ -36,7 +37,16 @@ async function expectPageToUseFixture(pagePath: string, fixture: string, labels:
 
 describe("documentation tutorials", () => {
   it("adds only the owner packages of opt-in features next to the framework distribution", async () => {
-    for (const [fixture, owners] of [["agents", ["@vite-hub/agent"]], ["first-agent", ["@vite-hub/agent"]], ["server-primitives", []], ["decisions", []]] as const) {
+    for (const [fixture, owners] of [
+      ["agents", ["@vite-hub/agent", "@vite-hub/workflow"]],
+      ["first-agent", ["@vite-hub/agent"]],
+      ["server-primitives", ["@vite-hub/kv"]],
+      ["decisions", ["@vite-hub/decisions", "@vite-hub/gateways"]],
+      ["playground-blob", ["@vite-hub/blob"]],
+      ["playground-cache", []],
+      ["playground-queue", ["@vite-hub/queue"]],
+      ["playground-rate-limit", ["@vite-hub/rate-limit"]],
+    ] as const) {
       const manifest = JSON.parse(
         await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"),
       );
@@ -278,7 +288,7 @@ describe("runnable tutorials", () => {
 
   it("zips the starter with the files of step 1", async () => {
     const tutorial = await build(0);
-    const zip = Buffer.from(createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
+    const zip = Buffer.from(zipFiles(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
     expect(zip.subarray(0, 4).readUInt32LE(0)).toBe(0x04034B50);
     expect(zip.toString("latin1")).toContain("first-server-primitive/vite.config.ts");
     expect(zip.toString("latin1")).not.toContain("server/api/settings.post.ts");

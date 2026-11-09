@@ -283,13 +283,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     }
     return statements
   }
-  /** Reads the observation rows of one invocation in the order that they extend its record. */
+  // Unary + sorts the selected rows instead of scanning payloads through the position index.
   const observationRowsStatement = (id: string, observationNames?: string): InStatement => ({
     args: observationNames === undefined ? [id] : [id, observationNames],
     sql: `SELECT position, observation FROM ${observationTable}
       WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === undefined
         ? ""
-        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`,
+        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === undefined ? "position" : "+position"}`,
   })
   let initialized: Promise<void> | undefined
   /** The database file. Set by initialize() when maxSize is set. */
@@ -686,9 +686,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         WHERE agent_name IS NULL OR agent_name = ''`)
       // Tables from older versions store summary and capability_ids after the large record column.
       // Reading those values from the row walks every overflow page of record, so filter lists read them from these indexes.
-      // Invocation list queries cannot use either index: one is partial, and the other starts with the label.
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
         ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
+        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
         ON ${table} (${triggeredByProjection()}, agent_name)`)
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
@@ -737,6 +738,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       )`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
         ON ${observationTable} (invocation_sequence, position)`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`)
       // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
         AFTER DELETE ON ${table}
@@ -961,6 +964,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     return result
   }
   return {
+    open: initialize,
     async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()
@@ -1055,6 +1059,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         filters.push(`status IN (${statuses.map(() => "?").join(", ")})`)
         args.push(...statuses)
       }
+      // With a status list, this range uses the (status, updated_at) index.
+      const updatedSince = hasRuntimeType(listOptions.updatedSince, "string") ? listOptions.updatedSince : undefined
+      if (updatedSince !== undefined) {
+        filters.push("updated_at >= ?")
+        args.push(updatedSince)
+      }
       const agentName = listOptions.agentName?.trim()
       if (agentName) {
         filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))")
@@ -1062,6 +1072,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const capabilityId = listOptions.capabilityId?.trim()
       if (capabilityId) {
+        // The sequence index skips payloads from records that cannot match, in page order.
+        // The full predicate still checks original values, since cached IDs are trimmed.
+        filters.push(`(capability_ids IS NULL OR EXISTS (
+          SELECT 1 FROM json_each(capability_ids) AS capability WHERE capability.value = ?
+        ))`)
+        args.push(capabilityId)
         filters.push(`(EXISTS (SELECT 1
           FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
           WHERE capability.value = ?)
@@ -1084,11 +1100,17 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         args.push(`%${escapeLike(search.toLowerCase())}%`)
       }
       args.push(limit + 1)
+      const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : ""
+      const selectedTable = capabilityId && updatedSince === undefined ? `${table} INDEXED BY ${table}_sequence_capability_ids` : table
       const result = await client.execute({
         args,
+        // An updated_at range is sorted by sequence after the index search. Sorting only sequences keeps
+        // that sort from reading the summary of every match, which sits behind the large search column.
         sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
           THEN json_remove(record, '$.observations') END) AS summary
-          FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`,
+          FROM ${selectedTable}${updatedSince === undefined
+            ? `${where} ORDER BY sequence DESC LIMIT ?`
+            : ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?) ORDER BY sequence DESC`}`,
       })
       const records = result.rows
         .map(row => deserializeSummary(row.summary, row.sequence))

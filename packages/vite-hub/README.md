@@ -15,21 +15,36 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
-`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels, Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Other features are optional peers, so an app installs only what it enables. Add their packages before you enable them:
+If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script.
+
+`vite-hub` includes Env, Source, Logs, and the Console. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent` |
+| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
 | `auth` | `@vite-hub/auth better-auth` |
+| `blob` | `@vite-hub/blob` |
+| `browser` | `@vite-hub/browser` |
+| `channels` | `@vite-hub/channels` |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `email` | `@vite-hub/email` |
+| `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
+| `queue` | `@vite-hub/queue` |
+| `rateLimit` | `@vite-hub/rate-limit` |
 | `realtime` | `@vite-hub/realtime` |
+| `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
 | `server/comments.ts` | `@vite-hub/comments` |
+| `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
+| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
 | `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
@@ -295,7 +310,7 @@ The Console RPC transport accepts browser requests only from its own origin, inc
 
 One Console build can open many projects. The Console that an app serves opens that app, and asks for the token when the app uses `auth: "token"`. A Console on another origin links each app by its URL, reads `project.get`, and keeps the project list and tokens in `localStorage` (`vitehub-console:projects`) of its own origin. The app must use `auth: "token"` and list that origin in `console.origins`. Features that need the app origin or its cookies, such as live editing, the Content preview, impersonation, Env management, and the Connections connect flow, work only in the Console that the app serves. See [Use one Console for many projects](https://vitehub.dev/docs/development/console#use-one-console-for-many-projects).
 
-[console.vitehub.dev](https://console.vitehub.dev) hosts that Console build as a static site. It keeps no server state, and the browser calls each project directly, so ViteHub never receives tokens or project data. An app with `auth: "token"` and the default `console.origins` can link there. To self-host the same build, run `pnpm --dir packages/vite-hub run build:console-hosted` in a repository clone and serve `.vitehub/console-hosted` with its `_headers` file; `console.hosted.wrangler.jsonc` is the Cloudflare configuration of console.vitehub.dev. See [Hosted Console](https://vitehub.dev/docs/development/console#hosted-console).
+[console.vitehub.dev](https://console.vitehub.dev) hosts that Console build as a static site. It keeps no server state, and the browser calls each project directly, so ViteHub never receives tokens or project data. An app with `auth: "token"` and the default `console.origins` can link there. To self-host the same build, run `pnpm --dir packages/vite-hub run build:console-hosted` in a repository clone and serve `.vitehub/console-hosted` with its `_headers` file; `console.hosted.wrangler.jsonc` is the Cloudflare configuration of console.vitehub.dev. See [Hosted Console](https://vitehub.dev/docs/development/console#hosted-console). A link such as `https://console.vitehub.dev/open?project=<app URL>&path=/kv` opens one page of a project there, and asks to link the project first when this browser has not. Build it with `hostedConsoleUrl(projectUrl, path)` from `vite-hub/runtime`.
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 

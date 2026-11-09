@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { assertFeaturePackages, isPackageInstalled } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, isPackageInstalled, missingFeaturePackagesError } from "../src/internal/optional-owners.ts"
 
 vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
@@ -776,6 +776,7 @@ describe("vitehub", () => {
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
       "vite-hub/unavailable-services",
+      "vite-hub/cloudflare-sh-syntax",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -864,7 +865,8 @@ describe("vitehub", () => {
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
+    // hubKv() infers the driver itself, so `vite dev` can keep the store local.
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -978,6 +980,46 @@ describe("vitehub", () => {
     expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).not.toContain("console mcp-client")
     vitehub({ preset: "node", console: { auth: false, mcpClient: true } })
     expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).toContain("console mcp-client")
+  })
+
+  it.each([
+    [{ blob: true }, ["blob"]],
+    [{ preset: "cloudflare", browser: true }, ["browser"]],
+    [{ channels: true }, ["channels"]],
+    [{ email: { driver: "resend" } }, ["email"]],
+    [{ kv: true }, ["kv"]],
+    [{ cache: { driver: "kv" } }, ["kv"]],
+    [{ queue: true }, ["queue"]],
+    [{ rateLimit: true }, ["rateLimit"]],
+    [{ preset: "cloudflare", sandboxTask: true }, ["sandboxTask"]],
+    [{ workflow: true }, ["workflow"]],
+    // Agents run on Workflow.
+    [{ agent: true }, ["agent", "workflow"]],
+    [{ agent: true, workflow: false }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false } }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: false }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: true }, ["agent", "workflow"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: {} }, ["agent", "workflow"]],
+  ] as const)("checks the owner packages of %j", (options, features) => {
+    vitehub({ preset: "node", ...options } as ViteHubOptions)
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features)
+  })
+
+  it.each([undefined, false] as const)("keeps Netlify Agents inline without the Workflow peer (%s)", (workflow) => {
+    vi.mocked(assertFeaturePackages).withImplementation(features => {
+      if (features.includes("workflow")) throw missingFeaturePackagesError(["workflow"])
+    }, () => {
+      const workflowCallsBefore = integrationMocks.hubWorkflow.mock.calls.length
+      expect(pluginNames(vitehub({ preset: "netlify", agent: { invocations: false }, workflow })))
+        .not.toContain("@vite-hub/workflow/vite")
+      expect(integrationMocks.hubWorkflow).toHaveBeenCalledTimes(workflowCallsBefore)
+      expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+    })
+  })
+
+  it("checks no owner package without features", () => {
+    vitehub({ preset: "node" })
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith([])
   })
 
   it("requires the Agent package for observability without Agents", () => {

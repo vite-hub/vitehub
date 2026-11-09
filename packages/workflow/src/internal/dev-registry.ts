@@ -11,6 +11,7 @@ import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../t
 // Docker), the Vite plugin writes the registry and a Nitro plugin that installs
 // it and the runtime config at startup.
 export const workflowDevGeneratedDir = ".vitehub/nitro/workflow"
+export const workflowTestSetupFile = "test-setup.mjs"
 const devRegistryFile = "dev-registry.mjs"
 const devPluginFile = "dev-plugin.mjs"
 
@@ -23,24 +24,28 @@ function isWorkflowDevDefinition(definition: DiscoveredWorkflowDefinition): bool
 }
 
 export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: string[]): DiscoveredWorkflowDefinition[] {
-  return discoverWorkflowDefinitions({ rootDir, serverDirs }).filter(isWorkflowDevDefinition)
+  return discoverWorkflowDefinitions({ mode: "standalone", rootDir, serverDirs })
 }
 
 function createWorkflowDevRegistryModule(registryFile: string, definitions: DiscoveredWorkflowDefinition[], importBase = workflowPackageName): string {
   return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
 }
 
-export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName): string {
+/** `dev` turns on the run history of `vite dev`. A build that installs the registry at startup passes `false`. */
+export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName, dev = false): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   return [
     "import { definePlugin } from \"nitro\"",
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
+    // Only this import brings the run history into the app, so a build never includes it.
+    ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(`${importBase}/runtime/dev-runs`)}`] : []),
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
     "export default definePlugin(() => {",
     `  setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`,
     "  setWorkflowRuntimeRegistry(registry)",
+    ...(dev ? ["  enableWorkflowDevRuns()"] : []),
     "})",
     "",
   ].join("\n")
@@ -55,6 +60,8 @@ async function writeIfChanged(file: string, contents: string): Promise<boolean> 
 
 export interface WorkflowDevRegistryFilesOptions {
   definitions: DiscoveredWorkflowDefinition[]
+  /** True in `vite dev`: the plugin turns on the run history. */
+  dev?: boolean
   importBase?: string
   projectRoot: string
   /** Retain the startup path Nitro read before final Vite configuration. */
@@ -82,8 +89,17 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   const plugin = resolve(directory, devPluginFile)
   const files: Array<[string, string]> = [
     [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
-    [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase)],
+    [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase, options.dev)],
   ]
+  if (process.env.VITEST) {
+    files.push([resolve(directory, workflowTestSetupFile), [
+      `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${options.importBase ?? workflowPackageName}/runtime/state`)}`,
+      `import registry from "./${devRegistryFile}"`,
+      `setWorkflowRuntimeConfig(${JSON.stringify(options.workflow ?? false)})`,
+      "setWorkflowRuntimeRegistry(registry)",
+      "",
+    ].join("\n")])
+  }
   if (options.pluginPath && options.pluginPath !== plugin) {
     const pluginImport = `./${relative(dirname(options.pluginPath), plugin).replace(/\\/g, "/")}`
     files.push([options.pluginPath, `export { default } from ${JSON.stringify(pluginImport)}\n`])

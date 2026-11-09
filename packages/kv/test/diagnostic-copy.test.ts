@@ -15,7 +15,7 @@ it.each([
     code: "KV_INVALID_CURSOR",
     why: "The cursor is invalid.",
     fix: "Start a new list.",
-    docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_invalid_cursor",
+    docs: "https://vitehub.dev/docs/kv/diagnostics/kv_invalid_cursor",
     cause: new Error("private provider token"),
     data: { token: "private metadata" },
     sources: ["private/provider.ts:42"],

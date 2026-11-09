@@ -1,3 +1,5 @@
+import type { Driver } from "unstorage"
+
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 // Cloudflare documents these limits at https://developers.cloudflare.com/kv/platform/limits/
@@ -49,4 +51,13 @@ export function assertCloudflareKVWrite(key: string, value: unknown, options: un
       throw kvErrorDiagnostics.KV_TTL_TOO_SHORT({ minimum: cloudflareKVLimits.minExpirationTtl, option: "expiration", ttl: remainingTtl })
     }
   }
+}
+
+/** Rejects what a Cloudflare KV binding rejects before the driver call, so every store returns the same named code. */
+export function installCloudflareKVLimits(driver: Driver): void {
+  const { getItem, hasItem, removeItem, setItem } = driver
+  driver.getItem = (key, options) => { assertCloudflareKVKey(key); return getItem.call(driver, key, options) }
+  driver.hasItem = (key, options) => { assertCloudflareKVKey(key); return hasItem.call(driver, key, options) }
+  if (removeItem) driver.removeItem = (key, options) => { assertCloudflareKVKey(key); return removeItem.call(driver, key, options) }
+  if (setItem) driver.setItem = (key, value, options) => { assertCloudflareKVWrite(key, value, options); return setItem.call(driver, key, value, options) }
 }

@@ -6,6 +6,7 @@ export const diagnosticSections: Record<string, string> = {
   "auth": "auth",
   "blob": "blob",
   "browser": "browser",
+  "bundle": "development",
   "channels": "channels",
   "cli": "development",
   "cms": "cms",
@@ -123,7 +124,7 @@ function overviewPage(section: string, title: string, codes: DiagnosticCode[], g
     "",
     generatedNotice,
     "",
-    `Each ${title} error has a stable \`code\`. Its \`docs\` link can open a shared index or a limits and errors page. ${codes.length === 1 ? "This page links to the code page" : `This page links to all ${codes.length} code pages`}, and [All diagnostics](/docs/reference/diagnostics) lists every primitive.`,
+    `Each ${title} error has a stable \`code\`. Its \`docs\` link opens the page of that code. ${codes.length === 1 ? "This page lists the code" : `This page lists all ${codes.length} codes`}, and [All diagnostics](/docs/reference/diagnostics) lists every primitive.`,
     "",
   ]
   for (const [group, groupCodes] of groups) {

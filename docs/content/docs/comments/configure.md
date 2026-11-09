@@ -33,6 +33,8 @@ vitehub({
 })
 ```
 
+Do not add the `comments()` plugin next to `vitehub()`. The dev server and the build fail with `COMMENTS_B0003`.
+
 `comments: false` turns Comments off. With `comments: false` and a `server/comments.ts`, the build fails with `VITE_HUB_B0019`: remove one of them. With Comments on and `database: false`, the build fails with `VITE_HUB_B0018`. Comments keeps its threads in the Database, so remove `database: false` or set `comments: false`.
 
 [Docs sites](/docs/docs-site/configure#comments) on `vite-hub/nuxt` have Comments on by default: the docs module sets this option. Turn it off there with `docs: { comments: false }`.
