@@ -1423,9 +1423,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      importBase: `${generatedImportBase}/schedule`,
+      importBase: "vite-hub/schedule",
       providerImportAliases,
-      runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }
   if (workflowEnabled) {
@@ -1434,7 +1433,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       {
       agentImportBase: `${generatedImportBase}/agent`,
       hosting: plan.nitroPreset,
-      importBase: `${generatedImportBase}/workflow`,
+      importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
