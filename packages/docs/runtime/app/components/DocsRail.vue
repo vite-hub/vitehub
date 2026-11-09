@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
-import { docsRailEntries, docsSectionHome } from "#docs/navigation"
+import { docsRailEntries, docsSectionHome, docsStartPage } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
 import type { DocsRailEntry, DocsSection } from "@vite-hub/docs"
@@ -18,9 +18,12 @@ const icons = useDocsIcons()
 // of a docs group share one item, which opens the first of them.
 // A section icon from the ViteHub set (`i-vitehub-kv`, or `kv` in the `rail` option) renders inline, so it can move on
 // hover. Any other Iconify icon renders through UIcon.
+// The item of the start section opens the start link that leads it, such as an Introduction outside every section.
+const startPage = docsStartPage(useDocsManifest(), start)
 const groups = docsRailEntries(useDocsManifest(), { categories, railExclude, groups: docsGroups }).map(entries => entries.map((entry) => {
   const icon = entry.icon ?? icons.rail(entry.sections[0]!)
-  return { entry, to: docsSectionHome(entry.sections[0]!), icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
+  const opensStart = startPage && entry.sections.some(section => section.id === start?.section)
+  return { entry, to: opensStart ? startPage : docsSectionHome(entry.sections[0]!), icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
 }))
 const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))

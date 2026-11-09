@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { docsHomePath, isDocsPath } from "#docs/navigation"
+import { docsHomePath, isDocsPath, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const { base, github, site, start } = useDocsConfig()
-const docsHome = docsHomePath(useDocsManifest())
+const docsHome = docsHomePath(useDocsManifest(), start)
 // Docs routes and the start links use the docs shell. There the brand opens the docs home, like a docs site logo,
 // and the menu shows the docs sidebar. Elsewhere the brand opens the home page.
 // On wide screens the docs sidebar carries the brand, the links, and the controls, so the header hides.
@@ -13,10 +13,10 @@ const error = useError()
 const isDocsRoute = computed(() => shell.value && !error.value)
 const menuOpen = ref(false)
 
-// A site without docs pages has no "Docs" link.
+// A site without docs pages has no "Docs" link. A start link that "Docs" already opens would repeat it.
 const navLinks = [
   ...docsHome ? [{ label: "Docs", to: docsHome }] : [],
-  ...(start?.links ?? []).filter(link => link.to !== base).map(link => ({ label: link.label, to: link.to })),
+  ...(start?.links ?? []).filter(link => link.to !== base && normalizeDocsPath(link.to) !== docsHome).map(link => ({ label: link.label, to: link.to })),
 ]
 
 const mobileLinks = [
