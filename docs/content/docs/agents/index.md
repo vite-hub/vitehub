@@ -38,10 +38,10 @@ const greeting = defineAgent({
 
 const [error, result] = await runAgent(greeting, { prompt: 'Ada' })
 if (error) throw error
-console.log(result) // { text: 'Hello, Ada!' }
+console.log(result.text) // 'Hello, Ada!'
 ```
 
-`runtime: false` selects inline execution. The two-argument `runAgent()` form returns an error/result tuple. For model output, provider Drivers, and streaming, follow [Invocations](/docs/agents/invocations).
+`runAgent()` returns an `[error, result]` tuple. For model output, provider Drivers, and streaming, follow [Invocations](/docs/agents/invocations).
 
 ## Learn in order
 

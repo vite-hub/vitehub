@@ -267,15 +267,16 @@ The SQLite and D1 adapters and the memory store implement both operations. A cus
 Read the recorded prompt of a finished record to start it again:
 
 ```ts fragment
-import { agentInvocationRerunInput } from 'vite-hub/agent'
+import { agentInvocationRerunInput, runAgent } from 'vite-hub/agent'
 
 const record = await invocations.get(invocationId)
 const input = record ? agentInvocationRerunInput(record) : undefined
 if (input?.available) {
-  await runAgent(agent, context, {
+  const [error] = await runAgent(agent, {
     prompt: input.prompt,
     ...(input.invokerProfileId ? { context: { invokerProfileId: input.invokerProfileId } } : {}),
-  })
+  }, { runtimeContext })
+  if (error) throw error
 }
 ```
 
@@ -387,6 +388,8 @@ const invocations = defineAgentInvocations({
   storeTimeoutMs: 10_000,
 })
 ```
+
+A store that connects on first use, such as one that loads its database client and creates its tables, can implement `open()`. The journal calls it once before its first operation and waits up to 10 seconds for it, outside `storeTimeoutMs`, so a slow cold start does not make the first operation unconfirmed. Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried. The libSQL store and the default Agent journal implement it.
 
 ## Inspect and maintain from the CLI
 

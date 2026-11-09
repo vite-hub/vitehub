@@ -203,7 +203,7 @@ export default defineAgent({
 
 The Capability chooses the key. With the default `identity: 'auto'`, it uses the Agent Invoker. Agent resolution always supplies an Invoker before the Capability runs, with the fallback id `anonymous:<origin>` when no caller identity exists. Unauthenticated calls from the same origin therefore share a counter; `auto` does not partition them by thread, channel, or IP address. In this example, those calls share the cap of 20 runs per minute. For a per-user limit, pass the authenticated user's identity as the Agent Invoker. Choose `identity: 'run'` for thread or channel metadata, or `identity: 'ip'` with `trustedIpHeaders` for IP-based limits. Read [Choose identity](/docs/rate-limit/agent-capability#choose-identity).
 
-A rejected Invocation fails with the code `RATE_LIMIT_REJECTED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
+A rejected Invocation fails with the code `RATE_LIMIT_REJECTED`. `runAgent()` returns it as `error.cause` of `AGENT_RUN_FAILED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
 
 ```ts [server/api/support.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
@@ -214,11 +214,11 @@ import support from '../agents/support'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ question?: string }>(event)
   const [error, result] = await runAgent(support, { prompt: body?.question ?? '' })
-  if (getViteHubErrorShape(error)?.code === 'RATE_LIMIT_REJECTED') {
+  if (getViteHubErrorShape(error?.cause)?.code === 'RATE_LIMIT_REJECTED') {
     throw createError({ statusCode: 429, message: 'Too many questions. Try again in a minute.' })
   }
   if (error) throw error
-  return result
+  return { text: result.text }
 })
 ```
 

@@ -18,7 +18,7 @@ a whole.
 The primitive and feature rows come from the ViteHub feature catalog in
 `@vite-hub/internal/features`. A cell says what `vitehub({...})` does when the
 app enables the feature for that preset, including requirements from features it
-enables implicitly. Comments, Connections, and Console require a hosted
+enables implicitly. Comments and Connections require a hosted
 `database.connection` on Vercel, Netlify, and Deno. The Local Vite column is
 `vite dev` with the default Node preset; development with a different preset can
 select different providers. The Nitro and UnJS column describes generic Nitro output.

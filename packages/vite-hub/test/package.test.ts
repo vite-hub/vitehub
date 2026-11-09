@@ -134,6 +134,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
+  "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/ui/browser-support-notice",
   "@vite-hub/ui/connect-panel",
@@ -377,6 +378,7 @@ describe("framework package contract", () => {
       "./skills",
       "./source/vite",
       "./task",
+      "./test",
       "./ui/vite",
     ]);
 
