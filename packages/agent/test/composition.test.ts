@@ -19,7 +19,8 @@ it("agentSettings() returns a copy of the resolved settings with extends applied
   expect(settings && Object.getOwnPropertyDescriptor(settings, decoration)?.value).toBe("kept")
 
   settings!.description = "changed"
-  expect(agentSettings(child)?.description).toBe("parent")
+  settings!.driver = { model: "worker" }
+  expect(agentSettings(child)).toMatchObject({ description: "parent", driver: { model: "child" } })
   expect(agentSettings({} as typeof child)).toBeUndefined()
 })
 
