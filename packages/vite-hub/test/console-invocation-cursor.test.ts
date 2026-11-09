@@ -8,12 +8,36 @@ import { consoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
-it.each([2, 3])("serializes the history once for a poll with %s retained observations", async (count) => {
+it("resets a legacy cursor once before resuming append polls", async () => {
+  const store = createMemoryAgentInvocationStore()
+  const timestamp = "2026-11-09T00:00:00.000Z"
+  await store.create({
+    createdAt: timestamp,
+    id: "legacy-cursor-test",
+    observations: [],
+    status: "running",
+    traceId: "legacy-cursor-test",
+    updatedAt: timestamp,
+  })
+  installConsoleInvocationFallback(defineAgentInvocations({ store }), "/console-legacy-cursor-test")
+  installConsoleAccess({ mode: "open", authorize: () => true })
+  const url = "http://localhost/_vitehub/api/invocations/legacy-cursor-test"
+  const legacy = new URLSearchParams({ observationCount: "0", observationCursor: "0-ztntfp-45h" })
+  const reset = await invocationHandler(consoleRequestEvent(new Request(`${url}?${legacy}`)))
+  if (reset instanceof Response || !("observationCursor" in reset)) throw new Error("Expected invocation detail")
+  expect(reset.observations).toEqual([])
+  expect(reset).not.toHaveProperty("appendObservations")
+  const query = new URLSearchParams({ observationCount: "0", observationCursor: reset.observationCursor })
+  const unchanged = await invocationHandler(consoleRequestEvent(new Request(`${url}?${query}`)))
+  expect(unchanged).toMatchObject({ appendObservations: true, observations: [], observationCursor: reset.observationCursor })
+})
+
+it.each([2, 3, 31, 32, 33, 63, 64, 65])("serializes the history once for a poll with %s retained observations", async (count) => {
   const store = createMemoryAgentInvocationStore()
   const timestamp = "2026-11-08T00:00:00.000Z"
-  const observations: TraceEventLogEntry[] = [1, 2, 3].map(sequence => ({
+  const observations: TraceEventLogEntry[] = Array.from({ length: 65 }, (_, index) => ({
     name: "cursor.test.observation",
-    sequence,
+    sequence: index + 1,
     timestamp,
     type: "lifecycle",
   }))
@@ -42,9 +66,9 @@ it.each([2, 3])("serializes the history once for a poll with %s retained observa
       observationCursor: complete.observationCursor,
       observations: observations.slice(count),
     })
-    expect(stringify.mock.calls.filter(([value]) => {
-      const input: unknown = value
-      return input !== null && typeof input === "object" && Reflect.get(input, "name") === "cursor.test.observation"
+    expect(stringify.mock.calls.flatMap(([value]) => {
+      const inputs: unknown[] = Array.isArray(value) ? value : [value]
+      return inputs.filter(input => input !== null && typeof input === "object" && Reflect.get(input, "name") === "cursor.test.observation")
     })).toHaveLength(observations.length)
   }
   finally {
