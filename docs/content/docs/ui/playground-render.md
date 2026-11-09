@@ -48,16 +48,18 @@ The examples are a list of buttons, and the open one has `aria-current`. The fil
 
 ## API Reference
 
+### PlaygroundRender
+
 #### Props
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `presets` | `PlaygroundPreset[]` | | The examples, each `{ id, label, files, group? }`. A share link names one of them as its template. |
-| `preset` | `string` | The first preset | The id of the example that opens when the URL has no link. |
-| `panes` | `PlaygroundPane[]` | | The editor tabs, each `{ file, label, language?, slot? }`. A pane with `slot` shows that slot in place of the editor. |
-| `render` | `(files) => Promise<PlaygroundResult>` | | Renders the files to `{ html, issues? }`. |
+| `presets` | `PlaygroundPreset[]` | Required | The examples, each `{ id, label, files, group? }`. A share link names one of them as its template. |
+| `preset` | `string` | | The id of the example that opens when the URL has no link. Without it, the first preset opens. |
+| `panes` | `PlaygroundPane[]` | Required | The editor tabs, each `{ file, label, language?, slot? }`. A pane with `slot` shows that slot in place of the editor. |
+| `render` | `(files) => Promise<PlaygroundResult>` | Required | Renders the files to `{ html, issues? }`. |
 | `languages` | `LanguageInput[]` | | Shiki languages for the panes. They load after the first render. Without them, the panes are plain text. |
-| `previewDocument` | `(html, files) => string` | A plain page | Wraps the HTML in the preview page, with your stylesheets and theme. |
+| `previewDocument` | `(html, files) => string` | | Wraps the HTML in the preview page, with your stylesheets and theme. Without it, the preview is a plain page. |
 
 #### Slots
 
