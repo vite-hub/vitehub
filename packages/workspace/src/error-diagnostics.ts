@@ -86,11 +86,11 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0061: withFix("Return `repo` from the `github()` resolver, for example `{ repo: \"owner/name\" }`, or start the Agent Invocation with a `pullRequest` context value."),
     // Retired: inferred MCP resource Sources no longer need a registered loader. Do not reuse this code.
     WORKSPACE_R0062: dynamicError,
-    WORKSPACE_R0063: withFix("Use the URL of exactly one Source that the Workspace scope can see. Read `.vitehub/sources/<source>.json` in the Workspace to get the URL and method of a Source."),
+    WORKSPACE_R0063: withFix("Use the URL of exactly one Source that the Workspace scope can see. Read `.vitehub/sources/<source>.json` in the Workspace and send the URL, method, query, and body that it declares."),
     WORKSPACE_R0064: withFix("This is a ViteHub bug. Report it at https://github.com/vite-hub/vitehub/issues with the message and your Workspace Definition."),
     WORKSPACE_R0065: withFix("The Cloudflare Artifacts Store keeps its Git checkout in memory. A Git step used the path in the message in a way that the error code rejects, for example `ENOENT` for a missing file. Run the operation again. If it fails again, report it at https://github.com/vite-hub/vitehub/issues with the message."),
     WORKSPACE_R0066: withFix("Connect a Blob store to the Vercel project so that it gets `BLOB_STORE_ID`. Off Vercel, set `BLOB_READ_WRITE_TOKEN`."),
-    WORKSPACE_R0074: withFix("Check the file at the path in the message. If it must go, remove it with `workspace.rm(path)`. Then run the Source operation again."),
+    WORKSPACE_R0074: withFix("The Workspace Store keeps no file revisions, so ViteHub cannot prove that the file at the path in the message is the one it started to remove. Check the file. If it must go, delete it in the Store itself, for example in its directory or bucket, because the Workspace rejects writes under a Source. Then run the Source operation again."),
     WORKSPACE_R0010: {
       why: ({ path }: { path: string }) => `[vitehub] Workspace Collection ${path} must be a file.`,
       fix: "Point workspaceFile() at a JSON file, not a directory.",
