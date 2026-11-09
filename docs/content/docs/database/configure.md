@@ -108,11 +108,52 @@ export default defineDatabase({
 })
 ```
 
-`schema` can be an object literal, an imported object, a namespace import such as `import * as schema from './schema'`, or a spread of several schemas. ViteHub loads the Definition and exports every Drizzle table and view in it, so `vitehub db generate` writes migrations for all of them. A schema key cannot be `schema` or `default`, because the generated module uses those export names.
+`schema` can be an object literal, an imported object, a namespace import such as `import * as schema from './schema'`, or a spread of several schemas. ViteHub loads the Definition and exports every Drizzle table and view in it, so `vitehub db generate` writes migrations for all of them. A schema key cannot be `schema`, `relations`, or `default`, because the generated module uses those export names.
 
 ViteHub loads the Definition with your Vite or Nuxt string aliases. If it still fails, for example on a module that only a Vite plugin provides, `vite dev` and builds warn and use the keys of a literal `schema: { ... }`. `vitehub db generate` fails instead, so a migration never drops a table silently.
 
-`db.query.<table>` reads the rows of one table with Drizzle's relational queries. Relations between tables are not part of the Definition yet.
+### Query related tables
+
+`db.query.<table>` reads rows with Drizzle's relational queries. To read related rows in the same query, pass `relations` from Drizzle's `defineRelations()`:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { defineRelations } from 'drizzle-orm'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+const users = sqliteTable('users', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+})
+const posts = sqliteTable('posts', {
+  id: integer('id').primaryKey(),
+  authorId: integer('author_id').notNull(),
+  title: text('title').notNull(),
+})
+
+export default defineDatabase({
+  schema: { users, posts },
+  relations: defineRelations({ users, posts }, r => ({
+    users: { posts: r.many.posts() },
+    posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) },
+  })),
+})
+```
+
+Then `with` reads the related rows, and its result is typed:
+
+```ts [server/api/users.get.ts]
+import { db } from '@vite-hub/database/drizzle'
+
+export default defineEventHandler(() => {
+  // [{ id, name, posts: [{ id, authorId, title }] }]
+  return db.query.users.findMany({ with: { posts: true } })
+})
+```
+
+Without `relations`, ViteHub uses `defineRelations(schema)`: `db.query.<table>` reads each table, and no table has relations. Postgres Definitions take `relations` the same way. `useDatabase(name).relations` holds the relations that the database uses, after it merges Nuxt layers and contributed tables.
+
+`defineRelations()` must get the same table objects as `schema`. A relation to a table that is not in the database, or to a table that a later layer replaced, fails with `DATABASE_INVALID_RELATIONS` when the server starts.
 
 ### Name columns in snake_case
 
@@ -281,8 +322,9 @@ export default defineDatabase({
 
 Rules:
 
-- `connection`, `cloudflare`, and `drizzle` come from one Definition. If the app Definition sets one, it replaces all layer options, so it must repeat each option a layer sets. The app and those layers must then pass an object literal to `defineDatabase()`, so ViteHub can read them. Without the app, one layer can set them. Two layers that set them fail discovery until the app sets them.
+- `connection` and `cloudflare` come from one Definition. If the app Definition sets one, it replaces all layer options, so it must repeat each option a layer sets. The app and those layers must then pass an object literal to `defineDatabase()`, so ViteHub can read them. Without the app, one layer can set them. Two layers that set them fail discovery until the app sets them.
 - An app table replaces a layer table with the same key. Use this to add columns to a layer table. Two layers with the same table key fail discovery.
+- `relations` join like tables. The relations of one table merge across layers, and the app wins a relation name. A layer can relate its tables to the tables of another layer: import them, and pass them to `defineRelationsPart()`. When a layer replaces a table, it must also define the relations of that table.
 - Migrations go to the app, in `server/databases/migrations` or `server/databases/<name>/migrations`, even when only layers define the database.
 - A project still has one default database or named ones. A layer with a default database and another with named ones fail discovery.
 
@@ -328,6 +370,7 @@ export const historySchema = {
 | `database` | `string` | Optional. Database that gets the tables. Omit it for the default or only database. |
 | `dialect` | `'sqlite' \| 'postgresql'` | Optional. SQL dialect of the tables. The build fails if the target database uses another one. |
 | `tables` | `Record<string, string>` | Optional. Every table of the export, key to SQL name, such as `{ historyRefs: 'history_refs' }`. The build then lists tables without loading the module, so the Vite config loads neither the schema nor drizzle-orm. A key missing here is missing from the generated schema. |
+| `relations` | `string` | Optional. Export of `definition.module` that holds the relations of the contributed tables, from `defineRelationsPart()`. The target database merges them before the relations of its Definition, so the app wins a relation name. |
 
 `vitehub.databases` accepts an array or a factory, which can be async. The factory gets `{ root, projectRoot, serverDirs }`, where `root` is the Vite root. It runs once per discovery pass and must return the same result each time. Contributions are sorted by name.
 
@@ -352,7 +395,7 @@ Database reads contributions after every module has run setup, so module order d
 Contributed tables go everywhere the Definition schema goes:
 
 - The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
-- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro.
+- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro. With `relations`, `with` follows their relations too.
 - `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field, with the plugin.
 
 The Definition object you import from its file has only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.

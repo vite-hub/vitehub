@@ -44,6 +44,7 @@ export default defineConfig({
       "src/runtime/hosted.ts",
       "src/runtime/migrate-on-start.ts",
       "src/runtime/postgres.ts",
+      "src/runtime/relations.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",
       "src/runtime/virtual-databases.ts",
@@ -53,7 +54,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports({
           ...Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters"),
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters" && key !== "./runtime/relations"),
           ),
           "./virtual": {
             types: "./dist/virtual.d.ts",

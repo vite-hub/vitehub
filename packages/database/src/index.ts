@@ -16,6 +16,7 @@ export type {
   DatabaseSchemaSource,
   DBModulePublicOptions,
   DiscoveredDatabaseDefinition,
+  MergeDatabaseRelations,
   PostgresConnectionConfig,
   PostgresDatabaseDefinition,
   PostgresDatabaseDefinitionOptions,

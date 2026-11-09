@@ -42,13 +42,14 @@ export function usesD1HttpOnly(runtimeConfig: ResolvedDBViteConfig) {
 function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) {
   const imports = runtimeConfig.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
-    `import schema_${index} from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
+    `import schema_${index}, { relations as relations_${index} } from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
   ])
   const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
     `  [${JSON.stringify(name)}]: {`,
     runtimeConfig.databases[name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(name, runtimeConfig, `definition_${index}`, `schema_${index}`)},`
-      : `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
+      ? `    db: ${renderPostgresDatabaseExpression(name, runtimeConfig, `definition_${index}`, `schema_${index}`, `relations_${index}`)},`
+      : `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, relations_${index}),`,
+    `    relations: relations_${index},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))

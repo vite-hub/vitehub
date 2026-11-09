@@ -82,9 +82,11 @@ Use `src/database.ts` or `server/databases/config.ts` for one default database. 
 
 `@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
 
-Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database.
+Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. It returns `{ db, schema, relations }`.
 
-In a Nuxt application, ViteHub also discovers Definitions in each layer's server directory. Definitions with the same name merge their tables into one database and one set of migrations in the application. The application Definition takes precedence over layer tables. When it sets `connection`, `cloudflare`, or `drizzle`, it replaces all layer options and must also set each option that a layer sets.
+Pass `relations` from Drizzle's `defineRelations(schema, r => ({ ... }))` to `defineDatabase()` to read related rows with `db.query.<table>.findMany({ with })`. The result of `with` is typed. Without `relations`, ViteHub uses `defineRelations(schema)`: every table, with no relations. A relation to a table that the merged database does not hold, or that a later layer replaced, fails with `DATABASE_INVALID_RELATIONS`.
+
+In a Nuxt application, ViteHub also discovers Definitions in each layer's server directory. Definitions with the same name merge their tables into one database and one set of migrations in the application. The application Definition takes precedence over layer tables. Relations merge like tables: the relations of one table merge across layers, and the application wins a relation name. When the application sets `connection` or `cloudflare`, it replaces all layer options and must also set each option that a layer sets.
 
 When the Nitro Vite plugin builds with a Cloudflare preset, the Vite integration merges each resolved D1 binding into `nitro.cloudflare.wrangler.d1_databases` and copies the Definition's migration SQL to `.output/server/.vitehub/database/migrations/<binding>`. A Definition's binding replaces a Nitro binding with the same name.
 
@@ -142,7 +144,7 @@ A package that keeps data in a Database with its own SQL, and has no Drizzle tab
 
 A package can also contribute a whole Database with `{ name, definition, reason? }`, where `definition` is the absolute path of a module that default exports `defineDatabase({ schema })`. Use it for a named Database that the package owns. For the default Database, read [The default Database](#the-default-database). The contributed Database behaves like one in `server/databases/`, keeps its migrations where that Definition would (`server/databases/migrations/` for `default`), and shows `Contributed by`, `Reason`, and `Migrations` in `vitehub inspect`. A name that the application already defines fails with `DATABASE_DUPLICATE_DEFINITION`.
 
-Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A contribution name, key, or SQL table name used twice fails with `DATABASE_DUPLICATE_TABLE`. A missing or ambiguous target fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
+Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A table contribution can set `relations` to the name of an export of `definition.module` that holds `defineRelationsPart()` of its tables. The target Database merges them before the relations of its Definition. A contribution name, key, or SQL table name used twice fails with `DATABASE_DUPLICATE_TABLE`. A missing or ambiguous target fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
 
 ### The default Database
 

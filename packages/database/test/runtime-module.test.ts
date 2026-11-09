@@ -25,9 +25,10 @@ it("keeps prototype-named databases addressable in hosted modules", async () => 
     for (const provider of ["cloudflare", "vercel"]) {
       const code = await readFile(join(output, `${provider}-runtime.mjs`), "utf8")
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "schema_0", "createHostedDrizzleDb", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "resolveRuntimeCloudflareConfig", evaluable)(
+      const runtime = new Function("definition_0", "schema_0", "relations_0", "createHostedDrizzleDb", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "resolveRuntimeCloudflareConfig", evaluable)(
         { name: "__proto__", schema: {} },
         { marker: "schema" },
+        { marker: "relations" },
         () => ({ marker: "database" }),
         () => ({}),
         () => new Error("missing"),
@@ -35,7 +36,7 @@ it("keeps prototype-named databases addressable in hosted modules", async () => 
       ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
 
       expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
-      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, relations: { marker: "relations" }, schema: { marker: "schema" } })
     }
   }
   finally {

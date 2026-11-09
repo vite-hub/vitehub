@@ -1,0 +1,40 @@
+import { extractTablesFromSchema } from "drizzle-orm"
+
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+
+import type { AnyRelations, RelationsRecord, Schema, TableRelationalConfig } from "drizzle-orm"
+
+/**
+ * Builds the relations of one Database from its merged schema and the relations of each part, lowest precedence first.
+ * Every table of the schema gets an entry, so `db.query.<table>` reads it. The relation fields of a table merge across
+ * parts, and a later part wins a field name, as a later Nuxt layer wins a table key.
+ */
+export function mergeDatabaseRelations(
+  database: string,
+  schema: Record<string, unknown>,
+  parts: readonly (AnyRelations | undefined)[],
+): AnyRelations {
+  const tables: Schema = extractTablesFromSchema(schema)
+  const merged: Record<string, TableRelationalConfig & { relations: RelationsRecord }> = {}
+  for (const [name, table] of Object.entries(tables)) {
+    merged[name] = { name, relations: {}, table }
+  }
+  for (const part of parts) {
+    for (const [name, config] of Object.entries(part ?? {})) {
+      // `defineRelations(schema)` lists each table of a layer with no fields. A later layer may replace that table.
+      if (!Object.keys(config.relations).length) continue
+      const entry = merged[name]
+      if (!entry) throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, reason: "missing", table: name })
+      // Drizzle builds SQL from the table objects of each relation, so they must be the tables that the database uses.
+      if (config.table !== entry.table) throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, reason: "replaced", table: name })
+      for (const [field, relation] of Object.entries(config.relations)) {
+        const { targetTable, targetTableName } = relation
+        if (targetTable !== merged[targetTableName]?.table) {
+          throw databaseErrorDiagnostics.DATABASE_INVALID_RELATIONS({ database, field: `${name}.${field}`, reason: merged[targetTableName] ? "replaced" : "missing", table: targetTableName })
+        }
+        entry.relations[field] = relation
+      }
+    }
+  }
+  return merged
+}

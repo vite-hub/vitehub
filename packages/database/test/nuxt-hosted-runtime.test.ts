@@ -38,7 +38,7 @@ describe("Nuxt hosted Database module preparation", () => {
       expect(runtime).toContain("createHostedDrizzleDb(")
       expect(runtime).toContain(`[${JSON.stringify(name)}]: {`)
       // Generated schema imports must exist when Nitro first resolves the alias.
-      const schemaImport = /import schema_0 from "([^"]+)"/.exec(runtime)?.[1]
+      const schemaImport = /import schema_0, \{ relations as relations_0 \} from "([^"]+)"/.exec(runtime)?.[1]
       expect(schemaImport).toBeTruthy()
       const schema = await readFile(resolve(dirname(runtimeFile), schemaImport!), "utf8")
       expect(schema).toContain("databaseDefinition.schema")

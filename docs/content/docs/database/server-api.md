@@ -21,7 +21,7 @@ icon: i-lucide-code-2
 
 ## Use it at runtime
 
-Call `useDatabase()` in server code with the database name, or `default` for the default database. It returns the Drizzle client as `db` and your tables as `schema`. For a name with no Definition it returns `undefined`, so destructuring fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
+Call `useDatabase()` in server code with the database name, or `default` for the default database. It returns the Drizzle client as `db`, your tables as `schema`, and the relations of `db.query` as `relations`. For a name with no Definition it returns `undefined`, so destructuring fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
 
 ```ts [server/api/notes.get.ts]
 import { useDatabase } from '@vite-hub/database/drizzle'
