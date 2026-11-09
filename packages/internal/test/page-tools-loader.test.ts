@@ -332,6 +332,20 @@ describe("loadViteHubPageTools", () => {
     menu.remove()
   })
 
+  it("moves the focus from a hidden segment to the mark when the page asks for the mark", async () => {
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    const control = document.querySelector("vitehub-tool")!.shadowRoot!.querySelector("button")!
+    const focus = vi.spyOn(element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!, "focus")
+    control.focus()
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(focus).toHaveBeenCalledOnce()
+  })
+
   it("follows the page's ask after it loads, back to the person's own choices", async () => {
     page("/?vitehub")
     localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "bottom", at: 30 }))
