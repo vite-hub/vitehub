@@ -1,5 +1,4 @@
 import { withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { readConsoleDocumentSection } from "./documents.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { consoleHttpError } from "./http-error.ts"
 import { copyConsoleRecords, getConsoleDefinitions, getConsoleSchedules } from "./definitions.ts"
@@ -66,7 +65,11 @@ async function consoleDefinitionsHandler(event: ConsoleRequestEvent, access: Con
   const content = Object.hasOwn(catalog, section) ? catalog[section] : undefined
   if (!content) throw requestError(404, "Definition section not found.")
   // A document editor reads the collections that this user may read on each request.
-  if (content.kind === "document-editor") return { ...await readConsoleDocumentSection(section, access, content.setup), kind: "document-editor", section }
+  if (content.kind === "document-editor") {
+    // A build without a document editor owner has no such section, and leaves the document code out.
+    const { readConsoleDocumentSection } = await (import.meta.viteHubConsoleDocuments === false ? Promise.reject(requestError(404, "Definition section not found.")) : import("./documents.ts"))
+    return { ...await readConsoleDocumentSection(section, access, content.setup), kind: "document-editor", section }
+  }
   if (section === "schedules" && content.kind === "definition-catalog") {
     const runnable = getConsoleSchedules()
     return {

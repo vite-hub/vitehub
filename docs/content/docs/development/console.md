@@ -99,6 +99,8 @@ Set `console` in the ViteHub options. `console.auth` chooses who can open it, an
 
 The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section. Comments turns on the Database when `database` is unset. Create its tables once with `vitehub db generate` and `vitehub db migrate`. With `database: false`, Comments fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
 
+The build and the development server include only the Console routes and server code of the sections that the app turns on. An app without Agents has no Agent routes, and an app without a document editor owner, such as [Content](/docs/content), has no document editor or media library code.
+
 For local development, use `auth: false`:
 
 ::tabs{sync="framework"}
@@ -263,7 +265,7 @@ pnpm vitehub project info --url https://app.example.com
 
 Env searches declared Server Env variables and filters them by source. A variable shows its provider, secret flag, and whether it is required or has a default. Host environment means process environment variables and host runtime bindings.
 
-Env does not read secret values, call providers, or check credentials. It does not list undeclared host variables. Values and defaults stay hidden. Change host values in your deployment configuration, and provider values in their connected store. Set `env: false` in the ViteHub options to turn off Env and its section.
+Env does not read secret values, call providers, or check credentials. It does not list undeclared host variables. Values and defaults stay hidden. Change host values in your deployment configuration, and provider values in their connected store. Set `env: false` in the ViteHub options to turn off Env, its section, and its `/_vitehub/env/manage` route.
 
 ## Manage Connections
 
