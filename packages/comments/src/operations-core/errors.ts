@@ -95,7 +95,7 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
     },
     COMMENTS_R0022: {
-      why: "A comment thread that you may not read already uses this requestId in this scope.",
+      why: "Another comment thread of this scope already uses this requestId: it has another author or another subject, or you may not read it.",
       fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment. Send the same requestId again only to retry the same comment.",
     },
     COMMENTS_B0001: {

@@ -357,16 +357,17 @@ export async function earlierThread(runtime: CommentsRuntime, input: Pick<Create
   return await runtime.store.getByRequestId(scopeOf(runtime, input.subject), check(requestIdSchema, input.requestId, "requestId")) ?? undefined
 }
 
-/** Only the author of the first call gets its thread back, and only while they may read it. */
-export async function retried(thread: CommentThread, author: CommentUser, canRead?: WriteOptions["canRead"]): Promise<CommentThread> {
-  if (thread.author.id !== personOf(author).id || (canRead && !(await canRead(thread)))) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
+/** Only the author of the first call gets its thread back, for the same subject, and only while they may read it. */
+export async function retried(thread: CommentThread, input: Pick<CreateThreadInput, "author" | "subject">, canRead?: WriteOptions["canRead"]): Promise<CommentThread> {
+  const sameSubject = thread.subject.kind === input.subject.kind && thread.subject.id === input.subject.id
+  if (!sameSubject || thread.author.id !== personOf(input.author).id || (canRead && !(await canRead(thread)))) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
   return thread
 }
 
 /** Starts a thread. The caller checked access. */
 export async function createThread(runtime: CommentsRuntime, input: CreateThreadInput, options: WriteOptions = {}): Promise<CommentThread> {
   const earlier = await earlierThread(runtime, input)
-  if (earlier) return retried(earlier, input.author, options.canRead)
+  if (earlier) return retried(earlier, input, options.canRead)
   const scope = scopeOf(runtime, input.subject)
   const metadata = input.metadata === undefined ? undefined : check(metadataSchema, input.metadata, "metadata")
   const context = input.context === undefined ? undefined : check(contextSchema, input.context, "context")
@@ -396,7 +397,7 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
     ...(requestId === undefined ? {} : { requestId }),
   })
   // A retry won the race: the first call stored the thread and sent its notifications.
-  if (created.id !== threadId) return retried(created, author, options.canRead)
+  if (created.id !== threadId) return retried(created, input, options.canRead)
   await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
   runtime.forge?.changed(created.id)
   return created

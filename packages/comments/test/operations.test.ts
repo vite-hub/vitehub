@@ -204,6 +204,13 @@ it("refuses a requestId that another author or a hidden thread already uses", as
   expect(await store.list({})).toHaveLength(1)
 })
 
+it("refuses a requestId that a thread on another page of the scope already uses", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const first = await create(member, { ...input, requestId: "draft-1" })
+  expect(await call("comments.create", { ...input, requestId: "draft-1", subject: { id: "/docs", kind: "page" } }, member)).toMatchObject({ ok: false, status: 409, code: "COMMENTS_R0022" })
+  expect(await store.list({})).toEqual([first])
+})
+
 it("returns the first thread to a retry after the author lost write access", async () => {
   let canWrite = true
   setup(defineComments({ authorize: ({ action }) => action !== "write" || canWrite }))

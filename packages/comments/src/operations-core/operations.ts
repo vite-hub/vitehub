@@ -253,7 +253,7 @@ export const commentActions = {
     const canRead = (thread: CommentThread) => permitted(who, "read", { thread })
     // A retry gets the first thread even when the caller lost write access since the first call.
     const earlier = await earlierThread(who.runtime, input)
-    if (earlier) return retried(earlier, author(who), canRead)
+    if (earlier) return retried(earlier, { author: author(who), subject: input.subject }, canRead)
     await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
     return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, { ...writeOptions(who), canRead })

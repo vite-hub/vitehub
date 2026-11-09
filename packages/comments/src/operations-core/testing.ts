@@ -148,7 +148,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       const request = input.requestId === undefined ? undefined : JSON.stringify([scope, input.requestId])
       const earlier = request === undefined ? undefined : store.threads.get(store.requests.get(request) ?? "")
       if (earlier) {
-        if (earlier.author.id !== user.id) throw commentsErrorDiagnostics.COMMENTS_R0022()
+        if (earlier.author.id !== user.id || earlier.subject.kind !== input.subject.kind || earlier.subject.id !== input.subject.id) throw commentsErrorDiagnostics.COMMENTS_R0022()
         return copy(earlier)
       }
       const n = (store.counters.get(scope) ?? 0) + 1
