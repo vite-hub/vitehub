@@ -253,6 +253,33 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       expect(output.stdout).not.toContain(secretValue)
     }
   }, 60_000)
+  it("reads the generated module when Nuxt gives the ssr environment to Nitro", async () => {
+    const root = await createStageFixture()
+    await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
+    await writeFile(join(root, "nuxt.config.mjs"), "export default {}\n")
+    const kitRoot = join(root, "node_modules", "nuxt")
+    await mkdir(kitRoot, { recursive: true })
+    await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
+    // Nuxt 5 replaces the ssr environment with Nitro's, which is not a RunnableDevEnvironment.
+    await writeFile(join(kitRoot, "kit.mjs"), [
+      'import { DevEnvironment } from "vite"',
+      'import { hubEnv, env } from "@vite-hub/env/vite"',
+      'export async function loadNuxt() {',
+      '  return { close: async () => {}, options: { vite: {',
+      '    environments: { ssr: { dev: { createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } } },',
+      '    plugins: [hubEnv({ diagnostics: "off" })],',
+      '    env: { server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }) } },',
+      '  } } }',
+      '}',
+    ].join("\n"))
+    const { context, output } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
+    expect(await realFeature("check").run(["--stage", "production", "--json"], context)).toBe(1)
+    expect(JSON.parse(output.stdout)).toMatchObject({
+      entries: [{ path: "env.server.apiToken", status: "available" }, { path: "env.server.label", status: "missing" }],
+      ok: false,
+    })
+    expect(output.stdout).not.toContain(secretValue)
+  }, 60_000)
 })
 
 describe("env CLI with Vite stage files", () => {

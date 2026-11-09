@@ -132,7 +132,11 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
     const selectedRoot: unknown = selectedAPI.output.resolveProjectRoot(server.config.root)
     if (!v.is(v.string(), selectedRoot)) throw envErrorDiagnostics.ENV_R0027({ message: "[vitehub] The selected Env plugin returned an invalid project root." })
     const modulePath = viteHubEnvServerModulePath(selectedRoot)
-    const generated = await server.ssrLoadModule(pathToFileURL(modulePath).href)
+    // Nuxt 5 gives `ssr` to Nitro, whose environment does not run modules in the Vite process.
+    const ssr = server.environments.ssr
+    const generated = !ssr || vite.isRunnableDevEnvironment(ssr)
+      ? await server.ssrLoadModule(pathToFileURL(modulePath).href)
+      : (await vite.runnerImport<Record<string, unknown>>(modulePath, { configFile: false, logLevel: "silent", root: server.config.root })).module
     const inspect: unknown = generated.inspectServerEnv
     if (!v.is(v.function(), inspect)) throw envErrorDiagnostics.ENV_R0027({ message: `[vitehub] The generated Server Env module does not export inspectServerEnv(): ${modulePath}` })
     const inspection: unknown = await inspect()
