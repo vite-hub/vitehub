@@ -10,20 +10,65 @@ icon: i-lucide-sliders-horizontal
 
 Configure one default Blob Store directly, or configure named stores with `blob.stores`.
 
-```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
-    stores: {
-      default: { driver: 'fs' },
-      reports: { driver: 'vercel-blob', access: 'private' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      stores: {
+        default: { driver: 'fs' },
+        reports: { driver: 'vercel-blob', access: 'private' },
+      },
     },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        stores: {
+          default: { driver: 'fs' },
+          reports: { driver: 'vercel-blob', access: 'private' },
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        stores: {
+          default: { driver: 'fs' },
+          reports: { driver: 'vercel-blob', access: 'private' },
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 | Shape | Description |
 | --- | --- |
@@ -40,15 +85,39 @@ export default defineConfig({
 
 Set `remote: true` to use the real store in `vite dev`:
 
-```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubBlob()],
-  blob: { remote: true },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { blob: { remote: true } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { remote: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { remote: true } })],
+})
+```
+:::
+::
 
 ::warning
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
@@ -60,6 +129,35 @@ Writes from `vite dev` then change real data. On first use, the dev server print
 
 The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session before ViteHub reads the store. The app must enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    blob: { serve: { route: '/photos', authorize: true } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    blob: { serve: { route: '/photos', authorize: true } },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -71,6 +169,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 To decide each request, export `authorize` from `server/blob.ts`. It uses the Auth access signature: it receives `{ request, session, user }` and returns `true`, `false`, or a `Response`.
 
@@ -87,6 +187,35 @@ A request without a session returns JSON `401`. A `false` result returns `403`, 
 
 Some apps share a file with anyone who has its link. Set `serve.anonymous: true` with `serve.authorize: true` to send signed-out requests to the `authorize` export too. For these requests, `session` and `user` are `null`. Type the export as `BlobServeAnonymousAuthorize` so TypeScript makes you check `user` first.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    blob: { serve: { route: '/files', authorize: true, anonymous: true } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    blob: { serve: { route: '/files', authorize: true, anonymous: true } },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -98,6 +227,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 ```ts [server/blob.ts]
 import type { BlobServeAnonymousAuthorize } from 'vite-hub/blob'
@@ -113,44 +244,120 @@ export const authorize: BlobServeAnonymousAuthorize = ({ request, user }) => {
 
 ## Serve blob-backed assets
 
-Blob serving is opt-in. Set `serve` in the Blob config, or pass `hubBlob({ serve: true })`, to generate a Nitro route that serves Blob-backed assets through `blob.serve()`.
+Blob serving is opt-in. Set `serve` in the `blob` option to generate a Nitro route that serves Blob-backed assets through `blob.serve()`.
 
-```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
-    driver: 'fs',
-    serve: true,
-  },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { blob: { driver: 'fs', serve: true } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { driver: 'fs', serve: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { driver: 'fs', serve: true } })],
+})
+```
+:::
+::
 
 `serve: true` uses `/api/_vitehub/blob` as the route base. ViteHub chooses a namespaced API route by default so generated handlers avoid app routes, static assets, and framework asset directories. The default also mirrors server API route conventions.
 
 Use an explicit `serve.route` for product-facing asset URLs.
 
-```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
-    driver: 's3',
-    bucket: 'app-assets',
-    serve: {
-      route: '/assets',
-      headers: {
-        'Cache-Control': 'public, max-age=300',
-        'X-Content-Type-Options': 'nosniff',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 's3',
+      bucket: 'app-assets',
+      serve: {
+        route: '/assets',
+        headers: {
+          'Cache-Control': 'public, max-age=300',
+          'X-Content-Type-Options': 'nosniff',
+        },
       },
     },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 's3',
+        bucket: 'app-assets',
+        serve: {
+          route: '/assets',
+          headers: {
+            'Cache-Control': 'public, max-age=300',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 's3',
+        bucket: 'app-assets',
+        serve: {
+          route: '/assets',
+          headers: {
+            'Cache-Control': 'public, max-age=300',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 Use `serve.headers` for static cache and security policy. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 
@@ -166,19 +373,62 @@ Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL
 
 `images` sets how the serve route makes variants. Omit it to use the `auto` transformer: the Cloudflare Images binding when the Worker has one, sharp when the project installs it, and the original otherwise.
 
-```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
-    driver: 'fs',
-    serve: true,
-    images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 'fs',
+      serve: true,
+      images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'fs',
+        serve: true,
+        images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'fs',
+        serve: true,
+        images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 | Option | Type | Description |
 | --- | --- | --- |

@@ -54,21 +54,71 @@ Deletion fences publishers with a permanent Database tombstone before removing b
 
 Select Cloudflare Artifacts when a deployed Worker needs durable Workspace state:
 
-```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
-  workspace: {
-    store: {
-      provider: 'cloudflare-artifacts',
-      binding: 'WORKSPACE_ARTIFACTS',
-      namespace: 'vitehub',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    workspace: {
+      store: {
+        provider: 'cloudflare-artifacts',
+        binding: 'WORKSPACE_ARTIFACTS',
+        namespace: 'vitehub',
+      },
     },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      workspace: {
+        store: {
+          provider: 'cloudflare-artifacts',
+          binding: 'WORKSPACE_ARTIFACTS',
+          namespace: 'vitehub',
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      workspace: {
+        store: {
+          provider: 'cloudflare-artifacts',
+          binding: 'WORKSPACE_ARTIFACTS',
+          namespace: 'vitehub',
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 The Vite integration adds Artifacts Stores to generated Cloudflare config for the module and discovered definitions. It preserves application bindings and removes only bindings that Workspace generated when the provider changes. Reusing one binding name for different namespaces fails the build. Each named Workspace uses `<repoPrefix><encoded-workspace-name>` unless `repo` selects one repository, so names with repository-unsafe characters remain isolated.
 

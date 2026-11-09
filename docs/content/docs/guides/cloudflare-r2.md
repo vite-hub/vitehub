@@ -19,6 +19,43 @@ stored bytes can incur charges.
 Replace the tutorial's ViteHub options with the following. Use your existing
 bucket name.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	preset: 'cloudflare',
+  	blob: {
+  		driver: 'cloudflare-r2',
+  		binding: 'BLOB',
+  		bucketName: 'your-existing-bucket',
+  	},
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+	plugins: [vitehub({
+		preset: 'cloudflare',
+		blob: {
+			driver: 'cloudflare-r2',
+			binding: 'BLOB',
+			bucketName: 'your-existing-bucket',
+		},
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -34,6 +71,8 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
 Build and inspect `.output/server/wrangler.json`. Its `r2_buckets` entry must
 name the intended bucket and the `BLOB` binding.

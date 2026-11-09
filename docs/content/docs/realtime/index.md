@@ -82,6 +82,20 @@ icon: i-lucide-radio
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // Keep rooms in this server process
+      realtime: { authority: 'memory' },
+      workspace: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import vue from '@vitejs/plugin-vue'
   import { nitro } from 'nitro/vite'
@@ -101,6 +115,26 @@ icon: i-lucide-radio
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import vue from '@vitejs/plugin-vue'
+  import { vitehub } from 'vite-hub'
+  import { defineConfig } from 'vite'
+
+  export default defineConfig({
+    plugins: [
+      vue(),
+      vitehub({
+        preset: 'node',
+        // Keep rooms in this server process
+        realtime: { authority: 'memory' },
+        workspace: true,
+      }),
+    ],
+  })
+  ```
+  ::::
 
   ```ts [Checkpoint] fragment
   const [error, checkpoint] = await realtime.history.checkpoint()
