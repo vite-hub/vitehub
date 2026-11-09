@@ -107,6 +107,7 @@ export const CommentList = defineComponent({
                     {
                       "aria-current": comments.openId.value === thread.id ? "true" : undefined,
                       "data-detached": detached ? "true" : undefined,
+                      "data-focus-inset": "",
                       "data-slot": "comment-list-item",
                       "data-status": thread.status,
                       href: comments.link(thread),

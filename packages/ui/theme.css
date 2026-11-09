@@ -66,6 +66,8 @@
   --vh-scrollbar: oklch(0.87 0 0);
   --vh-scrollbar-hover: oklch(0.708 0 0);
   /* Marks over an image or a video, such as a focal point or a play button, stay white on a dark scrim in both modes. */
+  /* Selected text: a neutral tint, because blue marks focus only. */
+  --vh-selection: color-mix(in oklab, var(--ui-text-highlighted) 14%, transparent);
   --vh-on-media: oklch(1 0 0);
   --vh-media-scrim: rgb(0 0 0 / 50%);
 }
@@ -164,7 +166,7 @@ html {
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--vh-focus) 24%, transparent);
+  background: var(--vh-selection);
 }
 
 button,
@@ -216,6 +218,22 @@ a {
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), textarea, select, [role="combobox"]):focus-visible {
   outline: none;
   --tw-ring-color: var(--vh-focus);
+}
+
+/* A rich text editor, such as the document editor, is a writing surface: the caret shows focus. */
+:where([contenteditable]:not([contenteditable="false"])):focus-visible {
+  outline: none;
+}
+
+/* A field whose frame is a wrapper, such as the prompt input of @vite-hub/ui, marks the wrapper with data-focus-frame. */
+:where([data-focus-frame]):has(:is(input, textarea):focus-visible) {
+  border-color: var(--vh-focus);
+  box-shadow: 0 0 0 1px var(--vh-focus);
+}
+
+:where([data-focus-frame]):has(:is(input, textarea)[aria-invalid="true"]:focus-visible) {
+  border-color: var(--ui-error);
+  box-shadow: 0 0 0 1px var(--ui-error);
 }
 
 :where(input, textarea, select, [role="combobox"])[aria-invalid="true"]:focus-visible {

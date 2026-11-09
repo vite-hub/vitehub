@@ -201,6 +201,7 @@ export const CommentPanel = defineComponent({
         h(
           "button",
           {
+            "data-focus-inset": "",
             "data-slot": "comment-panel-item",
             "data-status": thread.status,
             "data-thread-id": thread.id,

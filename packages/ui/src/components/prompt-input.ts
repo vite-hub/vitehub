@@ -137,7 +137,8 @@ export const PromptInput = defineComponent({
 
     return () =>
       h("form", { ...attrs, "data-slot": "prompt-input", onSubmit: submit, ref: form }, [
-        h("div", { "data-slot": "prompt-input-group" }, [
+        // The group is the frame of the field, so the theme marks it when the field has focus.
+        h("div", { "data-focus-frame": "", "data-slot": "prompt-input-group" }, [
           props.files.length > 0 || slots.files ? (slots.files?.({ files: props.files, remove }) ?? attachments()) : null,
           h("textarea", {
             "aria-label": attrs["aria-label"] ?? "Message",

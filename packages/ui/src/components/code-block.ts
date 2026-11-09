@@ -121,6 +121,8 @@ export const CodeBlockContent = defineComponent({
       return h(
         "pre",
         {
+          // The block clips its content, so the ring of the scrollable code sits inside it.
+          "data-focus-inset": "",
           "data-numbered": props.lineNumbers ? "" : undefined,
           "data-slot": "code-block-content",
           "data-wrap": props.wrap ? "" : undefined,

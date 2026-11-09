@@ -1,5 +1,6 @@
 import type { Connect, ConnectProvider, ConnectProviderKind, ConnectProviderName } from "@vite-hub/web-container/connect";
-import { computed, defineComponent, h, nextTick, type PropType, ref, useId, type VNode } from "vue";
+import { computed, defineComponent, h, type PropType, ref, useId, type VNode } from "vue";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { icon, providerLogo } from "./icons.ts";
 
 /**
@@ -68,14 +69,13 @@ export const ConnectProviderRow = defineComponent({
     const open = ref(false);
     const token = ref("");
     const inputId = useId();
-    const input = ref<HTMLInputElement | null>(null);
+    const UInput = useUIComponent("UInput");
     const state = computed(() => props.state ?? defaultState(props.provider));
     const label = computed(() => connectProviderLabel(props.provider.name));
 
-    async function startEdit() {
+    // The token field takes focus when it opens.
+    function startEdit() {
       open.value = true;
-      await nextTick();
-      input.value?.focus();
     }
     function submit(event: Event) {
       event.preventDefault();
@@ -148,17 +148,17 @@ export const ConnectProviderRow = defineComponent({
         ? h("form", { class: "vh-ws-token-form", onSubmit: submit }, [
             h("label", { class: "vh-ws-token-label", for: inputId }, `${label.value} token`),
             h("div", { class: "vh-ws-token-row" }, [
-              h("input", {
+              h(UInput, {
                 autocapitalize: "off",
                 autocomplete: "off",
+                autofocus: true,
                 class: "vh-ws-input",
                 "data-1p-ignore": "",
                 id: inputId,
-                ref: input,
+                modelValue: token.value,
                 spellcheck: false,
                 type: "password",
-                value: token.value,
-                onInput: (event: Event) => { token.value = (event.target as HTMLInputElement).value; },
+                "onUpdate:modelValue": (value: string | number) => { token.value = String(value); },
                 onKeydown: (event: KeyboardEvent) => { if (event.key === "Escape") open.value = false; },
               }),
               h("button", { class: "vh-ws-button vh-ws-button--primary", disabled: !token.value.trim(), type: "submit" }, "Save"),
