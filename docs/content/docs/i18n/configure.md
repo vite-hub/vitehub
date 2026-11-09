@@ -66,7 +66,7 @@ Install `@vite-hub/i18n` in the app. `vite-hub` declares it as an optional packa
 pnpm add @vite-hub/i18n
 ```
 
-i18n needs Nitro 3. Use Vite with Nitro 3, or Nuxt 5. Nuxt 4 builds the server with Nitro 2, and the build stops with [`I18N_UNSUPPORTED_HOST`](/docs/i18n/limits-and-errors#i18n_unsupported_host).
+i18n needs Nitro 3. Use Vite with Nitro 3, or Nuxt 5. An unsupported host stops the build with [`I18N_UNSUPPORTED_HOST`](/docs/i18n/limits-and-errors#i18n_unsupported_host).
 
 ## Add i18n to a Vue app
 

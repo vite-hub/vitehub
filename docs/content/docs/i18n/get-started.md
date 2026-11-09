@@ -12,7 +12,7 @@ Write a page and a server route in English. Then translate them to Spanish. A re
 
 You write no message keys. You write the English text, and ViteHub makes the keys for you.
 
-Start with the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Run the commands from the app root. You need no provider account. i18n needs Nitro 3, so this tutorial does not work in a Nuxt 4 app. For Nuxt 5, read [Use i18n in Nuxt 5](/docs/i18n/configure#use-i18n-in-nuxt-5).
+Start with the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Run the commands from the app root. You need no provider account. i18n needs Nitro 3. For Nuxt 5, read [Use i18n in Nuxt 5](/docs/i18n/configure#use-i18n-in-nuxt-5).
 
 Add the i18n package, Vue, and the Vue plugin for Vite:
 
