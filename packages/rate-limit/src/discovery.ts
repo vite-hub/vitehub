@@ -434,15 +434,43 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
   return declarations
 }
 
-export function discoverRateLimitCatalog(options: { rootDir: string, scanDirs?: string[] }): { declarationFiles: Set<string>, declarations: RateLimitDeclaration[] } {
+interface RateLimitDiscoveryOptions {
+  rootDir: string
+  scanDirs?: string[]
+}
+
+interface RateLimitSourceSnapshot {
+  source: string
+  declarations: RateLimitDeclaration[]
+}
+
+export function createRateLimitCatalogDiscovery(): (options: RateLimitDiscoveryOptions) => ReturnType<typeof discoverRateLimitCatalog> {
+  const snapshots = new Map<string, RateLimitSourceSnapshot>()
+  return (options: RateLimitDiscoveryOptions): ReturnType<typeof discoverRateLimitCatalog> => discoverRateLimitCatalog(options, snapshots)
+}
+
+function discoverRateLimitCatalog(
+  options: RateLimitDiscoveryOptions,
+  snapshots: Map<string, RateLimitSourceSnapshot> = new Map(),
+): { declarationFiles: Set<string>, declarations: RateLimitDeclaration[] } {
   const declarations = new Map<string, RateLimitDeclaration>()
   const sourceFiles = new Set(resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
     .flatMap(root => listSourceFiles(root).filter(file => isApplicationSource(root, file))))
+  for (const file of snapshots.keys()) {
+    if (!sourceFiles.has(file)) snapshots.delete(file)
+  }
   const declarationFiles = new Set<string>()
   for (const file of sourceFiles) {
     const source = readFileSync(file, "utf8")
-    const extracted = extractRateLimitDeclarations(file, source)
-    if (extracted.length > 0) declarationFiles.add(file)
+    const snapshot = snapshots.get(file)
+    const extracted = snapshot?.source === source ? snapshot.declarations : extractRateLimitDeclarations(file, source)
+    if (extracted.length > 0) {
+      declarationFiles.add(file)
+      snapshots.set(file, { source, declarations: extracted })
+    }
+    else {
+      snapshots.delete(file)
+    }
     for (const declaration of extracted) {
       const existing = declarations.get(declaration.name)
       if (existing && JSON.stringify(existing.policy) !== JSON.stringify(declaration.policy)) {
@@ -461,6 +489,6 @@ export function discoverRateLimitCatalog(options: { rootDir: string, scanDirs?: 
   }
 }
 
-export function discoverRateLimitDeclarations(options: { rootDir: string, scanDirs?: string[] }): RateLimitDeclaration[] {
+export function discoverRateLimitDeclarations(options: RateLimitDiscoveryOptions): RateLimitDeclaration[] {
   return discoverRateLimitCatalog(options).declarations
 }
