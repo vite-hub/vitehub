@@ -179,7 +179,13 @@ export async function guardRequest(request: Request, options: GuardRequestOption
   const bytes = await readBytes(request, options.maxBytes ?? defaultMaxBytes)
   if (bytes === undefined) return stop(413, "The message is too large.")
   // Bound the raw bytes before a callback can consume them. Keep the bytes intact for native body readers.
-  const refused = await options.check?.(new Request(request, { method: "POST", body: bytes }))
+  // Nitro's Node request adapter has no native Request internal state; copy its public fields.
+  const refused = await options.check?.(new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    signal: request.signal,
+    body: bytes,
+  }))
   if (refused) return stop(refused.status, refused.message)
   const rateLimit = options.rateLimit === false ? undefined : options.rateLimit ?? defaultRateLimit
   if (rateLimit && services.rateLimit) {

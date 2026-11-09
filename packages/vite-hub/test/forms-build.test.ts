@@ -30,6 +30,7 @@ describe("Forms in a built Nitro 3 app", () => {
         "export default defineForm({",
         "  schema: v.object({ email: v.pipe(v.string(), v.email('Enter a valid email.')), message: v.pipe(v.string(), v.minLength(1)) }),",
         "  rateLimit: { limit: 3, window: '1m' },",
+        "  authorize: async ({ request }) => request.headers.get('content-type') === 'application/json' && (await request.json()).message !== 'Denied',",
         "})",
         "",
       ].join("\n"),
@@ -83,6 +84,9 @@ describe("Forms in a built Nitro 3 app", () => {
         headers: { "content-type": "application/json", referer: "http://localhost/pricing", ...headers },
         method: "POST",
       })
+      // Authorization can read the bounded host request, and a refusal leaves all three rate-limit attempts.
+      const denied = await send({ email: "ada@example.com", message: "Denied" })
+      expect(denied.status).toBe(401)
       const created = await send({ email: "ada@example.com", message: "Hello" })
       expect(created.status).toBe(201)
       const { id } = await created.json() as { id: string }
