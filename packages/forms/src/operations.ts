@@ -1,4 +1,5 @@
 import { defineOperation } from "@vite-hub/internal/operations"
+import stripAnsi from "strip-ansi"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
@@ -33,7 +34,7 @@ function table(rows: readonly (readonly string[])[]): string {
 function preview(data: unknown): string {
   const values = Object.values(Object(data) as Record<string, unknown>)
   const text = values.find((value): value is string => typeof value === "string" && value.includes(" ")) ?? values.find(value => typeof value === "string") ?? ""
-  const line = text.replace(/\s+/g, " ").trim()
+  const line = stripAnsi(text).replace(/\s+/g, " ").replace(/\p{Cc}/gu, "").trim()
   return line.length > 60 ? `${line.slice(0, 59)}…` : line || "-"
 }
 
@@ -94,3 +95,5 @@ const mark = defineFormsOperation<{ id: string, status: "open" | "done" | "spam"
 
 /** The `forms.*` operations: list, get, and mark. The Console, `vitehub forms`, and MCP run them. */
 export const formsOperations: readonly AnyOperation[] = [list, get, mark]
+
+export { createStandaloneOperationHandler } from "@vite-hub/internal/operations-dev"
