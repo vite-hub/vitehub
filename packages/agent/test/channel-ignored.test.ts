@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored, rejected, retryLater } from "@vite-hub/agent/channels"
+import { channelAdapter, defineChannelTrigger, ignored, rejected, retryLater } from "@vite-hub/agent/channels"
 import { github } from "../src/channels.ts"
 import { defineAgent, runAgentTrigger } from "../src/index.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
@@ -21,7 +21,7 @@ describe("ignored()", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        tickets: defineChannel("tickets", {
+        tickets: channelAdapter("tickets", {
           messages: false,
           triggers: {
             opened: defineChannelTrigger({
@@ -62,7 +62,7 @@ describe("retryLater() and rejected()", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        tickets: defineChannel("tickets", {
+        tickets: channelAdapter("tickets", {
           messages: false,
           triggers: { webhook: defineChannelTrigger({ invoke: () => helper("ticketing_down") }) },
           webhooks: { path: "/api/tickets/webhook", secretToken: false },
