@@ -159,7 +159,7 @@ Sandbox Tasks (sandbox-task): 1
 The `vercel` preset writes the build to `.vercel/output`, not to `.output`, so `pnpm start` does not apply. Stop the dev server. In the terminal where you set the Vercel keys, preview the build on your computer:
 
 ```bash [commands/server]
-pnpm vite preview
+pnpm vite preview --port 4173
 ```
 
 Call the route again from the second terminal. The preview uses port 4173:
