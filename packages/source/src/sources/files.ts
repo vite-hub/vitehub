@@ -12,13 +12,16 @@ export interface FilesSourceOptions {
   prefix?: string
 }
 
+/** A file's content, or a function that loads it on the first read, such as an `import.meta.glob()` loader. */
+export type FilesSourceEntry = SourceContent | (() => SourceContent | Promise<SourceContent>)
+
 /**
  * A Source of files that the server already holds, keyed by path. A ViteHub build turns `glob()` into this, with the
  * matched files in the server bundle. Call it yourself for files you hold another way.
  */
-export function files(entries: Record<string, SourceContent>, options: FilesSourceOptions = {}): FileSource<string> {
+export function files(entries: Record<string, FilesSourceEntry>, options: FilesSourceOptions = {}): FileSource<string> {
   const base = options.base ? `${options.base.replace(/\\/g, "/").replace(/\/+$/, "")}/` : ""
-  const items = new Map<string, SourceContent>()
+  const items = new Map<string, FilesSourceEntry>()
   for (const [path, content] of Object.entries(entries)) {
     const portable = path.replace(/\\/g, "/")
     if (base && !portable.startsWith(base)) {
@@ -37,8 +40,9 @@ export function files(entries: Record<string, SourceContent>, options: FilesSour
       return keys.slice()
     },
     async getItem(key: string) {
-      const content = items.get(key)
-      if (content === undefined) throw sourceError(`[vitehub] files() could not find ${JSON.stringify(key)}.`)
+      const entry = items.get(key)
+      if (entry === undefined) throw sourceError(`[vitehub] files() could not find ${JSON.stringify(key)}.`)
+      const content = typeof entry === "function" ? await entry() : entry
       return { key, path: normalizeSourcePath(prefix ? `${prefix}/${key}` : key), content, mediaType: lookup(key) }
     },
   }

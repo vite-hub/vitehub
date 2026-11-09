@@ -18,6 +18,21 @@ describe("@vite-hub/source files()", () => {
     await expect(docs.getItem("logo.png", { rootDir: "/" })).resolves.toMatchObject({ mediaType: "image/png", content: new Uint8Array([1, 2]) })
   })
 
+  it("loads a file through its loader on the first read, as import.meta.glob() gives them", async () => {
+    const loaded: string[] = []
+    const docs = files({
+      "index.md": async () => (loaded.push("index.md"), "# Home\n"),
+      "logo.png": () => (loaded.push("logo.png"), new Uint8Array([1, 2])),
+    })
+
+    const reader = createSource(docs)
+    await expect(reader.keys()).resolves.toEqual(["index.md", "logo.png"])
+    expect(loaded).toEqual([])
+    await expect(reader.read("index.md")).resolves.toBe("# Home\n")
+    await expect(docs.getItem("logo.png", { rootDir: "/" })).resolves.toMatchObject({ content: new Uint8Array([1, 2]) })
+    expect(loaded).toEqual(["index.md", "logo.png"])
+  })
+
   it("keeps held files intact when a caller edits its key list", async () => {
     const docs = files({ "b.md": "B", "a.md": "A" })
     const first = createSource(docs)
