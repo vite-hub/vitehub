@@ -14,7 +14,7 @@ import { realtimeKeepalivePing, realtimeKeepalivePong } from "./protocol.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, UserConfig } from "vite"
+import type { Plugin, PluginOption, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
 import type { DiscoveredRealtimeDefinition, RealtimeModuleOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -42,6 +42,8 @@ export interface RealtimeContribution {
 }
 
 export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
+  /** Module that exports the app's `databases`, for the Postgres bus. Defaults to `@vite-hub/database/drizzle`. */
+  databaseImport?: string
   importBase?: string
   /**
    * Adds definitions owned by another package. It runs only when the build has a room authority (Cloudflare Durable
@@ -118,6 +120,66 @@ function applicationBaseURL(base: string | undefined): string {
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
+const databaseVitePluginName = "@vite-hub/database/vite"
+
+/** The part of the Database Vite plugin that Realtime reads: its resolved configuration. */
+interface DatabaseVitePlugin {
+  api?: { getConfig?: () => { databases: Record<string, { dialect?: string } | undefined> } | undefined }
+}
+
+function findDatabasePlugin(plugins: readonly PluginOption[] | undefined): DatabaseVitePlugin | undefined {
+  for (const plugin of plugins ?? []) {
+    if (Array.isArray(plugin)) {
+      const found = findDatabasePlugin(plugin)
+      if (found) return found
+    }
+    // SAFETY: The plugin name identifies the Database integration, whose `api` has this shape.
+    else if (plugin && typeof plugin === "object" && "name" in plugin && plugin.name === databaseVitePluginName) return plugin as DatabaseVitePlugin
+  }
+  return undefined
+}
+
+/** Whether the Database integration resolved the Default Database on Postgres. The Postgres bus then uses its client. */
+function hasPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boolean {
+  return plugin?.api?.getConfig?.()?.databases.default?.dialect === "postgresql"
+}
+
+type RealtimeNodeAuthority = "auto" | "postgres" | "redis"
+
+/**
+ * The handler and the Nitro plugin of a Node build. `database` is the module that exports the app's `databases`, when
+ * the Default Database is on Postgres: the bus then borrows the postgres.js client of that Database.
+ */
+function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, nodeAuthority?: RealtimeNodeAuthority, registryFile: string }): Array<[string, string]> {
+  const { busPlugin, database, handlerFile, importBase, nodeAuthority, registryFile } = input
+  const busOptions = database ? `, { databases: () => import(${JSON.stringify(database)}).then(module => module.databases) }` : ""
+  const handler = [
+    `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
+    `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
+    ...nodeAuthority
+      ? [
+          `import { useRealtimeBus } from ${JSON.stringify(`${importBase}/bus`)}`,
+          "",
+          "// Shares rooms with the other instances of this app. The server picks the bus when it starts.",
+          `export default createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(nodeAuthority)}${busOptions}) })`,
+        ]
+      : ["", "export default createRealtimeHandler(registry)"],
+    "",
+  ].join("\n")
+  if (!busPlugin || !nodeAuthority) return [[handlerFile, handler]]
+  return [[handlerFile, handler], [busPlugin, [
+    `import { closeRealtimeBuses, logRealtimeNodeAuthority } from ${JSON.stringify(`${importBase}/bus`)}`,
+    "",
+    "export default (nitroApp) => {",
+    "  // Prints where the rooms of this server live.",
+    `  logRealtimeNodeAuthority(${JSON.stringify(nodeAuthority)}${database ? ", { database: true }" : ""})`,
+    "  // Removes this instance's presence from the other instances, and lets the process exit. A borrowed Database client stays open.",
+    "  nitroApp.hooks.hook(\"close\", () => closeRealtimeBuses())",
+    "}",
+    "",
+  ].join("\n")]]
+}
+
 const realtimeAvailabilityId = "#vitehub/realtime/availability"
 const resolvedRealtimeAvailabilityId = `\0${realtimeAvailabilityId}`
 
@@ -128,6 +190,12 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   let inspectionAuthority: RealtimeInspectionAuthority = options.authority ?? "auto"
   let inspectionContributed: DiscoveredRealtimeDefinition[] = []
   let hasRoomAuthority = false
+  const databaseImport = options.databaseImport ?? "@vite-hub/database/drizzle"
+  let databasePlugin: DatabaseVitePlugin | undefined
+  // The Default Database is on Postgres. Read when the config is made, and again at `buildStart`.
+  let postgresDatabase = false
+  // The files of a Node build, to write again when the Default Database turns out to be on Postgres.
+  let nodeWrite: { busPlugin?: string, handlerFile: string, nodeAuthority: RealtimeNodeAuthority, postgres: boolean, registryFile: string } | undefined
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -208,35 +276,19 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const registryFile = resolve(directory, "registry.mjs")
       const handlerFile = resolve(directory, "handler.ts")
       const busPlugin = nodeAuthority ? resolve(directory, "bus.mjs") : undefined
+      databasePlugin = findDatabasePlugin(config.plugins) ?? databasePlugin
+      postgresDatabase = !!nodeAuthority && hasPostgresDefaultDatabase(databasePlugin)
+      const nodeFiles = (files: { busPlugin?: string, handlerFile: string, registryFile: string }) => renderNodeFiles({
+        ...files,
+        database: postgresDatabase ? databaseImport : undefined,
+        importBase,
+        nodeAuthority,
+      })
+      nodeWrite = nodeAuthority ? { busPlugin, handlerFile, nodeAuthority, postgres: postgresDatabase, registryFile } : undefined
       await mkdir(directory, { recursive: true })
       await Promise.all([
         writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
-        writeFile(handlerFile, [
-          `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
-          `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
-          ...nodeAuthority
-            ? [
-                `import { useRealtimeBus } from ${JSON.stringify(`${importBase}/bus`)}`,
-                "",
-                "// Shares rooms with the other instances of this app. The server picks the bus when it starts.",
-                `export default createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(nodeAuthority)}) })`,
-              ]
-            : ["", "export default createRealtimeHandler(registry)"],
-          "",
-        ].join("\n")),
-        ...busPlugin
-          ? [writeFile(busPlugin, [
-              `import { closeRealtimeBuses, logRealtimeNodeAuthority } from ${JSON.stringify(`${importBase}/bus`)}`,
-              "",
-              "export default (nitroApp) => {",
-              "  // Prints where the rooms of this server live.",
-              `  logRealtimeNodeAuthority(${JSON.stringify(nodeAuthority)})`,
-              "  // Removes this instance's presence from the other instances, and lets the process exit.",
-              "  nitroApp.hooks.hook(\"close\", () => closeRealtimeBuses())",
-              "}",
-              "",
-            ].join("\n"))]
-          : [],
+        ...nodeFiles({ busPlugin, handlerFile, registryFile }).map(([file, contents]) => writeFile(file, contents)),
       ])
 
       if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
@@ -280,6 +332,18 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
+    },
+    async buildStart() {
+      // The Database integration resolves its Definitions after this plugin made the Nitro config. Read them again, and
+      // write the handler again when the Default Database moved to or from Postgres. An unresolved Database changes
+      // nothing.
+      const databaseConfig = databasePlugin?.api?.getConfig?.()
+      if (!databaseConfig || !nodeWrite) return
+      postgresDatabase = databaseConfig.databases.default?.dialect === "postgresql"
+      if (nodeWrite.postgres === postgresDatabase) return
+      nodeWrite.postgres = postgresDatabase
+      const files = renderNodeFiles({ ...nodeWrite, database: postgresDatabase ? databaseImport : undefined, importBase })
+      await Promise.all(files.map(([file, contents]) => writeFile(file, contents)))
     },
     resolveId(id) {
       if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId

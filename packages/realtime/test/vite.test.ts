@@ -266,6 +266,32 @@ describe("hubRealtime", () => {
     expect((plugin.load as (id: string) => string)(id)).toBe("export default { available: true }\n")
   })
 
+  it("passes the app's Databases to the bus when the Default Database is on Postgres, also when it resolves at buildStart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+
+    const { hubRealtime } = await import("../src/vite.ts")
+    let dialect: string | undefined
+    const databasePlugin = { name: "@vite-hub/database/vite", api: { getConfig: () => dialect ? { databases: { default: { dialect } } } : undefined } }
+    const plugin = hubRealtime({ databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/realtime" })
+    const config = { root, nitro: { preset: "node-server" }, plugins: [[databasePlugin]] } as Record<string, unknown>
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
+    await hook(config, { command: "build" })
+
+    const { readFile } = await import("node:fs/promises")
+    const handlerFile = join(root, ".vitehub/nitro/realtime/handler.ts")
+    const busFile = join(root, ".vitehub/nitro/realtime/bus.mjs")
+    expect(await readFile(handlerFile, "utf8")).toContain("useRealtimeBus(\"auto\") })")
+
+    // The Database integration resolves its Definitions after the config hook.
+    dialect = "postgresql"
+    await (plugin.buildStart as unknown as () => Promise<void>)()
+    expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { databases: () => import("vite-hub/database/drizzle").then(module => module.databases) })`)
+    expect(await readFile(busFile, "utf8")).toContain(`logRealtimeNodeAuthority("auto", { database: true })`)
+  })
+
   it("keeps rooms in memory on the dev server", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)

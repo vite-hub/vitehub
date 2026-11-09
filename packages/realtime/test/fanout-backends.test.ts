@@ -3,7 +3,10 @@ import postgres from "postgres"
 
 import type { RealtimeBus } from "../src/bus-protocol.ts"
 import type { RealtimeDefinition } from "../src/types.ts"
-import { createPostgresRealtimeBus, createRedisRealtimeBus } from "../src/bus.ts"
+import { defineDatabase } from "@vite-hub/database"
+import { createPostgresDatabase } from "@vite-hub/database/runtime/postgres"
+
+import { createPostgresRealtimeBus, createRealtimeNodeBus, createRedisRealtimeBus } from "../src/bus.ts"
 import { appendParagraph, createClientAwareness, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, presence } from "./harness.ts"
 
 vi.mock("@vite-hub/auth/server", () => ({
@@ -16,8 +19,9 @@ vi.mock("@vite-hub/auth/server", () => ({
 vi.setConfig({ testTimeout: 20_000 })
 
 // Opt-in: `docker run -d -p 5432 postgres:17` and `docker run -d -p 6379 redis:7`, then set these variables.
+const postgresUrl = process.env.VITEHUB_TEST_POSTGRES_URL
 const backends = [
-  { name: "Postgres", url: process.env.VITEHUB_TEST_POSTGRES_URL, create: createPostgresRealtimeBus },
+  { name: "Postgres", url: postgresUrl, create: (url: string) => createPostgresRealtimeBus({ url }) },
   { name: "Redis", url: process.env.VITEHUB_TEST_REDIS_URL, create: createRedisRealtimeBus },
 ] as const
 
@@ -27,7 +31,7 @@ async function waitFor(check: () => boolean, timeout = 5_000): Promise<boolean> 
   return check()
 }
 
-function definition(adapter: RealtimeDefinition["document"]): RealtimeDefinition {
+function realtimeDefinition(adapter: RealtimeDefinition["document"]): RealtimeDefinition {
   return { document: adapter, editor: createStubEditor().editor }
 }
 
@@ -42,7 +46,7 @@ describe.each(backends)("rooms shared through $name", ({ name, url, create }) =>
     opened.push(...buses)
     const document = `fanout-${crypto.randomUUID()}`
     const memory = createMemoryAdapter({ [document]: { body: "Start" } })
-    const [a, b] = buses.map(bus => createTestServer(definition(memory.adapter), { handler: { bus: () => bus } }))
+    const [a, b] = buses.map(bus => createTestServer(realtimeDefinition(memory.adapter), { handler: { bus: () => bus } }))
     return { a: a!, b: b!, busA: buses[0]!, document, memory }
   }
 
@@ -108,5 +112,41 @@ describe.each(backends)("rooms shared through $name", ({ name, url, create }) =>
     expect(await waitFor(() => memory.store.get(document)?.body.split("\n\n").length === 3, 8_000)).toBe(true)
     expect(memory.store.get(document)!.body.split("\n\n").sort()).toEqual(["A", "B", "Start"])
     expect([...onA.controls, ...onB.controls].some(control => control.type === "reset")).toBe(false)
+  })
+})
+
+describe("the Postgres bus on the Default Database", () => {
+  it.skipIf(!postgresUrl)("uses the client of a Database whose URL comes from another variable, and leaves it open", async () => {
+    const saved = { DATABASE_URL: process.env.DATABASE_URL, REDIS_URL: process.env.REDIS_URL, REALTIME_POSTGRES_URL: process.env.REALTIME_POSTGRES_URL }
+    // An unrelated DATABASE_URL on a closed port: Realtime must not use it.
+    process.env.DATABASE_URL = "postgres://nobody:nothing@127.0.0.1:1/unrelated"
+    delete process.env.REDIS_URL
+    delete process.env.REALTIME_POSTGRES_URL
+    process.env.VITEHUB_TEST_REALTIME_DATABASE_URL = postgresUrl
+    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_REALTIME_DATABASE_URL" } } }, dialect: "postgresql", schema: {} })
+    const db = createPostgresDatabase(definition, { binding: "DB" })
+    const databases = async () => ({ default: { db } })
+    try {
+      const buses = await Promise.all([createRealtimeNodeBus("auto", { databases }), createRealtimeNodeBus("auto", { databases })])
+      expect(buses.map(bus => bus?.authority)).toEqual(["postgres", "postgres"])
+      const document = `fanout-${crypto.randomUUID()}`
+      const memory = createMemoryAdapter({ [document]: { body: "Start" } })
+      const [a, b] = buses.map(bus => createTestServer(realtimeDefinition(memory.adapter), { handler: { bus: () => bus } }))
+      const onA = await a!.connect(document)
+      const onB = await b!.connect(document)
+      expect(await waitFor(() => paragraphs(onB.doc).length === 1)).toBe(true)
+      appendParagraph(onA.doc, "Through the Default Database")
+      expect(await waitFor(() => paragraphs(onB.doc).includes("Through the Default Database"))).toBe(true)
+      await Promise.all(buses.map(bus => bus?.close()))
+      // The Database owns its client. Realtime leaves it open.
+      await expect(db.execute("select 1")).resolves.toBeDefined()
+    }
+    finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      await Reflect.get(db, "$client").end()
+    }
   })
 })

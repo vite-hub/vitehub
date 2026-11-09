@@ -102,9 +102,13 @@ One peer sent more than 1,024 awareness clients.
 
 The identity's user has no `id`, or the `id` is not a string of at most 256 characters.
 
-### REALTIME_MISSING_BUS_URL
+### REALTIME_INVALID_POSTGRES_URL
 
-`authority: "redis"` needs `REDIS_URL`, and `authority: "postgres"` needs a `postgres://` `DATABASE_URL`, in the server environment when the first room opens. Set the variable, or use `authority: "auto"`, which keeps rooms in one process without either variable.
+`REALTIME_POSTGRES_URL` is set to something that is not a `postgres://` or `postgresql://` URL. Fix it, or remove it so that Realtime uses the connection of the Default Database.
+
+### REALTIME_MISSING_BUS_CONNECTION
+
+`authority: "redis"` needs `REDIS_URL`. `authority: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `authority: "auto"`, which keeps rooms in one process without one.
 
 ### REALTIME_ROOM_LOCK_TIMEOUT
 

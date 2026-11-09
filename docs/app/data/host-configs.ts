@@ -81,7 +81,7 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
   // realtime/configure.md, "Choose a room authority": `auto` selects Durable Objects, or Redis or Postgres on Node.
   realtime: {
     cloudflare: { options: { realtime: { comment: "Keep rooms in Durable Objects", value: "true" } } },
-    node: { options: { realtime: { comment: "Share rooms through Redis or Postgres when REDIS_URL or DATABASE_URL is set", value: "true" } } },
+    node: { options: { realtime: { comment: "Share rooms through Redis (REDIS_URL) or a Postgres Default Database", value: "true" } } },
   },
   sandboxTask: {
     cloudflare: { options: { sandboxTask: { comment: "Each run starts a Cloudflare Sandbox", value: "true" } } },

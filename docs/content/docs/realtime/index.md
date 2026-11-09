@@ -88,7 +88,7 @@ icon: i-lucide-radio
     modules: ['vite-hub/nuxt'],
     vitehub: {
       preset: 'node',
-      // Shares rooms through Redis or Postgres when REDIS_URL or DATABASE_URL is set
+      // Shares rooms through Redis (REDIS_URL) or a Postgres Default Database
       realtime: true,
       workspace: true,
     },
@@ -108,7 +108,7 @@ icon: i-lucide-radio
       nitro(),
       vitehub({
         preset: 'node',
-        // Shares rooms through Redis or Postgres when REDIS_URL or DATABASE_URL is set
+        // Shares rooms through Redis (REDIS_URL) or a Postgres Default Database
         realtime: true,
         workspace: true,
       }),
@@ -127,7 +127,7 @@ icon: i-lucide-radio
       vue(),
       vitehub({
         preset: 'node',
-        // Shares rooms through Redis or Postgres when REDIS_URL or DATABASE_URL is set
+        // Shares rooms through Redis (REDIS_URL) or a Postgres Default Database
         realtime: true,
         workspace: true,
       }),
@@ -185,7 +185,7 @@ Use Realtime for collaborative state that changes while clients are connected. R
 
 The Configure page describes host authority and persistence.
 
-On Cloudflare, rooms use Durable Objects. On Node, `auto` shares rooms across instances through Redis (`REDIS_URL`) or Postgres (a `postgres://` `DATABASE_URL`) when the server starts, else keeps them in one process. Memory authority is single-process. Vercel, Netlify, and Deno have no room authority.
+On Cloudflare, rooms use Durable Objects. On Node, `auto` shares rooms across instances through Redis (`REDIS_URL`) or Postgres (the client of a Postgres Default Database, or `REALTIME_POSTGRES_URL`) when the server starts, else keeps them in one process. Memory authority is single-process. Vercel, Netlify, and Deno have no room authority.
 
 Rooms save through a document adapter: `document: { workspace }` writes Markdown files, or pass `{ load, save }` for your own storage and throw `RealtimeDocumentConflict` on a stale `ifDigest`. The Yjs state is the source of truth while a room is open; an external write re-seeds the room and resets clients. Use `editor` for a custom schema and async Markdown codec, `fields` for structured values, `identify()` and `authorize()` for identity and access. Inspect definitions with `vitehub inspect definitions`.
 

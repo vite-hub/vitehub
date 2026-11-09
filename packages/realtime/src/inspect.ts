@@ -11,8 +11,8 @@ const authorityLabels: Record<RealtimeInspectionAuthority, string> = {
   auto: "auto: Cloudflare Durable Objects on Cloudflare, memory in development, shared rooms on a Node server, build error elsewhere",
   cloudflare: "cloudflare: one Durable Object per document, Yjs state in SQLite",
   memory: "memory: one Node process, rooms lost on restart",
-  node: "auto on Node: picked when the server starts. Redis with REDIS_URL, else Postgres with a Postgres DATABASE_URL, else memory in one process",
-  postgres: "postgres: a room in each Node instance, shared through Postgres LISTEN/NOTIFY (DATABASE_URL)",
+  node: "auto on Node: picked when the server starts. Redis with REDIS_URL, else Postgres on the Default Database or REALTIME_POSTGRES_URL, else memory in one process",
+  postgres: "postgres: a room in each Node instance, shared through Postgres LISTEN/NOTIFY on the Default Database or REALTIME_POSTGRES_URL",
   redis: "redis: a room in each Node instance, shared through Redis pub/sub (REDIS_URL)",
   unsupported: "none: this host has no Realtime room authority",
 }

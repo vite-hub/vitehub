@@ -75,10 +75,15 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Use a Workspace Store that returns file digests, or return `digest` from the document adapter `save()`.",
     },
 
-    REALTIME_MISSING_BUS_URL: {
-      why: ({ authority, variable }: { authority: "postgres" | "redis", variable: "DATABASE_URL" | "REDIS_URL" }) =>
-        `Realtime authority "${authority}" shares rooms through ${authority === "redis" ? "Redis" : "Postgres"}, and ${variable} is ${authority === "postgres" ? "not set to a Postgres URL" : "not set"}.`,
-      fix: "Set REDIS_URL for Redis, or a `postgres://` DATABASE_URL for Postgres, in the server environment. Or set `realtime.authority` to \"auto\".",
+    REALTIME_INVALID_POSTGRES_URL: {
+      why: "REALTIME_POSTGRES_URL is set, and it is not a `postgres://` or `postgresql://` URL.",
+      fix: "Set REALTIME_POSTGRES_URL to a Postgres URL, or remove it so that Realtime uses the connection of the Default Database.",
+    },
+    REALTIME_MISSING_BUS_CONNECTION: {
+      why: ({ authority }: { authority: "postgres" | "redis" }) => authority === "redis"
+        ? "Realtime authority \"redis\" shares rooms through Redis, and REDIS_URL is not set."
+        : "Realtime authority \"postgres\" shares rooms through Postgres, and the app has no Postgres Default Database and no REALTIME_POSTGRES_URL.",
+      fix: "Set REDIS_URL for Redis. For Postgres, define the Default Database with `dialect: \"postgresql\"`, or set REALTIME_POSTGRES_URL. Or set `realtime.authority` to \"auto\".",
     },
     REALTIME_ROOM_LOCK_TIMEOUT: {
       why: "Realtime waited 30 seconds for the save lock of a room, and another instance still holds it.",

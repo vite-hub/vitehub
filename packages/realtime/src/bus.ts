@@ -8,11 +8,26 @@ export type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-
 /** The authority that a Node build asks for: `auto` reads the environment when the server starts. */
 export type RealtimeNodeAuthority = "auto" | "postgres" | "redis"
 
+/** The variable that points the Postgres bus at its own database, instead of the connection of the Default Database. */
+export const realtimePostgresUrlVariable = "REALTIME_POSTGRES_URL"
+
+/** The Databases of the app, as `@vite-hub/database/drizzle` exports them. */
+export type RealtimeDatabases = Readonly<Record<string, { db: object } | undefined>>
+
+export interface RealtimeNodeBusOptions {
+  /**
+   * Loads the Databases of the app. The generated server passes it when the build found the Default Database on
+   * Postgres. The bus then uses the postgres.js client of that Database, whatever variable its Definition reads.
+   */
+  databases?: () => Promise<RealtimeDatabases>
+  env?: Record<string, string | undefined>
+}
+
 /** Where the rooms of this process live: alone in memory, or shared with other instances over a bus. */
 export interface RealtimeNodeAuthorityChoice {
   authority: "memory" | "postgres" | "redis"
-  /** The environment variable that holds the connection URL. */
-  variable?: "DATABASE_URL" | "REDIS_URL"
+  /** What the bus connects with: a variable, or the connection of the Default Database. */
+  source?: "REDIS_URL" | typeof realtimePostgresUrlVariable | "Default Database"
   url?: string
 }
 
@@ -24,31 +39,55 @@ function readVariable(env: Record<string, string | undefined>, name: string): st
 }
 
 /**
- * Picks the room authority of a Node server: `REDIS_URL` selects Redis, else a Postgres `DATABASE_URL` selects Postgres,
- * else the rooms stay in this process. An explicit `postgres` or `redis` requires its variable.
+ * Picks the room authority of a Node server: `REDIS_URL` selects Redis. Else `REALTIME_POSTGRES_URL`, or the Default
+ * Database when it is on Postgres, selects Postgres. Else the rooms stay in this process. An explicit `postgres` or
+ * `redis` requires its connection. `database` is true when the build found the Default Database on Postgres.
  */
 export function resolveRealtimeNodeAuthority(
   authority: RealtimeNodeAuthority,
-  env: Record<string, string | undefined> = globalThis.process?.env ?? {},
+  options: { database?: boolean, env?: Record<string, string | undefined> } = {},
 ): RealtimeNodeAuthorityChoice {
+  const env = options.env ?? globalThis.process?.env ?? {}
   const redis = readVariable(env, "REDIS_URL")
-  const database = readVariable(env, "DATABASE_URL")
-  const postgres = database && postgresUrl.test(database) ? database : undefined
+  const override = readVariable(env, realtimePostgresUrlVariable)
   if (authority === "redis" || (authority === "auto" && redis)) {
-    if (!redis) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_URL({ authority: "redis", variable: "REDIS_URL" })
-    return { authority: "redis", url: redis, variable: "REDIS_URL" }
+    if (!redis) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "redis" })
+    return { authority: "redis", source: "REDIS_URL", url: redis }
   }
-  if (authority === "postgres" || (authority === "auto" && postgres)) {
-    if (!postgres) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_URL({ authority: "postgres", variable: "DATABASE_URL" })
-    return { authority: "postgres", url: postgres, variable: "DATABASE_URL" }
+  if (override) {
+    if (!postgresUrl.test(override)) throw realtimeErrorDiagnostics.REALTIME_INVALID_POSTGRES_URL()
+    return { authority: "postgres", source: realtimePostgresUrlVariable, url: override }
   }
+  if (options.database) return { authority: "postgres", source: "Default Database" }
+  if (authority === "postgres") throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
   return { authority: "memory" }
 }
 
 function describeChoice(choice: RealtimeNodeAuthorityChoice): string {
   return choice.authority === "memory"
-    ? "[vitehub] Realtime keeps rooms in this process. Set REDIS_URL or a Postgres DATABASE_URL to share rooms across instances."
-    : `[vitehub] Realtime shares rooms across instances through ${choice.authority === "redis" ? "Redis" : "Postgres"} (${choice.variable}).`
+    ? "[vitehub] Realtime keeps rooms in this process. Set REDIS_URL, or use a Postgres Default Database, to share rooms across instances."
+    : `[vitehub] Realtime shares rooms across instances through ${choice.authority === "redis" ? "Redis" : "Postgres"} (${choice.source}).`
+}
+
+/** The postgres.js client of the Default Database, or undefined when it is not one. */
+async function defaultDatabaseClient(databases: (() => Promise<RealtimeDatabases>) | undefined): Promise<PostgresClient | undefined> {
+  const entry = databases ? (await databases()).default : undefined
+  const client: unknown = entry ? Reflect.get(entry.db, "$client") : undefined
+  return isPostgresClient(client) ? client : undefined
+}
+
+/**
+ * Creates the bus for `authority`, or `undefined` when the rooms stay in this process. `useRealtimeBus()` keeps one per
+ * process. A bus on the Default Database borrows its client and never closes it.
+ */
+export async function createRealtimeNodeBus(authority: RealtimeNodeAuthority, options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
+  const choice = resolveRealtimeNodeAuthority(authority, { database: !!options.databases, env: options.env })
+  if (choice.authority === "redis") return await createRedisRealtimeBus(choice.url!)
+  if (choice.authority === "memory") return undefined
+  if (choice.url) return await createPostgresRealtimeBus({ url: choice.url })
+  const client = await defaultDatabaseClient(options.databases)
+  if (!client) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
+  return await createPostgresRealtimeBus({ client })
 }
 
 const busesKey: unique symbol = Symbol.for("vitehub.realtime.buses")
@@ -64,14 +103,10 @@ function buses(): Map<RealtimeNodeAuthority, Promise<RealtimeBus | undefined>> {
  * The bus of this process for `authority`, created on first use, or `undefined` when the rooms stay in this process.
  * The generated Realtime handler of a Node build calls it.
  */
-export function useRealtimeBus(authority: RealtimeNodeAuthority = "auto"): Promise<RealtimeBus | undefined> {
+export function useRealtimeBus(authority: RealtimeNodeAuthority = "auto", options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
   const existing = buses().get(authority)
   if (existing) return existing
-  const pending = (async () => {
-    const choice = resolveRealtimeNodeAuthority(authority)
-    if (choice.authority === "memory" || !choice.url) return undefined
-    return choice.authority === "redis" ? await createRedisRealtimeBus(choice.url) : await createPostgresRealtimeBus(choice.url)
-  })()
+  const pending = createRealtimeNodeBus(authority, options)
   buses().set(authority, pending)
   // A failed connection is tried again by the next room that opens.
   pending.catch(() => {
@@ -80,10 +115,13 @@ export function useRealtimeBus(authority: RealtimeNodeAuthority = "auto"): Promi
   return pending
 }
 
-/** Prints the room authority that this server uses. The generated Nitro plugin calls it when the server starts. */
-export function logRealtimeNodeAuthority(authority: RealtimeNodeAuthority = "auto"): void {
+/**
+ * Prints the room authority that this server uses. The generated Nitro plugin calls it when the server starts.
+ * `database` is true when the build found the Default Database on Postgres.
+ */
+export function logRealtimeNodeAuthority(authority: RealtimeNodeAuthority = "auto", options: { database?: boolean } = {}): void {
   try {
-    console.info(describeChoice(resolveRealtimeNodeAuthority(authority)))
+    console.info(describeChoice(resolveRealtimeNodeAuthority(authority, options)))
   }
   catch (error) {
     console.error(error)
@@ -193,8 +231,12 @@ const postgresSetupLock = 0x76687274
 interface PostgresClient {
   <T extends readonly object[] = Array<Record<string, unknown>>>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T & { count: number }>
   begin<T>(task: (transaction: PostgresClient) => Promise<T>): Promise<T>
-  listen(channel: string, onnotify: (payload: string) => void, onlisten?: () => void): Promise<unknown>
+  listen(channel: string, onnotify: (payload: string) => void, onlisten?: () => void): Promise<{ unlisten(): Promise<void> }>
   end(options?: { timeout?: number }): Promise<void>
+}
+
+function isPostgresClient(value: unknown): value is PostgresClient {
+  return typeof value === "function" && ["begin", "end", "listen"].every(name => typeof Reflect.get(value, name) === "function")
 }
 
 function bytes(value: unknown): Uint8Array | undefined {
@@ -209,12 +251,23 @@ function toRecord(row: Record<string, unknown> | undefined): RealtimeRoomRecord 
 
 /**
  * Shares rooms through Postgres: `LISTEN`/`NOTIFY` carries room traffic, `vitehub_realtime_rooms` holds the shared
- * room records, and a transaction-scoped advisory lock orders saves. Creates its two tables when it connects.
+ * room records, and a transaction-scoped advisory lock orders saves. Creates its two tables when it connects. With
+ * `{ client }`, the bus borrows the postgres.js client of a Database: it stops listening on close, and leaves the client
+ * open.
  */
-export async function createPostgresRealtimeBus(url: string): Promise<RealtimeBus> {
-  const { default: postgres } = await import("postgres")
-  // SAFETY: postgres.js returns a tagged-template client with these methods; the interface names the part used here.
-  const sql = postgres(url, { max: postgresConnections, onnotice: () => {} }) as unknown as PostgresClient
+export async function createPostgresRealtimeBus(connection: { client: unknown } | { url: string }): Promise<RealtimeBus> {
+  let sql: PostgresClient
+  const owned = "url" in connection
+  if ("url" in connection) {
+    const { default: postgres } = await import("postgres")
+    // SAFETY: postgres.js returns a tagged-template client with these methods; the interface names the part used here.
+    sql = postgres(connection.url, { max: postgresConnections, onnotice: () => {} }) as unknown as PostgresClient
+  }
+  else if (isPostgresClient(connection.client)) sql = connection.client
+  else throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
+  const end = async () => {
+    if (owned) await sql.end({ timeout: 5 })
+  }
   try {
     await sql.begin(async (transaction) => {
       await transaction`select pg_advisory_xact_lock(${postgresSetupLock})`
@@ -223,11 +276,12 @@ export async function createPostgresRealtimeBus(url: string): Promise<RealtimeBu
     })
   }
   catch (error) {
-    await sql.end({ timeout: 1 }).catch(() => {})
+    if (owned) await sql.end({ timeout: 1 }).catch(() => {})
     throw error
   }
   const base = createBusBase()
   let published = 0
+  let listening: { unlisten(): Promise<void> } | undefined
   const send = createSendQueue()
   const locked = createLimit(postgresLockedSaves)
   const delivery = createDelivery(base.instance, async (raw) => {
@@ -237,10 +291,10 @@ export async function createPostgresRealtimeBus(url: string): Promise<RealtimeBu
     const [row] = await sql`select payload from vitehub_realtime_messages where id = ${raw.slice(1)}`
     return bytes(row?.payload)
   }, async (resubscribed) => {
-    let listening = false
-    await sql.listen(postgresChannel, payload => delivery.push(payload), () => {
-      if (listening) resubscribed()
-      listening = true
+    let started = false
+    listening = await sql.listen(postgresChannel, payload => delivery.push(payload), () => {
+      if (started) resubscribed()
+      started = true
     })
   })
 
@@ -278,7 +332,10 @@ export async function createPostgresRealtimeBus(url: string): Promise<RealtimeBu
       await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub_realtime:${room}`}, 0))`
       return await task()
     })),
-    close: () => base.close(() => sql.end({ timeout: 5 })),
+    close: () => base.close(async () => {
+      await listening?.unlisten().catch(() => {})
+      await end()
+    }),
   }
 }
 
