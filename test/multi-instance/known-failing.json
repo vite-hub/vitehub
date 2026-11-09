@@ -1,12 +1,14 @@
 {
+  "flaky": {
+    "workflow-shared": "OpenWorkflow workers race on their schema setup at cold start, so one, two or all three start. #3839 fixes the race. Move it back to the mode lists, or remove it, when #3839 lands."
+  },
   "with-redis": {
     "queue-failover": "Queue on Node is the local file provider. Jobs that A accepted wait in A's directory after A stops.",
     "rate-limit-shared": "Rate Limit on Node is forced to the memory driver. Each instance allows 10 per minute.",
     "realtime-fanout": "Realtime on Node has only the memory authority. Rooms do not fan out across instances.",
     "schedule-once": "The Schedule process driver locks in memory with fs-lite KV. Each instance runs every occurrence.",
     "migrations-once": "Postgres migrations do not run on start. Only `vitehub db migrate` applies them.",
-    "kv-shared": "KV on Node defaults to fs-lite in each working directory. No Redis or Database driver exists.",
-    "workflow-shared": "OpenWorkflow workers race on their schema setup at cold start. Usually only one or two of three start."
+    "kv-shared": "KV on Node defaults to fs-lite in each working directory. No Redis or Database driver exists."
   },
   "without-redis": {
     "queue-failover": "Queue on Node is the local file provider. Jobs that A accepted wait in A's directory after A stops.",
@@ -14,7 +16,6 @@
     "realtime-fanout": "Realtime on Node has only the memory authority. Rooms do not fan out across instances.",
     "schedule-once": "The Schedule process driver locks in memory with fs-lite KV. Each instance runs every occurrence.",
     "migrations-once": "Postgres migrations do not run on start. Only `vitehub db migrate` applies them.",
-    "kv-shared": "KV on Node defaults to fs-lite in each working directory. No Redis or Database driver exists.",
-    "workflow-shared": "OpenWorkflow workers race on their schema setup at cold start. Usually only one or two of three start."
+    "kv-shared": "KV on Node defaults to fs-lite in each working directory. No Redis or Database driver exists."
   }
 }

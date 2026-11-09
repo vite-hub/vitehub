@@ -46,14 +46,15 @@ Options:
 - `--only <id,id>` runs only these checks.
 
 Put options after the task name, for example
-`vp run e2e:multi-instance --keep --only kv-shared`.
+`vp run e2e:multi-instance --no-redis --keep --only kv-shared`. `vp run` passes
+them to the script.
 
 ## Checks
 
 | Id | What must be true |
 | --- | --- |
-| `boot` | All three instances start and answer `/api/health`. |
-| `queue-once` | 1,000 jobs sent to the queue through A each run exactly once. The table shows which instances ran them, as information only. |
+| `boot` | All three instances start and answer `/api/health`. The build and the instances see `REDIS_URL` only in the Redis mode, even when your shell sets it. |
+| `queue-once` | 1,000 jobs sent to the queue through A each run exactly once. The table shows which instances ran them, as information only. It passes on `main` with every job on A, so it does not prove that the queue is shared. `queue-failover` proves that. |
 | `rate-limit-shared` | A limit of 10 per minute allows exactly 10 of 60 requests that arrive at the same time, in two batches of 30 spread over the three instances. |
 | `realtime-fanout` | A presence message sent on instance A reaches a peer that is connected to instance B. A second peer on A is the control. |
 | `schedule-once` | Each schedule occurrence runs once, not once per instance. |
@@ -97,3 +98,7 @@ reason, in one list for each mode (`with-redis` and `without-redis`). The run
 exits with code 1 when a check that is not on the list fails, and also when a
 check on the list passes. So the list always matches `main`. When your change
 makes a listed check pass, remove its entry in the same pull request.
+
+The `flaky` list holds checks that pass or fail at random on `main`, in both
+modes. They never change the exit code, and the table marks them `flaky`. Keep
+this list short, and name the change that removes each entry.

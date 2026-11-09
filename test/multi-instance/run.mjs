@@ -67,7 +67,15 @@ const appOverrides = {
 }
 
 const mode = options["no-redis"] ? "without-redis" : "with-redis"
-const knownFailing = JSON.parse(readFileSync(join(here, "known-failing.json"), "utf8"))[mode]
+const knownChecks = JSON.parse(readFileSync(join(here, "known-failing.json"), "utf8"))
+const knownFailing = knownChecks[mode]
+// A flaky check may pass or fail. It never changes the exit code.
+const flaky = knownChecks.flaky
+
+// Every child process starts from this environment. Without Redis, a REDIS_URL from the shell must not reach
+// the build or the instances, so drop it here once.
+const baseEnv = { ...process.env }
+if (mode === "without-redis") delete baseEnv.REDIS_URL
 const instanceNames = ["a", "b", "c"]
 const cleanups = []
 
@@ -76,7 +84,7 @@ function run(command, args, { cwd = repoRoot, env, logFile } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: { ...baseEnv, ...env },
     maxBuffer: 256 * 1024 * 1024,
   })
   const output = `${result.stdout || ""}${result.stderr || ""}`
@@ -178,12 +186,10 @@ async function startInstance(name, appDir, workDir, backends) {
   await mkdir(cwd, { recursive: true })
   const logPath = join(workDir, `instance-${name}.log`)
   const logStream = createWriteStream(logPath)
-  const parentEnv = { ...process.env }
-  delete parentEnv.REDIS_URL
   const child = spawn(process.execPath, [join(appDir, ".output/server/index.mjs")], {
     cwd,
     env: {
-      ...parentEnv,
+      ...baseEnv,
       DATABASE_URL: backends.databaseUrl,
       HOST: "127.0.0.1",
       MULTI_INSTANCE_NAME: name,
@@ -256,7 +262,7 @@ function printTable(results) {
   const rows = results.map(result => [
     result.id,
     result.status === "pass" ? "pass" : "FAIL",
-    knownFailing[result.id] ? "yes" : "no",
+    flaky[result.id] ? "flaky" : knownFailing[result.id] ? "yes" : "no",
     result.detail.split("\n")[0].slice(0, 110),
   ])
   const header = ["check", "result", "known failing", "detail"]
@@ -315,7 +321,7 @@ async function main() {
   }
 
   printTable(results)
-  const unexpected = results.filter(result => result.status !== "pass" && !knownFailing[result.id])
+  const unexpected = results.filter(result => result.status !== "pass" && !knownFailing[result.id] && !flaky[result.id])
   // A listed check that passes also fails the run, so the list stays exact.
   const fixed = results.filter(result => result.status === "pass" && knownFailing[result.id])
   if (unexpected.length) log(`unexpected failures: ${unexpected.map(result => result.id).join(", ")}`)

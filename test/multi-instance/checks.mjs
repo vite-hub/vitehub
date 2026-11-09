@@ -54,7 +54,17 @@ export const checks = [
     async run(context) {
       const failed = context.instances.flatMap((instance, index) =>
         context.boot[index].ok ? [] : [`${instance.name}: ${context.boot[index].error}`])
-      return failed.length ? fail(failed.join("\n")) : pass("a, b and c answer")
+      if (failed.length) return fail(failed.join("\n"))
+      // The build and every instance must see REDIS_URL only in the Redis mode, even when the shell sets it.
+      const expected = context.mode === "with-redis" ? "set" : "unset"
+      const wrong = []
+      for (const instance of context.instances) {
+        const health = await request(instance, "/api/health")
+        if (health.buildRedis !== expected) wrong.push(`the build saw REDIS_URL ${health.buildRedis}`)
+        if (health.serverRedis !== expected) wrong.push(`${instance.name} saw REDIS_URL ${health.serverRedis}`)
+      }
+      if (wrong.length) return fail(`${context.mode}: ${[...new Set(wrong)].join(", ")}`)
+      return pass(`a, b and c answer, REDIS_URL ${expected} in the build and the instances`)
     },
   },
   {

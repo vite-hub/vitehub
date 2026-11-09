@@ -4,6 +4,8 @@ export default {
   compatibilityDate: "2026-11-01",
   modules: ["vite-hub/nuxt"],
   nitro: { preset: "node-server" },
+  // The boot check reads this, to prove that the build saw REDIS_URL only in the Redis mode.
+  runtimeConfig: { multiInstanceBuildRedis: process.env.REDIS_URL ? "set" : "unset" },
   vitehub: {
     agent: false,
     // run.mjs sets this directory at build time. It stands for a volume that every instance mounts.
