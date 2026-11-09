@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { build } from "esbuild"
+import { resolveConfig } from "vite"
 import { expect, it, vi } from "vitest"
 import { createNetlifyScheduleFunctionOutputs } from "../../schedule/src/internal/provider-output.ts"
 import { hubAgent } from "../src/vite.ts"
@@ -146,7 +147,8 @@ it("registers a named Channel from retained Netlify Agent sources", async () => 
       "export default makeAgent({ channels: /* retained */ ['teams'], runtime: false, driver: { run: () => 'ok' } })",
     ].join("\n"))
     const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes: { inspection: true } })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] } })
+    const config = await resolveConfig({ root, configFile: false, build: { outDir: "dist" } }, "build")
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     await (plugin.buildEnd as () => Promise<void>)()
     // Provider Output is deferred. It must no longer need the live Channel or its import closure.
     await rm(join(root, "server"), { recursive: true })
