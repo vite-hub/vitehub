@@ -325,6 +325,27 @@ On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec w
 
 `VITEHUB_ADMINS` takes no emails. An email and password sign-up does not prove that the person owns the email, so the first person to sign up with the admin's email would get the role. An email entry fails with `AUTH_C0058`, and the removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
 
+### Claim the admin role with a code
+
+An app with only email and password sign-in has no social account to list. Create a one-time claim code instead:
+
+```bash [Terminal]
+$ vitehub auth claim
+Claim code: 7KQF-2M9D-XW4P-R8TB
+This is the only time the code is shown. Keep it private.
+
+Set this variable on the host, for example as a Worker secret:
+VITEHUB_ADMIN_CLAIM=sha256:3f9a...
+```
+
+Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in, open `/_vitehub`, and enter the code under **Claim code** on the Access denied page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
+
+The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
+
+The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+
+With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
+
 ## Sign MCP clients in
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token. For the Console endpoint `/_vitehub/mcp`, use [Console MCP OAuth](/docs/development/mcp#set-up-oauth) instead.
@@ -389,21 +410,26 @@ export default defineHandler(event => serveMcpOAuthDiscovery(event.req, {
 ```ts [server/routes/mcp.ts]
 import { verifyMcpRequest } from 'vite-hub/auth/mcp'
 
-const [error, caller] = await verifyMcpRequest(event.req)
-if (error) {
-  return new Response(null, {
-    status: 401,
-    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', event.req.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
-  })
+export default {
+  async fetch(request: Request) {
+    const [error, caller] = await verifyMcpRequest(request)
+    if (error) {
+      return new Response(null, {
+        status: 401,
+        headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', request.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
+      })
+    }
+    return Response.json({ client: caller.clientName })
+  },
 }
 ```
 
-It reads only the request URL and headers, so H3's `event.req` or any value with `url` and `headers` works, and the body stays for the MCP handler. It takes the signing keys from the Auth in the same process, with no call to the authorization server, and checks:
+It reads only the request URL and headers, so a Fetchable route's Request, H3's `event.req` or any value with `url` and `headers` works, and the body stays for the MCP handler. It takes the signing keys from the Auth in the same process, with no call to the authorization server, and checks:
 
 - The signature, against the algorithms of those keys, plus the issuer, the audience, and the expiry with 30 seconds of tolerance.
 - The user, read again by the `sub` claim, so a deleted or banned person loses access while the token is still valid.
 - The OAuth client, which must still exist and be enabled.
-- The session named in `sid`, which must still exist and be unexpired, so sign-out ends access. A token with the `offline_access` scope skips this: the person allowed access while signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted.
+- The session, when the token names one in `sid`. It must still exist and be unexpired, so sign-out ends access. A token with the `offline_access` scope skips this: the person allowed access while signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted.
 
 A token opens only the resource at the request's origin and path. To accept it on other routes, such as the app API, pass `resource`. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`. See [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 

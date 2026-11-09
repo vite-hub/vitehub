@@ -8,7 +8,7 @@ icon: i-ph-cloud-check-light
 
 `SyncStatus` shows if local edits are saved. The values follow [Liveblocks' Yjs sync status](https://liveblocks.io/docs/api-reference/liveblocks-yjs) (`loading`, `synchronizing`, `synchronized`), plus `error` for a failed save. The parts match [Kibo UI's Status](https://www.kibo-ui.com/components/status).
 
-::component-preview{name="SyncStatusExample"}
+::example{name="SyncStatusExample" height=8}
 ::
 
 ## Installation
@@ -74,7 +74,7 @@ Without children, `SyncStatus` renders both parts.
 
 Put details such as the save time in `SyncStatusLabel`. Its default slot receives `{ status }`.
 
-::component-preview{name="SyncStatusLabelExample"}
+::example{name="SyncStatusLabelExample" height=8}
 ::
 
 ## Accessibility

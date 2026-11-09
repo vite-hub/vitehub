@@ -31,3 +31,11 @@ export default defineAuth({
   route: false,
 })
 ```
+
+The default export of `#vitehub/auth/server` is the Auth route as a Fetchable, `{ fetch(request) }`. Mount it below the same `basePath`:
+
+```ts [server/routes/api/auth/[...].ts]
+export { default } from '#vitehub/auth/server'
+```
+
+It reads the client address and the Cloudflare bindings from the [Standard Context](/docs/reference/runtime-context#standard-context) of the Request. Nitro sets it on each Request in a ViteHub app.

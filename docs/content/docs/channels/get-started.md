@@ -13,18 +13,18 @@ A Channel is a named connection that your server uses to send and receive messag
 In this tutorial, you make an `alerts` Channel that writes "Build finished." to your terminal. Then you make a `builds` Channel that receives a signed webhook and runs a handler once per delivery.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands from the root of the app. You need no account and no API key. No message leaves your computer.
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. No message leaves your computer.
 
 ::tutorial-step{title="Install and enable Channels"}
 ## Install and enable Channels
 
-Install ViteHub and the packages for Channels and webhooks. Nitro is the server that runs your API routes.
+Add Channels and the Agent and Workflow packages that receive webhooks:
 
 ```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/channels @vite-hub/agent @vite-hub/workflow nitro h3 vite
+pnpm add @vite-hub/channels @vite-hub/agent @vite-hub/workflow
 ```
 
-Add `channels: true` and `agent: true` to `vitehub()` in `vite.config.ts`. Keep the other plugins of your app.
+Add `channels: true` and `agent: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -38,8 +38,8 @@ export default defineNuxtConfig({
 
 ::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
@@ -62,6 +62,7 @@ export default defineConfig({
 
 - `channels: true` finds Channel files in `server/channels`.
 - `agent: true` serves the webhook route for Channels that receive messages.
+
 
 :::details{summary="How ViteHub finds Channel files"}
 ViteHub discovers files below `server/channels` and files that end in `.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers. Discovery skips modules whose default export cannot be a Channel, such as a function, an array, or an object literal without `adapter`.
@@ -117,13 +118,13 @@ export default defineEventHandler(async () => {
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Keep the server running. Open a second terminal and send a request:
 
 ```bash [commands/request]
-curl -X POST http://localhost:5173/api/build-finished
+curl -X POST http://localhost:3000/api/build-finished
 ```
 
 The terminal running Vite prints `[release] Build finished.`, and the response has the receipt:
@@ -162,7 +163,7 @@ export default defineChannel({
 Every Channel that receives webhooks has the route `/api/_vitehub/channels/<name>`. Send the same body twice:
 
 ```bash [commands/webhook]
-curl -X POST http://localhost:5173/api/_vitehub/channels/builds \
+curl -X POST http://localhost:3000/api/_vitehub/channels/builds \
   -H 'authorization: Bearer local-secret' -H 'content-type: application/json' \
   -d '{"id":"build-42"}'
 ```

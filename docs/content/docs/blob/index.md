@@ -8,7 +8,7 @@ icon: i-lucide-files
 ---
 
 ::product-hero{tagline="Save uploads and other files from your server, then read or serve them on any host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files{feature="blob"}
+  :::code-tree{feature="blob"}
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({

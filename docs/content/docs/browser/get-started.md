@@ -13,19 +13,19 @@ Browser gives your server a real web browser. Your code can open a web page, rea
 In this tutorial, you write a browser task that gets the HTML of `https://example.com`. Then you call it from an API route.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, a Vite app, and a Cloudflare account with Browser Run turned on. The browser runs on Cloudflare even when you test on your computer, so each run can cost money. Run every command from the app root. To use a Chromium browser on your own machine, see [Hosts](/docs/browser/hosts).
+> Use the app from [Installation](/docs/getting-started/installation). You also need a Cloudflare account with Browser Run turned on. The browser runs on Cloudflare even when you test on your computer, so each run can cost money. Run every command from the app root. To use a Chromium browser on your own machine, see [Hosts](/docs/browser/hosts).
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add ViteHub, Nitro, and Wrangler, the Cloudflare development tool, to your app:
+Add the Browser package and Wrangler, the Cloudflare development tool, to your app:
 
 ```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/browser nitro h3
-pnpm add -D vite wrangler
+pnpm add @vite-hub/browser
+pnpm add -D wrangler
 ```
 
-Then turn on Browser in the config of your app:
+Then, in the ViteHub options of your app, set `preset: 'cloudflare'` and turn on Browser. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -42,18 +42,15 @@ export default defineNuxtConfig({
 
 ::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [
-    vitehub({
-      preset: 'cloudflare',
-      browser: { remote: true },
-    }),
-    nitro(),
-  ],
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    browser: { remote: true },
+  }), nitro()],
 })
 ```
 ::::
@@ -64,12 +61,10 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [
-    vitehub({
-      preset: 'cloudflare',
-      browser: { remote: true },
-    }),
-  ],
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    browser: { remote: true },
+  })],
 })
 ```
 ::::
@@ -107,14 +102,17 @@ export default defineBrowser(async (
 Create `server/api/page-html.post.ts`. This route sends the request body to the `page-html` task.
 
 ```ts [server/api/page-html.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readBody } from 'h3'
 import { runBrowser } from 'vite-hub/browser'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ url: string }>(event)
+  if (!input?.url) throw createError({ statusCode: 400, message: 'Send a url.' })
   return await runBrowser('page-html', input)
 })
 ```
+
+- `readBody()` returns `undefined` when the request has no body, so the route checks `input` first.
 
 - `runBrowser('page-html', input)` runs the task by its name. ViteHub knows the input type of each task, so TypeScript checks `input`.
 - It returns a normal `Response`. If the task fails, the `Response` has an error status and a JSON body.

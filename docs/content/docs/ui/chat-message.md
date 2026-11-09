@@ -8,7 +8,7 @@ icon: i-ph-chat-text-light
 
 `ChatMessage` renders one `UIMessage` with the [Message](/docs/ui/message) parts. User text sits at the end in a secondary [Bubble](/docs/ui/bubble). Other roles reply at the start without a frame. `MessageParts` renders the content. Use it alone, or let `Chat` render one per message.
 
-::component-preview{name="ChatMessageExample"}
+::example{name="ChatMessageExample" height=16}
 ::
 
 ## Installation
@@ -58,14 +58,14 @@ Message, aligned to the end for the user and to the start for others
 
 Use the `header` slot for details above the body, such as an attachment count. File parts render as download links or image previews.
 
-::component-preview{name="ChatMessageUserExample"}
+::example{name="ChatMessageUserExample" height=8}
 ::
 
 ## Streaming with a Custom Avatar
 
 Set `streaming` while the response arrives, so text and reasoning parts stream. The `leading` slot replaces the avatar.
 
-::component-preview{name="ChatMessageStreamingExample"}
+::example{name="ChatMessageStreamingExample" height=8}
 ::
 
 ## Accessibility

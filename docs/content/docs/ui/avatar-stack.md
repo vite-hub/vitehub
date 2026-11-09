@@ -8,7 +8,7 @@ icon: i-ph-users-three-light
 
 `AvatarStack` shows the people in a document or room as overlapping avatars. It works like the stacks of [Liveblocks](https://liveblocks.io/docs/api-reference/liveblocks-react-ui#AvatarStack), [Kibo UI](https://www.kibo-ui.com/components/avatar-stack), and [Supabase UI](https://supabase.com/ui/docs/nextjs/realtime-avatar-stack): same name, a `max` that counts the "+N" item, and one avatar per person. Pass Realtime's `people` as they are.
 
-::component-preview{name="AvatarStackExample"}
+::example{name="AvatarStackExample" height=8}
 ::
 
 ## Installation
@@ -55,12 +55,12 @@ AvatarStack
 
 Use `variant="outline"` in an editor, where each person also has a caret in their color.
 
-::component-preview{name="AvatarStackOutlineExample"}
+::example{name="AvatarStackOutlineExample" height=8}
 ::
 
 ## Sizes
 
-::component-preview{name="AvatarStackSizesExample"}
+::example{name="AvatarStackSizesExample" height=8}
 ::
 
 | Size      | Avatar |
@@ -73,7 +73,7 @@ Use `variant="outline"` in an editor, where each person also has a caret in thei
 
 `max` is the most items in the stack, counting the "+N" item, so `max` items always fit. It is at least 2, so one face always shows. `null` shows everyone.
 
-::component-preview{name="AvatarStackMaxExample"}
+::example{name="AvatarStackMaxExample" height=8}
 ::
 
 ## Accessibility

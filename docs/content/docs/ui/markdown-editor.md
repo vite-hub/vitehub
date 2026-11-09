@@ -8,7 +8,7 @@ icon: i-ph-note-pencil
 
 `MarkdownEditor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/). Comark syntax stays intact on save. A document it can't save unchanged opens read-only. Nuxt UI adds the bubble toolbar, "/" menu, and drag handle. The text uses the [Markdown](/docs/ui/markdown) typeset, so editing looks like reading.
 
-::component-preview{name="MarkdownEditorExample" reset}
+::example{name="MarkdownEditorExample" reset height=8}
 ::
 
 ## Installation

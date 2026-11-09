@@ -1,7 +1,7 @@
 ---
 
 title: Send your first Email
-description: Install Email, configure Resend with a secret, send a welcome email from server code, and check the delivery result.
+description: Configure Resend with a secret, send a welcome email from server code, and check the delivery result.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
@@ -13,16 +13,15 @@ Email sends email from your server code. You write the message once. A provider,
 In this tutorial, you send a real welcome email through Resend from an API route, and you check that it arrived.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, Vite 8 or newer, pnpm, a Vite app, and a POSIX shell such as bash or zsh. You also need a Resend account with an API key, a sender address that Resend verified, and an inbox that you can check. Run the commands from the root of the app. The last step sends a real email.
+> Use the app from [Installation](/docs/getting-started/installation) and a POSIX shell such as bash or zsh. You also need a Resend account with an API key, a sender address that Resend verified, and an inbox that you can check. Run the commands from the root of the app. The last step sends a real email.
 
 ::tutorial-step{title="Install the email dependencies"}
 ## Install the email dependencies
 
-Install ViteHub, Email, and Nitro. Nitro is the server that runs your API routes. The Resend driver is part of the Email package.
+Add the Email package. It includes the Resend driver.
 
 ```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/email nitro h3
-pnpm add -D vite
+pnpm add @vite-hub/email
 ```
 
 ::
@@ -55,10 +54,10 @@ export default defineNuxtConfig({
 
 ::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   plugins: [vitehub({
@@ -152,13 +151,13 @@ export default defineEventHandler(async () => {
 Start the dev server in the terminal where you set the key:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Keep the server running. Open a second terminal and call the route:
 
 ```bash [commands/request]
-curl -X POST http://localhost:5173/api/welcome
+curl -X POST http://localhost:3000/api/welcome
 ```
 
 When Resend accepts the email, the response looks like this:
@@ -170,7 +169,13 @@ When Resend accepts the email, the response looks like this:
 }
 ```
 
-`id` comes from Resend. The first send also prints `[vitehub] Email is remote` in the server terminal.
+`id` comes from Resend. The first send also prints this line in the server terminal:
+
+```text [output/terminal.txt]
+[vitehub] Email is remote: `vite dev` sends real email through resend.
+```
+
+If the key is wrong, the request fails with `EMAIL_AUTHENTICATION: The resend Email provider rejected the credentials.` in the server terminal. If `RESEND_API_KEY` is not set in that terminal, it fails with `ENV_R0010`.
 
 Now open the inbox and find the email. You can also look in the Resend delivery log. An `id` tells you that Resend accepted the email. It does not tell you that the email got to the inbox.
 

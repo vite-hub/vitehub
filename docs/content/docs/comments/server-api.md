@@ -16,7 +16,7 @@ icon: i-lucide-code-2
 | `defineCommentSubject` from `vite-hub/comments` | Your own subject kind, with its numbering scope. See [Comments in your own UI](/docs/comments/configure#comments-in-your-own-ui). |
 | `migrateComments`, `commentsMigrationSql` from `vite-hub/comments/database` | Move a Database from the live-site tables to one model. See [Upgrade to one model](/docs/comments/configure#upgrade-to-one-model). |
 | `normalizeCommentPage` from `vite-hub/comments` | The page key that Comments stores for a path. |
-| `installComments` from `vite-hub/comments` | Connect a definition to a Drizzle Database in tests or outside ViteHub. The generated Nitro plugin calls it. |
+| `installComments` from `vite-hub/comments/server` | Connect a definition to a Drizzle Database in tests or outside ViteHub. The generated Nitro plugin calls it on the first Comments call. |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Write and read [Content field addresses](#content-field-addresses). |
 | `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join a Realtime room for presence, as the overlay does for [presence rooms](#presence-rooms). |
 

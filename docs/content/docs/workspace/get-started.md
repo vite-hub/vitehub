@@ -19,49 +19,48 @@ In this tutorial, you list Markdown files from a local folder. Then you write a 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install Workspace. `vite-hub` does not install it for you:
+Install the Workspace package:
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/workspace
 ```
 
-Add `workspace: true` to the ViteHub options. Keep the other options of your app.
+Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app.
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: { preset: 'node', workspace: true },
 })
 ```
-:::
+::::
 
-:::tabs-item{label="Nitro"}
+::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  server: { port: 3000, strictPort: true },
   plugins: [vitehub({ preset: 'node', workspace: true }), nitro()],
 })
 ```
-:::
+::::
 
-:::tabs-item{label="Vite"}
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  server: { port: 3000, strictPort: true },
   plugins: [vitehub({ preset: 'node', workspace: true })],
 })
 ```
+::::
 :::
-::
+
 
 ::
 
@@ -71,7 +70,7 @@ export default defineConfig({
 Create `server/workspaces/docs.ts`. The file name is the name of the Workspace: `docs`.
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace, glob } from '@vite-hub/workspace'
+import { defineWorkspace, glob } from 'vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
@@ -100,7 +99,7 @@ Create a route that lists the Markdown files in the Workspace:
 
 ```ts [server/api/docs.get.ts]
 import { defineEventHandler } from 'h3'
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async () => {
   const workspace = useWorkspace('docs')
@@ -115,13 +114,13 @@ Create a second route that writes a draft:
 
 ```ts [server/api/drafts.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async (event) => {
   const workspace = useWorkspace('docs', { mode: 'write' })
   const body = await readBody<{ text: string }>(event)
 
-  await workspace.fs.writeFile('drafts/summary.md', body.text, {
+  await workspace.fs.writeFile('drafts/summary.md', body?.text ?? '', {
     mediaType: 'text/markdown',
   })
 
@@ -158,7 +157,28 @@ curl -X POST http://localhost:3000/api/drafts \
   -d '{"text":"# Draft"}'
 ```
 
-The response is the diff. It shows the new file `drafts/summary.md`. Request `/api/docs` again, and the list also has the draft. The file `docs/intro.md` in your app does not change.
+The response is the diff. It shows the new file `drafts/summary.md`. Your `from` and `to` values are different:
+
+```json [output/diff.json]
+{
+  "from": "361e4d3ccd99a3c02491bb7bea076549e9886868e5cd701c3a3ec10938534a09",
+  "to": "b39f89281fd2971be9b8949b030c6382186e6df7347c52c1648c22ca9f060b96",
+  "entries": [
+    { "path": "drafts", "type": "added", "after": { "type": "directory" } },
+    {
+      "path": "drafts/summary.md",
+      "type": "added",
+      "after": {
+        "type": "file",
+        "digest": "2f8aa1f6d9602d7214a36d962d142cffa28dd28a8adf24bcf5c4589db06d52ff",
+        "size": 7
+      }
+    }
+  ]
+}
+```
+
+Request `/api/docs` again, and the list also has the draft. The file `docs/intro.md` in your app does not change.
 
 ::
 

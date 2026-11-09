@@ -16,7 +16,7 @@ The parts show state and call a transport. They do not store data or check acces
 
 The built-in live-site overlay uses a different thread and anchor format.
 
-::component-preview{name="CommentComposerExample"}
+::example{name="CommentComposerExample" height=8}
 ::
 
 ## Installation
@@ -141,7 +141,7 @@ comments.people.value; // The people that the state knows, for mention names.
 
 `CommentPanel` shows all comments of a page in one surface, like the side panel of a review tool. It lists threads with Open and Resolved filters. Click a thread to open it in the panel. Back returns to the list with focus on that thread. The box at the bottom comments on the whole page.
 
-::component-preview{name="CommentPanelExample"}
+::example{name="CommentPanelExample" height=8}
 ::
 
 Inside `CommentLayer`, the panel uses the layer's state. Put it in the layer's slot to replace the toolbar and list:
@@ -260,7 +260,7 @@ const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: files[
 
 `CommentThread` passes `body`, `attachments`, `extra`, and `mention-item` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra` and `mention-item` to its page box.
 
-::component-preview{name="CommentThreadSlotsExample"}
+::example{name="CommentThreadSlotsExample" height=8}
 ::
 
 ## Themes

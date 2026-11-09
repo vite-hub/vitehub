@@ -8,7 +8,7 @@ icon: i-lucide-library
 ---
 
 ::product-hero{tagline="Write Markdown files. Get a documentation site that people and coding agents can read." hosts="Node, Cloudflare"}
-  :::product-files
+  :::code-tree
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({
     modules: ['@vite-hub/docs/nuxt'],

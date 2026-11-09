@@ -8,7 +8,7 @@ icon: i-ph-magnifying-glass-light
 
 `FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/decisions/vue` sends the request, and your `onSelect` applies the result to your state.
 
-::component-preview{name="FilterSearchExample"}
+::example{name="FilterSearchExample" height=8}
 ::
 
 Type `suppliers except vak` and press Enter. Type `error` to see the error state. The example's `resolve` answers on the page, so no request leaves it.

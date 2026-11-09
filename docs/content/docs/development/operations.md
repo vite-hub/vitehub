@@ -69,7 +69,7 @@ interface OperationContext {
 }
 ```
 
-An operation with `invoke: true` runs app code: `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`. The Console registers it only when `console.invoke` is on. That is the default in development, and off in a production build. With `console.invoke` off, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch, so `schedule run --url` can run with a dispatch key and no Console credentials.
+An operation with `invoke: true` runs app code: `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`. The Console registers it only when `console.invoke` is on. That is the default in development, and off in a production build. With `console.invoke` off, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch, so `schedule run --url` can run with a dispatch key and no Console credentials.
 
 The generated commands call the Console RPC. `vitehub()` installs it. Standalone `hubKv()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, need a running app with an operation RPC.
 
@@ -234,7 +234,7 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
 | [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap` |
 | [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume`, `workflow.runs-list`, `workflow.runs-show`, `workflow.runs-clear` (development only) |
-| [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run` |
+| [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
 - `blob.put`, `blob.del`, `kv.set`, and `kv.del` change data, and the Blob and KV Console pages run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).

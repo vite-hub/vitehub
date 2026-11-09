@@ -8,7 +8,7 @@ icon: i-ph-tree-structure-light
 
 `FileTree` turns a list of repository paths into an interactive `@pierre/trees` view with folders, search, selection, and Git status. Use it to browse a Workspace or the files an Agent changed.
 
-::component-preview{name="FileTreeExample"}
+::example{name="FileTreeExample" height=20}
 ::
 
 ## Installation
@@ -48,7 +48,7 @@ With `paths`, the component creates the Pierre model and cleans it up on unmount
 
 Use `useFileTree()` when your code needs to select, search, rename, drag and drop, or change the tree. `useFileTreeSelection()` returns a reactive copy of the selected paths. Pass `gitStatus` to mark added and modified files.
 
-::component-preview{name="FileTreeControlledExample" reset}
+::example{name="FileTreeControlledExample" reset height=18}
 ::
 
 ```vue

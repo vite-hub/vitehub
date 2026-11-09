@@ -8,7 +8,7 @@ icon: i-lucide-database-zap
 ---
 
 ::product-hero{tagline="Save small values like settings under a key. Read them from any route." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files{feature="kv"}
+  :::code-tree{feature="kv"}
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({

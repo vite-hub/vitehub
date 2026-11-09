@@ -8,7 +8,7 @@ icon: i-ph-chats-circle-light
 
 `ChatSession` wraps a saved conversation. It shows a title, a `Chat` that fills the space, and an optional footer for the prompt or session actions. AI SDK has no session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your metadata.
 
-::component-preview{name="SessionExample" flush}
+::example{name="SessionExample" flush height=30}
 ::
 
 ## Installation
@@ -63,7 +63,7 @@ The component does not fetch, change, or save the session. Load it in your app, 
 
 The `header` slot replaces the title. The `footer` slot adds content under the chat. Both receive `{ session }`.
 
-::component-preview{name="SessionSlotsExample" flush}
+::example{name="SessionSlotsExample" flush height=24}
 ::
 
 ## Accessibility
