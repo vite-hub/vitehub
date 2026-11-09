@@ -54,7 +54,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_C0006: withFix("Set `blob.serve.store` to a key of `blob.stores`, or remove it to serve the `default` store."),
     BLOB_C0007: withFix("Set `blob` in the Vite config to an object, for example `{ driver: \"fs\" }`, or to `false`."),
     BLOB_C0008: withFix("Add a `default` store to `blob.stores`, for example `stores: { default: { driver: \"fs\" } }`."),
-    BLOB_C0009: withFix("On Vercel, connect a Blob store to the project, so that it gets `BLOB_STORE_ID`. Off Vercel, set `BLOB_READ_WRITE_TOKEN` in the runtime environment."),
+    BLOB_C0009: withFix("If you set `token` in the Blob config, set `BLOB_READ_WRITE_TOKEN` in the runtime environment. Otherwise, on Vercel, connect a Blob store to the project, so that it gets `BLOB_STORE_ID`. Off Vercel, set `BLOB_READ_WRITE_TOKEN` in the runtime environment."),
     BLOB_C0010: withFix("Set `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID` in the runtime environment, or set `accessKeyId` on the `minio` store."),
     BLOB_C0011: withFix("Set `MINIO_SECRET_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_ROOT_PASSWORD`, or `AWS_SECRET_ACCESS_KEY` in the runtime environment, or set `secretAccessKey` on the `minio` store."),
     BLOB_C0012: withFix("Set `blob.serve.authorize: true`, and export an `authorize` function from `server/blob.ts`. Do not put the function in the Vite config."),
