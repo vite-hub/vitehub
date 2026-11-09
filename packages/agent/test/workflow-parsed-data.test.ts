@@ -180,7 +180,8 @@ describe("durable Agent data handoff", () => {
     }
     await runAgentInline(agent, runtime, { prompt: "Direct execution." })
     const directWorkspaceName = vi.mocked(useWorkspace).mock.calls.at(-1)?.[0]
-    expect(directWorkspaceName).toBe(hostName ?? "workspace")
+    // Without a host identity, the discovered Agent runs with its discovered identity, as its own routes run it.
+    expect(directWorkspaceName).toBe(hostName ?? "discovered-agent")
     let payload: unknown
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
@@ -204,8 +205,7 @@ describe("durable Agent data handoff", () => {
     }, { prompt: "Label this email." })
 
     expect(payload).toMatchObject({ journalAgentName: hostName ?? "discovered-agent" })
-    if (hostName) expect(payload).toMatchObject({ agentIdentity: { name: hostName } })
-    else expect(payload).not.toHaveProperty("agentIdentity")
+    expect(payload).toMatchObject({ agentIdentity: { name: hostName ?? "discovered-agent" } })
     // A new Definition represents the worker isolate, which has no Console marker.
     await expect(runAgentWorkflowDefinition(createAgent(), {
       id: "discovered-run", name: "discovered-workflow",

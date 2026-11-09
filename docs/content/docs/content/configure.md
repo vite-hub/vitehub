@@ -195,7 +195,7 @@ useHead(computed(() => contentHead(page.value, { site: { url: 'https://vitehub.d
 
 `/es/docs/guide` shows the Spanish document, and `/docs/guide` the English one. Before a translation exists, `/es/docs/guide` shows the English document with `fallback: true`. In a collection with `url`, `get()` also returns `alternates`: the URL of each locale that has its own version, source locale first, such as `[{ locale: 'en', url: '/docs/guide' }, { locale: 'es', url: '/es/docs/guide' }]`. Use it for a language switcher. [`contentHead()`](/docs/content/seo#pages-in-several-locales) turns `locale` and `alternates` into `<html lang>`, `hreflang` links, and the canonical link.
 
-The Console editor and live editing work on the source locale. Edit leases and live rooms belong to the source locale document, so a translation save does not wait for the person who edits the source.
+The [Console editor](/docs/content/console#translations) switches between locales and shows the state of each translation. Edit leases and live rooms belong to the source locale document, so a translation save does not wait for the person who edits the source.
 
 ### Fields
 
