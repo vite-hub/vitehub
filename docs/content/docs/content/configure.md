@@ -60,7 +60,7 @@ export const content = defineContent({
 })
 ```
 
-Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
+Run `vitehub db generate` and `vitehub db migrate` before the first save. ViteHub needs no feature settings for the preset.
 
 To use your own Workspace, pass its name as `workspace` instead of `extends`. Its Store must keep history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. For presence and edit leases, add `contentSessionsSchema` from `vite-hub/content/database` to that Database. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 

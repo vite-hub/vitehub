@@ -40,8 +40,39 @@ Cloudflare Pages is not detected, because the `cloudflare` preset builds a
 Worker. To set host-specific options, use `detectPreset()` from
 `vite-hub/deployment`:
 
-```ts
-// vite.config.ts
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { detectPreset } from "vite-hub/deployment";
+
+const preset = detectPreset() ?? "node";
+
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  // The deno preset rejects Schedule.
+  vitehub: { preset, schedule: preset !== "deno" },
+});
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from "vite-hub";
+import { detectPreset } from "vite-hub/deployment";
+import { defineConfig } from "vite";
+import { nitro } from "nitro/vite";
+
+const preset = detectPreset() ?? "node";
+
+export default defineConfig({
+  // The deno preset rejects Schedule.
+  plugins: [vitehub({ preset, schedule: preset !== "deno" }), nitro()],
+});
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
 import { vitehub } from "vite-hub";
 import { detectPreset } from "vite-hub/deployment";
 import { defineConfig } from "vite";
@@ -53,6 +84,8 @@ export default defineConfig({
   plugins: [vitehub({ preset, schedule: preset !== "deno" })],
 });
 ```
+:::
+::
 
 `detectPreset()` returns `undefined` when no variable names a host, so your
 app picks the default.

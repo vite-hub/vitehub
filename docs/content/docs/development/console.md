@@ -286,7 +286,7 @@ The Console registers `POST /_vitehub/connections`, `GET /_vitehub/connections/c
 - `auth: false`: `user:open`.
 - Cloudflare Access: `user:cloudflare-access`.
 
-When `console.authorize` returns `{ sections }`, these routes also need the `connections` section. Nuxt apps do not have the Connections section.
+When `console.authorize` returns `{ sections }`, these routes also need the `connections` section.
 
 **Connect** stores a single-use OAuth `state`. The GET connect route sets a `state` cookie and a return-page cookie, then redirects to the provider, which returns to the GET callback route. The callback uses up the `state` and checks the cookie and the manager before it saves the grant. A `state` from another manager returns `403`. Proxies must forward both GET routes with query strings and cookies, and the POST route. With Vite `base`, these routes use that prefix.
 
@@ -294,13 +294,50 @@ When `console.authorize` returns `{ sections }`, these routes also need the `con
 
 Set `console.mcpClient` to `true` to add the MCP client section. It runs on the server and connects to MCP servers over Streamable HTTP as the person signed in to the Console. It lists and calls their tools, reads their resources, gets their prompts, and shows each result as the server sent it.
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  console: { auth: "app", mcpClient: true },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { auth: "app", mcpClient: true },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { auth: "app", mcpClient: true },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      console: { auth: "app", mcpClient: true },
+    }),
+  ],
+})
+```
+:::
+::
 
 The section uses the MCP SDK. Install it in your app first:
 
@@ -346,15 +383,56 @@ The Console keeps MCP connections on the server, per person. Tokens, refresh tok
 
 By default, connections live in server memory, and a restart ends them. To keep them, turn on the default [KV](/docs/kv) store with `kv: true` (or an explicit default KV configuration) and set `VITEHUB_CONSOLE_MCP_KEY`:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: 'cloudflare',
-  console: { auth: 'app', mcpClient: true },
-  kv: true,
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    console: { auth: 'app', mcpClient: true },
+    kv: true,
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      console: { auth: 'app', mcpClient: true },
+      kv: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      console: { auth: 'app', mcpClient: true },
+      kv: true,
+    }),
+  ],
+})
+```
+:::
+::
 
 Generate the key with:
 
@@ -1612,16 +1690,59 @@ async function stop() {
 
 On the development server, Console users can connect [Connections](/docs/connections), set API keys, refresh tokens, and disconnect. A production build has the Connections section and its routes only with `connections: { management: true }`:
 
-```ts
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  connections: { management: true },
-  console: { auth: 'app', authorize: './server/console-authorize.ts' },
-  database: true,
-  preset: 'node',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    connections: { management: true },
+    console: { auth: 'app', authorize: './server/console-authorize.ts' },
+    database: true,
+    preset: 'node',
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      connections: { management: true },
+      console: { auth: 'app', authorize: './server/console-authorize.ts' },
+      database: true,
+      preset: 'node',
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      connections: { management: true },
+      console: { auth: 'app', authorize: './server/console-authorize.ts' },
+      database: true,
+      preset: 'node',
+    }),
+  ],
+})
+```
+:::
+::
 
 > [!WARNING]
 > Every user with the `connections` section can then manage every Connection. Limit the policy to the people who own the provider accounts.
