@@ -95,6 +95,7 @@ export function createConnectionsHandler(
       if (request.method === "GET") {
         return page({
           code: isConnectionError(error) ? error.code : "CONNECTIONS_REQUEST_FAILED",
+          fix: isConnectionError(error) ? error.fix : undefined,
           message: isConnectionError(error) ? error.message : "The connection could not be completed.",
           outcome: "error",
           returnTo: requestReturnPath(request),

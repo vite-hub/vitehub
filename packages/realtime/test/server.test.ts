@@ -25,7 +25,7 @@ const serverMocks = vi.hoisted(() => ({
   useWorkspaceFiles: vi.fn(),
 }))
 
-vi.mock("@vite-hub/auth/server", () => ({
+vi.mock("@vite-hub/auth/internal/server", () => ({
   assertAuthOrigin: serverMocks.assertAuthOrigin,
 }))
 
