@@ -23,6 +23,8 @@ export interface MigrationPlan {
   database: string
   /** Where `vitehub db migrate` applies migrations, without credentials. */
   target: string
+  /** How many migrations of the journal the database already has. */
+  applied: number
   pending: PendingMigration[]
 }
 
@@ -185,13 +187,13 @@ export async function readMigrationPlan(
       const pending = listD1MigrationFiles(database.migrationsDir)
         .filter(file => !ledger.applied.has(file))
         .map(file => readPendingMigration(database.migrationsDir, file.slice(0, -".sql".length), entries))
-      return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
+      return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     const lastApplied = entries.length ? await readLastAppliedMillis(target, options) : undefined
     const pending = entries
       .filter(entry => lastApplied === undefined || lastApplied < entry.when)
       .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
-    return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
+    return [undefined, { applied: entries.length - pending.length, database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
     const problem = error instanceof Error ? error.message : String(error)
