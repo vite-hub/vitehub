@@ -3,21 +3,19 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { mountViteHubPageLinks } from "../src/runtime/page-links.ts"
 
-import type { ViteHubPageLinkGroup, ViteHubPageLinksOptions } from "../src/runtime/page-links.ts"
+import type { ViteHubPageLink, ViteHubPageLinksOptions } from "../src/runtime/page-links.ts"
 
-const GROUPS: ViteHubPageLinkGroup[] = [
-  [
-    { url: "https://drop.test/review/open#doc=1", label: "Before/after: pricing", detail: "Drop", icons: ["https://drop.test/favicon.ico"] },
-    { url: "https://github.com/acme/app/pull/12", label: "PR #12", detail: "github.com" },
-    { url: "https://linear.app/acme/issue/ACM-7", label: "linear.app" },
-  ],
-  [{ url: "https://drop.test/review/open#doc=2", label: "Pricing plan", detail: "Drop" }],
+const LINKS: ViteHubPageLink[] = [
+  { url: "https://drop.test/review/open#doc=1", label: "Before/after: pricing", detail: "Drop", icons: ["https://drop.test/favicon.ico"] },
+  { url: "https://github.com/acme/app/pull/12", label: "PR #12", detail: "github.com" },
+  { url: "https://linear.app/acme/issue/ACM-7", label: "linear.app" },
+  { url: "https://drop.test/review/open#doc=2", label: "Pricing plan", detail: "Drop" },
 ]
 
 /** The links in a shadow root, as a tool on someone's page keeps them. */
 function mount(options: Partial<ViteHubPageLinksOptions> = {}) {
   const controller = new AbortController()
-  const resolve = vi.fn(async () => GROUPS)
+  const resolve = vi.fn(async () => LINKS)
   const host = document.createElement("div")
   document.body.append(host)
   const root = host.attachShadow({ mode: "open" })
@@ -28,14 +26,14 @@ function mount(options: Partial<ViteHubPageLinksOptions> = {}) {
   return { links, root, button, resolve, controller }
 }
 
-const rows = (menu: HTMLElement) => [...menu.querySelectorAll("ul")].map(list => [...list.querySelectorAll("a")].map(a => [a.querySelector(".vitehub-links-name")?.textContent, a.getAttribute("href"), a.querySelector(".vitehub-links-detail")?.textContent ?? ""]))
+const rows = (menu: HTMLElement) => [...menu.querySelectorAll("a")].map(a => [a.querySelector(".vitehub-links-name")?.textContent, a.getAttribute("href"), a.querySelector(".vitehub-links-detail")?.textContent ?? ""])
 
 afterEach(() => {
   document.body.replaceChildren()
 })
 
 describe("mountViteHubPageLinks", () => {
-  it("resolves the links on the first press, lists each group, and keeps them until forget()", async () => {
+  it("resolves the links on the first press, lists them in one list, and keeps them until forget()", async () => {
     const { links, root, button, resolve } = mount()
     expect(button.textContent).toBe("Related links")
     expect(links.menu.hidden).toBe(true)
@@ -46,13 +44,12 @@ describe("mountViteHubPageLinks", () => {
     await vi.waitFor(() => expect(links.isOpen()).toBe(true))
     expect(button.getAttribute("aria-expanded")).toBe("true")
     expect(links.menu.querySelector("p")?.textContent).toBe("Related links")
+    expect(links.menu.querySelectorAll("ul")).toHaveLength(1)
     expect(rows(links.menu)).toEqual([
-      [
-        ["Before/after: pricing", "https://drop.test/review/open#doc=1", "Drop"],
-        ["PR #12", "https://github.com/acme/app/pull/12", "github.com"],
-        ["linear.app", "https://linear.app/acme/issue/ACM-7", ""],
-      ],
-      [["Pricing plan", "https://drop.test/review/open#doc=2", "Drop"]],
+      ["Before/after: pricing", "https://drop.test/review/open#doc=1", "Drop"],
+      ["PR #12", "https://github.com/acme/app/pull/12", "github.com"],
+      ["linear.app", "https://linear.app/acme/issue/ACM-7", ""],
+      ["Pricing plan", "https://drop.test/review/open#doc=2", "Drop"],
     ])
     const anchors = [...links.menu.querySelectorAll("a")]
     expect(anchors.every(a => a.target === "_blank" && a.rel === "noopener noreferrer")).toBe(true)
@@ -76,7 +73,7 @@ describe("mountViteHubPageLinks", () => {
   })
 
   it("says so when nothing is found, shows the resolver's error, and closes on an error without a message", async () => {
-    const empty = mount({ resolve: async () => [[]], empty: "Nothing here is shared with you." })
+    const empty = mount({ resolve: async () => [], empty: "Nothing here is shared with you." })
     empty.button.click()
     await vi.waitFor(() => expect(empty.links.isOpen()).toBe(true))
     expect(empty.links.menu.querySelector("[role=status]")?.textContent).toBe("Nothing here is shared with you.")

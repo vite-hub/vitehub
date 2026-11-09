@@ -22,20 +22,17 @@ export interface ViteHubPageLink {
   icons?: readonly string[]
 }
 
-/** Links that go together, such as a document and the pages it links to. The first one heads the group. */
-export type ViteHubPageLinkGroup = readonly ViteHubPageLink[]
-
 export interface ViteHubPageLinksOptions {
   /** The `slot` of the pill segment that holds the button. */
   slot: string
   /** The button's text and the menu's heading. Default: "Related links". */
   label?: string
   /**
-   * The links to list, in groups. The menu calls it when it opens, and keeps the answer until `forget()`. It runs in the
+   * The links to list, in order, all alike. The menu calls it when it opens, and keeps the answer until `forget()`. It runs in the
    * press, before any `await`, so it may open a popup, such as a sign-in window. When it throws, the menu shows the
    * error's message, or closes when the message is empty.
    */
-  resolve: () => Promise<readonly ViteHubPageLinkGroup[]>
+  resolve: () => Promise<readonly ViteHubPageLink[]>
   /** What the menu says when `resolve` finds no links. Default: "No related links." */
   empty?: string
   /** Runs when the menu opens, so the tool can close its other cards. */
@@ -70,9 +67,7 @@ export const viteHubPageLinksStyles: string = `.vitehub-links{position:fixed;z-i
 .vitehub-links p{margin:0;padding:6px 8px 4px;color:#a3a3a3;font-size:12px}
 .vitehub-links p[role=status]{padding:6px 8px;color:#d4d4d4;font-size:13px}
 .vitehub-links ul{margin:0;padding:0;list-style:none}
-.vitehub-links ul+ul{margin-top:4px;padding-top:4px;border-top:1px solid rgb(255 255 255/12%)}
 .vitehub-links a{display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 8px;border-radius:8px;color:#d4d4d4;font-weight:400;text-decoration:none;outline:none}
-.vitehub-links li:first-child a{color:#fafafa;font-weight:500}
 @media(hover:hover){.vitehub-links a:hover{background:rgb(255 255 255/8%);color:#fafafa}}
 .vitehub-links a:focus-visible{background:rgb(255 255 255/8%);box-shadow:inset 0 0 0 2px #fafafa}
 .vitehub-links-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -137,8 +132,8 @@ export function mountViteHubPageLinks(options: ViteHubPageLinksOptions): ViteHub
   menu.hidden = true
   button.setAttribute("aria-controls", menu.id = `vitehub-links-${Math.random().toString(36).slice(2)}`)
 
-  let groups: readonly ViteHubPageLinkGroup[] | undefined
-  let pending: Promise<readonly ViteHubPageLinkGroup[]> | undefined
+  let links: readonly ViteHubPageLink[] | undefined
+  let pending: Promise<readonly ViteHubPageLink[]> | undefined
   let asked = 0
 
   const close = () => {
@@ -168,7 +163,7 @@ export function mountViteHubPageLinks(options: ViteHubPageLinksOptions): ViteHub
     item.append(anchor)
     return item
   }
-  const draw = (content: readonly ViteHubPageLinkGroup[] | string) => {
+  const draw = (content: readonly ViteHubPageLink[] | string) => {
     const heading = document.createElement("p")
     heading.textContent = label
     menu.replaceChildren(heading)
@@ -179,11 +174,9 @@ export function mountViteHubPageLinks(options: ViteHubPageLinksOptions): ViteHub
       menu.append(status)
       return
     }
-    for (const group of content) {
-      const list = document.createElement("ul")
-      list.append(...group.map(row))
-      menu.append(list)
-    }
+    const list = document.createElement("ul")
+    list.append(...content.map(row))
+    menu.append(list)
   }
   // A press outside the menu and its button closes it. The menu may sit in a closed shadow root, where a press on the
   // page reaches `window` without the menu in its path, so the root that holds the menu listens too.
@@ -198,7 +191,7 @@ export function mountViteHubPageLinks(options: ViteHubPageLinksOptions): ViteHub
     listening = root
     root.addEventListener("pointerdown", outside, { capture: true, signal })
   }
-  const show = (content: readonly ViteHubPageLinkGroup[] | string) => {
+  const show = (content: readonly ViteHubPageLink[] | string) => {
     listen()
     options.onOpen?.()
     draw(content)
@@ -208,7 +201,7 @@ export function mountViteHubPageLinks(options: ViteHubPageLinksOptions): ViteHub
   }
 
   const open = async () => {
-    if (groups) return show(groups.length ? groups : options.empty ?? "No related links.")
+    if (links) return show(links.length ? links : options.empty ?? "No related links.")
     // `resolve` runs now, in the press, so it may still open a popup.
     const ask = ++asked
     pending ??= options.resolve()
@@ -217,8 +210,8 @@ export function mountViteHubPageLinks(options: ViteHubPageLinksOptions): ViteHub
     try {
       const found = await answer
       if (ask !== asked || signal.aborted) return
-      groups = found.filter(group => group.length > 0)
-      show(groups.length ? groups : options.empty ?? "No related links.")
+      links = found
+      show(links.length ? links : options.empty ?? "No related links.")
     }
     catch (error) {
       if (ask !== asked || signal.aborted) return
@@ -268,7 +261,7 @@ export function mountViteHubPageLinks(options: ViteHubPageLinksOptions): ViteHub
     close,
     isOpen: () => !menu.hidden,
     forget: () => {
-      groups = undefined
+      links = undefined
       pending = undefined
       asked++
       button.removeAttribute("aria-busy")
