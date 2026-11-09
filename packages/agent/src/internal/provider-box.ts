@@ -102,7 +102,7 @@ export async function openProviderSandbox<Context>(options: {
   try {
     const spawn = session.spawn
     if (!spawn) {
-      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Sandbox runtime ${sandbox.plan.runtime} cannot start long-running processes. Use a Sandbox runtime with process support, such as trusted-host or crabbox.` })
+      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Sandbox runtime ${sandbox.plan.runtime} cannot start long-running processes. Use a Sandbox runtime with process support, such as trusted-host, crabbox, or container.` })
     }
     const home = await session.exec("sh", ["-c", "printf %s \"$HOME\""], { signal: options.signal })
     if (!home.ok || !home.stdout.startsWith("/")) {
