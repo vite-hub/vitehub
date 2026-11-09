@@ -149,7 +149,7 @@ export function scheduledWakeTime(cron: string, now: Date = new Date()): Date {
  * Returns `true` when a host wake at `scheduledAt` is an occurrence of the Definition's cron in its `timeZone`. The host
  * runs a wider UTC cron for a time-zoned Schedule, so the runtime skips the wakes that are not local occurrences.
  */
-export function isTimeZoneWakeDue(definition: ScheduleDefinition, name: string, scheduledAt: Date): boolean {
+export function isTimeZoneWakeDue(definition: ScheduleDefinition & { cron: string }, name: string, scheduledAt: Date): boolean {
   const minute = new Date(Math.floor(scheduledAt.getTime() / 60_000) * 60_000)
   return isScheduleDue({ cron: definition.cron, id: name, ...(definition.timeZone ? { timeZone: definition.timeZone } : {}) }, minute)
 }
@@ -346,7 +346,7 @@ function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<str
   return isRecord(runtimeCloudflare?.env) ? runtimeCloudflare.env : undefined
 }
 
-function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition & { cron: string } {
   return isRecord(value)
     && Object.hasOwn(value, "cron")
     && hasRuntimeType(value.cron, "string")
@@ -355,7 +355,7 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && typeof value.handler === "function"
 }
 
-export function unwrapScheduleDefinition(loaded: unknown): ScheduleDefinition | undefined {
+export function unwrapScheduleDefinition(loaded: unknown): (ScheduleDefinition & { cron: string }) | undefined {
   const candidate = isRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
   return isStaticScheduleDefinition(candidate) ? candidate : undefined
 }

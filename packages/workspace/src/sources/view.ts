@@ -282,14 +282,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return matched
   }
 
-  async function ensurePrepared(sourceKey: string) {
+  async function ensurePrepared(sourceKey: string, path?: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     if (source.materialize === "startup" && completedSources.has(sourceKey)) {
-      if (await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots, options.reuseStartupSnapshots ? sources : undefined)) return
+      if (await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots, options.reuseStartupSnapshots ? sources : undefined, path)) return
       completedSources.delete(sourceKey)
     }
-    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, definition.name, source, true, sources)) {
+    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, definition.name, source, true, sources, path)) {
       reusedStartupSources.add(sourceKey)
       return
     }
@@ -395,7 +395,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return await current
   }
 
-  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = true): Promise<void> {
+  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = true, path?: string): Promise<void> {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     // File reads can validate overlapping root Sources per path and fall through to a lazy Source.
@@ -419,19 +419,19 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
       const maxAge = source.cache && source.cache.maxAge
       if (source.materialize === "startup"
-        ? await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : undefined)
+        ? await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : undefined, path)
         : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, definition.name, source)) return
       materializedSources.delete(sourceKey)
     }
     if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
-      if (await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : undefined)) return
+      if (await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : undefined, path)) return
       completedSources.delete(sourceKey)
       reusedStartupSources.delete(sourceKey)
     }
     // Snapshot validation can yield while another consumer starts recovery.
     // Join that recovery instead of queuing another provider refresh.
     const recovery = pendingBySource.get(sourceKey)
-    if (recovery && recovery !== pending) return await ensureMaterialized(sourceKey, verifyRootOwnership)
+    if (recovery && recovery !== pending) return await ensureMaterialized(sourceKey, verifyRootOwnership, path)
     await materializeSerialized({ sources: [sourceKey] })
   }
 
@@ -820,13 +820,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (descriptorSource) return decodeFile(descriptorContent(descriptorSource), options)
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
-        await ensurePrepared(resolution.sourceKey)
+        await ensurePrepared(resolution.sourceKey, resolution.workspacePath)
         if (isLiveSource(resolution.sourceKey)) {
           const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
           return decodeFile(await sourceItemContent(item), options)
         }
         if (resolution.source.materialize === "startup") {
-          await ensureMaterialized(resolution.sourceKey)
+          await ensureMaterialized(resolution.sourceKey, true, resolution.workspacePath)
         }
         const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge
         let shouldRefreshCachedLazy = false
@@ -839,7 +839,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
-        await ensureMaterialized(resolution.sourceKey)
+        await ensureMaterialized(resolution.sourceKey, true, resolution.workspacePath)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       await materializeRootStartupSources(false)

@@ -564,7 +564,7 @@ export function featureSupport(id: FeatureId, host: FeatureHost, preset?: Deploy
 
 /**
  * The features that `enabled` turn on through implications on `preset`, without the ones already in `enabled`.
- * Implications chain, so Console turns on Comments, which turns on Database.
+ * This follows implications transitively.
  * `disabled` lists features that the app sets to `false`; an implication never turns them on.
  */
 export function impliedFeatures(enabled: readonly FeatureId[], preset: DeploymentPreset, disabled: readonly FeatureId[] = []): FeatureId[] {
