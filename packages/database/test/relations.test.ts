@@ -85,6 +85,21 @@ describe("mergeDatabaseRelations", () => {
     }))
   })
 
+  it("rejects a many-to-many relation whose junction table a later layer replaced", () => {
+    const tags = sqliteTable("tags", { id: integer("id").primaryKey() })
+    const postTags = sqliteTable("post_tags", { postId: integer("post_id").notNull(), tagId: integer("tag_id").notNull() })
+    const part = defineRelationsPart({ postTags, posts, tags }, r => ({
+      posts: { tags: r.many.tags({ from: r.posts.id.through(r.postTags.postId), to: r.tags.id.through(r.postTags.tagId) }) },
+    }))
+    const replacement = sqliteTable("post_tags", { postId: integer("post_id").notNull(), tagId: integer("tag_id").notNull(), position: integer("position") })
+
+    expect(Object.keys(mergeDatabaseRelations("blog", { postTags, posts, tags }, [part]).posts!.relations)).toEqual(["tags"])
+    expect(() => mergeDatabaseRelations("blog", { postTags: replacement, posts, tags }, [part])).toThrow(expect.objectContaining({
+      code: "DATABASE_INVALID_RELATIONS",
+      why: "The relation \"posts.tags\" of the database \"blog\" targets the table \"postTags\", but the merged schema holds another table object for that key. A later Nuxt layer replaced the table.",
+    }))
+  })
+
   it("rejects a relation to a table that is not in the merged schema", () => {
     const part = defineRelationsPart(schema, r => ({ posts: { author: r.one.users({ from: r.posts.authorId, to: r.users.id }) } }))
 
