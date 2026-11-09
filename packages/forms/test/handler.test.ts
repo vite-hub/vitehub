@@ -186,6 +186,23 @@ describe("handleFormRequest", () => {
     expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=error")
   })
 
+  it("trusts the origin of a TLS proxy, keeps redirects on the site, and rejects a broken multipart body", async () => {
+    const { all } = services()
+    // The proxy ends TLS, so the server sees `http:` and the browser sends its `https:` origin.
+    const proxied = new Request("http://site.test/api/_vitehub/forms/contact", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://site.test", "x-forwarded-proto": "https" },
+      body: JSON.stringify({ email: "ada@example.com", message: "Hi" }),
+    })
+    expect((await handleFormRequest("contact", contact, proxied, all)).status).toBe(201)
+    // A path with two leading slashes would send the visitor to another site.
+    const html = { type: "application/x-www-form-urlencoded", headers: { accept: "text/html", referer: `${origin}//x//evil.test` } }
+    const sent = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, html), all)
+    expect(sent.headers.get("location")).toBe("/x//evil.test?form=sent")
+    const broken = post({}, { type: "multipart/form-data", raw: "not multipart" })
+    expect((await handleFormRequest("contact", contact, broken, all)).status).toBe(400)
+  })
+
   it("reads multipart form data", async () => {
     const { store, all } = services()
     const body = new FormData()

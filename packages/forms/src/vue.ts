@@ -1,7 +1,7 @@
-import { getInput, handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
-import { computed, defineComponent, h, ref } from "vue"
+import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
+import { computed, defineComponent, h, ref, useId } from "vue"
 
-import { submitForm } from "./client.ts"
+import { formRoute, submitForm } from "./client.ts"
 
 import type { FormSchema, FormStore } from "@formisch/vue"
 import type { PropType, Ref, VNode } from "vue"
@@ -47,6 +47,9 @@ export function useFormSubmit<TSchema extends FormSchema>(name: string, form: Fo
     for (const issue of failure.issues) {
       if (issue.path.length) setFieldErrors(form, { path: issue.path, errors: [issue.message] })
     }
+    // Move focus to the first field with a server issue, as Formisch does for its own validation.
+    const first = failure.issues.find(issue => issue.path.length)
+    if (first) (focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })
     const message = formIssues[0] ?? (failure.issues.length ? undefined : failure.message)
     if (message) setErrors(form, { errors: [message, ...formIssues.slice(1)] })
   }
@@ -87,14 +90,17 @@ function humanize(key: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-function unwrap(node: SchemaNode): { node: SchemaNode, required: boolean } {
+/** The base schema, whether a wrapper made it optional, and the actions of every layer, outer first. */
+function unwrap(node: SchemaNode): { node: SchemaNode, required: boolean, actions: readonly SchemaNode[] } {
   let current = node
   let required = true
+  const actions: SchemaNode[] = [...node.pipe ?? []]
   while (["optional", "nullish", "nullable", "exact_optional", "undefinedable"].includes(current.type) && current.wrapped) {
     required = false
     current = current.wrapped
+    actions.push(...current.pipe ?? [])
   }
-  return { node: current, required }
+  return { node: current, required, actions }
 }
 
 /**
@@ -106,8 +112,8 @@ export function describeFormFields(schema: unknown): AutoFormField[] {
   const root = schema as SchemaNode
   if (root?.type !== "object" || !root.entries) throw new TypeError("[vitehub] AutoForm needs a Valibot object schema, such as v.object({ message: v.string() }).")
   return Object.entries(root.entries).map(([key, entry]) => {
-    const { node, required } = unwrap(entry)
-    const actions = node.pipe ?? []
+    // `v.pipe(v.optional(v.string()), v.title("Name"))` keeps its title on the outer pipe.
+    const { node, required, actions } = unwrap(entry)
     const action = (type: string) => actions.find(item => item.type === type)
     const label = action("title")?.title ?? humanize(key)
     const description = action("description")?.description
@@ -153,12 +159,12 @@ const AutoFormControl = defineComponent({
         control = h("input", { ...common, type: "checkbox", checked: value === true, onChange: (event: Event) => { store.input = (event.target as HTMLInputElement).checked as never } })
       }
       else if (field.control === "select") {
-        // Each option is its index, so a number option goes back to the form as a number.
+        // The option text is its value, so a post without JavaScript sends it. A number option goes back as a number.
         const options = field.options ?? []
-        const selected = options.indexOf(value as string | number)
-        control = h("select", { ...common, value: selected < 0 ? "" : String(selected), onChange: (event: Event) => { const index = (event.target as HTMLSelectElement).value; store.input = (index === "" ? undefined : options[Number(index)]) as never } }, [
-          h("option", { value: "", disabled: true }, "Choose one"),
-          ...options.map((option, index) => h("option", { value: String(index) }, String(option))),
+        control = h("select", { ...common, value: value === undefined || value === null ? "" : String(value), onChange: (event: Event) => { const text = (event.target as HTMLSelectElement).value; store.input = options.find(option => String(option) === text) as never } }, [
+          // An optional select can go back to empty.
+          h("option", { value: "", disabled: field.required }, "Choose one"),
+          ...options.map(option => h("option", { value: String(option) }, String(option))),
         ])
       }
       else {
@@ -218,12 +224,20 @@ export const AutoForm = defineComponent({
       get anchor() { return props.anchor },
       get base() { return props.base },
     } as SubmitFormOptions)
-    const onSubmit = handleSubmit(form, async () => {
+    // The event form of `handleSubmit()`, so it cancels the browser post.
+    const submit = handleSubmit(form, async (_output: unknown, _event: SubmitEvent) => {
       await send(props.honeypot ? { [props.honeypot]: trap.value } : {})
       if (sent.value) emit("sent", sent.value)
     })
-    const prefix = `vitehub-form-${props.name}`
-    return () => h("form", { "data-vitehub-form": props.name, novalidate: true, onSubmit }, [
+    // The button stays focusable while it sends, so a second submit is ignored here instead.
+    const onSubmit = (event: SubmitEvent) => {
+      if (!form.isSubmitting) return submit(event)
+      event.preventDefault()
+    }
+    // One id for each instance, so two forms of one name on a page keep their labels apart.
+    const prefix = `vitehub-form-${props.name}-${useId()}`
+    // `method` and `action` post the form to its route before the app hydrates, or without JavaScript.
+    return () => h("form", { "data-vitehub-form": props.name, method: "post", action: formRoute(props.name, props.base), novalidate: true, onSubmit }, [
       ...fields.value.map(field => h(AutoFormControl, { key: field.key, form, field, id: `${prefix}-${field.key}` })),
       props.honeypot
         ? h("input", {
@@ -237,8 +251,9 @@ export const AutoForm = defineComponent({
           })
         : null,
       form.errors ? h("p", { "data-error": "", role: "alert" }, form.errors[0]) : null,
-      sent.value ? h("p", { "data-sent": "", role: "status" }, slots.sent?.() ?? props.sentMessage) : null,
-      h("button", { type: "submit", disabled: form.isSubmitting, "aria-busy": form.isSubmitting ? "true" : undefined }, form.isSubmitting ? `${props.submitLabel}…` : props.submitLabel),
+      // The live region is always there, so screen readers announce the text when it appears.
+      h("p", { "data-sent": sent.value ? "" : undefined, role: "status" }, sent.value ? slots.sent?.() ?? props.sentMessage : undefined),
+      h("button", { type: "submit", "aria-disabled": form.isSubmitting ? "true" : undefined, "aria-busy": form.isSubmitting ? "true" : undefined }, form.isSubmitting ? `${props.submitLabel}…` : props.submitLabel),
     ])
   },
 })

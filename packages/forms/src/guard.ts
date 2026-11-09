@@ -1,3 +1,5 @@
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+
 import type { FormAnchor, FormRateLimit, FormRateLimitDecision } from "./types.ts"
 
 const defaultRateLimit = { limit: 5, window: "1m" }
@@ -35,7 +37,8 @@ async function readText(request: Request, limit: number): Promise<string | undef
     if (done) break
     size += value.byteLength
     if (size > limit) {
-      await reader.cancel()
+      // Not awaited: with a copy of the request, the cancel settles only when the copy is done too.
+      reader.cancel().catch(() => {})
       return undefined
     }
     chunks.push(value)
@@ -59,9 +62,16 @@ async function readBody(request: Request, kind: BodyKind, text: string): Promise
       return undefined
     }
   }
-  const form = request.headers.get("content-type")?.toLowerCase().startsWith("multipart/")
-    ? await new Response(text, { headers: { "content-type": request.headers.get("content-type")! } }).formData()
-    : new URLSearchParams(text)
+  let form: FormData | URLSearchParams
+  try {
+    form = request.headers.get("content-type")?.toLowerCase().startsWith("multipart/")
+      ? await new Response(text, { headers: { "content-type": request.headers.get("content-type")! } }).formData()
+      : new URLSearchParams(text)
+  }
+  catch {
+    // A multipart body without its boundary, or a broken one.
+    return undefined
+  }
   const body: Record<string, unknown> = {}
   for (const [key, value] of form.entries()) {
     if (typeof value !== "string") return undefined
@@ -75,9 +85,11 @@ function appPath(value: unknown, request: Request): string | null {
   const raw = typeof value === "string" ? value : request.headers.get("referer")
   if (!raw) return null
   try {
-    const url = new URL(raw, request.url)
-    if (url.origin !== new URL(request.url).origin) return null
-    return `${url.pathname}${url.search}`.slice(0, 2000)
+    const origin = forwardedRequestOrigin(request)
+    const url = new URL(raw, origin)
+    if (url.origin !== origin) return null
+    // One leading slash: `//evil.test` would be a link to another site.
+    return `${url.pathname.replace(/^\/+/, "/")}${url.search}`.slice(0, 2000)
   }
   catch {
     return null
@@ -128,7 +140,7 @@ export interface GuardRequestOptions {
   rateLimit?: FormRateLimit | false
   /**
    * Access checks of the app, such as sign-in. They run after the origin check and before the rate limit and the body,
-   * so a refused request uses no rate budget and the check can still read the body. Return a status and a message to
+   * so a refused request uses no rate budget. The check gets a copy of the request, so it can read the body. Return a status and a message to
    * stop the request.
    */
   check?: (request: Request) => Promise<{ status: number, message: string } | undefined> | { status: number, message: string } | undefined
@@ -159,11 +171,17 @@ export async function guardRequest(request: Request, options: GuardRequestOption
   const kind = bodyKind(request)
   if (!kind) return [fail(415, "Send JSON or form data."), undefined]
   const origin = request.headers.get("origin")
-  if (origin && origin !== new URL(request.url).origin && !options.origins?.includes(origin)) return [fail(403, "This origin may not send this form."), undefined]
+  // Behind a proxy that ends TLS, `request.url` is `http:` while the browser sends its `https:` origin.
+  if (origin && origin !== forwardedRequestOrigin(request) && !options.origins?.includes(origin)) return [fail(403, "This origin may not send this form."), undefined]
   const html = wantsPage(request, kind)
   // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
   const stop = (status: number, message: string, headers?: Record<string, string>): [Response, undefined] => [html ? back(request, appPath(undefined, request), "error") : fail(status, message, headers), undefined]
-  const refused = await options.check?.(request)
+  // A copy, so the check can read the body and the guard still reads it after. A copy that the check did not read is
+  // cancelled, else cancelling the guard's own read of a large body waits for it.
+  const copy = options.check ? request.clone() : undefined
+  const refused = copy ? await options.check?.(copy) : undefined
+  // Not awaited: a branch of a tee settles its cancel only when the other branch is done too.
+  if (copy?.body && !copy.bodyUsed && !copy.body.locked) copy.body.cancel().catch(() => {})
   if (refused) return stop(refused.status, refused.message)
   const rateLimit = options.rateLimit === false ? undefined : options.rateLimit ?? defaultRateLimit
   if (rateLimit && services.rateLimit) {

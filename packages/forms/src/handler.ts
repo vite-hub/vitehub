@@ -49,9 +49,9 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     ...(options.maxBytes ? { maxBytes: options.maxBytes } : {}),
     ...(options.rateLimit !== undefined ? { rateLimit: options.rateLimit } : {}),
     // Before the rate limit and the body: a refused sender uses no budget, and `authorize` can still read the body.
-    check: async () => {
-      caller.user = services.identify ? await services.identify(request) : null
-      if (!options.authorize || await options.authorize({ request, user: caller.user })) return undefined
+    check: async (incoming) => {
+      caller.user = services.identify ? await services.identify(incoming) : null
+      if (!options.authorize || await options.authorize({ request: incoming, user: caller.user })) return undefined
       return caller.user ? { status: 403, message: "You may not send this form." } : { status: 401, message: "Sign in to send this form." }
     },
   }, services)
