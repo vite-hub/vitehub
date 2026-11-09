@@ -358,7 +358,7 @@ export default defineAgent({
 
 Build the questions with `ask`:
 
-```ts [server/agents/labeller.ts]
+```ts [server/agents/email-labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'
 
@@ -375,11 +375,15 @@ export default defineAgent({
 })
 ```
 
-The answers are the Invocation output, and their type comes from the questions. The standalone `runAgent` overload returns a tuple, so destructure it before reading the result:
+The answers are the Invocation output, and their type comes from the questions. `runAgent()` returns a tuple, so destructure it and read `result.output`:
 
-```ts
-const [error, answers] = await runAgent(labeller, { prompt: 'Invoice 42' })
+```ts [server/label-email.ts]
+import { runAgent } from 'vite-hub/agent'
+import labeller from './agents/email-labeller'
+
+const [error, result] = await runAgent(labeller, { prompt: 'Invoice 42' })
 if (error) throw error
+const answers = result.output!
 answers.label.choice // 'invoice' | 'none'
 answers.urgent // boolean
 ```
