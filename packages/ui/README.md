@@ -90,6 +90,8 @@ A share link holds the files in its URL hash, so nothing is stored on a server. 
 ```ts
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundUrl, readPlaygroundHash } from "@vite-hub/ui/playground";
 
+const kv = { id: "kv", files: { "server/api/hello.get.ts": "export default () => 'hello'\n" } };
+const files = { ...kv.files, "server/api/hello.get.ts": "export default () => 'edited'\n" };
 const code = await encodePlaygroundLink({ template: "kv", files }, kv.files);
 const url = playgroundUrl("/playground", code); // "/playground#code=…"
 
