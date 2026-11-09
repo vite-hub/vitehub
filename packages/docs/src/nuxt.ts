@@ -26,7 +26,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
-import { createDocsManifest } from "./manifest.ts"
+import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
@@ -411,12 +411,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }])
     }
 
-    // The manifest is data, not code: the app and the server import the same file, so both see a content change.
+    // The manifest is data, not code: the server imports the whole manifest, and the app a copy with only the page
+    // fields that it reads. Both are written from the same manifest, so both see a content change.
     // `JSON.parse` of a string parses much faster than an object literal of the same size, and every page loads it.
     const manifestSource = () => `export default JSON.parse(${JSON.stringify(JSON.stringify(manifest))})\n`
     const manifestFile = addTemplate({ filename: "docs/manifest.mjs", getContents: manifestSource, write: true }).dst
-    nuxt.options.alias["#docs/manifest"] = manifestFile
-    addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
+    addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
     addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
