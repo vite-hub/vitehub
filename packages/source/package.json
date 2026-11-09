@@ -100,8 +100,7 @@
     "@vite-hub/runtime": "workspace:*",
     "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
-    "nostics": "catalog:runtime",
-    "ofetch": "catalog:unjs"
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",

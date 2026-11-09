@@ -188,7 +188,6 @@ describe("workspace public API", () => {
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
-    expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
     expect(packageJson.dependencies?.vite).toBeUndefined()
     expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
     expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
