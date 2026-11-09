@@ -91,27 +91,27 @@ icon: i-lucide-shield-check
 
 ::product-features
   :::product-feature-item{title="One file sets up sign-in" icon="i-lucide-file-code-2" to="/docs/auth/configure#auth-definition"}
-  Add `server/auth.ts`. Sign-up, sign-in, and session routes appear under `/api/auth`.
+  Add `server/auth.ts` to get sign-up, sign-in, and session routes under `/api/auth`.
   :::
 
   :::product-feature-item{title="Protect a route" icon="i-lucide-lock" to="/docs/auth/server-api#use-it-at-runtime"}
-  Wrap a handler in `withAuth()`. It runs only for signed-in users.
+  Wrap a handler in `withAuth()` so only signed-in users reach it.
   :::
 
   :::product-feature-item{title="Decide who gets in" icon="i-lucide-shield-check" to="/docs/auth/server-api#authorize-access-routes"}
-  An `authorize` function checks your own roles. Return `false` to send `403`.
+  `authorize` checks your roles. Return `false` to send `403`.
   :::
 
   :::product-feature-item{title="Session state in Vue" icon="i-lucide-user-check" to="/docs/auth/server-api#use-it-at-runtime"}
-  `useUserSession()` gives you the user, `loggedIn`, and sign-in and sign-out actions.
+  `useUserSession()` gives the user, `loggedIn`, and sign-in and sign-out actions.
   :::
 
   :::product-feature-item{title="Keep secrets out of your code" icon="i-lucide-key-round" to="/docs/auth/configure#runtime-options"}
-  Read the auth secret and OAuth keys from server environment variables when a request arrives.
+  Read the auth secret and OAuth keys from server environment variables at request time.
   :::
 
   :::product-feature-item{title="Add a database for production" icon="i-lucide-database" to="/docs/auth/configure#keep-users-in-the-app-database"}
-  `authDatabase()` keeps users in the app Database and adds the Better Auth tables to it.
+  `authDatabase()` adds the Better Auth tables to the app Database.
   :::
 ::
 

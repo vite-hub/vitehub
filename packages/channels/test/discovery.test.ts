@@ -78,7 +78,7 @@ describe("discoverChannelDefinitions", () => {
     expect(discoverChannelDefinitions({ rootDir: root }).map(definition => definition.name)).toEqual(["alerts", "index"])
   })
 
-  it("skips Agent Channel modules that share server/channels", async () => {
+  it("lists every defineChannel() module in server/channels", async () => {
     const root = await createTempProject()
     await touch(root, "server/channels/teams/index.ts", [
       "import { defineChannel } from 'vite-hub/channels'",
@@ -86,41 +86,14 @@ describe("discoverChannelDefinitions", () => {
       "export default defineChannel({ adapter: teams() })",
       "",
     ].join("\n"))
-    await touch(root, "server/channels/airtable/index.ts", [
-      "import { defineChannel } from 'vite-hub/agent/channels'",
-      "export const airtable = defineChannel('airtable', {})",
-      "export default airtable",
-      "",
-    ].join("\n"))
-    await touch(root, "server/channels/mailbox/index.ts", [
-      "import { defineChannel as channel } from '@vite-hub/agent/channels'",
-      "export default (channel('mailbox', {}) satisfies object)",
-      "",
-    ].join("\n"))
-    await touch(root, "server/channels/github/index.ts", [
-      "import * as channels from 'vite-hub/agent/channels'",
-      "const github = channels.defineChannel('github', {})",
-      "export { github as default }",
-      "",
-    ].join("\n"))
-    await touch(root, "server/channels/discord/index.ts", [
-      "import * as channels from 'vite-hub/agent/channels'",
-      `const discord = channels["defineChannel"]('discord', {})`,
-      "export { discord as default }",
-      "",
-    ].join("\n"))
-    await touch(root, "server/channels/aliased/index.ts", [
-      "import { defineChannel } from 'vite-hub/agent/channels'",
-      "const makeChannel = defineChannel",
-      "export default makeChannel('aliased', {})",
+    await touch(root, "server/channels/stripe.ts", [
+      "import { defineChannel, stripe } from 'vite-hub/channels'",
+      "const channel = defineChannel({ adapter: stripe() })",
+      "export { channel as default }",
       "",
     ].join("\n"))
 
-    const expected = [
-      { handler: join(root, "server/channels/teams/index.ts"), name: "teams", source: "server-channels" },
-    ]
-    expect(discoverChannelDefinitions({ rootDir: root })).toEqual(expected)
-    expect(discoverChannelDefinitions({ mode: "server-channels", scanDirs: [join(root, "server")] })).toEqual(expected)
+    expect(discoverChannelDefinitions({ mode: "server-channels", scanDirs: [join(root, "server")] }).map(definition => definition.name)).toEqual(["stripe", "teams"])
   })
 
   it("skips factories, classes, primitives, and modules without a default export", async () => {
