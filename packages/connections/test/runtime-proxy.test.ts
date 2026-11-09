@@ -79,6 +79,7 @@ it("uses the registry that the vite dev Nitro plugin installs", async () => {
     activityRetention: undefined,
     database: async () => { throw new Error("installed database") },
     default: { mail: async () => ({ default: definition }) },
+    docs: undefined,
   })
   await expect(getConnectionsRuntime().inspect("mail")).rejects.toThrow("installed database")
 })

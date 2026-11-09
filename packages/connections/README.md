@@ -150,6 +150,10 @@ export default defineConnection({
 
 This file defines `portal:acme` and `portal:globex`. Use them like any other Connection, for example `useConnection("portal:acme")` or `mcp({ servers: { portal_acme: { connection: "portal:acme" } } })`. `list()`, the CLI, and the Console show each instance. The bare name `portal` fails with an error that lists the instances. An instance key has 1 to 128 letters, digits, `.`, `_`, or `-`, and keys must be unique. `definition(instance)` runs once per process, when the instance is first used.
 
+## Write setup docs
+
+Put the steps a person needs before connecting, such as which account to choose, in a Markdown file next to the definition: `server/connections/crm.md` for `crm.ts`. The Console shows it on the Connection before the **Connect** button, `vitehub connections inspect` prints it, and `inspect()` returns it as `docs`. A definition's `docs` option replaces the file, for example to give each instance its own steps.
+
 ## Pace and retry requests
 
 Set `requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.

@@ -36,6 +36,7 @@ const requestsSchema = v.optional(v.strictObject({
 }))
 
 const rulesSchema = {
+  docs: v.optional(v.string()),
   api: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), v.optional(v.array(v.string()))))),
   access: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), accessRuleSchema))),
 }
@@ -108,6 +109,7 @@ const definitionSchema = v.pipe(
   v.union([oauthDefinitionSchema, apiKeyDefinitionSchema, loginDefinitionSchema, v.strictObject({
     provider: chatgptProviderSchema,
     access: v.record(v.string(), v.strictObject({ read: v.optional(v.boolean()) })),
+    docs: v.optional(v.string()),
   })]),
   // The `"mcp"` preset allows only the provider's `mcp` endpoint, so a provider without one would deny every call.
   v.check(definition => definition.provider.mcp !== undefined || !Object.values(definition.access ?? {}).includes("mcp")),

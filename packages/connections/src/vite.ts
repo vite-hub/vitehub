@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { existsSync, statSync } from "node:fs"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -297,6 +298,16 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   };
 };
 
+/** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
+export function colocatedConnectionDocsFile(handler: string): string {
+  return handler.replace(/\.(?:[jt]sx?|[cm][jt]s)$/i, ".md");
+}
+
+function hasColocatedConnectionDocs(definition: DiscoveredConnectionDefinition): boolean {
+  const file = colocatedConnectionDocsFile(definition.handler);
+  return file !== definition.handler && existsSync(file) && statSync(file).isFile();
+}
+
 function renderRegistry(
   definitions: DiscoveredConnectionDefinition[],
   database: string | false,
@@ -305,6 +316,12 @@ function renderRegistry(
 ): string {
   return [
     `export const activityRetention = ${JSON.stringify(activityRetention)}`,
+    // Each `<name>.md` loads like its definition, so an edit reaches the next `inspect()` in `vite dev`.
+    "export const docs = Object.create(null)",
+    ...definitions.filter(hasColocatedConnectionDocs).map(
+      (definition) =>
+        `docs[${JSON.stringify(definition.name)}] = () => import(${JSON.stringify(`${colocatedConnectionDocsFile(definition.handler)}?raw`)}).then(module => module.default)`,
+    ),
     "const registry = Object.create(null)",
     ...definitions.map(
       (definition) =>

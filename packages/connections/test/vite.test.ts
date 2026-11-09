@@ -156,6 +156,22 @@ describe("hubConnections", () => {
     await expect(registryFor(false)).resolves.toContain("export const activityRetention = false");
   });
 
+  it("writes the Markdown next to each definition file into the registry", async () => {
+    const root = await createTempProject();
+    await writeConnection(root, "server/connections/github.ts");
+    await writeConnection(root, "server/connections/slack.ts");
+    await writeConnection(root, "src/linear.connection.ts");
+    await writeFile(join(root, "server/connections/github.md"), "Connect the **bot** account.\n");
+    await writeFile(join(root, "src/linear.connection.md"), "Use the team workspace.\n");
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections().config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
+    const registry = await readFile((config.nitro as { alias: Record<string, string> }).alias[CONNECTIONS_REGISTRY_ID]!, "utf8");
+    expect(registry).toContain(`docs["github"] = () => import(${JSON.stringify(join(root, "server/connections/github.md?raw"))}).then(module => module.default)`);
+    expect(registry).toContain(`docs["linear"] = () => import(${JSON.stringify(join(root, "src/linear.connection.md?raw"))}).then(module => module.default)`);
+    expect(registry).not.toContain('docs["slack"]');
+    expect(discoverConnectionDefinitions({ rootDir: root }).map(definition => definition.name).sort()).toEqual(["github", "linear", "slack"]);
+  });
+
   it.each([{ maxRecords: 0 }, { maxAgeMs: -1 }, { maxRecords: 1.5 }, { maxAgeMs: Number.MAX_SAFE_INTEGER + 1 }])("rejects activity retention %j when the plugin is created", (activityRetention) => {
     expect(() => hubConnections({ activityRetention })).toThrow(/activityRetention\.max(AgeMs|Records) must be a positive integer/);
   });

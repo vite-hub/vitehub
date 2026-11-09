@@ -72,6 +72,11 @@ export interface ConnectionsRuntimeOptions {
    */
   definitions: Readonly<Record<string, ConnectionDefinition | ConnectionInstancesDefinition | (() => Promise<unknown>)>>
   store: ConnectionStore | (() => ConnectionStore | Promise<ConnectionStore>)
+  /**
+   * Markdown by definition name, or loaders that read it, from the `<name>.md` next to each definition file.
+   * A definition's own `docs` wins.
+   */
+  docs?: Readonly<Record<string, string | (() => Promise<string>)>>
   fetch?: typeof fetch
   now?: () => number
   /** Host adapter override. By default one durable Connections store is one host. */
@@ -890,6 +895,14 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
+  /** The definition's `docs`, or the colocated file of its definition, which an instance shares. */
+  async function connectionDocs(name: string, loaded: ConnectionDefinition): Promise<{ docs?: string }> {
+    const separator = name.lastIndexOf(":")
+    const colocated = options.docs?.[name] ?? (separator > 0 ? options.docs?.[name.slice(0, separator)] : undefined)
+    const docs = loaded.docs ?? (typeof colocated === "function" ? await colocated() : colocated)
+    return docs?.trim() ? { docs } : {}
+  }
+
   async function inspect(name: string): Promise<ConnectionInspection> {
     const loaded = await definition(name)
     // A login Connection is inspected without the store. It is connected while its credentials resolve,
@@ -902,6 +915,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         account: token?.account,
         actions: connectionActions(loaded),
         credential: "oauth2",
+        ...await connectionDocs(name, loaded),
         ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
         name,
         provider: loaded.provider.id,
@@ -936,6 +950,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         chatgpt: { clientId: state?.chatgpt?.clientId, hostId: await hostId(), plan: state?.status === "connected" && chatgptScopes.every(scope => granted.includes(scope)) ? "enabled" as const : "disabled" as const },
       } : {}),
       credential: apiKeyProvider ? "api-key" : isChatGPTProvider(provider) ? "chatgpt" : "oauth2",
+      ...await connectionDocs(name, loaded),
       ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
       ...(keySource ? { keySource } : {}),
       name,
