@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
@@ -56,8 +57,9 @@ const targets: Target[] = [
 ]
 
 function libsqlClient(file: string): LeaseSqlClient {
-  // The same busy timeout as the README asks for: libSQL loses writes when it runs again after SQLITE_BUSY.
-  const client = createClient({ url: `file:${file}`, timeout: 30_000 })
+  // Separate libSQL clients in one process run their statements one at a time, so they never meet SQLITE_BUSY. A local
+  // libSQL file client is for one process only; the cross-process tests use node:sqlite.
+  const client = createClient({ url: `file:${file}` })
   cleanups.push(async () => client.close())
   return { dialect: "sqlite", query: async (sql, args) => (await client.execute({ sql, args })).rows }
 }
@@ -164,23 +166,26 @@ describe.each(targets)("$name lease store", (target) => {
   })
 })
 
-describe.each(["node", "libsql"] as const)("SQLite lease store across processes (%s)", (driver) => {
-  // A libSQL file client runs each statement synchronously, so only separate processes contend for the SQLite lock.
+describe("node:sqlite lease store across processes", () => {
+  // Only separate processes contend for the SQLite lock. A local libSQL file client is not tested here: after
+  // SQLITE_BUSY it can lose writes that it reported as done, so the README limits it to one process.
   type Outcome = { error: string, cause: string } | { id: string } | null
   const fixture = fileURLToPath(new URL("./fixtures/lease-sqlite-process.ts", import.meta.url))
 
   async function race(file: string, key: string): Promise<Outcome[]> {
     const startAt = Date.now() + 1_500
     const outputs = await Promise.all(Array.from({ length: 8 }, async () => {
-      const { stdout } = await execFileAsync(process.execPath, [fixture, driver, file, key, "4", String(startAt), "30"])
+      const { stdout } = await execFileAsync(process.execPath, [fixture, file, key, "4", String(startAt), "30"])
       return JSON.parse(stdout) as Outcome[]
     }))
     return outputs.flat()
   }
 
   it("gives a free key and an expired lease to exactly one of 8 processes, with no busy errors", async () => {
-    const file = join(sqliteRoot, `processes-${driver}.db`)
-    const store = createSqlLeaseStore(libsqlClient(file))
+    const file = join(sqliteRoot, "processes.db")
+    const db = new DatabaseSync(file)
+    cleanups.push(async () => db.close())
+    const store = createSqlLeaseStore({ dialect: "sqlite", query: async (sql, params) => db.prepare(sql).all(...params) })
 
     const free = await race(file, "nightly")
     expect(free.filter(outcome => outcome && "error" in outcome)).toEqual([])

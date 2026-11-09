@@ -179,8 +179,8 @@ export function createMemoryLeaseStore(): LeaseStore {
  *
  * - `postgresql`: the SQL text uses `$1`, `$2`, and so on, like postgres.js `sql.unsafe(text, params)`.
  * - `sqlite`: the SQL text uses `?`, like libSQL `client.execute({ sql, args })`. The store runs a statement that fails
- *   with `SQLITE_BUSY` again. Create a libSQL client with `timeout`, such as `createClient({ url, timeout: 30_000 })`,
- *   because libSQL can lose writes when it runs again after `SQLITE_BUSY`.
+ *   with `SQLITE_BUSY` again. Across several processes, use Postgres, remote libSQL, or `node:sqlite`. A local libSQL
+ *   `file:` client is for one process only: after `SQLITE_BUSY` it can lose writes that it reported as done.
  */
 export interface LeaseSqlClient {
   dialect: "postgresql" | "sqlite"
