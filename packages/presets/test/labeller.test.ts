@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { defineAgent, runAgent } from "@vite-hub/agent"
+import { defineAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { cleanupLabeller, labeller } from "../src/labeller.ts"
 
 const message = {
@@ -71,7 +72,7 @@ describe("labeller preset", () => {
     expect(configured().options.dryRun).toBe(true)
     expect(configured().options.minConfidence).toBe(0.6)
     expect(configured().options.trashEnabled).toBe(false)
-    const attempt = (options: Record<string, unknown>) => Promise.resolve().then(() => runAgent(configured(options), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
+    const attempt = (options: Record<string, unknown>) => Promise.resolve().then(() => runAgentWithContext(configured(options), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
     await expect(attempt({ labels: { none: {} } })).rejects.toThrow(/reserved or invalid/)
     await expect(attempt({ labels: { Work: {} }, rules: { bad: { label: "Missing" } } })).rejects.toThrow(/undeclared label/)
     await expect(attempt({ labels: { Work: {} }, rules: { bad: { subject: "" } } })).rejects.toThrow(/non-empty strings/)
@@ -220,7 +221,7 @@ describe("labeller preset", () => {
     [{ receipts: { label: "Receipts", olderThan: 0 } }, /positive whole number/],
     [[], /cleanup must be an object/],
   ])("rejects invalid cleanup %j", async (cleanup, error) => {
-    const attempt = Promise.resolve().then(() => runAgent(configured({ cleanup }), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
+    const attempt = Promise.resolve().then(() => runAgentWithContext(configured({ cleanup }), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
     await expect(attempt).rejects.toThrow(error)
   })
 })

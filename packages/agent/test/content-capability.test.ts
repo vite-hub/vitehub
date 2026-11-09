@@ -5,11 +5,12 @@ import { registerWorkspacePlugin, useWorkspaceFiles } from "@vite-hub/workspace/
 
 import { documents, singleton } from "../../content/src/collections.ts"
 import { defineContent } from "../../content/src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { historyWorkspace } from "../../content/test/history-workspace.ts"
 import { content } from "../src/capabilities.ts"
 import { resolveChatTriggerInvoker } from "../src/chat-message-input.ts"
 import { webChat } from "../src/channels.ts"
-import { codexDriver, createAgentInspectionMetadata, defineAgent, defineAgentInvoker, runAgent } from "../src/index.ts"
+import { codexDriver, createAgentInspectionMetadata, defineAgent, defineAgentInvoker } from "../src/index.ts"
 import { createChannelChatRouteHandler } from "../src/server/internal.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
@@ -862,7 +863,7 @@ describe("content capability with the Actor of a chat", () => {
       run: { channelId: "discord", origin: "discord", runId: "discord:message-1" },
       user: { id: "123", name: "Ana", username: "ana" },
     })
-    await runAgent(agent, { memo: (_key, create) => create(), runtime: "unknown", waitUntil: () => {} }, { context: { invoker: platformUser }, prompt: "Draft a post." })
+    await runAgentWithContext(agent, { memo: <T>(_key: string, create: () => T) => create(), runtime: "unknown", waitUntil: () => {} }, { context: { invoker: platformUser }, prompt: "Draft a post." })
     if (!actor) throw new Error("expected the Agent to run")
     return actor
   }

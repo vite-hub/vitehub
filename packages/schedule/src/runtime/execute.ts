@@ -2,7 +2,7 @@ import { randomId } from "@vite-hub/internal/runtime/random"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { createScheduleError } from "../errors.ts"
-import { parseScheduledAt, validateScheduledAt } from "./date.ts"
+import { parseScheduledAt, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
@@ -15,7 +15,7 @@ interface ExecuteScheduleOptions {
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
-  source?: "direct" | "manual" | "static"
+  source?: "direct" | "manual" | "started" | "static"
   scheduledAt?: Date
   target: string
   waitUntil?: (promise: PromiseLike<unknown>) => void
@@ -136,6 +136,7 @@ function toHandlerContext(
   return {
     attemptId: attempt.id,
     id: run.id,
+    idempotencyKey: scheduleIdempotencyKey(run.scheduleId, run.scheduledAt),
     runId: run.id,
     scheduleId: run.scheduleId,
     scheduledAt: run.scheduledAt,

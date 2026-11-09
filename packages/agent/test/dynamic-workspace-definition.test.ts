@@ -4,7 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, expect, it, vi } from "vitest"
 
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { custom } from "@vite-hub/workspace"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
@@ -56,8 +57,8 @@ it("keeps colocated Workspace Definitions invocation-local when agent names repe
     waitUntil: vi.fn(),
   }
 
-  await expect(runAgent(createAgent(firstRoot, true), context, {})).resolves.toBe("first:true")
-  await expect(runAgent(createAgent(secondRoot), context, {})).resolves.toBe("second:false")
+  await expect(runAgentWithContext(createAgent(firstRoot, true), context, {})).resolves.toBe("first:true")
+  await expect(runAgentWithContext(createAgent(secondRoot), context, {})).resolves.toBe("second:false")
 })
 
 it("keeps concurrent colocated Workspace Definitions invocation-local when agent names repeat", async () => {
@@ -89,12 +90,12 @@ it("keeps concurrent colocated Workspace Definitions invocation-local when agent
   const first = createAgent(firstRoot)
   const second = createAgent(secondRoot)
   await expect(Promise.all([
-    runAgent(first, context, {}),
-    runAgent(second, context, {}),
+    runAgentWithContext(first, context, {}),
+    runAgentWithContext(second, context, {}),
   ])).resolves.toEqual(["first", "second"])
   await expect(Promise.all([
-    runAgent(first, context, {}),
-    runAgent(second, context, {}),
+    runAgentWithContext(first, context, {}),
+    runAgentWithContext(second, context, {}),
   ])).resolves.toEqual(["first", "second"])
 })
 
@@ -131,8 +132,8 @@ it("does not replace a registered Workspace used by named references", async () 
     },
   })
 
-  await expect(runAgent(inline, context, {})).resolves.toBe("inline")
-  await expect(runAgent(reference, context, {})).resolves.toBe("registered")
+  await expect(runAgentWithContext(inline, context, {})).resolves.toBe("inline")
+  await expect(runAgentWithContext(reference, context, {})).resolves.toBe("registered")
 })
 
 it("shares one owned Workspace across concurrent first use and later named references", async () => {
@@ -170,8 +171,8 @@ it("shares one owned Workspace across concurrent first use and later named refer
   })
 
   await expect(Promise.all([
-    runAgent(owner, context, {}),
-    runAgent(owner, context, {}),
+    runAgentWithContext(owner, context, {}),
+    runAgentWithContext(owner, context, {}),
   ])).resolves.toEqual(["written", "written"])
-  await expect(runAgent(reference, context, {})).resolves.toBe("shared-1:shared-2")
+  await expect(runAgentWithContext(reference, context, {})).resolves.toBe("shared-1:shared-2")
 })
