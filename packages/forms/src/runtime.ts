@@ -37,15 +37,30 @@ function windowMs(window: string): number {
 /** A fixed window for each key, in this process only. Enough for one Node server; a Worker should use Rate Limit. */
 export function memoryFormRateLimit(now: () => number = Date.now): (key: string, policy: FormRateLimit) => FormRateLimitDecision {
   const windows = new Map<string, { count: number, resetAt: number }>()
+  let nextSweep = 0
   return (key, policy) => {
     const time = now()
-    if (windows.size > 10_000) for (const [stale, entry] of windows) if (entry.resetAt <= time) windows.delete(stale)
+    // At most one sweep a second, so many live keys do not make every request walk the map.
+    if (windows.size > 10_000 && time >= nextSweep) {
+      nextSweep = time + 1000
+      for (const [stale, entry] of windows) if (entry.resetAt <= time) windows.delete(stale)
+    }
     const current = windows.get(key)
     const entry = current && current.resetAt > time ? current : { count: 0, resetAt: time + windowMs(policy.window) }
     entry.count += 1
     windows.set(key, entry)
     return entry.count <= policy.limit ? { allowed: true } : { allowed: false, retryAfter: (entry.resetAt - time) / 1000 }
   }
+}
+
+/** An IPv6 address counts as its /64 network, since one host can use any address in it. */
+export function addressKey(address: string): string {
+  if (!address.includes(":") || address.includes(".")) return address
+  const [head = "", tail = ""] = address.toLowerCase().split("::")
+  const left = head ? head.split(":") : []
+  const right = tail ? tail.split(":") : []
+  const groups = address.includes("::") ? [...left, ...Array.from({ length: 8 - left.length - right.length }, () => "0"), ...right] : left
+  return `${groups.slice(0, 4).map(group => group.replace(/^0+(?=.)/, "")).join(":")}::/64`
 }
 
 /** The Database that `database` names, else `default`, else the only one. */
@@ -93,7 +108,7 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
   const { sendEmail, session, context } = options
   const services = (request: Request): FormServices => {
     const host = context?.(request)
-    const address = host?.runtime?.clientAddress ?? request.headers.get("cf-connecting-ip") ?? "unknown"
+    const address = addressKey(host?.runtime?.clientAddress ?? request.headers.get("cf-connecting-ip") ?? "unknown")
     return {
       store,
       // Counts in this server process. Rate Limit on Cloudflare needs each limit name at build time.
