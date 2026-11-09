@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 
+import { textContent } from "comark/utils"
+
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
 
 import type { ComarkPlugin, Node as ComarkNode } from "comark"
@@ -78,6 +80,13 @@ describe("docs parser", () => {
 })
 
 describe("docs search sections", () => {
+  it("keeps example headings out of page search and the outline", async () => {
+    const { nodes, toc } = await parse("## Install\n\n::examples\n:::example{label=First}\n```md\n## Install\n\n### Preview details\n```\n:::\n:::example{label=Second}\n```md\n## Install\n```\n:::\n::\n\n## Continue\n")
+
+    expect(docsSearchSections("/guide", "Guide", nodes).map(section => section.id)).toEqual(["/guide", "/guide#install", "/guide#continue"])
+    expect(toc.map(link => link.id)).toEqual(["install", "continue"])
+  })
+
   it("splits a page by h2 and h3 and skips agent-only blocks", async () => {
     const { nodes } = await parse(source)
     const sections = docsSearchSections("/docs/kv", "KV", nodes)
@@ -133,9 +142,9 @@ describe("comark-ui blocks", () => {
     expect(JSON.stringify(source)).toContain("Keep a backup.")
   })
 
-  it("preserves a preview supplied by the site's plugin", async () => {
+  it.each(["site-examples", "docs-examples"])("preserves a preview supplied by the site's %s plugin", async (name) => {
     const plugin: ComarkPlugin = {
-      name: "site-examples",
+      name,
       post({ tree }) {
         find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {}, ["p", {}, "Site preview"]])
       },
@@ -148,10 +157,122 @@ describe("comark-ui blocks", () => {
     expect(find([example?.[3] as ComarkNode], "pre")?.[1]).toMatchObject({ language: "md" })
   })
 
+  it("isolates a site's preview headings and keeps fragment links inside that preview", async () => {
+    const plugin: ComarkPlugin = {
+      name: "site-examples",
+      post({ tree }) {
+        find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {},
+          ["h2", { id: "install" }, "Preview install"],
+          ["p", {}, ["a", { href: "#install" }, "Jump to install"]],
+        ])
+      },
+    }
+    const { nodes } = await createDocsParser({ plugins: [plugin] })("::example\n```md\nSource\n```\n::\n\n## Install\n\n## Reserved {#docs-example-1-install}\n")
+    const preview = find(nodes, "example-preview")!
+    const heading = find([preview], "h2")!
+
+    expect(heading[1].id).not.toBe("install")
+    expect(heading[1].id).not.toBe("docs-example-1-install")
+    expect(find([preview], "a")?.[1].href).toBe(`#${heading[1].id}`)
+    expect(docsSearchSections("/guide", "Guide", nodes).map(section => section.id)).toEqual(["/guide", "/guide#install", "/guide#docs-example-1-install"])
+  })
+
   it("keeps the site's plugin when it has a built-in name", async () => {
     const own = { name: "alert", markdownItPlugins: [] }
     const { nodes } = await createDocsParser({ plugins: [own] })("> [!WARNING]\n> Rotate the key first.\n")
 
     expect(find(nodes, "github-callout")).toBeUndefined()
+  })
+})
+
+describe("docs examples", () => {
+  const example = ["::example{label=\"Bold\"}", "```md", "Some **bold** text.", "```", "::"].join("\n")
+
+  it("renders the Markdown of an example before its source", async () => {
+    const { nodes } = await parse(example)
+    const block = find(nodes, "example")
+    const [preview, pre] = (block?.slice(2) ?? []) as Array<Extract<ComarkNode, unknown[]>>
+
+    expect(block?.[1]).toMatchObject({ label: "Bold" })
+    expect(preview?.[0]).toBe("example-preview")
+    expect(find(preview?.slice(2) as ComarkNode[], "strong")?.[2]).toBe("bold")
+    expect(pre?.[0]).toBe("pre")
+    expect(pre?.[1]).toMatchObject({ language: "md" })
+  })
+
+  it("parses the preview with the page's own plugins", async () => {
+    const withPlugin = createDocsParser({
+      plugins: [{ name: "shout", post: (state) => { state.tree.nodes.push(["p", {}, "added"]) } }],
+    })
+    const { nodes } = await withPlugin(example)
+
+    expect(JSON.stringify(find(nodes, "example-preview"))).toContain("added")
+  })
+
+  it("leaves an example of another language as its code alone", async () => {
+    const { nodes } = await parse(["::example", "```ts", "export const answer = 42", "```", "::"].join("\n"))
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+  })
+
+  it("gives a named example the highlighted source of its Vue file", async () => {
+    const withExamples = createDocsParser({ examples: { ButtonExample: "<template>\n  <UButton label=\"Save\" />\n</template>\n" } })
+    const { nodes } = await withExamples("::example{name=\"ButtonExample\"}\n::")
+    const pre = find(nodes, "pre")
+
+    expect(find(nodes, "example")?.[1]).toMatchObject({ name: "ButtonExample" })
+    expect(pre?.[1]).toMatchObject({ language: "vue" })
+    expect(JSON.stringify(pre)).toContain("UButton")
+  })
+
+  it("keeps a named example whole when its source has a code fence", async () => {
+    const source = "<template>\n  <Markdown :value=\"'```ts\\nconst a = 1\\n```'\" />\n</template>"
+    const { nodes } = await createDocsParser({ examples: { FenceExample: source } })("::example{name=\"FenceExample\"}\n::")
+
+    expect(textContent(find(nodes, "pre")!)).toBe(source)
+  })
+
+  it("renders a lint rule's correct and incorrect examples like an example", async () => {
+    const { nodes } = await parse(["::incorrect", "```md", "A [link](./missing.md).", "```", "::", "", "::correct", "```md", "A [link](./ducks.md).", "```", "::"].join("\n"))
+
+    expect(find(find(nodes, "incorrect")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+    expect(find(find(nodes, "correct")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+  })
+
+  it("shows only the source of an example whose Markdown doesn't parse", async () => {
+    const { nodes } = await parse(["::incorrect", "````md", "---", "title: [unclosed", "---", "````", "::"].join("\n"))
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+    expect(find(nodes, "pre")).toBeDefined()
+  })
+
+  it.each(["example", "correct", "incorrect"])("reports a missing named example inside a %s preview", async (tag) => {
+    const markdown = [`::${tag}`, "```md", '::example{name="MissingExample"}', "::", "```", "::"].join("\n")
+
+    await expect(parse(markdown)).rejects.toThrow("no MissingExample.vue")
+  })
+
+  it.each(["example", "correct", "incorrect"])("keeps a parser plugin's original error inside a %s preview", async (tag) => {
+    const error = new Error("Preview plugin failed")
+    const withPlugin = createDocsParser({ plugins: [{
+      name: "failing-preview",
+      pre(state) {
+        if (state.markdown.trim() === "Preview content") throw error
+      },
+    }] })
+    const markdown = [`::${tag}`, "```md", "Preview content", "```", "::"].join("\n")
+
+    await expect(withPlugin(markdown)).rejects.toBe(error)
+  })
+
+  it("names the missing file of an unknown example", async () => {
+    await expect(parse("::example{name=\"MissingExample\"}\n::")).rejects.toThrow("no MissingExample.vue")
+  })
+
+  it("leaves an example's preview out of search, which reads its source", async () => {
+    const { nodes } = await parse(example)
+    const [page] = docsSearchSections("/docs/bold", "Bold", nodes)
+
+    expect(page?.content).toBe("Some **bold** text.")
   })
 })

@@ -8,7 +8,7 @@ icon: i-ph-files-light
 
 `useAgentAttachments()` holds raw `File` values, checks type, size, and count, and converts them to AI SDK `FileUIPart` values when you send. Use it for your own attachment UI, or to validate files before conversion. `PromptInput` already converts files itself.
 
-::component-preview{name="AttachmentsExample" reset}
+::example{name="AttachmentsExample" reset height=8}
 ::
 
 ## Installation

@@ -10,7 +10,7 @@ icon: i-ph-code-light
 
 Syntax highlighting with [Shiki](https://shiki.style) is optional and lives in a separate composable, `useHighlightedCode()`, so a plain block stays small.
 
-::component-preview{name="CodeBlockExample"}
+::example{name="CodeBlockExample" height=22}
 ::
 
 ## Installation
@@ -82,14 +82,14 @@ CodeBlock
 
 Put plain text in `CodeBlockContent`. It renders as one text node.
 
-::component-preview{name="CodeBlockBasicExample"}
+::example{name="CodeBlockBasicExample" height=15}
 ::
 
 ## Header
 
 `CodeBlockHeader` holds a `CodeBlockTitle` and `CodeBlockActions`. `CodeBlockCopyButton` copies its `value`.
 
-::component-preview{name="CodeBlockHeaderExample"}
+::example{name="CodeBlockHeaderExample" height=10}
 ::
 
 A long title truncates. To link it to a file, wrap `CodeBlockTitle` in an anchor.
@@ -106,7 +106,7 @@ A long title truncates. To link it to a file, wrap `CodeBlockTitle` in an anchor
 
 `CodeBlockActions` holds any number of buttons. For a wrap toggle, keep the state yourself and pass it to `wrap`. A download button can make a Blob URL from the text, with no request.
 
-::component-preview{name="CodeBlockActionsExample"}
+::example{name="CodeBlockActionsExample" height=18}
 ::
 
 ```vue
@@ -137,56 +137,56 @@ const output = "pnpm test";
 
 Without a header, put `CodeBlockActions` directly in `CodeBlock`. The actions float at the top end and show on hover or focus. They always show on touch screens.
 
-::component-preview{name="CodeBlockFloatingActionsExample"}
+::example{name="CodeBlockFloatingActionsExample" height=12}
 ::
 
 ## Line Numbers
 
 Add `line-numbers` to `CodeBlockContent`. Plain text splits into lines, and the numbers are not copied.
 
-::component-preview{name="CodeBlockLineNumbersExample"}
+::example{name="CodeBlockLineNumbersExample" height=13}
 ::
 
 ## Start Line
 
 Set `start-line` for a snippet from the middle of a file. The gutter grows to fit the widest number.
 
-::component-preview{name="CodeBlockStartLineExample"}
+::example{name="CodeBlockStartLineExample" height=20}
 ::
 
 ## Wrap
 
 Long lines scroll by default. Add `wrap` to wrap them, for example for tool output and errors. For a toggle, see [Actions](#actions).
 
-::component-preview{name="CodeBlockWrapExample"}
+::example{name="CodeBlockWrapExample" height=13}
 ::
 
 ## Highlighted Lines
 
 Render each line as a `CodeBlockLine` and set `variant="highlighted"` on the lines to call out.
 
-::component-preview{name="CodeBlockHighlightedLinesExample"}
+::example{name="CodeBlockHighlightedLinesExample" height=15}
 ::
 
 ## Diff
 
 Set `variant="added"` or `variant="removed"` on a `CodeBlockLine` to add a plus or minus marker. For a patch, split it into lines and read the variant from the first character.
 
-::component-preview{name="CodeBlockDiffExample"}
+::example{name="CodeBlockDiffExample" height=12}
 ::
 
 ## Height
 
 Add a `max-h-*` class to `CodeBlockContent`. The content scrolls inside the block.
 
-::component-preview{name="CodeBlockHeightExample"}
+::example{name="CodeBlockHeightExample" height=15}
 ::
 
 ## Show More
 
 `CodeBlockFooter` is a row below the content. For Show More, limit the height while collapsed and put a ghost `xs` `UButton` in the footer.
 
-::component-preview{name="CodeBlockShowMoreExample"}
+::example{name="CodeBlockShowMoreExample" height=21}
 ::
 
 ```vue
@@ -218,35 +218,35 @@ const id = useId();
 
 Use `size="sm"`, with tighter padding and smaller text, for tool and [Trace](#trace) output.
 
-::component-preview{name="CodeBlockSizeExample"}
+::example{name="CodeBlockSizeExample" height=18}
 ::
 
 ## Destructive
 
 Use `variant="destructive"` for errors and failed output.
 
-::component-preview{name="CodeBlockDestructiveExample"}
+::example{name="CodeBlockDestructiveExample" height=10}
 ::
 
 ## Trace
 
 Put a `CodeBlock` with `size="sm"` in `TraceCollapsibleContent` for tool and terminal output. Add `wrap` and `max-h-64` to `CodeBlockContent`, so long output wraps and scrolls inside the [Trace](/docs/ui/trace).
 
-::component-preview{name="CodeBlockTraceExample"}
+::example{name="CodeBlockTraceExample" height=16}
 ::
 
 ## Message
 
 Put a `CodeBlock` between paragraphs in a [Message](/docs/ui/message).
 
-::component-preview{name="CodeBlockMessageExample"}
+::example{name="CodeBlockMessageExample" height=28}
 ::
 
 ## Syntax Highlighting
 
 `useHighlightedCode(code, language)` highlights with [Shiki](https://shiki.style) and returns one node per line for `CodeBlockLine`. Render each node with `<component :is="line" />`.
 
-::component-preview{name="CodeBlockHighlightingExample"}
+::example{name="CodeBlockHighlightingExample" height=12}
 ::
 
 ```vue
@@ -273,7 +273,7 @@ Both arguments can be refs or getters, so the lines update when the code changes
 
 Each language loads on first use. A language not in the list renders as plain text. Call `useHighlightedCode` once per block.
 
-::component-preview{name="CodeBlockLanguagesExample"}
+::example{name="CodeBlockLanguagesExample" height=25}
 ::
 
 Supported languages: `bash`, `css`, `diff`, `html`, `javascript`, `json`, `jsx`, `markdown`, `python`, `sql`, `tsx`, `typescript`, `vue`, and `yaml`, with the aliases `js`, `ts`, `sh`, `shell`, `md`, and `yml`.
@@ -282,7 +282,7 @@ Supported languages: `bash`, `css`, `diff`, `html`, `javascript`, `json`, `jsx`,
 
 Pass `"ansi"` as the language to show terminal colors. Without it, escape codes show as text. Remove escape codes from the value you copy.
 
-::component-preview{name="CodeBlockAnsiExample"}
+::example{name="CodeBlockAnsiExample" height=17}
 ::
 
 ## Accessibility

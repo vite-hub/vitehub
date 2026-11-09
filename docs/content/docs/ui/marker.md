@@ -8,7 +8,7 @@ icon: i-ph-flag-light
 
 `Marker` is a quiet line between turns: a date separator, a branch switch, or a note that the context was compacted. Use it with [Message](/docs/ui/message). The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Marker](https://ui.shadcn.com/docs/components/marker).
 
-::component-preview{name="MarkerExample"}
+::example{name="MarkerExample" height=11}
 ::
 
 ## Installation
@@ -54,7 +54,7 @@ Marker
 
 Use `variant` to pick a style.
 
-::component-preview{name="MarkerVariantsExample"}
+::example{name="MarkerVariantsExample" height=9}
 ::
 
 | Variant     | Description                                           |
@@ -67,35 +67,35 @@ Use `variant` to pick a style.
 
 Set `role="status"` for work in progress, so assistive technology reads the update. ViteHub does not animate status text, so write the state in it, such as "Running pnpm test".
 
-::component-preview{name="MarkerStatusExample"}
+::example{name="MarkerStatusExample" height=8}
 ::
 
 ## Separator
 
 Use `separator` for labeled dividers, such as dates or section breaks.
 
-::component-preview{name="MarkerSeparatorExample"}
+::example{name="MarkerSeparatorExample" height=8}
 ::
 
 ## Border
 
 Use `border` for status rows that keep the default alignment and separate the next row.
 
-::component-preview{name="MarkerBorderExample"}
+::example{name="MarkerBorderExample" height=8}
 ::
 
 ## With Icon
 
 `MarkerIcon` shows an icon next to the content. Add `class="flex-col"` to put it above.
 
-::component-preview{name="MarkerIconExample"}
+::example{name="MarkerIconExample" height=12}
 ::
 
 ## Links and Buttons
 
 Set `as` to render the marker as a link or button. A link gets an underline and a hover color.
 
-::component-preview{name="MarkerLinksExample"}
+::example{name="MarkerLinksExample" height=8}
 ::
 
 ```vue

@@ -8,7 +8,7 @@ icon: i-ph-cursor-text-light
 
 Carets show where other people type in a collaborative editor. TipTap's [CollaborationCaret](https://tiptap.dev/docs/editor/extensions/functionality/collaboration-caret) and Realtime's `RealtimeCaret` render the same markup without styles. `@vite-hub/ui/styles.css` styles it: a thin line in the person's color, with their name above it.
 
-::component-preview{name="CaretsExample"}
+::example{name="CaretsExample" height=8}
 ::
 
 ## Installation

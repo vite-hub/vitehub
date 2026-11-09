@@ -8,7 +8,7 @@ icon: i-ph-wifi-high-light
 
 `ConnectionStatus` shows the connection of a realtime editor. `status` takes the values that y-websocket, Hocuspocus, and y-partyserver emit, so pass a provider's status as it is. Like [Kibo UI's Status](https://www.kibo-ui.com/components/status), it has an indicator dot and a label.
 
-::component-preview{name="ConnectionStatusExample"}
+::example{name="ConnectionStatusExample" height=8}
 ::
 
 ## Installation
@@ -64,7 +64,7 @@ A retrying provider switches between `disconnected` and `connecting`. The delay 
 
 `ConnectionStatusLabel` passes the state to its slot.
 
-::component-preview{name="ConnectionStatusLabelExample"}
+::example{name="ConnectionStatusLabelExample" height=8}
 ::
 
 ## Accessibility

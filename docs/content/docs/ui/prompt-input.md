@@ -8,7 +8,7 @@ icon: i-ph-paper-plane-tilt-light
 
 `PromptInput` is a chat input with attachments, like the [shadcn/ui Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input). It has a textarea that grows with its text, [Attachment](/docs/ui/attachment) parts above it, and round attach and send buttons below it. The send button follows the AI SDK chat status: Send, Stop, or Retry. ViteHub adds file paste and one `submit` payload with the text and AI SDK file parts.
 
-::component-preview{name="ChatPromptExample"}
+::example{name="ChatPromptExample" height=8}
 ::
 
 ## Installation
@@ -83,21 +83,21 @@ The file picker and paste use the same path. A pasted image always becomes an at
 
 The submit button shows Send in `ready`, Stop in `submitted` and `streaming`, and Retry in `error`. Change the status to see the button and event.
 
-::component-preview{name="ChatPromptStatusExample"}
+::example{name="ChatPromptStatusExample" height=12}
 ::
 
 ## Custom Submit Button
 
 The `submit` slot receives `{ status, canSubmit, preparingFiles }`. Disable your button with `canSubmit` and show progress with `preparingFiles`.
 
-::component-preview{name="ChatPromptCustomSubmitExample"}
+::example{name="ChatPromptCustomSubmitExample" height=8}
 ::
 
 ## Filter Files
 
 `filter-files` receives each batch of raw `File` objects before conversion. Return the files to keep, in order, or `[]` to reject the batch. This example rejects files over 200 KB.
 
-::component-preview{name="ChatPromptFilterFilesExample"}
+::example{name="ChatPromptFilterFilesExample" height=8}
 ::
 
 ## Model Picker

@@ -17,6 +17,7 @@ icon: i-lucide-code-2
 | `stateless` from `@vite-hub/auth/presets` | Keep sessions in encrypted cookies, [with no database](/docs/auth/configure#sessions-without-a-database). |
 | `hubAuth` from `@vite-hub/auth/vite` | Add Auth discovery, the route, and generated server aliases. |
 | `auth`, `getAuth`, `getAuthForRequest` from `@vite-hub/auth/server` | Use the Better Auth instance in server code. |
+| Default export of `@vite-hub/auth/server` | The Auth route as a Fetchable, `{ fetch(request) }`. Mount it when you set `route: false`. |
 | `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Mount or call the Auth handler manually. |
 | `withAuth` from `@vite-hub/auth/server` | Run a handler only when a session exists. |
 | `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected access routes. |
@@ -89,7 +90,7 @@ export const app = new H3()
 | `auth` | Proxy to the discovered Better Auth instance. |
 | `getAuth(runtimeOptions?)` | Returns the discovered Better Auth instance. |
 | `getAuthForRequest(request, runtimeOptions?, event?)` | Returns a request-aware Better Auth instance. |
-| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. |
+| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
 | `handleAuthRequest(definition, input, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
 | `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
 | `createAuthHandler(definition, runtimeOptions?)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |

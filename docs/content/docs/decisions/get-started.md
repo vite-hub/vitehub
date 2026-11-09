@@ -13,7 +13,7 @@ Decisions turns what a person types into choices from a list that you give. You 
 In this tutorial, you build a filter box. A person types "nord parts except vak supply". Your page shows one supplier to include and one to exclude.
 
 > [!NOTE] Before you start
-> Use the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer and pnpm.
+> Use the app from the **Vite** path in [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer and pnpm.
 >
 > Until the last step, you need no API key and no network. A small offline stand-in answers in place of the model. The last step uses a real model, which needs an API key and can cost money.
 
@@ -200,9 +200,9 @@ export default defineNuxtConfig({
 
 ::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
 import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
-import { nitro } from 'nitro/vite'
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
@@ -314,7 +314,7 @@ The list shows plain Vue state. Replace it with your own filter bar, and the sam
 ::tutorial-step{title="Swap in a real model"}
 ## Swap in a real model
 
-The word gateway knows only exact names. A real decision model also reads codes, short names, and typos. In `server/utils/forecast-choices.ts`, replace the word gateway with `typesafe()`. Nothing else changes.
+The word gateway knows only exact names. A real decision model also reads codes, short names, and typos. In `server/utils/forecast-choices.ts`, replace the word gateway with `typesafe()`. Nothing else changes in your code. `typesafe()` sends the questions through `advocaat`, the TypeSafe client, so install it with `pnpm add advocaat`. Without it, `resolve()` returns an error.
 
 ```diff
 -import { wordGateway } from "./word-gateway"

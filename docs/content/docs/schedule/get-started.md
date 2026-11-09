@@ -41,8 +41,8 @@ export default defineNuxtConfig({
 
 ::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
@@ -51,8 +51,7 @@ export default defineConfig({
       preset: 'node',
       kv: true,
       schedule: { runtime: { driver: 'process' } },
-    }),
-    nitro(),
+    }), nitro(),
   ],
 })
 ```
@@ -185,8 +184,8 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vercel/vite.config.ts]
-import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({

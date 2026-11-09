@@ -258,6 +258,7 @@ export default defineNuxtConfig({
       url: 'https://lumen.example.com',
       description: 'Resize and compress images from the command line.',
       // A one-color SVG in public/. The design fills it with the text color.
+      // A colored logo shows as it is: logo: { light: '/lumen.svg', dark: '/lumen-dark.svg' }.
       logo: '/lumen-mark.svg',
       badge: { label: 'beta', tooltip: 'The CLI flags can change.' },
     },
@@ -269,11 +270,11 @@ export default defineNuxtConfig({
 })
 ```
 
-The header shows on every page, with search and a color mode button. `github` adds a GitHub link with the star count when available. `socials` adds community links beside it, or in the header menu on narrow screens. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
+The docs sidebar starts with the brand and search. At its foot, `github` adds a GitHub link with the star count when available. `socials` adds community links, followed by the color mode button. Other pages and phones show these controls in the header. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
 
 ## Design
 
-The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint page grain, and GitHub code colors. The header holds the brand, search, and links. The sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint page grain, and GitHub code colors. The docs sidebar holds the brand, search, and a rail of sections or groups next to the page list. Links sit at its foot. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts`: Nuxt UI `ui` keys. Your values beat the design, and the design beats the Nuxt UI defaults, even when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your app stylesheet:
@@ -327,10 +328,10 @@ const { github } = useDocsConfig()
 
 | Component | Part of the shell |
 | --- | --- |
-| `AppHeader` | The site header, with search, GitHub, social links, and the color mode button. |
+| `AppHeader` | The site header, with search, GitHub, social links, and the color mode button. On wide screens it hides beside the docs sidebar. |
 | `AppSearch` | The search dialog. |
 | `DocsRail` | The section rail. |
-| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The page sidebar and its parts. |
+| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The page sidebar and its parts: the brand and search, the page list, and the row of links. |
 | `DocsPage` | Picks a page's layout. |
 | `DocsArticle`, `DocsLanding` | The `article` and `tutorial` layouts, and the `landing` layout. |
 | `DocsMarkdown`, `DocsCodePre` | The rendered Markdown and its code blocks. |

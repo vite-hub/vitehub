@@ -25,7 +25,7 @@ pnpm add @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Then add `database: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Then add `database: true` to the ViteHub options of your app. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -39,8 +39,8 @@ export default defineNuxtConfig({
 
 ::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
@@ -184,7 +184,7 @@ The response has your note:
 
 Each POST adds a row with a new ID, and GET returns all rows. Restart the server and send the GET again: the note is still there.
 
-If the route says that the table does not exist, run `pnpm vitehub db migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
+If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub db migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
 
 ::
 

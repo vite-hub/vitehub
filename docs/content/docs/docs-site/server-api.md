@@ -29,13 +29,13 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`, for canonical links, raw Markdown links, llms.txt, and the sitemap. |
 | `site.description` | `string` | `''` | llms.txt description. |
-| `site.logo` | `string` | None | One-color SVG path shown beside the name. |
+| `site.logo` | `string \| { light: string, dark?: string }` | None | A string is a one-color SVG mask. The object shows images in their original colors, with `dark` in dark mode when set. |
 | `site.badge` | `{ label, tooltip? }` | None | A short label after the name, such as `beta`. |
 | `categories` | `string[]` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `string[]` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `DocsGroup[]` | `[]` | Rail items that hold several sections. A `DocsGroup` is `{ title, icon?, sections? }`. `sections` lists section ids; a section can also join with `group` in its `.navigation.yml`. See [Groups](/docs/docs-site/configure#groups). |
 | `start` | `{ section, links? }` | None | The section new readers open first, plus site pages listed at its top. The header and error page link to them. |
-| `socials` | `DocsLink[]` | `[]` | Community links in the header, or its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
+| `socials` | `DocsLink[]` | `[]` | Community links at the foot of the docs sidebar, in the header of other pages, or in its menu on narrow screens. A `DocsLink` is `{ label, to, icon? }`. |
 | `footer` | `DocsLink[]` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy, so each one has a link to it. |
 | `banner` | `string` | None | One line above every docs page. |
 | `sitemap` | `string[]` | `[]` | More paths for `/sitemap.xml`. Every docs page is in it already. |

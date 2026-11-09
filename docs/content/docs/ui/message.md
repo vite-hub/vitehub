@@ -8,7 +8,7 @@ icon: i-ph-chat-centered-text-light
 
 `Message` is one row of a conversation. It aligns the turn to the start or end and holds an avatar, header, content, and footer. Put a [Bubble](/docs/ui/bubble), a [Trace](/docs/ui/trace), or other content in `MessageContent`. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Message](https://ui.shadcn.com/docs/components/message).
 
-::component-preview{name="MessageExample"}
+::example{name="MessageExample" height=25}
 ::
 
 ## Installation
@@ -73,7 +73,7 @@ MessageGroup
 
 `MessageAvatar` shows an avatar next to the message. Set `align="end"` on the message to put it at the end.
 
-::component-preview{name="MessageAvatarExample"}
+::example{name="MessageAvatarExample" height=20}
 ::
 
 | Align   | Description                                          |
@@ -85,28 +85,28 @@ MessageGroup
 
 Stack consecutive messages from one sender. Put an empty `MessageAvatar` on earlier messages, so they align with the last one's avatar.
 
-::component-preview{name="MessageGroupExample"}
+::example{name="MessageGroupExample" height=8}
 ::
 
 ## Header and Footer
 
 Use `MessageHeader` for a sender name and `MessageFooter` for details, such as delivery or read status. Without a framed bubble, they align with the unframed content.
 
-::component-preview{name="MessageHeaderFooterExample"}
+::example{name="MessageHeaderFooterExample" height=12}
 ::
 
 ## Actions
 
 Put actions in `MessageFooter`, such as copy, retry, or feedback buttons.
 
-::component-preview{name="MessageActionsExample"}
+::example{name="MessageActionsExample" height=14}
 ::
 
 ## Attachment
 
 Put an [Attachment](/docs/ui/attachment) in `MessageContent` next to the bubble to show an image or file.
 
-::component-preview{name="MessageAttachmentExample"}
+::example{name="MessageAttachmentExample" height=30}
 ::
 
 ## Accessibility

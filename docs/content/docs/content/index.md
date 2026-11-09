@@ -8,7 +8,7 @@ icon: i-lucide-file-text
 ---
 
 ::product-hero{tagline="Turn Markdown files into pages you can read, list, and search, and let people edit and publish them." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree
   ```ts [server/content.ts]
   import sqlite from 'comark-content/database/sqlite-node'
   import sqliteFullTextSearch

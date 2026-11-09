@@ -8,7 +8,7 @@ icon: i-lucide-message-square-text
 ---
 
 ::product-hero{tagline="Pin comments on any page of your site, sign in with GitHub, and post threads to the preview's pull request." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
-  :::product-files
+  :::code-tree
   ```ts [vite.config.ts]
   import vue from '@vitejs/plugin-vue'
   import comments from '@vite-hub/comments/vite'

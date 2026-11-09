@@ -8,7 +8,7 @@ icon: i-ph-paperclip-light
 
 `Attachment` shows one file: an icon or image, a title, a description, and actions. The `state` prop shows if the file is waiting, uploading, processing, done, or failed. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
 
-::component-preview{name="AttachmentExample"}
+::example{name="AttachmentExample" height=20}
 ::
 
 ## Installation
@@ -90,14 +90,14 @@ AttachmentGroup
 
 Set `variant="image"` on `AttachmentMedia` and put an `img` in it. `orientation="vertical"` puts the media above the content, with the actions in its top right corner.
 
-::component-preview{name="AttachmentImageExample"}
+::example{name="AttachmentImageExample" height=11}
 ::
 
 ## States
 
 Set `state` to show upload progress. `idle` uses a dashed border. `error` colors the border, media, and description. An image dims while `uploading`, `processing`, or `error`.
 
-::component-preview{name="AttachmentStatesExample"}
+::example{name="AttachmentStatesExample" height=21}
 ::
 
 shadcn/ui animates the title with a shimmer while `uploading` or `processing`. ViteHub uses no continuous animations, so write the state in `AttachmentDescription`, such as "Uploading · 64%".
@@ -106,21 +106,21 @@ shadcn/ui animates the title with a shimmer while `uploading` or `processing`. V
 
 Set `size` to `default`, `sm`, or `xs`.
 
-::component-preview{name="AttachmentSizesExample"}
+::example{name="AttachmentSizesExample" height=11}
 ::
 
 ## Group
 
 An `AttachmentGroup` shows attachments in a row that scrolls horizontally and snaps to each one. It hides its scrollbar.
 
-::component-preview{name="AttachmentGroupExample"}
+::example{name="AttachmentGroupExample" height=8}
 ::
 
 ## Trigger
 
 Add an `AttachmentTrigger` to make the whole attachment open a link or dialog. It sits behind the actions, so they stay clickable. For a link, use `as="a"` with `href`, or `:as="NuxtLink"` with `to`. For a dialog, set its open state from `@click`.
 
-::component-preview{name="AttachmentTriggerExample"}
+::example{name="AttachmentTriggerExample" height=8}
 ::
 
 ```vue

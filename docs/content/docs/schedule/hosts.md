@@ -29,6 +29,8 @@ Provider output is the cron config that the build writes for your host.
 | Deno | `Deno.cron`, loaded by the generated Deno server. |
 | Node or Docker | None. The Process Runtime (`runtime: { driver: 'process' }`) runs schedules in the server process. |
 
+When a Definition has no `cron`, the build adds the `vitehub/started-schedules` Schedule with the cron `* * * * *`. Each host wakes it like the other Static Schedules, and it runs the Schedules that code started with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). On Cloudflare it is one more Cron Trigger.
+
 Node has no host cron, so `vitehub({ preset: 'node', schedule: true })` fails the build with `VITE_HUB_R0137`. Either:
 
 - Set `schedule: { runtime: { driver: 'process' } }` to run them in the server process.
@@ -56,7 +58,7 @@ pnpm vitehub schedule attempts <runId>
 
 The commands use the same run store and registry as the server. Read [CLI](/docs/development/cli#run-and-inspect-schedules) for every command and option.
 
-The Console Schedules page lists the schedules, with cron and time zone under the process driver. `manual: true` schedules show a run action when Console invocation is on.
+The Console Schedules page lists the schedules, with cron and time zone under the process driver. `manual: true` schedules show a run action when Console invocation is on. Each Schedule that code started has its own row with its id, time or cron, and payload. `vitehub schedule list`, `start`, and `cancel` read and change the same Schedules.
 
 The CLI and the Console hide credentials in URLs, bearer tokens, and secret assignments in error messages.
 

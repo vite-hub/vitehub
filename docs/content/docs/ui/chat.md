@@ -9,7 +9,7 @@ icon: i-ph-chat-circle-text-light
 
 `Chat` is the Console conversation view. It shows AI SDK `UIMessage[]` as a scrollable log. It follows a live reply while the reader is at the end, and stays in place when the reader scrolls back. Pair it with [`PromptInput`](/docs/ui/prompt-input) to accept input.
 
-::component-preview{name="ChatExample"}
+::example{name="ChatExample" height=28 flush}
 ::
 
 ## Installation
@@ -91,21 +91,21 @@ While a reply is coming and nothing shows progress, a quiet `Working` line with 
 
 Select **Stream a reply** and scroll up while it runs. The chat stops following. The scroll control returns to the live edge.
 
-::component-preview{name="ChatStreamingExample" reset}
+::example{name="ChatStreamingExample" reset height=24}
 ::
 
 ## Composer and Empty State
 
 The `composer` slot puts a prompt under the messages, below the scroll control. Show your own empty state when `messages` is empty.
 
-::component-preview{name="ChatComposerExample" reset}
+::example{name="ChatComposerExample" reset height=26}
 ::
 
 ## Custom Message Layout
 
 The `message` slot replaces the default `ChatMessage` and receives `{ message, index }`. Use `MessageParts` inside it to keep the default part rendering.
 
-::component-preview{name="ChatCustomMessageExample"}
+::example{name="ChatCustomMessageExample" height=18}
 ::
 
 ## Accessibility

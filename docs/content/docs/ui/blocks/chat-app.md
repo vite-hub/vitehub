@@ -8,7 +8,7 @@ icon: i-ph-chats-teardrop-light
 
 This block combines a session list, [`ChatSession`](/docs/ui/chat-session), and [`PromptInput`](/docs/ui/prompt-input) with attachments. Select a session, send a message, or attach a log file. The sessions and replies are fake. No model runs and no requests leave the page.
 
-::component-preview{name="ChatAppBlock" flush reset}
+::example{name="ChatAppBlock" flush reset height=36}
 ::
 
 Below 42rem wide, the session list moves above the chat. Sending, stopping, and switching sessions all work in the preview.

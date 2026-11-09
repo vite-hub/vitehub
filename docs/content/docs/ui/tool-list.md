@@ -8,7 +8,7 @@ icon: i-ph-wrench-light
 
 `ToolList` shows a list of tool contracts (what each tool takes and returns). Use it to show which tools an Agent had and which it used. The inspectors and the Capability reference pages in these docs use it.
 
-::component-preview{name="ToolListExample"}
+::example{name="ToolListExample" height=20}
 ::
 
 ## Installation
@@ -41,7 +41,7 @@ import { ToolList, type AgentToolInspection } from "@vite-hub/ui";
 
 Leave out `calls` to show only the contracts, such as for a build-time reference.
 
-::component-preview{name="ToolListContractsExample"}
+::example{name="ToolListContractsExample" height=16}
 ::
 
 ## Call Counts

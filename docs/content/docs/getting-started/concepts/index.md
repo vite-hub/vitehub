@@ -57,5 +57,5 @@ topics live with the feature that owns them:
 - [Runtime policy](/docs/agents/runtime-policy) explains approval decisions and recorded events.
 - [Frameworks and hosts](/docs/frameworks-hosts) explains deployment configuration.
 
-Browse [Guides](/guides) to pick a result to build, or use the
+Browse [Learn](/learn) to pick a result to build, or use the
 [documentation catalog](/docs) to find an API.

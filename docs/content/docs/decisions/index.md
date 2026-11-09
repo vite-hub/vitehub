@@ -9,7 +9,7 @@ icon: i-lucide-list-checks
 ---
 
 ::product-hero{tagline="Turn what people type into choices from your options, for filters, search, and command palettes."}
-  :::product-files
+  :::code-tree
   ```ts [server/utils/forecast-choices.ts] fragment
   import { defineChoices, toOptions } from 'vite-hub/decisions'
   import { typesafe } from 'vite-hub/gateways'

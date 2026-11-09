@@ -18,54 +18,55 @@ In this tutorial, you write a Markdown file, search it with `rg`, and return the
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add Shell and Workspace to your app. `vite-hub` does not install them for you. A Workspace is a folder of files that your server can read and write. Shell runs its commands on those files.
+Shell runs its commands on the files of a Workspace. A Workspace is a folder of files that your server can read and write.
+
+Install Shell and Workspace:
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/shell @vite-hub/workspace
 ```
 
-Add `workspace: true` to the ViteHub options. Keep the other options of your app. Shell needs no option, because your route creates it.
+Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app. Shell needs no option, because your route creates it.
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: { preset: 'node', workspace: true },
 })
 ```
-:::
+::::
 
-:::tabs-item{label="Nitro"}
+::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  server: { port: 3000, strictPort: true },
   plugins: [vitehub({ preset: 'node', workspace: true }), nitro()],
 })
 ```
-:::
+::::
 
-:::tabs-item{label="Vite"}
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  server: { port: 3000, strictPort: true },
   plugins: [vitehub({ preset: 'node', workspace: true })],
 })
 ```
+::::
 :::
-::
+
 
 Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your file:
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace } from '@vite-hub/workspace'
+import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
   store: { provider: 'memory' },
@@ -87,10 +88,10 @@ Create `server/api/search-docs.get.ts`. This route writes `README.md` to the Wor
 
 ```ts [server/api/search-docs.get.ts]
 import { defineEventHandler } from 'h3'
-import { createShellRuntime } from '@vite-hub/shell'
-import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
-import { createReadonlyWorkspaceFs, workspaceMountPoint } from '@vite-hub/shell/workspace'
-import { useWorkspace } from '@vite-hub/workspace'
+import { createShellRuntime } from 'vite-hub/shell'
+import { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'
+import { createReadonlyWorkspaceFs, workspaceMountPoint } from 'vite-hub/shell/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async () => {
   const workspace = useWorkspace('docs', { mode: 'write' })

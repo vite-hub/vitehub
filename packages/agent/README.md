@@ -111,7 +111,7 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option, through their `gateway` option or `typesafe()`. Their decisions include `probabilities` and no `reason`.
+See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` ask one `@vite-hub/decisions` group with `infer: true`. `model`, or the Agent model, answers it. With `gateway`, or on an ask Driver Agent through `typesafe()`, Jev answers it. Their decisions have `confidence` and `probabilities`, and no `reason`.
 
 ## Direct invocations
 
@@ -483,6 +483,8 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 `defineAgentInvocations()` returns `getSummary(id)` for metadata reads without observations. Every store must implement this method. Use `get(id)` for the full record or `get(id, { observationNames: ["agent.invocation.finish"] })` to read only observations with those exact names. An empty list returns no observations. The built-in SQL stores filter observation payloads inside the database. Custom stores can apply the same option to avoid loading unrelated payloads; the Invocations wrapper also filters their returned records. Both methods return `undefined` when the Invocation does not exist.
 
+A store that connects on first use can implement `open()`. The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`. Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried. `createLibsqlAgentInvocationStore()` implements it with its table setup.
+
 ## Invocation cancel
 
 `invocations.cancel(id)` records `cancelRequestedAt` on a pending or running Invocation and returns an `AgentInvocationCancelResult`. A run in the same process aborts its Invocation abort signal at once. The `requested` outcome confirms a recorded or locally sent request, not that execution stopped. If the journal record is missing but a local run received the request, the result still reports `requested` with `delivery: "local"` and any Driver warning. Before setup, active runs check the flag. With `enforcement: "strict"`, a rejected or missing read, or a check that exceeds `storeTimeoutMs`, fails startup with `AGENT_R0973`; in best-effort mode the run starts and reads the flag again at the next poll. After startup, active runs read the flag every 10 seconds, including after a lost lease stops claim renewal. Orphaned records remain pending or running until an execution owner recovers and observes the request. Cancellation does not take over expired leases or recover orphaned work. Read the final journal status to confirm cancellation. Model-backed and provider-backed Drivers stop on cancel. Cancellation before Driver dispatch stops startup without a warning. `cancelWarningPending` and its `cancelWarningOwnerId` are persisted when a custom Driver record is created and identifies dispatch that is not yet verified; warning writes retry after dispatch. A remote caller waits up to five seconds to verify a pending state, then throws `AGENT_R0974` if verification fails, while keeping the recorded request. A custom `run` Driver that has started receives the aborted signal but ViteHub cannot stop it, so the result reports `notEnforcedBy: "run"` and the record stays `running`. A terminal journal does not prove every stale local Driver stopped; cancelling it still signals local runs and returns durable or local `notEnforcedBy` warnings without changing the terminal record. Durable warnings describe Driver enforcement and do not prove work is still active. Custom stores keep the new fields through `applyAgentInvocationStoreUpdate()`. `vitehub agent invocations cancel <id>` sends the same request into the Nitro runtime of a Vite + Nitro Development Server, so it reaches the application's own journal and abort handles. Nuxt and plain Vite return `501`. With `--url https://app.example.com`, the command sends the request to the deployed Console instead, with the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#cancel-an-invocation).
@@ -640,6 +642,26 @@ Discovery rejects Channel option bindings that are mutated or passed to opaque c
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook. Option callbacks are values and are also replaced, never invoked by merging.
 
 Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+
+### Build an Agent from another Agent in code
+
+A package that derives a second Agent at runtime, such as the Babysitter worker in `@vite-hub/presets`, uses three functions from `@vite-hub/agent`:
+
+- `agentSettings(agent)` returns the resolved settings of an Agent Definition, with its `extends` layers applied, in a new object. Nested values, such as `driver` or `channels`, still belong to the Agent: replace a field instead of changing it in place, then pass the result to `defineAgent()`.
+- `withoutForgeAccess(channel)` returns a copy of a Channel without the GitHub access of `github({ app })`. Use it when the new Agent must not receive the host's GitHub token.
+- `activeProviderSandbox(context)` returns the Sandbox that the provider Driver of the current Invocation runs in, or `undefined` when the Driver runs on the host. A Capability uses it to copy files between the host and that Sandbox.
+
+```ts fragment
+import { agentSettings, defineAgent, withoutForgeAccess } from '@vite-hub/agent'
+
+const settings = agentSettings(base)
+if (!settings) throw new TypeError('Expected an Agent Definition.')
+const worker = defineAgent({
+  ...settings,
+  driver: { ...settings.driver, model: 'worker-model' },
+  channels: { github: withoutForgeAccess(settings.channels!.github!) },
+})
+```
 
 
 
