@@ -7,8 +7,9 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { readDependencies } from "../shared/detect.ts"
+import { bindingResolver } from "../shared/lexical-bindings.ts"
 
-import type { File, ImportDeclaration, StringLiteral } from "@babel/types"
+import type { File, Identifier, ImportDeclaration, StringLiteral } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
@@ -34,7 +35,7 @@ const h3Renames = new Map([
   ["H3RuntimeContextOptions", "RuntimeContextOptions"],
 ])
 const h3Removed = new Map([
-  ["installStandardContext", "`installStandardContext` is no longer public. ViteHub sets `event[\"~standard\"]` on each request, and the primitives set it for an event that Nitro did not create. Remove the call."],
+  ["installStandardContext", "`installStandardContext` is no longer public. ViteHub sets `event[\"~standard\"]` on each request, and the primitives set it for an event that Nitro did not create. Remove the import and its calls."],
 ])
 const nodeNames = new Set(["nodeRuntimeResources", "NodeRuntimeResourceInspectorOptions"])
 const nodeRemoved = "is no longer public. ViteHub uses it to run Agents and drains on Node. Only `nodeRuntimeResources()` stays, in `vite-hub/agent/capabilities`."
@@ -212,16 +213,16 @@ function describeMove(move: Move): string {
   return `its exports moved to \`${move.to}\`.`
 }
 
-/** Local names of `checkRateLimit` in this block. */
-function checkRateLimitNames(program: File): Set<string> {
-  const names = new Set<string>()
+/** Import bindings of `checkRateLimit` in this block. */
+function checkRateLimitBindings(program: File): Set<Identifier> {
+  const bindings = new Set<Identifier>()
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || !rateLimitModules.has(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (importedName(specifier) === "checkRateLimit") names.add(specifier.local.name)
+      if (importedName(specifier) === "checkRateLimit") bindings.add(specifier.local)
     }
   }
-  return names
+  return bindings
 }
 
 /** Names that a declaration, parameter, or import in `program` binds. */
@@ -239,8 +240,9 @@ function declaredNames(program: File): Set<string> {
  */
 function rewriteCheckRateLimit(context: FileContext): number {
   const { block, output, program, style } = context
-  const names = checkRateLimitNames(program)
-  if (!names.size) return 0
+  const bindings = checkRateLimitBindings(program)
+  if (!bindings.size) return 0
+  const resolveBinding = bindingResolver(program)
   const taken = declaredNames(program)
   let rewritten = 0
   const errorName = () => {
@@ -251,7 +253,9 @@ function rewriteCheckRateLimit(context: FileContext): number {
     return name
   }
   walk(program, (node, ancestors) => {
-    if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || !names.has(node.callee.name)) return
+    if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
+    const binding = resolveBinding(node.callee)
+    if (!binding || !bindings.has(binding)) return
     const [declaration, declarator, awaited] = ancestors.slice(-3)
     const owner = ancestors.at(-4)
     const statementList = owner && (owner.type === "BlockStatement" || owner.type === "Program") ? owner.body : undefined

@@ -1,6 +1,7 @@
 import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
+import { consoleHttpError, type ConsoleHttpError } from "./http-error.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -64,8 +65,8 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
 }
 
 /** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
-export function consoleRequestError(statusCode: number, statusMessage: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(statusCode)): Error {
-  return Object.assign(consoleDiagnostic(code, statusMessage), { statusCode, statusMessage })
+export function consoleRequestError(status: number, message: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(status)): ConsoleHttpError {
+  return consoleHttpError(status, consoleDiagnostic(code, message))
 }
 
 /** Tells if the Console runs on a development server. */

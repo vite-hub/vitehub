@@ -30,7 +30,7 @@ export { registerChannelTaskQueueStarter } from "../channel-tasks.ts"
 export { onShutdown } from "@vite-hub/runtime/internal/shutdown"
 export { createAgentWebhookWarmup } from "./webhook-warmup.ts"
 export type { AgentWebhookReadiness, AgentWebhookWarmup, AgentWebhookWarmupAgent } from "./webhook-warmup.ts"
-export { markDiscoveredAgentName, resetPublicUrlAgentNames } from "../internal/discovered-agent-name.ts"
+export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from "../internal/discovered-agent-name.ts"
 export { resolvePublicUrl } from "@vite-hub/runtime"
 export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
@@ -63,10 +63,7 @@ export type {
   AgentTelegramPollingRouteOptions,
 } from "./routes.ts"
 
-export { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions, inheritAgentLayerOptions } from "../agent-layers.ts"
-export { resolveAgentCapabilityDefinitions } from "../capability-runtime.ts"
-export { activeProviderSandbox } from "../internal/provider-box.ts"
-export { forgeAccessKey } from "../internal/forge-access.ts"
+export { inheritAgentLayerOptions } from "../agent-layers.ts"
 export { decodeColocatedAgentSkills, inspectAgentSkillFiles, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"

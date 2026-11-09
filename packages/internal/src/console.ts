@@ -345,8 +345,19 @@ export interface ViteHubConsoleDocumentCollection {
    * so the editor shows no body editor.
    */
   format?: "markdown" | "json" | "yaml"
+  /**
+   * Locales of a translated collection, source locale first, such as `["en", "es"]`. The editor offers a locale
+   * switcher, and the document actions take `locale`. Absent when the collection has no locales.
+   */
+  locales?: readonly string[]
   access: ViteHubConsoleDocumentAccess
 }
+
+/**
+ * How a translation compares with its source locale document on the draft. `current`: made from the source version on
+ * the draft. `stale`: the source changed since. `missing`: no translation yet.
+ */
+export type ViteHubConsoleDocumentTranslationState = "current" | "stale" | "missing"
 
 /** A Comark component that document bodies may use, such as `::alert`. */
 export interface ViteHubConsoleDocumentComponent {
@@ -413,6 +424,8 @@ export interface ViteHubConsoleDocumentSummary {
    * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
    */
   conflict?: ViteHubConsoleDocumentConflict
+  /** The state of each translation, by locale, in a collection with `locales`. */
+  translations?: Record<string, ViteHubConsoleDocumentTranslationState>
 }
 
 /** A document that changed on the published side and in the draft. */
@@ -489,6 +502,20 @@ export interface ViteHubConsoleDocument {
    * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
    */
   conflict?: ViteHubConsoleDocumentConflict
+  /** The locale of this version, in a collection with `locales`. With `fallback`, it is the source locale. */
+  locale?: string
+  /**
+   * Set when the requested locale has no translation yet, so this is the source locale version. `digest`, `path`, and
+   * `revision` are the source's: save the translation with `ifDigest: null`.
+   */
+  fallback?: true
+  /**
+   * The source locale version on the draft when this was read, in a collection with `locales`. Save a translation made
+   * from it with `sourceDigest: source.digest`.
+   */
+  source?: { path: string, digest: string }
+  /** The state of each translation of the document, by locale, in a collection with `locales`. */
+  translations?: Record<string, ViteHubConsoleDocumentTranslationState>
 }
 
 /** One stored file as written, without parsing or validation, so any version can be shown and compared. */
@@ -506,6 +533,8 @@ export interface ViteHubConsoleRawDocument {
 export interface ViteHubConsoleDocumentPublishExpectation {
   id: string
   digest: string | null
+  /** The locale of the document, in a collection with `locales`. Defaults to the source locale. `schedule` takes the source locale only. */
+  locale?: string
 }
 
 export interface ViteHubConsoleDocumentRevision {
@@ -666,6 +695,11 @@ export interface ViteHubConsoleDocumentSessionInput {
   kind?: "view" | "edit"
   /** For `report`: true when the user typed or changed something since the last report. */
   input?: boolean
+  /**
+   * The locale open in the editor, in a collection with `locales`. Edit leases cover the source locale only, so a
+   * translation answers `available: false` and stays editable.
+   */
+  locale?: string
 }
 
 /** Who has one document open, after a session action. */
@@ -739,7 +773,7 @@ export interface ViteHubConsoleDocumentActions {
   setup?(context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentSetup>
   list(input: ViteHubConsoleDocumentListInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPage>
   /** Reads the draft, or the published version with `ref: "published"`. Returns null when that ref has no such document. */
-  get(input: { collection: string, id: string, ref?: "draft" | "published" }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  get(input: { collection: string, id: string, ref?: "draft" | "published", locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
   /**
    * Signs a short token for the side browser of the editor, for this one document. The page at the document URL renders
    * the posted version of it in place of its draft: it receives a form POST to `url?parameter` whose `parameter` field
@@ -754,15 +788,17 @@ export interface ViteHubConsoleDocumentActions {
    */
   resolve(input: { path: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentResolved | null>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
-  raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
+  raw(input: { collection: string, id: string, revision?: string, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /**
    * `ifDigest: null` creates a document that must not exist yet. `session` is the tab token: while another tab holds
    * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`. `ifPublishedDigest` resolves a
-   * `conflict`: it names the published version that the person saw, which the draft then builds on.
+   * `conflict`: it names the published version that the person saw, which the draft then builds on. `sourceDigest`, on a
+   * translation, is the `source.digest` of the source version it was made from; without it, an
+   * existing translation keeps the version it records.
    */
-  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean, locale?: string, sourceDigest?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** `live: true` when the tab edits in the live room of the document, which holds the lease for everyone in it. */
-  remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
+  remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   /**
    * Publishes exactly the reviewed drafts. When a draft digest no longer matches, it publishes nothing and fails with
    * `WORKSPACE_CONFLICT` and `details.documents`: `{ id, expected, actual }` for each document that changed.
@@ -775,8 +811,8 @@ export interface ViteHubConsoleDocumentActions {
   schedule(input: { collection: string, at: string, expect: readonly ViteHubConsoleDocumentPublishExpectation[] }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentScheduled>
   /** Cancels a pending schedule, or dismisses a failed one. */
   unschedule(input: { collection: string, schedule: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
-  revisions(input: { collection: string, id: string, cursor?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
-  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  revisions(input: { collection: string, id: string, cursor?: string, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
+  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** Report, take, or release this tab's session on one document, and read who else has it open. */
   session(input: ViteHubConsoleDocumentSessionInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPresence>
   /** Every open tab on a document the user may read, in every collection or in one `collection`. `session` marks this tab as `self`. */

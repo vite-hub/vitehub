@@ -5,7 +5,7 @@ import { detectStyle, end, isReference, keyName, line, listItemRemoval, parsePro
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import { bindingResolver } from "./bindings.ts"
+import { bindingResolver } from "../shared/lexical-bindings.ts"
 
 import type { CallExpression, File, Identifier, ImportDeclaration, ObjectExpression } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
