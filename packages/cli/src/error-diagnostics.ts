@@ -153,6 +153,22 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run the command on Linux or macOS, or set the variable in the host dashboard.",
       why: ({ host, reason }: { host?: unknown, reason?: unknown }) => `ViteHub cannot set the Console secret on ${String(host)} without putting it in a command argument. ${String(reason)}`,
     },
+    SETUP_DEPLOYMENTS_NOT_LINKED: {
+      fix: "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",
+      why: () => "The project has no host link in .vitehub/link.json, so the host project to read is not known.",
+    },
+    SETUP_DEPLOYMENTS_CREDENTIALS_MISSING: {
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login, so the deployments cannot be read.`,
+    },
+    SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED: {
+      fix: "Set CLOUDFLARE_ACCOUNT_ID, or run `vitehub link --host cloudflare --account <id>`.",
+      why: ({ host }: { host?: unknown }) => `The ${String(host)} account of the linked project is not known.`,
+    },
+    SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED: {
+      fix: ({ host }: { host?: unknown }) => `Run \`vitehub link --host ${String(host)}\` to store the project id.`,
+      why: ({ host }: { host?: unknown }) => `The ${String(host)} link has no project id, and the ${String(host)} API lists deployments by id.`,
+    },
     SETUP_DEPLOY_CHECKOUT_CONFLICT: {
       fix: "Edit each file and remove the conflict markers, or run `vitehub resolve` for a binary file. Then deploy again, or pass --no-push to deploy without the push.",
       why: ({ files }: { files?: unknown }) => `A checkout folder of vitehub.lock has unresolved conflicts, so the Workspace push after the deploy would fail. Nothing was built or deployed: ${String(files)}`,

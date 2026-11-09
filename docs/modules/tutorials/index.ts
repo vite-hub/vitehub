@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { zipFiles } from "@vite-hub/ui/playground";
 import { webContainerHeaders } from "@vite-hub/web-container/vite";
 import { addTemplate, addTypeTemplate, defineNuxtModule } from "nuxt/kit";
-import { buildRunnableTutorial, createZip, readWorkspaceVersions, tutorialStepFiles } from "./build";
+import { buildRunnableTutorial, readWorkspaceVersions, tutorialStepFiles } from "./build";
 import { runnableTutorials } from "./list";
 import { readLearnFacts } from "./learn";
 import { buildPlaygroundTemplates, snapshotSources } from "./playground";
@@ -66,7 +67,7 @@ export default defineNuxtModule({
     const assetsDir = resolve(nuxt.options.rootDir, "node_modules/.cache/runnable-tutorials");
     await mkdir(assetsDir, { recursive: true });
     for (const tutorial of tutorials) {
-      await writeFile(resolve(assetsDir, `${tutorial.slug}-starter.zip`), createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
+      await writeFile(resolve(assetsDir, `${tutorial.slug}-starter.zip`), zipFiles(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
     }
 
     const locksDir = resolve(import.meta.dirname, "locks");
