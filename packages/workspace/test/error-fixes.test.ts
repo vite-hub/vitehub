@@ -30,7 +30,7 @@ it("reports an interrupted removal without a file revision with a code and a fix
   await expect(removeWorkspaceOwnedFile(store, "owned.md")).rejects.toThrow("remove unavailable")
   await expect(readWorkspaceFileOwner(store, "owned.md", true)).rejects.toThrow(expect.objectContaining({
     code: "WORKSPACE_R0074",
-    fix: expect.stringContaining("workspace.rm(path)"),
+    fix: expect.stringContaining("delete it in the Store itself"),
     message: expect.stringContaining("Cannot retry interrupted removal without a file revision: owned.md"),
   }))
 })
