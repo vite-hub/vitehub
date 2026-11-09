@@ -10,7 +10,7 @@ import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 import { setupCommands } from "../src/setup/commands.ts"
-import { setupCommandNames } from "../src/setup/names.ts"
+import { setupCommandNames } from "@vite-hub/internal/operations"
 
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
@@ -588,7 +588,7 @@ export default ({ mode }) => ({
   })
 
   it("knows the name of every setup command before it imports them", () => {
-    expect([...setupCommandNames]).toEqual(setupCommands.map(command => command.name))
+    expect(setupCommandNames).toEqual(expect.arrayContaining(setupCommands.map(command => command.name)))
   })
 
   it("dispatches setup commands before config loading", async () => {

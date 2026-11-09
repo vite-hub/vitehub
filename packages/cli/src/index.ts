@@ -5,7 +5,7 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
-import { reservedOperationNamespaces } from "@vite-hub/internal/operations"
+import { reservedOperationNamespaces, setupCommandNames } from "@vite-hub/internal/operations"
 import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
@@ -13,7 +13,6 @@ import { resolve } from "pathe"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
-import { setupCommandNames } from "./setup/names.ts"
 
 import type { InlineConfig } from "vite"
 import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -254,7 +253,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const spawn = options.spawn || defaultSpawn
   const loadCommands = async () => options.commands ?? await loadSetupCommands()
   // Setup commands never load the project config, so they work in an empty folder and on a config that throws.
-  const setupCommand = options.commands || setupCommandNames.has(args[0] ?? "")
+  const setupCommand = options.commands || setupCommandNames.includes(args[0] ?? "")
     ? (await loadCommands()).find(item => item.name === args[0])
     : undefined
   if (setupCommand) {
