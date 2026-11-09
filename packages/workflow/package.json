@@ -97,7 +97,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/workflow#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
+    "test": "vp run --cache -t @vite-hub/workflow#build && vp run --cache -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
     "@vercel/functions": "catalog:vercel",
