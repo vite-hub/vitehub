@@ -81,6 +81,18 @@ describe("createFormsHandler", () => {
     const handler = createFormsHandler({ forms: { form }, sendEmail: async () => [new Error("down"), undefined] })
     expect((await handler.fetch(post("form").request)).status).toBe(502)
   })
+
+  it.each([false, true])("trusts the Cloudflare address only on Cloudflare (host: %s)", async (cloudflare) => {
+    const handler = createFormsHandler({ forms: { contact }, context: () => ({ runtime: cloudflare ? { cloudflare: { env: {} } } : {} }) })
+    const send = (address: string) => {
+      const { request } = post("contact")
+      request.headers.set("cf-connecting-ip", address)
+      return handler.fetch(request)
+    }
+    expect((await send("1.1.1.1")).status).toBe(201)
+    expect((await send("1.1.1.1")).status).toBe(201)
+    expect((await send("2.2.2.2")).status).toBe(cloudflare ? 201 : 429)
+  })
 })
 
 it("memoryFormRateLimit opens a new window after the old one ends", () => {
