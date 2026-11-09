@@ -7,33 +7,33 @@ navigation.group: Chat bots
 icon: i-simple-icons-discord
 ---
 
-To build an AI Discord bot with ViteHub, create an application in the Discord Developer Portal, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, then run the app with the `node` preset. The Node server opens the Discord Gateway connection when it starts, and the Agent answers direct messages and messages that mention the bot.
+Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` preset. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
 
 ## What a ViteHub Discord bot is
 
-A [Discord bot](https://discord.com/developers/docs/intro) is the bot user of a Discord application. Discord does not send ordinary chat messages to a webhook. A bot receives them through the [Gateway](https://discord.com/developers/docs/events/gateway), a WebSocket connection that stays open. The HTTP interactions endpoint receives only slash commands, buttons, and other interactions.
+A [Discord bot](https://discord.com/developers/docs/intro) is the bot user of a Discord application. Discord does not send chat messages to a webhook. A bot gets them through the [Gateway](https://discord.com/developers/docs/events/gateway), a WebSocket that stays open. The HTTP interactions endpoint gets only slash commands, buttons, and other interactions.
 
-In ViteHub, the bot is a [Channel](/docs/agents/channels) of an Agent. `discord()` builds a [Chat SDK](https://chat-sdk.dev) Discord adapter. On the `node` preset, ViteHub adds a Nitro plugin that opens the Gateway connection when the server starts, opens a new connection every 9 minutes, and closes it when the server stops. Each message that ViteHub accepts starts one Agent Invocation. The Agent writes the answer. In a server channel, ViteHub posts the answer in a thread under the message.
+In ViteHub, the bot is a [Channel](/docs/agents/channels) of an Agent: a way for messages to reach it. `discord()` builds a [Chat SDK](https://chat-sdk.dev) Discord adapter. On the `node` preset, a Nitro plugin opens the Gateway at server start, reopens it every 9 minutes, and closes it at stop. Each accepted message starts one Agent run (Invocation). In a server channel, the answer goes in a thread.
 
 ## Create the Discord application
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and select **New Application**.
 2. On **General Information**, copy the **Application ID** (`DISCORD_APPLICATION_ID`) and the **Public Key** (`DISCORD_PUBLIC_KEY`).
 3. On **Bot**, select **Reset Token** and copy the token (`DISCORD_BOT_TOKEN`). Anyone with the token controls the bot, so keep it secret.
-4. On **Bot**, under **Privileged Gateway Intents**, turn on **Message Content Intent**. The Chat SDK adapter asks for this intent, and Discord closes the Gateway connection when the intent is off. An app with more than 10,000 unique users who can see it across its servers needs Discord's review for continued access to privileged intents. Read [Privileged Intent Access Review](https://docs.discord.com/developers/events/gateway#privileged-intent-access-review).
-5. On **OAuth2**, open **OAuth2 URL Generator**, select the `bot` scope, and select these bot permissions: **View Channels**, **Send Messages**, **Create Public Threads**, **Send Messages in Threads**, and **Read Message History**. Open the generated URL to add the bot to your server.
+4. On **Bot**, under **Privileged Gateway Intents**, turn on **Message Content Intent**. The adapter asks for it, and Discord closes the Gateway connection if it is off. An app that more than 10,000 unique users can see across its servers needs Discord's review to keep privileged intents. See [Privileged Intent Access Review](https://docs.discord.com/developers/events/gateway#privileged-intent-access-review).
+5. On **OAuth2**, open **OAuth2 URL Generator**, select the `bot` scope and these permissions: **View Channels**, **Send Messages**, **Create Public Threads**, **Send Messages in Threads**, and **Read Message History**. Open the generated URL to add the bot to your server.
 
-The Chat SDK adapter asks the Gateway for the Guilds, Guild Messages, Message Content, Direct Messages, and reaction intents. Only Message Content is privileged, so it is the only intent that you turn on in the portal.
+The adapter asks for the Guilds, Guild Messages, Message Content, Direct Messages, and reaction intents. Only Message Content is privileged, so you turn on only that one.
 
 ## Set up the app
 
-Start with the app from [Installation](/docs/getting-started/installation). Install the Discord adapter. ViteHub does not install it for you.
+Start with the app from [Installation](/docs/getting-started/installation) and install the Discord adapter yourself:
 
 ```bash [Terminal]
 pnpm add @chat-adapter/discord
 ```
 
-Use the version that matches the `chat` package that ViteHub installs. `pnpm why chat` shows it.
+Use the version that matches ViteHub's `chat` package. `pnpm why chat` shows it.
 
 ### Enable Agents on the Node preset
 
@@ -88,7 +88,7 @@ export default defineConfig({
 :::
 ::
 
-The `node` preset is what starts the Gateway listener in the server process. `workflow: false` keeps each reply inline in that process.
+The `node` preset starts the Gateway listener in the server process. `workflow: false` runs each reply inline in that process.
 
 ### Define the Agent
 
@@ -119,15 +119,15 @@ export default defineAgent({
 })
 ```
 
-- `adapter: true` tells ViteHub to build the adapter from Server Env. Without an `adapter` option, `discord()` has no adapter, and ViteHub does not start a Gateway listener for it.
+- `adapter: true` builds the adapter from Server Env. With no `adapter` option, `discord()` has no adapter and no Gateway listener.
 - `access()` admits only the invoker IDs in the set. Each ID is `discord:<user ID>`. Return `false` and the Agent does not start or reply. The Discord adapter may already have created an empty thread for a server mention. To copy a user ID, turn on **Developer Mode** in Discord's advanced settings, then right-click the user.
-- To answer a role mention, pass `adapter: { mentionRoleIds: ['<role id>'] }` instead of `adapter: true`. Adapter options that you omit still come from Server Env.
+- To answer a role mention, pass `adapter: { mentionRoleIds: ['<role id>'] }` instead of `adapter: true`. Omitted adapter options still come from Server Env.
 
-The model string runs through AI Gateway, so the server needs `AI_GATEWAY_API_KEY`. Read [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) to use another model.
+The model string runs through AI Gateway, so the server needs `AI_GATEWAY_API_KEY`. See [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) to use another model.
 
 ### Set the server environment
 
-`discord({ adapter: true })` reads its credentials from Server Env. For each value, ViteHub reads the `VITEHUB_` name first and then the Discord name. The Chat SDK adapter requires all three.
+`discord({ adapter: true })` reads its credentials from Server Env, first the `VITEHUB_` name, then the Discord name. The adapter needs all three.
 
 | Value | Variable |
 | --- | --- |
@@ -150,19 +150,19 @@ Do not commit `.env`. See [Channel Env](/docs/agents/channels#channel-env).
 pnpm dev
 ```
 
-The Gateway connection goes out from your machine to Discord, so you do not need a public URL or a tunnel for messages. Send the bot a direct message, or mention it in a server channel, for example `@Assistant what is ViteHub?`. The bot creates a thread under your message and answers there.
+The Gateway connection goes out from your machine to Discord, so you need no public URL or tunnel. Send the bot a direct message, or mention it in a server channel: `@Assistant what is ViteHub?`. It answers in a new thread under your message.
 
-Check what ViteHub discovered:
+Check what ViteHub found:
 
 ```bash [Terminal]
 pnpm vitehub agent info --agent assistant --url http://localhost:3000
 ```
 
-If the bot does not answer, look for `[vitehub:agent] Discord Gateway listener failed and will retry.` in the server log. ViteHub retries 5 seconds after a failure. Gateway listener start, stop, and failure events also appear in the JSON logs under the `vitehub.channel.listener` scope. Read [Inspect delivery custody](/docs/agents/channels#inspect-delivery-custody).
+If the bot does not answer, look for `[vitehub:agent] Discord Gateway listener failed and will retry.` in the server log. ViteHub retries 5 seconds after a failure. Listener start, stop, and failure events also show in the JSON logs under the `vitehub.channel.listener` scope. See [Inspect delivery custody](/docs/agents/channels#inspect-delivery-custody).
 
 ## Deploy the bot
 
-Deploy the `node` preset to a server or container that runs all the time. Read [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
+Deploy the `node` preset to a server or container that runs all the time. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
 
 ```bash [Terminal]
 pnpm build
@@ -174,13 +174,13 @@ AI_GATEWAY_API_KEY=... \
 node .output/server/index.mjs
 ```
 
-A production build needs durable Agent State for thread subscriptions and queued deliveries. `VITEHUB_AGENT_STATE_URL` gives it a SQLite file on a disk that survives a restart. Read [History and sessions](/docs/agents/chat-history-sessions).
+Production needs durable Agent State for thread subscriptions and queued deliveries. `VITEHUB_AGENT_STATE_URL` points it at a SQLite file on a disk that survives a restart. See [History and sessions](/docs/agents/chat-history-sessions).
 
-Run one server process for the bot. Each process opens its own Gateway connection.
+Run one server process for the bot, because each process opens its own Gateway connection.
 
 ## Serverless hosts
 
-A serverless function cannot keep the Gateway connection open, so ViteHub starts the listener only on the `node` preset. You can generate a wake route instead:
+A serverless function cannot keep the Gateway open, so the listener starts only on the `node` preset. You can generate a wake route instead:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -230,22 +230,22 @@ export default defineConfig({
 :::
 ::
 
-This adds `GET /api/_vitehub/agents/<agent>/discord/gateway`. In production the route requires `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes, or for `VITEHUB_DISCORD_GATEWAY_DURATION_MS`, and forwards each event to the Agent webhook route at `/api/_vitehub/agents/<agent>/webhooks/discord`.
+This adds `GET /api/_vitehub/agents/<agent>/discord/gateway`. In production it needs `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes (or `VITEHUB_DISCORD_GATEWAY_DURATION_MS`) and forwards each event to the webhook route `/api/_vitehub/agents/<agent>/webhooks/discord`.
 
-ViteHub does not call this route for you. You must call it on a timer that overlaps the listener time, and the host must let the function run for that time. Many serverless plans stop a function sooner. ViteHub has no deployed test of this path. Use the `node` preset when you need a Discord bot that is always online. On the `node` preset, `routes.discordGateway` adds no route, because the server process owns the listener.
+ViteHub does not call this route. Call it on a timer that overlaps the listener time, and the host must let the function run that long. Many serverless plans stop it sooner, and we have no deployed test of this path. For an always-online bot, use the `node` preset. There, `routes.discordGateway` adds no route, because the server process owns the listener.
 
 ## Limits
 
-- **Mentions.** In a direct message, the bot answers every message. In a server channel, it answers only messages that mention it, and it answers in a new thread. To also answer replies in that thread without a mention, set `messages: { replyToSubscribedThreads: true }`. Read [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
-- **Other bots.** ViteHub ignores messages from other bots. Set `messages: { allowBots: true }` to change this.
+- **Mentions.** The bot answers every direct message, but in a server channel only mentions, in a new thread. To also answer later replies in that thread, set `messages: { replyToSubscribedThreads: true }`. See [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
+- **Other bots.** ViteHub ignores other bots' messages unless you set `messages: { allowBots: true }`.
 - **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Discord user ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Actor](/docs/agents/actors).
-- **Slash commands.** The Agent answers chat messages. ViteHub does not register slash commands for you.
-- **Host.** The always-online path needs a long-running Node.js process. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you choose another host.
-- **Proof.** ViteHub has contract tests for the Discord Channel, the Gateway route, and the Node listener plugin. It does not run a deployed Discord bot in CI.
+- **Slash commands.** The Agent answers chat messages. ViteHub does not register slash commands.
+- **Host.** An always-online bot needs a long-running Node.js process. Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you choose another host.
+- **Proof.** We have contract tests for the Discord Channel, the Gateway route, and the Node listener plugin. CI runs no deployed Discord bot.
 
 ## Next steps
 
 - [Agent Channels](/docs/agents/channels): admission, delivery, attachments, and Channel instructions.
 - [Agent Actors](/docs/agents/actors): pass a trusted identity to the Agent.
-- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces to the same Agent.
+- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces.
 - [Build an AI Slack bot](/docs/guides/slack-ai-bot) and [Build an AI Telegram bot](/docs/guides/telegram-ai-bot) with the same Agent file.
