@@ -350,11 +350,6 @@
     "error": "TS2304 Cannot find name 'defineAgent'."
   },
   {
-    "id": "docs/content/docs/docs-site/configure.md#df8523d04622",
-    "label": "docs.parser.ts",
-    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
-  },
-  {
     "id": "docs/content/docs/env/app-secret.md#0b0e47c788ee",
     "label": "server/utils/session.ts",
     "error": "TS2305 Module '\"#vitehub/env/server\"' has no exported member 'deriveSecret'."
@@ -678,11 +673,6 @@
     "id": "packages/database/README.md#4de5ceb072d1",
     "label": null,
     "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
-  },
-  {
-    "id": "packages/docs/README.md#d1050de4115a",
-    "label": null,
-    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
   },
   {
     "id": "packages/env/README.md#a9239e812708",

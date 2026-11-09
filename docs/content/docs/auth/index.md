@@ -8,7 +8,7 @@ icon: i-lucide-shield-check
 ---
 
 ::product-hero{tagline="Add sign-in and user sessions to your app with Better Auth, set up from one server file." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree
   ```ts [server/auth.ts]
   import { defineAuth } from 'vite-hub/auth'
 

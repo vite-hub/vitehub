@@ -8,7 +8,7 @@ icon: i-lucide-mail
 ---
 
 ::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files{feature="email"}
+  :::code-tree{feature="email"}
   ```ts [server/api/welcome.post.ts] fragment
   import renderWelcome from '#vitehub/emails/welcome'
   import { defineEventHandler } from 'h3'
