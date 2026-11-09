@@ -23,6 +23,8 @@ const { values: options } = parseArgs({
   options: {
     app: { type: "string" },
     keep: { type: "boolean", default: false },
+    // Without Redis, the build and the instances see only DATABASE_URL, so Postgres must carry every shared store.
+    "no-redis": { type: "boolean", default: false },
     only: { type: "string" },
   },
 })
@@ -64,7 +66,8 @@ const appOverrides = {
   vue: "3.5.44",
 }
 
-const knownFailing = JSON.parse(readFileSync(join(here, "known-failing.json"), "utf8"))
+const mode = options["no-redis"] ? "without-redis" : "with-redis"
+const knownFailing = JSON.parse(readFileSync(join(here, "known-failing.json"), "utf8"))[mode]
 const instanceNames = ["a", "b", "c"]
 const cleanups = []
 
@@ -101,10 +104,11 @@ async function startBackends(project) {
   }
   const compose = ["compose", "-p", project, "-f", join(here, "compose.yaml")]
   cleanups.push(() => run("docker", [...compose, "down", "-v", "--remove-orphans"], { env }))
-  run("docker", [...compose, "up", "-d", "--wait"], { env })
+  run("docker", [...compose, "up", "-d", "--wait", "postgres", ...(mode === "with-redis" ? ["redis"] : [])], { env })
   return {
     databaseUrl: `postgres://vitehub:vitehub@127.0.0.1:${env.MULTI_INSTANCE_POSTGRES_PORT}/vitehub`,
-    redisUrl: `redis://127.0.0.1:${env.MULTI_INSTANCE_REDIS_PORT}`,
+    // Only set REDIS_URL when Redis runs. The build and the instances must not see it in the other mode.
+    redisEnv: mode === "with-redis" ? { REDIS_URL: `redis://127.0.0.1:${env.MULTI_INSTANCE_REDIS_PORT}` } : {},
   }
 }
 
@@ -158,7 +162,7 @@ async function buildApp(workDir, backends) {
       DATABASE_URL: backends.databaseUrl,
       MULTI_INSTANCE_SHARED_BLOB_DIR: join(workDir, "shared-blob"),
       NUXT_TELEMETRY_DISABLED: "1",
-      REDIS_URL: backends.redisUrl,
+      ...backends.redisEnv,
     },
     logFile: join(workDir, "build.log"),
   })
@@ -174,17 +178,19 @@ async function startInstance(name, appDir, workDir, backends) {
   await mkdir(cwd, { recursive: true })
   const logPath = join(workDir, `instance-${name}.log`)
   const logStream = createWriteStream(logPath)
+  const parentEnv = { ...process.env }
+  delete parentEnv.REDIS_URL
   const child = spawn(process.execPath, [join(appDir, ".output/server/index.mjs")], {
     cwd,
     env: {
-      ...process.env,
+      ...parentEnv,
       DATABASE_URL: backends.databaseUrl,
       HOST: "127.0.0.1",
       MULTI_INSTANCE_NAME: name,
       MULTI_INSTANCE_ORACLE_URL: backends.databaseUrl,
       NODE_ENV: "production",
       PORT: String(port),
-      REDIS_URL: backends.redisUrl,
+      ...backends.redisEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],
   })
@@ -263,6 +269,8 @@ async function main() {
   const workDir = options.app ? resolve(options.app, "..") : await mkdtemp(join(tmpdir(), "vitehub-multi-instance-"))
   if (!options.keep && !options.app) cleanups.push(() => rm(workDir, { force: true, recursive: true }))
   log(`work directory: ${workDir}`)
+  log(`mode: ${mode}`)
+  if (options.app) log("--app reuses a build. Build it in the same mode, because the build reads REDIS_URL.")
 
   const backends = await startBackends(`vitehub-multi-instance-${process.pid}`)
   const appDir = options.app ? resolve(options.app) : await buildApp(workDir, backends)
@@ -278,7 +286,18 @@ async function main() {
   const instances = await Promise.all(instanceNames.map(name => startInstance(name, appDir, workDir, backends)))
   const boot = await Promise.all(instances.map(instance => waitForInstance(instance)))
 
-  const context = { appDir, appRequire, backends, boot, instances, sql, startedAt, workDir }
+  const context = {
+    appDir,
+    appRequire,
+    backends,
+    boot,
+    instances,
+    mode,
+    sql,
+    startedAt,
+    stop: name => stopInstance(instances.find(instance => instance.name === name)),
+    workDir,
+  }
   const selected = options.only ? checks.filter(check => options.only.split(",").includes(check.id)) : checks
   const results = []
   for (const check of selected) {
@@ -297,11 +316,12 @@ async function main() {
 
   printTable(results)
   const unexpected = results.filter(result => result.status !== "pass" && !knownFailing[result.id])
+  // A listed check that passes also fails the run, so the list stays exact.
   const fixed = results.filter(result => result.status === "pass" && knownFailing[result.id])
-  for (const result of fixed) log(`${result.id} passes now. Remove it from known-failing.json.`)
   if (unexpected.length) log(`unexpected failures: ${unexpected.map(result => result.id).join(", ")}`)
+  if (fixed.length) log(`listed in known-failing.json "${mode}" but pass now, remove them: ${fixed.map(result => result.id).join(", ")}`)
   log(`logs: ${workDir}${options.keep ? "" : " (removed, use --keep to keep them)"}`)
-  return unexpected.length ? 1 : 0
+  return unexpected.length || fixed.length ? 1 : 0
 }
 
 let exitCode = 1

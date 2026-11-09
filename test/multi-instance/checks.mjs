@@ -1,5 +1,5 @@
 // The checks of the multi-instance harness. Each check returns { status: "pass" | "fail", detail }.
-// `context` comes from run.mjs: { appRequire, boot, instances, sql, startedAt }.
+// `context` is built in run.mjs `main()`: the instances, their boot results, the oracle `sql` client, and `stop(name)`.
 import { randomUUID } from "node:crypto"
 import { readdir } from "node:fs/promises"
 import { join } from "node:path"
@@ -59,12 +59,11 @@ export const checks = [
   },
   {
     id: "queue-once",
-    title: "1,000 jobs each run once, on more than one instance",
+    title: "1,000 jobs each run exactly once",
     async run(context) {
       const [a] = needInstances(context, ["a", "b", "c"])
       const run = randomUUID().slice(0, 8)
       const ids = Array.from({ length: 1000 }, (_, index) => `${run}-${index}`)
-      // Send every job through instance A. A shared queue lets B and C take jobs too.
       for (let start = 0; start < ids.length; start += 100) {
         const { errors } = await post(a, "/api/queue", { ids: ids.slice(start, start + 100) })
         if (errors.length) return fail(`runQueue failed: ${errors[0]}`)
@@ -73,30 +72,33 @@ export const checks = [
         const [totals] = await context.sql`select count(*)::int as total, count(distinct key)::int as distinct from oracle_events where kind = 'job' and key like ${`${run}-%`}`
         return totals
       }
-      const totals = await settle(read, value => value.distinct === ids.length)
+      await settle(read, value => value.distinct === ids.length)
+      // Wait a little longer, so a duplicate run has time to show up.
       await sleep(2000)
       const final = await read()
       const byInstance = await context.sql`select instance, count(*)::int as count from oracle_events where kind = 'job' and key like ${`${run}-%`} group by instance order by instance`
-      const detail = `${final.distinct}/${ids.length} jobs ran, ${final.total} runs, by instance: ${distribution(byInstance)}`
-      if (totals.distinct !== ids.length || final.total !== ids.length) return fail(detail)
-      if (byInstance.length < 2) return fail(`${detail}. Only the instance that queued the jobs ran them: the queue is not shared`)
-      return pass(detail)
+      // The spread is information only. One instance may take every job from a correct shared queue.
+      const detail = `${final.distinct}/${ids.length} jobs ran, ${final.total} runs (spread: ${distribution(byInstance)})`
+      return final.distinct === ids.length && final.total === ids.length ? pass(detail) : fail(detail)
     },
   },
   {
     id: "rate-limit-shared",
-    title: "a 10 per minute limit allows 10 requests across all instances",
+    title: "a 10 per minute limit allows exactly 10 of 60 concurrent requests across all instances",
     async run(context) {
       const instances = needInstances(context, ["a", "b", "c"])
       // The window is the clock minute. Start early in a minute so all requests fall in one window.
       if (new Date().getSeconds() > 45) await sleep((61 - new Date().getSeconds()) * 1000)
       const key = randomUUID()
+      // Two batches of 30 requests in flight at the same time, 10 on each instance.
+      // A store that reads and then writes lets more than 10 through.
       let allowed = 0
-      for (let index = 0; index < 30; index++) {
-        const { allowed: ok } = await request(instances[index % 3], `/api/rate-limit?key=${key}`)
-        if (ok) allowed++
+      for (let batch = 0; batch < 2; batch++) {
+        const answers = await Promise.all(Array.from({ length: 30 }, (_, index) =>
+          request(instances[index % 3], `/api/rate-limit?key=${key}`)))
+        allowed += answers.filter(answer => answer.allowed).length
       }
-      const detail = `${allowed} of 30 requests allowed, round robin over a, b and c (limit 10)`
+      const detail = `${allowed} of 60 concurrent requests allowed over a, b and c (limit 10)`
       return allowed === 10 ? pass(detail) : fail(detail)
     },
   },
@@ -212,6 +214,28 @@ export const checks = [
       ].join(", ")
       const ok = started.length === 3 && run.status === "completed" && run.result?.token === token && count === 1
       return ok ? pass(detail) : fail(detail)
+    },
+  },
+  // Keep this check last: it stops instance A.
+  {
+    id: "queue-failover",
+    title: "jobs queued on A run on another instance after A stops",
+    async run(context) {
+      const [a] = needInstances(context, ["a", "b", "c"])
+      const run = randomUUID().slice(0, 8)
+      const ids = Array.from({ length: 20 }, (_, index) => `${run}-${index}`)
+      // The delay keeps every job waiting while A stops, so no job is half done on A.
+      const { errors } = await post(a, "/api/queue", { delaySeconds: 5, ids })
+      if (errors.length) return fail(`runQueue failed: ${errors[0]}`)
+      await context.stop("a")
+      const read = async () => {
+        const [totals] = await context.sql`select count(*)::int as total, count(distinct key)::int as distinct from oracle_events where kind = 'job' and key like ${`${run}-%`}`
+        return totals
+      }
+      const final = await settle(read, value => value.distinct === ids.length, { idleMs: 20_000, timeoutMs: 60_000 })
+      const byInstance = await context.sql`select instance, count(*)::int as count from oracle_events where kind = 'job' and key like ${`${run}-%`} group by instance order by instance`
+      const detail = `${final.distinct}/${ids.length} delayed jobs ran after A stopped, ${final.total} runs (spread: ${distribution(byInstance)})`
+      return final.distinct === ids.length && final.total === ids.length ? pass(detail) : fail(detail)
     },
   },
 ]
