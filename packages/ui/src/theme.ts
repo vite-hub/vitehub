@@ -186,10 +186,13 @@ export const vitehubTheme = {
   // Dialogs: 12px radius and a layered shadow. The top stays in place, so content that grows below a field moves
   // nothing above it.
   modal: {
-    slots: {
-      overlay: "bg-black/40 dark:bg-black/60",
-    },
     variants: {
+      // Nuxt UI sets the backdrop color in this variant, so it goes here to win over Nuxt UI's gray wash.
+      overlay: {
+        true: {
+          overlay: "bg-black/40 dark:bg-black/60",
+        },
+      },
       fullscreen: {
         false: {
           content: "rounded-xl ring-0 shadow-(--vh-shadow-dialog)",
