@@ -213,6 +213,12 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       })
       const button = touch.locator("vitehub-comments .selection-bar button")
       await button.waitFor({ timeout: 5000 })
+      // No hover color on a touch screen, where a tap would leave it on.
+      await button.hover()
+      assert.equal(await button.evaluate(element => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)")
+      // Under reduced motion a press does not scale the button.
+      await touch.emulateMedia({ reducedMotion: "reduce" })
+      assert.doesNotMatch(await button.evaluate(element => getComputedStyle(element).transitionProperty), /scale/)
       // A tap on a phone can clear the selection before the click lands, as a press outside the selected text does.
       await touch.evaluate(() => addEventListener("pointerdown", () => getSelection().removeAllRanges(), { capture: true }))
       await button.tap()

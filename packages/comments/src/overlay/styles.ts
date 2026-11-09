@@ -145,7 +145,7 @@ export const overlayStyles = `
   transition: background-color 150ms, color 150ms, scale 150ms; transition-timing-function: cubic-bezier(.23, 1, .32, 1);
 }
 .selection-bar button::before { content: ""; position: absolute; inset: -9px -2px; }
-@media (hover: hover) { .selection-bar button:hover { background: var(--bar-hover); color: var(--bar-strong); } }
+@media (hover: hover) and (pointer: fine) { .selection-bar button:hover { background: var(--bar-hover); color: var(--bar-strong); } }
 .selection-bar button:active { scale: .96; }
 .selection-bar button:focus-visible { outline: 2px solid var(--bar-strong); outline-offset: 1px; }
 
@@ -155,6 +155,8 @@ export const overlayStyles = `
 @media (prefers-reduced-motion: reduce) {
   .toast, .card, .selection-bar, [data-slot="comment-layer-popover"] { animation: none; }
   [data-slot="comment-pin"] { transition: none; }
+  .selection-bar button { transition-property: background-color, color; }
+  .selection-bar button:active { scale: none; }
   .cursor { transition: none; }
 }
 `
@@ -179,7 +181,7 @@ export const pillBarStyles = `
 .toolbar { display: flex; flex-direction: var(--vitehub-pill-flow, row); align-items: inherit; gap: 2px; font-variant-numeric: tabular-nums; }
 .toolbar svg { flex: none; }
 .sep { width: 4px; height: 4px; flex: none; }
-.people { display: flex; padding: 2px var(--vitehub-pill-inset, 2px); }
+.people { display: flex; padding: 0 2px; }
 .avatar { width: 20px; height: 20px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--vitehub-pill-surface); }
