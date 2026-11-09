@@ -229,7 +229,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   const edit = createInlineEdit({
     page: () => page.value,
-    openTool: async path => await context?.openTool("content", path) ?? false,
+    openTool: async path => await context?.openTool("console", path) ?? false,
     contentPath: () => `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`,
     info: (text, link) => showToast({ text, kind: "info", link }),
     failed,

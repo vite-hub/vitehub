@@ -1,4 +1,4 @@
-import { contentFieldAttribute, contentPreviewFrameParameter, contentPreviewPublishedParameter, parseContentField } from "@vite-hub/content/client"
+import { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "@vite-hub/content/client"
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import { appPathname } from "../../comments-overlay/loader-core.ts"
@@ -46,9 +46,8 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   shadow.append(style, button)
   const assetPath = new URL(import.meta.url).pathname
   const base = assetPath.slice(0, assetPath.lastIndexOf("/assets/"))
-  const isContent = tool.id === "content"
   const key = `vitehub-editor:${base}:${tool.id}`
-  let route = isContent ? "/content" : "/"
+  let route = "/"
   try {
     const saved = sessionStorage.getItem(key)
     if (saved?.startsWith("/") && !saved.startsWith("//")) route = saved
@@ -124,65 +123,8 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   context.onOpen(open)
   if (context.open) open()
 
-  // The Content owner supplies field addresses. No DOM text is treated as stored content.
-  if (isContent) {
-    const select = document.createElement("button")
-    select.type = "button"
-    select.textContent = "Select field"
-    select.title = "Select a field on the page to edit it. Esc cancels."
-    select.setAttribute("aria-pressed", "false")
-    shadow.append(select)
-    const style = document.createElement("style")
-    style.textContent = `.vitehub-select-content [${contentFieldAttribute}]{outline:1px dashed #3b82f6;outline-offset:3px;cursor:crosshair}.vitehub-select-content [${contentFieldAttribute}]:hover{outline-style:solid}`
-    document.head.append(style)
-    // Selecting moves the open window out of the way until a field is picked; a cancel brings it back. When the window
-    // was already minimized, it stays minimized, and only a picked field opens it.
-    let selecting = false
-    let restore = false
-    // Astro and Turbo can replace the head and root classes while the Content tool stays connected.
-    const mutations = new MutationObserver(() => {
-      if (style.parentElement !== document.head) document.head.append(style)
-      if (selecting && !document.documentElement.classList.contains("vitehub-select-content")) document.documentElement.classList.add("vitehub-select-content")
-    })
-    mutations.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] })
-    const stop = (picked: boolean) => {
-      if (!selecting) return
-      selecting = false
-      select.setAttribute("aria-pressed", "false")
-      document.documentElement.classList.remove("vitehub-select-content")
-      if (restore && !picked) panel.show()
-      restore = false
-    }
-    select.addEventListener("click", () => {
-      if (selecting) return stop(false)
-      selecting = true
-      select.setAttribute("aria-pressed", "true")
-      document.documentElement.classList.add("vitehub-select-content")
-      restore = button.getAttribute("aria-expanded") === "true"
-      if (restore) {
-        panel.hide()
-        select.focus({ preventScroll: true })
-      }
-    })
-    document.addEventListener("click", (event) => {
-      if (!selecting || event.composedPath().some(target => target instanceof HTMLElement && target.localName.startsWith("vitehub-"))) return
-      // A click while selecting never reaches the page, so a link that is not a field does not navigate.
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      const element = event.target instanceof Element ? event.target.closest(`[${contentFieldAttribute}]`) : null
-      const address = element && parseContentField(element.getAttribute(contentFieldAttribute) ?? "")
-      if (!address) return stop(false)
-      stop(true)
-      open(`/content/${encodeURIComponent(address.collection)}${address.id ? `/${address.id.split("/").map(encodeURIComponent).join("/")}` : ""}`)
-    }, { capture: true, signal })
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || !selecting) return
-      event.preventDefault()
-      stop(false)
-    }, { capture: true, signal })
-    signal.addEventListener("abort", () => { mutations.disconnect(); stop(true); style.remove() }, { once: true })
-    draftSwitch(base, shadow, context.createTab, signal)
-  }
+  // The server loads the segment with the page only when the app has Content, so it can offer the page's draft at once.
+  if (!tool.lazy) draftSwitch(base, shadow, context.createTab, signal)
 }
 /** The Console RPC header. It matches `consoleRpcHeader`, which the page tool does not import to stay small. */
 const rpcHeader = "x-vitehub-console"
@@ -382,7 +324,7 @@ function draftTab(tab: HTMLElement, signal: AbortSignal): () => void {
 }
 
 /**
- * The draft view of the Content segment. On a live page whose document has an unpublished draft, the pill shows
+ * The draft view in the Console segment. On a live page whose document has an unpublished draft, the pill shows
  * **View draft**. It posts the preview form of that one document to this page, as the side browser of the editor does,
  * so the token stays in the form body and only this browser sees the draft. The draft page shows a tab on top of the
  * pill instead, with the changes marked and **Back to live**. Client-side navigation resolves the next page again.

@@ -301,6 +301,24 @@ describe("the Comments overlay on a page", () => {
     await vi.waitFor(() => expect(shadow.querySelector('a[href="/_vitehub/content"]')?.textContent).toBe("Open Content"))
   })
 
+  it("edits a text field in place even when the page has the Console tool", async () => {
+    await open()
+    tools.context.openTool.mockResolvedValue(true)
+    await startEdit()
+    expect(tools.context.openTool).not.toHaveBeenCalled()
+  })
+
+  it("opens a field that is not plain text in the Console window", async () => {
+    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "home/hero" }])
+    await open()
+    tools.context.openTool.mockResolvedValue(true)
+    await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
+    tool(tools.bar, "Edit text (E)")!.click()
+    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await vi.waitFor(() => expect(tools.context.openTool).toHaveBeenCalledWith("console", "/content/settings/home/hero"))
+    expect(shadow.querySelector('a[href="/_vitehub/content"]')).toBeNull()
+  })
+
   it("restores the published text on Escape and leaves an unchanged draft unsaved", async () => {
     await open()
     const title = await startEdit()
