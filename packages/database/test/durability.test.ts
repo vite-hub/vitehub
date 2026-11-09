@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { databaseDurability } from "../src/durability.ts"
+import { databaseDurability, databaseDurabilityUrl } from "../src/durability.ts"
 
 describe("databaseDurability", () => {
   it("tells local SQLite from shared stores", () => {
@@ -22,5 +22,22 @@ describe("databaseDurability", () => {
     ])
     expect(reports[0]).not.toHaveProperty("name")
     expect(reports[0]!.fix).toContain("remote libSQL URL")
+  })
+})
+
+describe("databaseDurabilityUrl", () => {
+  it("keeps env names and local files, and hides remote URLs before the build writes them", () => {
+    const declaration = { kind: "env-variable" as const, source: { kind: "env" as const, name: "TURSO_URL" }, default: "libsql://app.turso.io?authToken=secret" }
+    expect(databaseDurabilityUrl("libsql://app.turso.io?authToken=secret")).toBe("remote")
+    expect(databaseDurabilityUrl("file:.vitehub/data/database/sqlite.db")).toBe("file:.vitehub/data/database/sqlite.db")
+    expect(databaseDurabilityUrl(declaration)).toEqual({ ...declaration, default: "remote" })
+    expect(JSON.stringify(databaseDurabilityUrl(declaration))).not.toContain("secret")
+  })
+
+  it("still classifies the redacted values", () => {
+    const url = databaseDurabilityUrl({ kind: "env-variable", source: { kind: "env", name: "TURSO_URL" }, default: "libsql://app.turso.io" })
+    const context = (env: Record<string, string | undefined>) => ({ env, find: () => undefined })
+    expect(databaseDurability({ databases: [{ dialect: "sqlite", name: "default", url }] }, context({}))).toMatchObject([{ store: "libsql", scope: "shared" }])
+    expect(databaseDurability({ databases: [{ dialect: "sqlite", name: "default", url }] }, context({ TURSO_URL: "file:local.db" }))).toMatchObject([{ store: "sqlite", scope: "host" }])
   })
 })

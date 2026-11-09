@@ -1,4 +1,4 @@
-import { classifySqliteUrl } from "@vite-hub/runtime/durability"
+import { classifySqliteUrl, sqliteUrlInput } from "@vite-hub/runtime/durability"
 
 import { resolveConfigValue } from "./config-value.ts"
 
@@ -28,4 +28,13 @@ export function databaseDurability(input: DatabaseDurabilityInput, { env }: Dura
     const sqlite = classifySqliteUrl(url)
     return { primitive: "database", ...named, ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix }) }
   })
+}
+
+/**
+ * A SQLite URL for the durability input, which the build writes into the server. Environment variable names stay. A
+ * remote URL, literal or as the declaration's default, becomes `remote`, so no credential reaches the bundle.
+ */
+export function databaseDurabilityUrl(value: DatabaseConfigValue): DatabaseConfigValue {
+  if (typeof value === "string") return sqliteUrlInput(value)
+  return typeof value.default === "string" ? { ...value, default: sqliteUrlInput(value.default) } : value
 }

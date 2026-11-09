@@ -24,8 +24,8 @@ function postgres(source: string): Durability[] {
 
 /**
  * The durability of Workflow runs. It follows the storage order of the OpenWorkflow runtime: the SQLite path, then
- * `OPENWORKFLOW_SQLITE_PATH`, then the Postgres URL and `OPENWORKFLOW_POSTGRES_URL`, then the Postgres Default Database
- * (or `DATABASE_URL` without it), then the default SQLite file.
+ * `OPENWORKFLOW_SQLITE_PATH`, then the Postgres URL and `OPENWORKFLOW_POSTGRES_URL`, then the Postgres Default Database,
+ * then the default SQLite file.
  */
 export function workflowDurability(input: WorkflowDurabilityInput, context: DurabilityContext): Durability[] {
   const { env } = context
@@ -46,10 +46,15 @@ export function workflowDurability(input: WorkflowDurabilityInput, context: Dura
   if (sqlitePath) return sqlite(sqlitePath)
   if (postgresUrl) return postgres("`workflow.postgres.url`")
   if (env.OPENWORKFLOW_POSTGRES_URL?.trim()) return postgres("OPENWORKFLOW_POSTGRES_URL")
-  if (input.defaultDatabase) {
-    const database = context.find("database")
-    if (database?.store === "postgres") return postgres("the Default Database")
-  }
-  else if (env.DATABASE_URL?.trim()) return postgres("DATABASE_URL")
+  if (input.defaultDatabase && context.find("database")?.store === "postgres") return postgres("the Default Database")
   return sqlite(".vitehub/data/openworkflow.sqlite.db")
+}
+
+/**
+ * A Postgres URL for the durability input, which the build writes into the server. The reporter only needs to know
+ * that it is set: environment variable names stay, and a literal URL or default becomes `set`.
+ */
+export function workflowDurabilityUrl(value: WorkflowRuntimeConfigValue): WorkflowRuntimeConfigValue {
+  if (typeof value === "string") return "set"
+  return typeof value.default === "string" ? { ...value, default: "set" } : value
 }

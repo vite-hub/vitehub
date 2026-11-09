@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { databaseDurabilityUrl } from "./durability.ts"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -444,7 +445,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           ...(database.cloudflare?.http ? { http: true } : {}),
           name: database.name,
           // Only SQLite needs the URL, to tell a local file from a remote libSQL server. A Postgres URL can hold a password.
-          ...(database.dialect === "sqlite" && database.connection?.url !== undefined ? { url: database.connection.url } : {}),
+          ...(database.dialect === "sqlite" && database.connection?.url !== undefined ? { url: databaseDurabilityUrl(database.connection.url) } : {}),
         }))
         return [{ export: "databaseDurability", input: { databases }, module: durabilityModuleFile(import.meta.url), primitive: "database" }]
       },
