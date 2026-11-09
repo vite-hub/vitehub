@@ -1026,7 +1026,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   options: ResolvedWorkspaceModuleOptions,
   resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
-  inspection?: { artifactsOnly?: boolean },
+  inspection?: { artifactsOnly?: boolean, storeUsage?: WorkspaceDefinitionStoreUsage },
   resolution?: { env?: Record<string, string | undefined>, hosting?: string },
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
@@ -1043,7 +1043,10 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
+      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) {
+        inspection.storeUsage?.add("unknown")
+        continue
+      }
       const source = await readSourceModule(definitionFile)
       if (source && sourceHasUnresolvedWorkspaceRoot(source, loader)) throw error
       // Factored store analysis reads the default export only.
@@ -1051,12 +1054,16 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
         ? undefined
         : await loadFactoredCloudflareArtifactStore({ ...definition, path: definitionFile }, loader, sourceModuleResolver, resolution?.env || process.env)
       if (!store) {
-        if (inspection?.artifactsOnly) continue
+        if (inspection?.artifactsOnly) {
+          inspection.storeUsage?.add("unknown")
+          continue
+        }
         throw error
       }
       loaded = { store }
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
+    if (!workspace.store) inspection?.storeUsage?.add("default")
     if (!workspace.store || isWorkspaceStore(workspace.store)) continue
     const config = normalizeWorkspaceOptions({ store: workspace.store }, {
       dev: false,
@@ -1064,6 +1071,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       hosting: resolution?.hosting ?? process.env.VITEHUB_HOSTING,
       rootDir: workspace.rootDir || rootDir,
     })
+    if (config && isHostedWorkspaceStore(config.store)) inspection?.storeUsage?.add(config.store.provider)
     if (config && config.store.provider === "cloudflare-artifacts") {
       configs.push(config)
       definitionOverrides?.set(definition.name, config)
@@ -1083,6 +1091,7 @@ async function resolveCloudflareArtifactsConfigs(
     hosting?: string
     resolveModule?: SourceModuleResolver
     definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>
+    storeUsage?: WorkspaceDefinitionStoreUsage
   } = {},
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   return [
@@ -1093,7 +1102,7 @@ async function resolveCloudflareArtifactsConfigs(
       config,
       options.resolveModule,
       options.aliases,
-      { artifactsOnly: options.artifactsOnly },
+      { artifactsOnly: options.artifactsOnly, storeUsage: options.storeUsage },
       { env: options.env, hosting: options.hosting },
       options.definitionOverrides,
     ),
@@ -1241,8 +1250,43 @@ function workspaceDefinitionLoaderAliases(aliases: AliasOptions): Record<string,
   ))
 }
 
-function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
+type HostedWorkspaceStoreProvider = "cloudflare-artifacts" | "github" | "vercel-blob"
+
+const hostedWorkspaceStoreProviders: readonly HostedWorkspaceStoreProvider[] = ["cloudflare-artifacts", "github", "vercel-blob"]
+
+/**
+ * What a build learned about the stores of the discovered definitions: a hosted provider, `default` for a definition
+ * without a store, or `unknown` for a definition the build could not load.
+ */
+type WorkspaceDefinitionStoreUsage = Set<HostedWorkspaceStoreProvider | "default" | "unknown">
+
+function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): store is Extract<ResolvedWorkspaceModuleOptions["store"], { provider: HostedWorkspaceStoreProvider }> {
   return store.provider === "cloudflare-artifacts" || store.provider === "github" || store.provider === "vercel-blob"
+}
+
+/**
+ * The hosted stores the Nitro plugin installs. Each store pulls its client into the server startup, so a build installs
+ * only the stores that its definitions use. Without `storeUsage` (dev) it installs every store.
+ */
+function resolveNitroHostedStoreProviders(
+  config: false | ResolvedWorkspaceModuleOptions,
+  definitionCount: number,
+  storeUsage: WorkspaceDefinitionStoreUsage | undefined,
+): Set<HostedWorkspaceStoreProvider> {
+  const configProvider = config && isHostedWorkspaceStore(config.store) ? config.store.provider : undefined
+  if (!storeUsage) return new Set(configProvider || definitionCount > 0 ? hostedWorkspaceStoreProviders : [])
+  if (storeUsage.has("unknown")) return new Set(hostedWorkspaceStoreProviders)
+  const providers = new Set<HostedWorkspaceStoreProvider>(configProvider ? [configProvider] : [])
+  for (const usage of storeUsage) {
+    if (usage === "unknown") continue
+    // A definition without a store uses the runtime config. Without one, `BLOB_STORE_ID` at runtime selects Vercel Blob.
+    if (usage === "default") {
+      if (!config) providers.add("vercel-blob")
+      continue
+    }
+    providers.add(usage)
+  }
+  return providers
 }
 
 function acceptsWorkspaceDevStream(req: IncomingMessage): boolean {
@@ -1495,49 +1539,51 @@ function runtimeWorkspaceConfig(
   return { ...config, store: runtimeStore }
 }
 
+const hostedStoreInstallers: Record<HostedWorkspaceStoreProvider, { entry: string, name: string }> = {
+  "cloudflare-artifacts": { entry: "internal/runtime/hosted", name: "installHostedCloudflareArtifactsWorkspaceStore" },
+  "github": { entry: "internal/runtime/hosted", name: "installHostedGitHubWorkspaceStore" },
+  "vercel-blob": { entry: "internal/runtime/hosted-vercel-blob", name: "installHostedVercelBlobWorkspaceRuntime" },
+}
+
 function renderNitroWorkspacePlugin(
   config: false | ResolvedWorkspaceModuleOptions,
   registryImport: string,
-  installHostedRuntime: boolean,
+  hostedStores: ReadonlySet<HostedWorkspaceStoreProvider>,
   cloudflareRuntime: boolean,
   importBase = WORKSPACE_PACKAGE_NAME,
 ): string {
-  const hostedRuntimeImport = `${importBase}/internal/runtime/hosted`
-  const hostedVercelBlobRuntimeImport = `${importBase}/internal/runtime/hosted-vercel-blob`
-  const runtimeImport = `${importBase}/runtime`
+  // A light module: the Workspace core loads on the first Workspace call, not at server startup.
+  const runtimeImport = `${importBase}/internal/runtime/registry`
   const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
   const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
-  const runtimeImports = hostedConfig
-    ? [
-        isVercelBlobStore
-          ? `import { configureHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`
-          : `import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '${hostedRuntimeImport}'`,
-        isVercelBlobStore
-          ? `import { installHostedWorkspaceRuntime } from '${hostedRuntimeImport}'`
-          : `import { installHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`,
-        `import { setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
-      ]
-    : [
-        ...(installHostedRuntime ? [`import { installHostedWorkspaceRuntime } from '${hostedRuntimeImport}'`] : []),
-        ...(installHostedRuntime ? [`import { installHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`] : []),
-        `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
-      ]
+  const configure = hostedConfig
+    ? isVercelBlobStore
+      ? { entry: "internal/runtime/hosted-vercel-blob", name: "configureHostedVercelBlobWorkspaceRuntime" }
+      : { entry: "internal/runtime/hosted", name: "configureHostedWorkspaceRuntime" }
+    : undefined
+  // `configure*` installs the store of the runtime config itself.
+  const installers = hostedWorkspaceStoreProviders
+    .filter(provider => hostedStores.has(provider) && provider !== hostedConfig?.store.provider)
+    .map(provider => hostedStoreInstallers[provider])
+  const importsByEntry = new Map<string, string[]>()
+  for (const { entry, name } of [...(configure ? [configure] : []), ...installers]) {
+    importsByEntry.set(entry, [...importsByEntry.get(entry) ?? [], name])
+  }
+  const runtimeImports = [
+    ...[...importsByEntry].map(([entry, names]) => `import { ${names.join(", ")} } from '${importBase}/${entry}'`),
+    `import { ${config && !hostedConfig ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
+  ]
   if (cloudflareRuntime) {
     runtimeImports.unshift(
       "import { env as vitehubEnv } from 'cloudflare:workers'",
       `import { setActiveCloudflareEnv } from '${importBase}/internal/runtime/state'`,
     )
   }
-  const runtimeSetup = hostedConfig
-    ? [
-        `  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`,
-        `  ${isVercelBlobStore ? "installHostedWorkspaceRuntime" : "installHostedVercelBlobWorkspaceRuntime"}()`,
-      ]
-    : [
-        ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
-        ...(installHostedRuntime ? ["  installHostedVercelBlobWorkspaceRuntime()"] : []),
-        ...(config ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),
-      ]
+  const runtimeSetup = [
+    ...(configure && hostedConfig ? [`  ${configure.name}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`] : []),
+    ...installers.map(({ name }) => `  ${name}()`),
+    ...(config && !hostedConfig ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),
+  ]
 
   return [
     ...runtimeImports,
@@ -1561,6 +1607,7 @@ async function writeNitroWorkspacePlugin(
   cloudflareRuntime = false,
   importBase = WORKSPACE_PACKAGE_NAME,
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
+  storeUsage?: WorkspaceDefinitionStoreUsage,
 ): Promise<void> {
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
@@ -1571,7 +1618,7 @@ async function writeNitroWorkspacePlugin(
     renderNitroWorkspacePlugin(
       runtimeConfig,
       moduleImportSpecifier(pluginFile, registryFile),
-      definitions.length > 0 && !(runtimeConfig && isHostedWorkspaceStore(runtimeConfig.store)),
+      resolveNitroHostedStoreProviders(runtimeConfig, definitions.length, storeUsage),
       cloudflareRuntime,
       importBase,
     ),
@@ -1596,16 +1643,18 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
   const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
+  const storeUsage: WorkspaceDefinitionStoreUsage | undefined = options.command === "build" ? new Set() : undefined
   const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
     aliases: options.aliases,
     artifactsOnly: true,
     env: options.env,
     hosting,
     definitionOverrides,
+    storeUsage,
   })
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
   const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(hosting) === "cloudflare"
-  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides)
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides, storeUsage)
   const nitro = mergeNitroWorkspaceConfig(options.nitro, options.command !== "build")
   if (options.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
@@ -1731,15 +1780,18 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
+        // Dev regenerates the plugin when definitions change, so it keeps every hosted store.
+        const storeUsage: WorkspaceDefinitionStoreUsage | undefined = env?.command === "build" ? new Set() : undefined
         const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
           aliases: config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined,
           artifactsOnly: true,
           hosting: resolvedHosting,
           definitionOverrides,
+          storeUsage,
         })
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides, storeUsage)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
         if (env?.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
