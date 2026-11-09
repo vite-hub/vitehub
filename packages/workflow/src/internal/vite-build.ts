@@ -744,20 +744,26 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
     buildStart() {
       this.emitFile({ fileName, id: moduleId, type: "chunk" })
     },
-    resolveId(id: string) {
-      if (id === moduleId) return resolvedModuleId
-      if (id.startsWith("file:")) return fileURLToPath(id)
+    resolveId: {
+      filter: { id: /^(?:virtual:vitehub-workflow-cloudflare-exports$|file:)/ },
+      handler(id: string) {
+        if (id === moduleId) return resolvedModuleId
+        if (id.startsWith("file:")) return fileURLToPath(id)
+      },
     },
-    load(id: string) {
-      if (id !== resolvedModuleId) return
-      return [
-        `import { WorkflowEntrypoint } from "cloudflare:workers"`,
-        `import { installViteHubWorkflowRuntime, runViteHubWorkflowDefinition } from ${JSON.stringify(entryFile)}`,
-        "",
-        "installViteHubWorkflowRuntime()",
-        "",
-        ...definitions.map(definition => renderCloudflareWorkflowEntrypoint(definition, legacyAliases)),
-      ].join("\n")
+    load: {
+      filter: { id: /^\0virtual:vitehub-workflow-cloudflare-exports$/ },
+      handler(id: string) {
+        if (id !== resolvedModuleId) return
+        return [
+          `import { WorkflowEntrypoint } from "cloudflare:workers"`,
+          `import { installViteHubWorkflowRuntime, runViteHubWorkflowDefinition } from ${JSON.stringify(entryFile)}`,
+          "",
+          "installViteHubWorkflowRuntime()",
+          "",
+          ...definitions.map(definition => renderCloudflareWorkflowEntrypoint(definition, legacyAliases)),
+        ].join("\n")
+      },
     },
     renderChunk(code, chunk) {
       if (!chunk.isEntry || (chunk.fileName !== "index.mjs" && chunk.fileName !== "index.js")) return null
