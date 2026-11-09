@@ -5,7 +5,7 @@ import { computed, shallowRef } from "vue";
 import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleProjectStatus } from "../client/project-session";
 import type { ConsoleLinkedProject } from "../client/projects";
-import { checkConsoleProjects, forgetConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { checkConsoleProjects, forgetConsoleProject, openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleProjectLink from "./console-project-link.vue";
 
@@ -45,7 +45,8 @@ const items = computed<DropdownMenuItem[][]>(() => [
     })),
   ],
   [
-    { icon: "i-lucide-plus", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
+    { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+    { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
     {
       children: projects.projects.value.map((project): DropdownMenuItem => ({
         description: consoleProjectHost(project),
@@ -75,7 +76,7 @@ function itemStatus(item: DropdownMenuItem): ConsoleProjectStatus {
 function forget(): void {
   const project = forgetting.value;
   forgetting.value = undefined;
-  if (project) forgetConsoleProject(project.id);
+  if (project) void forgetConsoleProject(project.id);
 }
 </script>
 
@@ -117,7 +118,7 @@ function forget(): void {
   >
     <template #body>
       <p class="text-pretty text-[13px] text-muted">
-        This browser removes the URL and the Console token of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}. The project does not change. To open it again, link it with its token.
+        This browser removes the URL and the tokens of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}, and signs out of it. The project does not change. To open it again, link it again.
       </p>
     </template>
     <template #footer>
