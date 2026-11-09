@@ -147,10 +147,29 @@ export function collectSnippets(sources = snippetSources()) {
   return snippets
 }
 
+/**
+ * `hubAuth()` registers the rules of `shared/abilities.ts` in `.vitehub/types/auth.d.ts`. All pages share one program,
+ * so only one page can show the file.
+ */
+function abilitiesDeclarations(snippets) {
+  const rules = snippets.filter(snippet => snippet.label === "shared/abilities.ts" && !snippet.fragment)
+  if (rules.length > 1) throw new Error(`Only one page can show shared/abilities.ts. Found: ${rules.map(snippet => snippet.page).join(", ")}`)
+  if (!rules.length) return []
+  return [[join(docsRoot, ".snippets/vitehub-auth-abilities.d.ts"), [
+    `declare global {`,
+    `  namespace ViteHub {`,
+    `    interface AuthRegistry { abilities: typeof import(${JSON.stringify(rules[0].file)}).default }`,
+    `  }`,
+    `}`,
+    `export {}`,
+  ].join("\n")]]
+}
+
 /** Type-checks the snippets and returns the diagnostics of each one that fails. */
 export function checkSnippets(snippets) {
   const virtualFiles = new Map([
     ...appDeclarations.map(declaration => [declaration.file, declaration.code]),
+    ...abilitiesDeclarations(snippets),
     ...snippets.map(snippet => [snippet.file, withAppGlobals(snippet)]),
   ])
   const virtualDirectories = new Set()

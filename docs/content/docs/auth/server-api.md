@@ -23,6 +23,9 @@ icon: i-lucide-code-2
 | `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected access routes. |
 | `withAuthorization` from `@vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `requireAuth`, `requireAuthorization`, `getAuthorization` from `@vite-hub/auth/server` | Guard an H3 2 route with middleware, then read the checked session in the handler. |
+| `defineAbilities`, `deny`, `guest` from `@vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
+| `requireAbility`, `can`, `AbilityError` from `@vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
+| `useAbility`, `Can` from `@vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. |
 | `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `@vite-hub/auth/vue` | Read session state and call Better Auth from Vue. Better Auth loads on first use. |
 | `authenticated` from `@vite-hub/auth/agent` | Turn a Better Auth session into an Agent Invoker (who calls the Agent). |
 | `agentAuth` from `@vite-hub/auth/agent` | The `auth` primitive that generated Agent routes pass to Capabilities. `agentAuth.user(actor)` reads the Auth user from `actor.meta.authUserId`, or returns `null`. `authenticated()` sets `authUserId` for a request with a session. Channel and anonymous Actors have none, unless your `invoker.resolve` adds it. |
@@ -101,6 +104,8 @@ export const app = new H3()
 | `requireAuth(definition?)` | Returns `(event, next)` route middleware for H3 2. Calls `next()` when a session exists, else responds like `withAuth()`. |
 | `requireAuthorization(authorize, definition?)` | Returns `(event, next)` route middleware for H3 2. Calls `next()` when allowed, else responds like `withAuthorization()`. |
 | `getAuthorization(event)` | Returns the `authorization` that `requireAuth()` or `requireAuthorization()` attached to the event. Throws `AUTH_R0017` when no Auth middleware accepted it. |
+| `requireAbility(event, name, ...args)` | Returns `authorization` when the [ability](/docs/auth/abilities) allows the caller. Else throws `AbilityError`, which H3 sends with status `401`, `403`, or the status of `deny()`, and `{ code, details }` in `data`. |
+| `can(event, name, ...args)` | Returns `true` when the ability allows the caller, else `false`. |
 
 `auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return an instance typed from your Auth Definition, with its plugins' endpoints and fields. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`. So with the `admin()` plugin, `getAuthForRequest(event.req).api.listUsers` type-checks without a cast. For another definition, `getAuthForDefinition(definition)` infers the type, and `AuthFor<typeof definition>` from `@vite-hub/auth` names it.
 

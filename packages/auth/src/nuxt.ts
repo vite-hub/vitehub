@@ -47,10 +47,26 @@ type NuxtLike = {
   }
 }
 
-const composables = ["useAuthClient", "useSession", "useSignIn", "useSignUp", "useUserSession"]
+type NuxtComponent = {
+  chunkName: string
+  export: string
+  filePath: string
+  global: boolean
+  kebabName: string
+  meta: Record<string, unknown>
+  mode: "all"
+  pascalName: string
+  prefetch: boolean
+  preload: boolean
+  priority: number
+  shortPath: string
+}
+
+const composables = ["useAbility", "useAuthClient", "useSession", "useSignIn", "useSignUp", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
+const componentsRegistered = new WeakSet<object>()
 
 export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
@@ -102,11 +118,12 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       // Nitro can run before Vite's configResolved hook. Resolve discovery
       // directly from the Nuxt/Vite inputs so the virtual definition alias is
       // available during Nitro setup.
-      const definitionHandler = resolveAuthConfig()?.definition.handler
-      if (definitionHandler) {
+      const authConfig = resolveAuthConfig()
+      if (authConfig) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
-          "#vitehub/auth/definition": definitionHandler,
+          "#vitehub/auth/definition": authConfig.definition.handler,
+          ...(authConfig.abilities ? { "#vitehub/auth/abilities": authConfig.abilities } : {}),
         }
       }
       Object.assign(nitroConfig, createAuthNitroConfig(authPlugin as ReturnType<typeof hubAuth>, {
@@ -140,6 +157,29 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
       declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/hosts. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
+    })
+  }
+
+  if (!componentsRegistered.has(nuxt) && nuxt.hook) {
+    componentsRegistered.add(nuxt)
+    const filePath = options.importsFrom || "@vite-hub/auth/vue"
+    // The same entry that `@nuxt/kit`'s addComponent() writes, without a dependency on `@nuxt/kit`.
+    ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
+      if (components.some(component => component.pascalName === "Can")) return
+      components.push({
+        chunkName: "components/can",
+        export: "Can",
+        filePath,
+        global: false,
+        kebabName: "can",
+        meta: {},
+        mode: "all",
+        pascalName: "Can",
+        prefetch: false,
+        preload: false,
+        priority: 0,
+        shortPath: filePath,
+      })
     })
   }
 

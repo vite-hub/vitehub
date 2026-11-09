@@ -1,6 +1,7 @@
 import { createAuthConsole, type AuthConsole } from "./console-runtime.ts";
 import type { AuthConsoleHostOptions, AuthConsoleOptions } from "./console-types.ts";
 import discoveredDefinition from "#vitehub/auth/definition"
+import abilities from "#vitehub/auth/abilities"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
@@ -14,7 +15,10 @@ import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "./client-address.ts"
 import { createAuthAccessRouteMatcher } from "./runtime/server.ts"
+import { checkAbility } from "./ability-check.ts"
+import { AbilityError } from "./ability-error.ts"
 
+import type { AbilityArgs, AbilityAuthorization, AbilityName } from "./abilities.ts"
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
 import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "./runtime-state.ts"
 import type { AccessAuthorizeOption, PublicUrlConfig, ViteHubContext } from "@vite-hub/runtime"
@@ -42,6 +46,8 @@ import type {
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { resetAuth } from "./runtime-state.ts"
+export { AbilityError } from "./ability-error.ts"
+export type { AbilityErrorData } from "./ability-error.ts"
 export { setAuthAccessIdentityResolver, setAuthRuntimeEnvResolver } from "./runtime/server.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -863,6 +869,53 @@ export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
     throw authErrorDiagnostics.AUTH_R0017({ message: "[vitehub] getAuthorization() found no checked Auth Session for this event. Add requireAuth() or requireAuthorization() to the route middleware." })
   }
   return authorizationGrant.verify(grant)
+}
+
+// One session read per request, however many abilities the handler checks.
+const abilitySessions = new WeakMap<object, Promise<AuthAuthorization | AuthAnonymousAuthorization>>()
+
+function readAbilityAuthorization(input: AuthRequestInput): Promise<AuthAuthorization | AuthAnonymousAuthorization> {
+  let pending = abilitySessions.get(input)
+  if (!pending) {
+    pending = readRequestSession(input, resolveDefaultDefinition()).then(({ request, session }) => session
+      ? Object.freeze({ request, session: session.session, user: session.user })
+      : Object.freeze({ request, session: null, user: null }))
+    // A failed read is not kept, so a later check reads again.
+    pending.catch(() => abilitySessions.delete(input))
+    abilitySessions.set(input, pending)
+  }
+  return pending
+}
+
+/**
+ * Checks a rule from `shared/abilities.ts` for the caller of a request. Returns the checked request, session, and user.
+ * Throws an `AbilityError` when the rule refuses: `401` for a signed-out caller, else `403` or the status of `deny()`.
+ *
+ * @example
+ * const post = await getPost(id)
+ * const { user } = await requireAbility(event, "posts.edit", post)
+ */
+export async function requireAbility<const Name extends AbilityName>(
+  event: AuthRequestInput,
+  name: Name,
+  ...args: AbilityArgs<Name>
+): Promise<AbilityAuthorization<Name>> {
+  const authorization = await readAbilityAuthorization(event)
+  const refusal = checkAbility(abilities, authorization.user, name, args)
+  if (refusal) throw new AbilityError(refusal)
+  // SAFETY: the rule allowed the caller. Only a `guest()` rule allows a signed-out caller, which the type includes.
+  return authorization as AbilityAuthorization<Name>
+}
+
+/**
+ * Whether a rule from `shared/abilities.ts` allows the caller of a request.
+ *
+ * @example
+ * const editable = await can(event, "posts.edit", post)
+ */
+export async function can<const Name extends AbilityName>(event: AuthRequestInput, name: Name, ...args: AbilityArgs<Name>): Promise<boolean> {
+  const authorization = await readAbilityAuthorization(event)
+  return checkAbility(abilities, authorization.user, name, args) === null
 }
 
 // Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 
 import type { DiscoveredAuthDefinition } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -55,4 +55,21 @@ export function discoverAuthDefinitions(rootDir: string, options: { serverDirs?:
 
 export function discoverAuthDefinition(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredAuthDefinition | undefined {
   return discoverAuthDefinitions(rootDir, options)[0]
+}
+
+const abilitiesExtensions = [".ts", ".mts", ".js", ".mjs"]
+
+/**
+ * Finds the app's rules: `shared/abilities.ts` next to the server directory, which is the Nuxt `shared/` folder. Without
+ * a server directory, `shared/abilities.ts` in the root. Two files with different extensions fail discovery.
+ */
+export function discoverAuthAbilities(rootDir: string, options: { serverDirs?: string[] } = {}): string | undefined {
+  const serverDir = options.serverDirs?.[0] ?? resolve(rootDir, "server")
+  const found = abilitiesExtensions
+    .map(extension => resolve(dirname(serverDir), "shared", `abilities${extension}`))
+    .filter(file => existsSync(file))
+  if (found.length > 1) {
+    throw authErrorDiagnostics.AUTH_C0060({ message: ["[vitehub] Only one abilities file is allowed. Found:", ...found.map(file => `  - ${file}`)].join("\n") })
+  }
+  return found[0]
 }

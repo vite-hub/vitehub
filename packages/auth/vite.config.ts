@@ -11,6 +11,7 @@ export default defineConfig({
         "better-auth",
         "vue",
         "vite",
+        "#vitehub/auth/abilities",
         "#vitehub/auth/definition",
         "#app",
         "#vitehub/env/server",
@@ -34,6 +35,7 @@ export default defineConfig({
       },
     }],
     entry: [
+      "src/abilities.ts",
       "src/agent.ts",
       "src/cli.ts",
       "src/runtime/console.ts",
@@ -42,6 +44,7 @@ export default defineConfig({
       "src/database.ts",
       "src/mcp.ts",
       "src/index.ts",
+      "src/runtime/empty-abilities.ts",
       "src/runtime/empty-definition.ts",
       "src/runtime/nuxt.ts",
       "src/runtime/vue-nuxt.ts",
@@ -56,7 +59,7 @@ export default defineConfig({
     exports: {
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(
-          Object.entries(exports).filter(([key]) => !["./runtime/empty-definition", "./runtime/nuxt", "./runtime/vue-nuxt"].includes(key)),
+          Object.entries(exports).filter(([key]) => !["./runtime/empty-abilities", "./runtime/empty-definition", "./runtime/nuxt", "./runtime/vue-nuxt"].includes(key)),
         ))
       },
       inlinedDependencies: false,

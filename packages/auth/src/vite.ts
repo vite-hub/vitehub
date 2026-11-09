@@ -32,10 +32,12 @@ import type {
 
 export { resolveAuthViteConfig }
 
+export const AUTH_ABILITIES_ID = "#vitehub/auth/abilities"
 export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
 export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
 
+const RESOLVED_AUTH_ABILITIES_ID = `\0${AUTH_ABILITIES_ID}`
 const RESOLVED_AUTH_DEFINITION_ID = `\0${AUTH_DEFINITION_ID}`
 const RESOLVED_AUTH_SERVER_ID = `\0${AUTH_SERVER_ID}`
 const authPackageName = "@vite-hub/auth"
@@ -150,6 +152,11 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
   ].join("\n")
 }
 
+/** The rules of `shared/abilities.ts` for the server and the app, or no rules. */
+function renderAuthAbilitiesModule(config: ResolvedAuthViteConfig | undefined): string {
+  return config?.abilities ? `export { default } from ${JSON.stringify(config.abilities)}\n` : "export default {}\n"
+}
+
 function renderAuthServerModule(options: { importBase?: string } = {}): string {
   const serverImport = `${options.importBase ?? authPackageName}/server`
   return [
@@ -191,10 +198,12 @@ function authServerTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "auth-server.d.ts")
 }
 
-function renderAuthAmbientTypes(options: { definition?: string, serverEnv: boolean } = { serverEnv: false }): string {
-  const registry = options.definition
-    ? [`interface AuthRegistry { definition: typeof import(${JSON.stringify(options.definition)}).default }`]
-    : []
+function renderAuthAmbientTypes(options: { abilities?: string, definition?: string, serverEnv: boolean } = { serverEnv: false }): string {
+  const entries = [
+    ...options.definition ? [`definition: typeof import(${JSON.stringify(options.definition)}).default`] : [],
+    ...options.abilities ? [`abilities: typeof import(${JSON.stringify(options.abilities)}).default`] : [],
+  ]
+  const registry = entries.length ? [`interface AuthRegistry { ${entries.join("; ")} }`] : []
   // The ServerEnv import makes this file a module, so its global names need `declare global`.
   if (options.serverEnv) {
     return [
@@ -232,6 +241,7 @@ async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthVite
   await Promise.all([
     writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config, options.importBase)),
     writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({
+      abilities: config?.abilities && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.abilities),
       definition: config && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.definition.handler),
       serverEnv: Boolean(options.serverEnv),
     })),
@@ -512,15 +522,17 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       }
     },
     resolveId: {
-      filter: { id: /^#vitehub\/auth\/(?:definition|server)$/ },
+      filter: { id: /^#vitehub\/auth\/(?:abilities|definition|server)$/ },
       handler(id) {
+        if (id === AUTH_ABILITIES_ID) return RESOLVED_AUTH_ABILITIES_ID
         if (id === AUTH_DEFINITION_ID) return RESOLVED_AUTH_DEFINITION_ID
         if (id === AUTH_SERVER_ID) return RESOLVED_AUTH_SERVER_ID
       },
     },
     load: {
-      filter: { id: /^\0#vitehub\/auth\/(?:definition|server)$/ },
+      filter: { id: /^\0#vitehub\/auth\/(?:abilities|definition|server)$/ },
       handler(id) {
+        if (id === RESOLVED_AUTH_ABILITIES_ID) return renderAuthAbilitiesModule(runtimeConfig)
         if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv })
         if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase })
       },

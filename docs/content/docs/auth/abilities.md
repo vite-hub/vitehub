@@ -1,0 +1,99 @@
+---
+title: Auth abilities
+description: Write each permission rule once, then check it in server routes and in Vue.
+navigation.title: Abilities
+navigation.order: 10
+icon: i-lucide-shield-check
+---
+
+An ability is a named rule about what the signed-in user can do, such as `posts.edit`. You write the rules in one file. Server routes and Vue pages run the same rules, so the button that the page shows and the check that the route makes cannot drift apart. The design comes from [Capsa](https://github.com/OrlS15/nuxt-capsa) by Orlando Sica.
+
+## Write the rules
+
+Put the rules in `shared/abilities.ts`, next to the `server/` folder. The app needs an [Auth Definition](/docs/auth/get-started).
+
+```ts [shared/abilities.ts]
+import { defineAbilities, deny, guest } from 'vite-hub/auth/abilities'
+
+export interface Post {
+  id: string
+  authorId: string
+  published: boolean
+}
+
+export default defineAbilities({
+  'posts.read': guest((user, post: Post) => post.published || user?.id === post.authorId),
+  'posts.edit': (user, post: Post) => user.id === post.authorId || 'not-author',
+  'posts.publish': (user, post: Post) => user.id === post.authorId || deny('not-found', { status: 404 }),
+})
+```
+
+A rule gets the signed-in user, then its arguments:
+
+- `true` allows. `false`, a code string, or `deny(code, { status, details })` refuse. A code gives `403`. `deny()` can give another 4xx status, and `details` for the page.
+- A signed-out visitor gets `401` with the code `signed-out`, and the rule does not run. Wrap a rule in `guest()` to run it for signed-out visitors too, with `user` set to `null`.
+- A rule must return at once, because it also runs in the browser. Load the data first and pass it in. Do not import server-only code into this file.
+
+The Auth Vite plugin finds the file and registers its type in `.vitehub/types/auth.d.ts`. The ability names, the argument types, and the user type come from TypeScript inference. A wrong name or a wrong argument fails to compile.
+
+## Check a rule on the server
+
+`requireAbility(event, name, ...args)` returns the checked `{ request, session, user }`, or throws an error that H3 sends with the rule's status. The body has `{ code, details }` in `data`.
+
+```ts [server/utils/posts.ts]
+import type { Post } from '../../shared/abilities'
+
+const posts = new Map<string, Post>([['1', { id: '1', authorId: 'user-1', published: false }]])
+
+export function findPost(id: string): Post | undefined {
+  return posts.get(id)
+}
+```
+
+```ts [server/api/posts/[id].get.ts]
+import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { requireAbility } from 'vite-hub/auth/server'
+import { findPost } from '../../utils/posts'
+
+export default defineEventHandler(async (event) => {
+  const post = findPost(getRouterParam(event, 'id') ?? '')
+  if (!post) throw createError({ status: 404 })
+
+  await requireAbility(event, 'posts.read', post)
+  return post
+})
+```
+
+`can(event, name, ...args)` from the same import returns `true` or `false` and throws nothing. Both read the session once per request.
+
+## Check a rule in Vue
+
+`<Can>` shows its content when the rule allows, the `#denied` slot with `{ code, details }` when it refuses, and nothing while the session is unknown. `useAbility().can()` returns `undefined` for the same unknown state. In Nuxt, both are auto-imported. In other Vue apps, import them from `vite-hub/auth/vue`.
+
+```vue [app/pages/posts/[id].vue]
+<script setup lang="ts">
+const route = useRoute()
+const { data: post } = await useFetch(`/api/posts/${route.params.id}`)
+const { can } = useAbility()
+</script>
+
+<template>
+  <article v-if="post">
+    <Can do="posts.edit" :with="post">
+      <button>Edit</button>
+      <template #denied="{ code }">
+        <p v-if="code === 'signed-out'">Sign in to edit this post.</p>
+      </template>
+    </Can>
+    <button v-if="can('posts.publish', post)">Publish</button>
+  </article>
+</template>
+```
+
+Pass one argument in `with`. For a rule with two or more arguments, pass an array: `:with="[from, to]"`. While `with` or an argument is `undefined`, such as data that is still loading, `<Can>` shows nothing.
+
+In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, `<Can>` shows nothing until Better Auth answers.
+
+## Abilities and route guards
+
+[`requireAuthorization(authorize)` and `withAuthorization()`](/docs/auth/server-api) check a request before the handler runs. Use them when the decision needs only the user, such as an admin area. Use an ability when the decision needs data that the handler loads, such as the post, or when the page must show the same decision.
