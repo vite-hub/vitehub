@@ -403,7 +403,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const page = normalizeCommentPage(submitted.pathname)
     const expected = await resolveCommentsPage(comments, event, request, page)
     if (expected.subject.kind !== subject.kind || expected.subject.id !== subject.id) {
-      return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }), undefined]
+      return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: `context.url: The page ${page} maps to the subject ${expected.subject.kind}:${expected.subject.id}, not ${subject.kind}:${subject.id}.` }), undefined]
     }
     // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
     return [undefined, { context: completeContext({ ...context, url: `${origin}${page}` }), ...(expected.revision === undefined ? {} : { revision: expected.revision }) }]
@@ -530,8 +530,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         if (!target) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }))
         const [badContext, checked] = context ? await checkContext(event, request, context, target) : [undefined, undefined]
         if (badContext) return failure(badContext)
-        // The revision of the page subject wins over one that the overlay sent.
-        const revision = checked?.revision ?? input.revision
+        // The overlay sends the revision that `/session` gave it, which a new version can pass while the person types.
+        // That revision, or an older one, stays. A missing or newer one becomes the revision of the page subject.
+        const mapped = checked?.revision
+        const revision = mapped === undefined ? input.revision : input.revision !== undefined && input.revision <= mapped ? input.revision : mapped
         return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked.context } : {}), ...(revision === undefined ? {} : { revision }) }, who), (thread, who) => threadResponse(event, who, thread))
       }
     }

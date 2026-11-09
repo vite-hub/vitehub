@@ -477,10 +477,16 @@ describe("Comments API", () => {
       const refused = await call("/threads", { method: "POST", json })
       expect([refused.response.status, refused.body.error?.code]).toEqual([400, "COMMENTS_INVALID_INPUT"])
     }
-    // The revision of the page subject wins over one that the overlay sent.
-    const old = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Old revision", revision: 2 } })
-    expect(old.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
-    expect((await call("/threads?subjectKind=drop&subjectId=abc")).body.data).toHaveLength(2)
+    // The error names the subject that the page maps to.
+    const other = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "xyz" }, anchor, context, body: "Other drop" } })
+    expect(other.body.error?.why ?? JSON.stringify(other.body.error)).toContain("drop:abc")
+    // The revision that the overlay read stays when it is not newer than the page subject's: a new version came out
+    // while the person typed. A newer one becomes the page subject's.
+    const read = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Read on 2", revision: 2 } })
+    expect(read.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 2 })
+    const ahead = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Ahead", revision: 9 } })
+    expect(ahead.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
+    expect((await call("/threads?subjectKind=drop&subjectId=abc")).body.data).toHaveLength(3)
 
     // Field edits check the policy on the subject of the page.
     expect((await call(`/fields?page=/d/abc&field=${encodeURIComponent("about#hero.title")}`)).response.status).toBe(200)

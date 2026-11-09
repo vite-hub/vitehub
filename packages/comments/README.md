@@ -65,7 +65,7 @@ export const comments = defineComments({
 })
 ```
 
-`url` has the origin and the normalized path, without query and hash. Return `undefined` or `null` for the page itself. With `revision`, new threads from the overlay start on that version of the subject.
+`url` has the origin and the normalized path, without query and hash. Return `undefined` or `null` for the page itself. With `revision`, new threads from the overlay start on the version that the person saw: the overlay sends the `revision` that `/session` gave for the page, and the server keeps it when it is not newer than the one `page` gives now. A missing or newer revision becomes the one from `page`.
 
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
