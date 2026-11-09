@@ -84,7 +84,9 @@ const items = computed(() => {
         </span>
       </UButton>
 
-      <UDropdownMenu
+      <!-- The menu and its Reka parts load once the page is idle, so they stay out of the JS that every page waits for. -->
+      <LazyUDropdownMenu
+        hydrate-on-idle
         size="sm"
         :items="items"
         :content="{ align: 'end', side: 'bottom', sideOffset: 8 }"
@@ -97,7 +99,7 @@ const items = computed(() => {
           aria-label="More page actions"
           class="vh-page-action vh-page-action-more"
         />
-      </UDropdownMenu>
+      </LazyUDropdownMenu>
     </UFieldGroup>
     <span class="sr-only" aria-live="polite">{{ copied ? "Page copied as Markdown" : "" }}</span>
   </div>
