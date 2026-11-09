@@ -1627,6 +1627,9 @@ importers:
       marked:
         specifier: catalog:realtime
         version: 17.0.6
+      playwright-core:
+        specifier: catalog:browser
+        version: 1.63.0
       publint:
         specifier: catalog:tooling
         version: 0.3.25
