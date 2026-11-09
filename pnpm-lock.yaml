@@ -2560,9 +2560,6 @@ importers:
 
   packages/queue:
     dependencies:
-      '@types/ws':
-        specifier: ^8.18.2
-        version: 8.18.2
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
@@ -2593,9 +2590,6 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-      ws:
-        specifier: ^8.22.0
-        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
