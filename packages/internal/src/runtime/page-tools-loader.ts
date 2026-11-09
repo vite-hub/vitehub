@@ -112,6 +112,13 @@ function pageAsksForMark(): boolean {
 
 /** Whether a floating control of the page sits at the pill's default place. `watchPageAsk()` keeps it current. */
 let crowded = false
+/** Whether the person docked the pill or its off mark somewhere. Then the pill stays where they put it. */
+let docked = false
+
+function storedDockText(): string | null {
+  try { return localStorage.getItem(dockKey) }
+  catch { return null }
+}
 
 /**
  * Whether a fixed or sticky element of the page, such as its own floating menu button, lies in the middle of the bottom
@@ -120,7 +127,7 @@ let crowded = false
  */
 function pageControlAtPillPlace(): boolean {
   // A DOM without layout, such as happy-dom in tests, has nothing under the pill.
-  if (storedViteHubPageDock(dockKey) || typeof document.elementsFromPoint !== "function") return false
+  if (docked || typeof document.elementsFromPoint !== "function") return false
   const small = (element: Element) => {
     const box = element.getBoundingClientRect()
     return box.width * box.height < innerWidth * innerHeight / 2
@@ -157,11 +164,14 @@ function asideOf(dock: ViteHubPageToolsDock): ViteHubPageToolsDock {
  */
 function watchPageAsk(change: () => void, signal: AbortSignal): void {
   let asked = pageAsksForMark()
+  // Another tab that saves a dock sends a storage event. Without one, only a drop on this page changes the stored dock.
+  let seen = storedDockText()
   const check = () => {
+    docked ||= storedDockText() !== seen
     const was = crowded
     crowded = pageControlAtPillPlace()
     // A drop of the folded mark ends the avoidance: the pill stays as the person sees it, folded, instead of opening.
-    if (was && !crowded && storedViteHubPageDock(dockKey) && document.querySelector("vitehub-pill")?.hasAttribute("collapsed")) {
+    if (was && !crowded && docked && document.querySelector("vitehub-pill")?.hasAttribute("collapsed")) {
       try { localStorage.setItem(collapsedKey, "1") }
       catch {}
     }
@@ -183,7 +193,10 @@ function watchPageAsk(change: () => void, signal: AbortSignal): void {
   const added = new MutationObserver(later)
   added.observe(document.documentElement, { childList: true, subtree: true })
   addEventListener("resize", later, { signal })
-  addEventListener("storage", later, { signal })
+  addEventListener("storage", (event) => {
+    if (event.key === null || event.key === dockKey) seen = storedDockText()
+    later()
+  }, { signal })
   document.addEventListener("pointerup", later, { signal })
   signal.addEventListener("abort", () => {
     observer.disconnect()
@@ -269,6 +282,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
   const query = new URLSearchParams(location.search)
   if (!viteHubPageToolsWanted(location.search, document.cookie)) return []
+  docked = storedViteHubPageDock(dockKey) !== undefined
   crowded = pageControlAtPillPlace()
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession

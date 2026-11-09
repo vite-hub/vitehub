@@ -312,6 +312,26 @@ describe("loadViteHubPageTools", () => {
     layer.remove()
   })
 
+  it("keeps the folded mark aside when another tab saves a dock", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    const dock = JSON.stringify({ edge: "left", at: 40 })
+    localStorage.setItem("vitehub-tools-dock", dock)
+    dispatchEvent(new StorageEvent("storage", { key: "vitehub-tools-dock", newValue: dock }))
+    await vi.advanceTimersByTimeAsync(250)
+    expect([element.hasAttribute("collapsed"), element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([true, "bottom", "100"])
+    expect(localStorage.getItem("vitehub-tools-collapsed")).toBe(null)
+    menu.remove()
+  })
+
   it("follows the page's ask after it loads, back to the person's own choices", async () => {
     page("/?vitehub")
     localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "bottom", at: 30 }))
