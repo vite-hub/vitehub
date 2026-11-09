@@ -1,7 +1,8 @@
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { agentInvocationRerunInput, defineAgent, runAgentInline, startAgentInvocation, workflow } from "../src/index.ts"
+import { agentInvocationRerunInput, defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
+import { runAgentInline } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { runAgentWorkflowDefinition, type AgentWorkflowInvocationPayload } from "../src/runtime/workflow.ts"
 import { markAgentInvocationCallerAbortSignal } from "../src/internal/invocation-input.ts"
@@ -179,7 +180,8 @@ describe("durable Agent data handoff", () => {
     }
     await runAgentInline(agent, runtime, { prompt: "Direct execution." })
     const directWorkspaceName = vi.mocked(useWorkspace).mock.calls.at(-1)?.[0]
-    expect(directWorkspaceName).toBe(hostName ?? "workspace")
+    // Without a host identity, the discovered Agent runs with its discovered identity, as its own routes run it.
+    expect(directWorkspaceName).toBe(hostName ?? "discovered-agent")
     let payload: unknown
     setAgentWorkflowRuntimeLoaders({
       state: async () => ({
@@ -203,8 +205,7 @@ describe("durable Agent data handoff", () => {
     }, { prompt: "Label this email." })
 
     expect(payload).toMatchObject({ journalAgentName: hostName ?? "discovered-agent" })
-    if (hostName) expect(payload).toMatchObject({ agentIdentity: { name: hostName } })
-    else expect(payload).not.toHaveProperty("agentIdentity")
+    expect(payload).toMatchObject({ agentIdentity: { name: hostName ?? "discovered-agent" } })
     // A new Definition represents the worker isolate, which has no Console marker.
     await expect(runAgentWorkflowDefinition(createAgent(), {
       id: "discovered-run", name: "discovered-workflow",
