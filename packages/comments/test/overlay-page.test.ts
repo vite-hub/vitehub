@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import * as page from "../src/page.ts"
 import { api } from "../src/overlay/api.ts"
-import { pageTools, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
+import { commentsButton, openList, pageTools, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 import type { ElementAnchor } from "../src/types.ts"
 
@@ -106,7 +106,7 @@ describe("the Comments overlay on a page", () => {
     update()
     expect(count()).toBe(refreshed)
     // A local write announces to this page's readers through awareness, too.
-    tool(tools.bar, "Comments on this page")!.click()
+    await openList(tools.bar)
     const panel = tools.panel()!
     await vi.waitFor(() => expect(panel.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
     panel.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
@@ -150,7 +150,7 @@ describe("the Comments overlay on a page", () => {
     title.dispatchEvent(new MouseEvent("click", { bubbles: true }))
     await vi.waitFor(() => expect(api.field).toHaveBeenCalledOnce())
     if (action === "teardown") overlay.remove()
-    else tool(tools.bar, "Comment (C)")!.click()
+    else tool(tools.bar, "Comment on the page (C)")!.click()
     pending.resolve([undefined, { field: "settings#title", value: "Stale draft", editable: true, digest: "old", collection: "settings", id: "settings" }])
     await pending.promise
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -194,7 +194,7 @@ describe("the Comments overlay on a page", () => {
   it.each(["comment", "edit"])("restores %s styling after an Astro root, head, and body swap", async (mode) => {
     await open()
     const button = await vi.waitFor(() => {
-      const found = tool(tools.bar, mode === "comment" ? "Comment (C)" : "Edit text (E)")
+      const found = tool(tools.bar, mode === "comment" ? "Comment on the page (C)" : "Edit text (E)")
       expect(found).not.toBeNull()
       return found!
     })
@@ -316,9 +316,9 @@ describe("the Comments overlay on a page", () => {
     vi.spyOn(api, "session").mockResolvedValue([undefined, { user: ada, can: { read: true, comment: false, resolve: false }, realtime: false, content: true }])
     tools = pageTools()
     ;({ shadow } = await startOverlay(tools))
-    await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")).not.toBeNull())
+    await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
     expect(tool(tools.bar, "Edit text (E)")).toBeNull()
-    expect(tool(tools.bar, "Comment (C)")).toBeNull()
+    expect(tool(tools.bar, "Comment on the page (C)")).toBeNull()
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }))
     expect(document.documentElement.classList.contains("vitehub-edit-mode")).toBe(false)
   })

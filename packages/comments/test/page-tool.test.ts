@@ -29,7 +29,7 @@ async function start() {
   return { pill, bar }
 }
 
-const comment = (bar: HTMLElement) => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[title=\"Comment (C)\"]")
+const comment = (bar: HTMLElement) => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[aria-keyshortcuts=\"C\"]")
 
 beforeEach(() => {
   vi.clearAllMocks()

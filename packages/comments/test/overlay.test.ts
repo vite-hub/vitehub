@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { readGuest, saveGuest } from "../src/overlay/api.ts"
-import { clickPage, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
+import { clickPage, commentsButton, openList, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 import type { CommentsUser, ElementAnchor } from "../src/types.ts"
 
@@ -41,7 +41,7 @@ async function site(user: CommentsUser | null = ada, options: Parameters<typeof 
   await before?.(server.comments)
   const tools = pageTools()
   const { shadow, overlay, cleanup } = await startOverlay(tools)
-  await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")).not.toBeNull())
+  await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
   return { ...server, ...tools, shadow, overlay, cleanup }
 }
 
@@ -59,7 +59,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
       await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
       root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
@@ -80,7 +80,7 @@ describe("the Comments overlay on the comment parts", () => {
     }, async (comments) => {
       threadId = (await comments.create({ page: "/pricing", anchor, body: "Thread grant", author: grace }))[1]!.id
     })
-    expect(tool(bar, "Comment (C)")).toBeNull()
+    expect(tool(bar, "Comment on the page (C)")).toBeNull()
     let root: ShadowRoot
     if (surface === "layer") {
       await vi.waitFor(() => expect(shadow.querySelector(`[data-thread-id="${threadId}"]`)).not.toBeNull())
@@ -88,7 +88,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
       await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
       expect(composer(root, "Comment")).toBeNull()
@@ -112,7 +112,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
       await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
       root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
@@ -135,7 +135,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
     }
     const label = "Comment"
@@ -180,7 +180,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
     }
     await vi.waitFor(() => expect(root.querySelector('input[type="file"]')).not.toBeNull())
@@ -203,7 +203,7 @@ describe("the Comments overlay on the comment parts", () => {
   it("comments on an element with the overlay's anchor hints and the page context", async () => {
     const { shadow, bar, comments } = await site()
     press(document.body, "c")
-    await vi.waitFor(() => expect(tool(bar, "Comment (C)")!.getAttribute("aria-pressed")).toBe("true"))
+    await vi.waitFor(() => expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true"))
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
     await clickPage(shadow, 60, 20)
     await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
@@ -284,7 +284,7 @@ describe("the Comments overlay on the comment parts", () => {
 
   it("asks a guest for a name before comment mode, then sends it in the guest headers", async () => {
     const { shadow, bar, comments, requests } = await site(null, { authorize: () => true })
-    tool(bar, "Comment (C)")!.click()
+    tool(bar, "Comment on the page (C)")!.click()
     await vi.waitFor(() => expect(shadow.querySelector('input[aria-label="Your name"]')).not.toBeNull())
     expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull()
     const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
@@ -364,8 +364,8 @@ describe("the Comments overlay on the comment parts", () => {
     await server.comments.resolve(done!.id, { by: ada })
     const tools = pageTools()
     const { shadow } = await startOverlay(tools)
-    await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")!.textContent).toBe("1"))
-    tool(tools.bar, "Comments on this page")!.click()
+    await vi.waitFor(() => expect(commentsButton(tools.bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
+    await openList(tools.bar)
     const panel = tools.panel()!
     await vi.waitFor(() => expect(panel.querySelectorAll('[data-slot="comment-panel-item"]')).toHaveLength(1))
     expect(panel.textContent).toContain("Open one")
@@ -382,5 +382,35 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(shadow.querySelector(".toast")).not.toBeNull())
     expect(tools.bar.hidden).toBe(true)
     expect(shadow.querySelector(".toast")!.textContent).toContain("Comments are only for the site's team")
+  })
+})
+
+describe("the Comments segment, as in Drop", () => {
+  it("turns comment mode on and grows Whole page, All comments, and × beside it", async () => {
+    const { bar, shadow } = await site(ada, {}, comments => comments.create({ page: "/pricing", anchor, body: "Open one", author: ada }))
+    await vi.waitFor(() => expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
+    expect(commentsButton(bar)!.textContent).toBe("Comments1")
+    expect(tool(bar, "Comment on the whole page")).toBeNull()
+
+    commentsButton(bar)!.click()
+    await vi.waitFor(() => expect(commentsButton(bar)!.textContent).toBe("Click anywhere"))
+    expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true")
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
+    expect(tool(bar, "All comments on this page")!.textContent).toBe("All comments1")
+
+    tool(bar, "Comment on the whole page")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).not.toBeNull())
+    tool(bar, "Stop commenting (Esc)")!.click()
+    await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).toBeNull())
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
+    expect(commentsButton(bar)!.textContent).toBe("Comments1")
+  })
+
+  it("opens the list from Comments for a person who may only read", async () => {
+    const { bar } = await site(ada, { authorize: ({ action }) => action === "read" }, comments => comments.create({ page: "/pricing", anchor, body: "Open one", author: grace }))
+    await vi.waitFor(() => expect(tool(bar, "Show comments")).not.toBeNull())
+    expect(tool(bar, "Comment on the page (C)")).toBeNull()
+    expect(tool(bar, "Highlight the page and comment (B)")).toBeNull()
+    expect(commentsButton(bar)!.getAttribute("aria-expanded")).toBe("false")
   })
 })
