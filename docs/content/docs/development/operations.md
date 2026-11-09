@@ -84,16 +84,19 @@ A Vite plugin contributes operations through its metadata. `vite-hub` collects t
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
+import type { OperationContributingPlugin } from 'vite-hub/operations'
 
 const reports = {
   name: 'reports',
   vitehub: {
     operations: [{ module: 'my-app/operations', export: 'reportOperations' }],
   },
-}
+} satisfies OperationContributingPlugin
 
 export default defineConfig({ plugins: [vitehub(), reports] })
 ```
+
+A library that does not install `vite-hub` imports `defineOperation` and the same types from `@vite-hub/runtime/operations`.
 
 The module is the specifier that your app can import. The export is one operation or a list of them. Two operations with the same name fail the build with `INTERNAL_B0048`, and the message names both plugins.
 

@@ -17,7 +17,7 @@ An application route can call `runAgent()` when no Capability needs to prepare t
 import { createError, defineEventHandler, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt: string }>(event)
@@ -63,7 +63,7 @@ Call the trigger from a server-owned route:
 import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
   const { text, threadId } = await readBody<{

@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType } from "./runtime-type.ts"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -11,8 +11,8 @@ import type {
   RuntimeResourceSnapshot,
   RuntimeResourceSupport,
   RuntimeResourceUnit,
-} from "./diagnostics.ts"
-import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+} from "../diagnostics.ts"
+import { runtimeErrorDiagnostics } from "../error-diagnostics.ts"
 
 type ReadText = (path: string, options?: { signal?: AbortSignal }) => Promise<string>
 

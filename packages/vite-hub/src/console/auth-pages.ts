@@ -1,7 +1,7 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
-import { getStandardContext, installStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext, installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3Event } from "h3"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"

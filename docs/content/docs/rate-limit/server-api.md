@@ -32,21 +32,21 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must use static literals
 
 ## Check without throwing
 
-`checkRateLimit(event, id, options)` takes the same arguments and consumes the same counters as `requireRateLimit()`, but it returns the [decision](#understand-the-decision) instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
+`checkRateLimit(event, id, options)` takes the same arguments and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
 
 ```ts
-const decision = await checkRateLimit(event, 'og-image', { limit: 20, window: '1m' })
-if (!decision.allowed) return genericCard()
+const [error, decision] = await checkRateLimit(event, 'og-image', { limit: 20, window: '1m' })
+if (error || !decision.allowed) return genericCard()
 ```
 
-`reason` is `limited` when the budget is used up, or `unavailable` when the driver failed and `failure` is `deny`. With `failure: 'allow'`, an unavailable driver returns `allowed: true` with `reason: 'unavailable'`. Invalid options, a missing Cloudflare binding, and a request without a key still throw, as with `requireRateLimit()`. ViteHub discovers `checkRateLimit()` calls like `requireRateLimit()` calls, so the ID and policy must be static, and both share one budget per ID.
+`reason` is `limited` when the budget is used up, or `unavailable` when the driver failed and `failure` is `deny`. With `failure: 'allow'`, an unavailable driver returns `allowed: true` with `reason: 'unavailable'`. `error` is set when the check cannot run: `RATE_LIMIT_R0013` for a request without a key, and `RATE_LIMIT_R0009` for a missing Cloudflare binding. Invalid options throw. ViteHub discovers `checkRateLimit()` calls like `requireRateLimit()` calls, so the ID and policy must be static, and both share one budget per ID.
 
 ## Public imports
 
 | Import | Use |
 | --- | --- |
 | `requireRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Enforce a discovered managed Rate Limit inside an H3 handler. |
-| `checkRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Consume a discovered managed Rate Limit and return its decision. |
+| `checkRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Consume a discovered managed Rate Limit and return `[error, decision]`. |
 | `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Enforce fixed windows in one process. |
 | `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Consume a Cloudflare Rate Limiting binding directly. |

@@ -1,4 +1,4 @@
-export { onShutdown } from "@vite-hub/runtime/shutdown"
+export { onShutdown } from "@vite-hub/runtime/internal/shutdown"
 
 import { createProcessWakeDriver } from "../internal/process-wake-runtime.ts"
 import { createScheduleError } from "../errors.ts"

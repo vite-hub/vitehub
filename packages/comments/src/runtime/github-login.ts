@@ -2,7 +2,7 @@ import { hkdfSync } from "node:crypto"
 
 import { defineAuth } from "@vite-hub/auth"
 import { stateless } from "@vite-hub/auth/presets"
-import { createAuthForRequest } from "@vite-hub/auth/server"
+import { createAuthForRequest } from "@vite-hub/auth/internal/server"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"

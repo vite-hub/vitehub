@@ -18,9 +18,8 @@ icon: i-lucide-code-2
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 | `auth`, `getAuth`, `getAuthForRequest` from `@vite-hub/auth/server` | Access the Better Auth instance from server code. |
 | Default export of `@vite-hub/auth/server` | The Auth route as a Fetchable, `{ fetch(request) }`. Mount it when you set `route: false`. |
-| `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Call the Auth handler manually. |
+| `handleAuth`, `createAuthHandler` from `@vite-hub/auth/server` | Call the Auth handler manually. |
 | `withAuth` from `@vite-hub/auth/server` | Run a server handler only with an Auth Session. |
-| `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected configured access routes. |
 | `withAuthorization` from `@vite-hub/auth/server` | Run a resource handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `requireAuth`, `requireAuthorization`, `getAuthorization` from `@vite-hub/auth/server` | Guard an H3 2 route with middleware, then read the checked session in the handler. |
 | `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `@vite-hub/auth/vue` | Read session state and call Better Auth from Vue. The client loads Better Auth on first use. |
@@ -91,10 +90,7 @@ export const app = new H3()
 | `getAuth(runtimeOptions?)` | Returns the discovered Better Auth instance. |
 | `getAuthForRequest(request, runtimeOptions?, event?)` | Returns a request-aware Better Auth instance. |
 | `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
-| `handleAuthRequest(definition, input, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
-| `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
 | `createAuthHandler(definition, runtimeOptions?)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass their peer address for rate limiting and session IPs. |
-| `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches discovered route metadata, then authenticates and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Otherwise it returns an unauthorized or sign-in response. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Otherwise it returns JSON `401` without a session, `403` when `authorize` returns `false`, or the callback's `Response`. |
 | `withAnonymousAuthorization(authorize, handler, definition?)` | Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`. `false` returns JSON `401` for a signed-out caller and `403` for a signed-in one. |
@@ -102,7 +98,7 @@ export const app = new H3()
 | `requireAuthorization(authorize, definition?)` | Returns `(event, next)` route middleware for H3 2. It calls `next()` when allowed. Otherwise it returns the same response as `withAuthorization()`. |
 | `getAuthorization(event)` | Returns the `authorization` that `requireAuth()` or `requireAuthorization()` attached to the event. Throws `AUTH_R0017` when no Auth middleware accepted it. |
 
-`auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `getAuthForRequest(event.req).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `@vite-hub/auth` names it.
+`auth`, `getAuth()`, and `getAuthForRequest()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `getAuthForRequest(event.req).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `AuthFor<typeof definition>` from `@vite-hub/auth` names the type.
 
 The `authorization` argument and the `getAuthorization(event)` result are a frozen `{ request, session, user }` object. Only the guard or the middleware creates it. A caller cannot pass its own value to the returned handler.
 
@@ -152,8 +148,6 @@ The callback receives the authenticated `user`, `session`, and request. ViteHub 
 
 The same callback signature protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the protected read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it does not start a sign-in redirect, so image and fetch requests receive a status code.
 
-Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request that an access route matches. Manual hosts can use it with a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Pass `{ route, method?, authorize?: true }` metadata in the same order as the Definition's `access.routes`. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply, and `authorize: true` requires the corresponding runtime callback. Unmatched requests do not load the Auth Definition or session.
-
-`requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` for an unauthenticated browser request instead of starting the configured provider sign-in redirect. Use it when the host shows its own sign-in page and starts provider sign-in after an explicit action. By default, it keeps the `access.signIn` redirect.
+The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
 Read [Console](/docs/development/console#protect-the-console-route) for its page, RPC endpoint, provider status route, and disabled behavior. The Console can also use its own Console Auth instead of these access routes. On Cloudflare Workers, the [Cloudflare Access provider](/docs/development/console#protect-the-console-route) protects the Console without a Better Auth database.

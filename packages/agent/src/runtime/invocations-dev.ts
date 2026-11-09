@@ -4,7 +4,7 @@ import agentRegistry from "#vitehub/agent/registry"
 import { assertViteHubDevRequestGrant, validateViteHubNitroDevRequest } from "@vite-hub/internal/dev-endpoint"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import * as v from "valibot"

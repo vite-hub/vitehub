@@ -139,7 +139,7 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
     // The Auth server module imports this module, so the Env resolver is set before the first Auth instance.
     ...(options.serverEnv
       ? [
-          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(`${options.importBase ?? authPackageName}/runtime/server`)}`,
+          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(privateAuthImport(options.importBase ?? authPackageName, "runtime/server"))}`,
           `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
           "setAuthRuntimeEnvResolver(useServerEnv, definition)",
         ]
@@ -150,10 +150,20 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
   ].join("\n")
 }
 
+/**
+ * The import path of a private Auth entry, such as `runtime/server`. The `vite-hub` distribution publishes private
+ * entries under `vite-hub/_internal/auth/*`.
+ */
+function privateAuthImport(importBase: string, entry: string): string {
+  return importBase === "vite-hub/auth" ? `vite-hub/_internal/auth/${entry}` : `${importBase}/${entry}`
+}
+
+/** Generated routes and the Console read the public server API and the private factories from one module. */
 function renderAuthServerModule(options: { importBase?: string } = {}): string {
-  const serverImport = `${options.importBase ?? authPackageName}/server`
+  const importBase = options.importBase ?? authPackageName
+  const serverImport = `${importBase}/server`
   return [
-    `export * from ${JSON.stringify(serverImport)}`,
+    `export * from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     `export { default } from ${JSON.stringify(serverImport)}`,
     "",
   ].join("\n")
@@ -169,7 +179,7 @@ function renderAuthRouteHandler(): string {
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined, importBase = authPackageName): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
   return [
-    `import { createLazyAuthAccessHandler } from ${JSON.stringify(`${importBase}/runtime/server`)}`,
+    `import { createLazyAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "runtime/server"))}`,
     "",
     // Every request runs this middleware. It loads Better Auth only for a request that an access route matches.
     `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)}))`,
@@ -221,7 +231,7 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
   const serverImport = `${importBase}/server`
   return [
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
-    `  export * from ${JSON.stringify(serverImport)}`,
+    `  export * from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     `  export { default } from ${JSON.stringify(serverImport)}`,
     "}",
     "",
@@ -476,7 +486,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           const hasRequestRuntime = typeof definition.options === "function"
             || typeof definition.options.runtime === "function"
           // Load Better Auth on the first Auth request, not when the Vite config imports this plugin.
-          const { getAuthForDefinition, handleAuthRequest } = await import("./server.ts")
+          const { getAuthForDefinition, handleAuthRequest } = await import("./internal/server.ts")
           const authResponse = hasRequestRuntime
             ? await handleAuthRequest(definition, webRequest)
             : await getAuthForDefinition(definition).handler(webRequest)

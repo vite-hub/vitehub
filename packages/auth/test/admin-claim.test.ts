@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import { adminClaimHash, createAdminClaimCode } from "../src/admin-claim-code.ts"
 import { createAuthConsole } from "../src/console-runtime.ts"
-import { createAuthForRequest, createBetterAuthOptions, resetAuth } from "../src/server.ts"
+import { createAuthForRequest, createBetterAuthOptions, resetAuth } from "../src/internal/server.ts"
 import { hubAuth } from "../src/vite.ts"
 import { runViteHubCli } from "../../cli/src/index.ts"
 

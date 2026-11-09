@@ -74,7 +74,7 @@ context for each invocation:
 
 ```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
@@ -140,15 +140,12 @@ export default defineEventHandler((event) => {
 })
 ```
 
-For an event that Nitro did not create, such as in a test, call
-`installStandardContext(event)` from `vite-hub/runtime/h3` first.
-`getStandardContext(event)` from `vite-hub/runtime/h3` returns `event["~standard"]`
-and sets it first when it is missing. It also accepts a `Request`. ViteHub primitives such as `requireRateLimit()` and
-`useServerEnv()` read request events through it, so they work in an H3 app that
-does not use the ViteHub Vite plugin. The `ViteHubContext` type comes from
-`vite-hub/runtime` and does not load H3 types. In a ViteHub app, the generated
-`.vitehub/types.d.ts` adds `~standard` to `H3Event`. An H3 app without the
-ViteHub Vite plugin adds it with `import type {} from 'vite-hub/runtime/h3'`.
+`getStandardContext(event)` from `vite-hub/runtime` returns `event["~standard"]`.
+It also accepts a `Request`. A value that is neither throws `RUNTIME_R0015`.
+ViteHub primitives such as `requireRateLimit()` and `useServerEnv()` set
+`~standard` themselves when it is missing, such as for an event in a test. The
+`ViteHubContext` type comes from `vite-hub/runtime` and does not load H3 types. In
+a ViteHub app, the generated `.vitehub/types.d.ts` adds `~standard` to `H3Event`.
 
 ### Background work and cleanup
 

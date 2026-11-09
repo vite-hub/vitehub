@@ -17,8 +17,7 @@ Use ViteHub's Node adapter to observe process, host, and Linux cgroup resources:
 
 ```ts [server/agents/worker.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { diagnostics } from 'vite-hub/agent/capabilities'
-import { nodeRuntimeResources } from 'vite-hub/runtime/node'
+import { diagnostics, nodeRuntimeResources } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   name: 'worker',
@@ -69,7 +68,7 @@ Sampling is bounded to one active inspection and one coalesced pending reason. R
 
 ## Requirements
 
-`diagnostics()` needs no primitive. Resource sampling requires a `RuntimeResourceInspector`, such as `nodeRuntimeResources()` from `vite-hub/runtime/node`.
+`diagnostics()` needs no primitive. Resource sampling requires a `RuntimeResourceInspector`, such as `nodeRuntimeResources()` from `vite-hub/agent/capabilities`.
 `interval` cannot exceed `heartbeat`. All durations must be positive milliseconds.
 
 ## Security and approval

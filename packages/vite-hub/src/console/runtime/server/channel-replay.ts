@@ -1,4 +1,4 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 

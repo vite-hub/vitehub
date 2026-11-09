@@ -7,7 +7,7 @@ import { jwt } from "better-auth/plugins"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "@vite-hub/auth"
-import { createAuthForRequest } from "@vite-hub/auth/server"
+import { createAuthForRequest } from "@vite-hub/auth/internal/server"
 import { defineOperation } from "@vite-hub/internal/operations"
 
 import { consoleAuthSignInPage, consoleMcpNativeClients, consoleMcpOAuth, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"

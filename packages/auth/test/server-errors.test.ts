@@ -6,7 +6,7 @@ import { H3 } from "h3"
 import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuthAccessRoutes, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/server.ts"
+import { handleAuthRequest, requireAuthAccessRoutes, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 
 import type { AuthAuthorization } from "../src/index.ts"
 import { requestEvent } from "./request-event.ts"

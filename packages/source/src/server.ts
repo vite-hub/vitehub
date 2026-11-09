@@ -1,4 +1,4 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { createError, defineEventHandler } from "h3"
 
 import { CollectionCursorError } from "./core/collection.ts"

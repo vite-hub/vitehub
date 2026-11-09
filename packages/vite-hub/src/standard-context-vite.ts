@@ -8,7 +8,7 @@ import type { Plugin } from "vite"
  */
 export function renderStandardContextNitroPlugin(): string {
   return [
-    `import { installStandardContext } from "vite-hub/runtime/h3"`,
+    `import { installStandardContext } from "vite-hub/_internal/runtime/internal/h3"`,
     "",
     "export default function viteHubStandardContextPlugin(nitroApp) {",
     `  // Hookable 5 (Nitro 2) and HookableCore (Nitro 3) store request callbacks in`,
@@ -23,7 +23,7 @@ export function renderStandardContextNitroPlugin(): string {
 
 /** Add `~standard` to the app's H3Event type. */
 const standardContextTypes = [
-  `import type {} from "vite-hub/runtime/h3"`,
+  `import type {} from "vite-hub/_internal/runtime/internal/h3"`,
   "",
   "export {}",
   "",

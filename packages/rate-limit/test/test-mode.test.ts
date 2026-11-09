@@ -17,10 +17,10 @@ it("counts in memory per test, also with a Cloudflare config and a request witho
   setRateLimitRuntimeConfig({ provider: "cloudflare" })
   const request = () => new Request("https://example.com/upload", { method: "POST" })
 
-  expect((await checkRateLimit(request(), "uploads", { limit: 1, window: "1m" })).allowed).toBe(true)
-  expect((await checkRateLimit(request(), "uploads", { limit: 1, window: "1m" })).allowed).toBe(false)
+  expect((await checkRateLimit(request(), "uploads", { limit: 1, window: "1m" }))[1]?.allowed).toBe(true)
+  expect((await checkRateLimit(request(), "uploads", { limit: 1, window: "1m" }))[1]?.allowed).toBe(false)
 
   await mode.reset()
 
-  expect((await checkRateLimit(request(), "uploads", { limit: 1, window: "1m" })).allowed).toBe(true)
+  expect((await checkRateLimit(request(), "uploads", { limit: 1, window: "1m" }))[1]?.allowed).toBe(true)
 })

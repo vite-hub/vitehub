@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { defineAuth } from "@vite-hub/auth"
 import type { AuthAccessAuthorizationContext } from "@vite-hub/auth"
-import { createAuthAccessHandler, createAuthForRequest, setAuthAccessIdentityResolver } from "@vite-hub/auth/server"
+import { createAuthAccessHandler, createAuthForRequest, setAuthAccessIdentityResolver } from "@vite-hub/auth/internal/server"
 import { afterEach, expect, it, onTestFinished } from "vitest"
 
 import { consoleOAuthPlugins } from "../src/console/auth-oauth.ts"
@@ -62,7 +62,7 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' wit
         name: "generated-console-auth-imports",
         setup(plugin) {
           plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
-          plugin.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/server"), external: true }))
+          plugin.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/internal/server"), external: true }))
           plugin.onResolve({ filter: /^vite-hub\/console\/auth$/ }, () => ({ path: resolve(import.meta.dirname, "../src/console/auth.ts") }))
         },
       }],
@@ -192,9 +192,9 @@ it.each([
       setup(plugin) {
         plugin.onResolve({ filter: /^file:\/\// }, args => ({ path: fileURLToPath(args.path) }))
         plugin.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({ path: "app-auth", namespace: "fixture" }))
-        plugin.onResolve({ filter: /^@vite-hub\/auth\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/server"), external: true }))
+        plugin.onResolve({ filter: /^@vite-hub\/auth\/internal\/server$/ }, () => ({ path: require.resolve("@vite-hub/auth/internal/server"), external: true }))
         plugin.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
-          import * as auth from "@vite-hub/auth/server";
+          import * as auth from "@vite-hub/auth/internal/server";
           const definition = globalThis[Symbol.for("test.console.mcp.middleware")];
           export const getAuthForRequest = (request, _, event) => auth.createAuthForRequest(definition, request, undefined, event);
           export const requireAuthAccessRoutes = (event, indexes, _, required, options) => auth.requireAuthAccessRoutes(event, indexes, definition, required, options);

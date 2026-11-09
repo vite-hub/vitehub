@@ -23,11 +23,11 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
-| `vite-hub/agent/capabilities` | Official Capability factories. |
+| `vite-hub/agent/capabilities` | Official Capability factories, and `nodeRuntimeResources()` for `diagnostics({ resources })`. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
-| `vite-hub/logs` | Evlog's logger API and readable LogSource helpers. Requires the optional `evlog` peer. |
+| `vite-hub/logs` | The LogSource contract and `createLogBuffer()`. Import the Evlog logger API from `evlog`. |
 | `vite-hub/logs/source` | Server-side LogSource contract, query validation, and cursor errors without Evlog. |
 | `vite-hub/logs/memory` | Bounded local buffer for an existing redacted drain. Runtime independent from Evlog; its types require `evlog`. |
 | `vite-hub/logs/host` | Install and resolve a project's LogSource through the process-shared registry without Evlog. |
@@ -71,13 +71,10 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/docs/nuxt` | The Nuxt module of a [docs site](/docs/docs-site): pages from a Markdown folder, the docs shell and theme, search, and agent resources. Re-exports `@vite-hub/docs/nuxt`. |
 | `vite-hub/docs` | The page frontmatter schema, the manifest types, and the navigation helpers of a docs site. Re-exports `@vite-hub/docs`. |
 | `vite-hub/docs/assistant` | `docsAssistant`, the Agent preset that answers reader questions from the docs pages, and `docsRateLimit()`. Re-exports `@vite-hub/docs/assistant`. |
-| `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
+| `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions, the Auth route, `handleAuth()`, `createAuthHandler()`, the route guards, and the Better Auth instance. |
 | `vite-hub/auth/mcp` | OAuth sign-in, discovery, request verification, and unused-client cleanup for an app's MCP server. Requires `@better-auth/oauth-provider`. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and contributes its tables for migration generation. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
-| `vite-hub/auth/runtime/server` | Lightweight Auth resolver registration and lazy access middleware, without loading Better Auth. |
-| `vite-hub/auth/console` | Auth Console section descriptor and management types. |
-| `vite-hub/auth/console-runtime` | `createAuthConsole()` for trusted manual server hosts. |
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
@@ -117,13 +114,11 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
-| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |
+| `vite-hub/operations` | `defineOperation()`, its types, and the `vitehub: { operations }` plugin contribution types. See [Operations](/docs/development/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
-| `vite-hub/runtime` | Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
-| `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
-| `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
+| `vite-hub/runtime` | Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a request event or a Fetchable `Request`, policy, approval, trace, and capability APIs. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
@@ -190,9 +185,8 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Agent state helpers. |
 | `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
-| `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
+| `@vite-hub/auth/server` | Auth Package | The Auth route, request handlers, route guards, and session access for manual host integration. |
 | `@vite-hub/auth/mcp` | Auth Package | MCP OAuth helpers for manual hosts, with the optional `@better-auth/oauth-provider` peer. |
-| `@vite-hub/auth/runtime/server` | Auth Package | Lightweight Auth resolver registration and lazy access middleware for framework integrations. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, and Blob reference schemas. |
 | `@vite-hub/blob/client` | Blob Package | Framework-neutral browser upload helpers. |
 | `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
@@ -249,7 +243,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/realtime/server` and `@vite-hub/realtime/vue` | Realtime Package | Manual server integration and Vue collaborative editing. |
 | `@vite-hub/realtime/client` | Realtime Package | `connectRealtimeRoom()`, presence in one room without an editor or Vue. |
 | `@vite-hub/runtime` | Runtime Package | Runtime Host Context, capability handles, policy, approvals, traces, leases, and execution authority. |
-| `@vite-hub/runtime/node` | Runtime Package | Node process and host resource observations. |
+| `@vite-hub/runtime/operations` | Runtime Package | `defineOperation()`, its types, and the plugin contribution types, for a library that does not install `vite-hub`. |
 | `@vite-hub/shell` | Shell Package | Command analysis and provider-neutral Shell runtime execution. |
 | `@vite-hub/shell/providers/just-bash` | Shell Package | Just Bash Shell provider. |
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |

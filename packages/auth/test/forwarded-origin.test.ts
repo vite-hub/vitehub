@@ -9,7 +9,7 @@ vi.mock("#vitehub/auth/definition", () => ({
 
 import { defineAuth } from "../src/definition.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
-import { assertAuthOrigin, resetAuth } from "../src/server.ts"
+import { assertAuthOrigin, resetAuth } from "../src/internal/server.ts"
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
 

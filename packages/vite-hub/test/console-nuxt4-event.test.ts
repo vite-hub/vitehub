@@ -12,8 +12,8 @@ import envManage from "../src/console/runtime/server/env-manage.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import scheduleRun from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import { installStandardContext } from "../src/runtime/h3.ts"
-import type { ViteHubStandardProps } from "../src/runtime/h3.ts"
+import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
+import type { ViteHubStandardProps } from "../src/_internal/runtime/internal/h3.ts"
 
 /** The H3 1 event that Nitro 2 gives a Nuxt 4 handler: an own `node` field, a `req` getter that is the Node request, and no `url`. */
 class H3V1Event {

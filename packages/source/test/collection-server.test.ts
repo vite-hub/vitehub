@@ -1,5 +1,5 @@
 import { H3 } from "h3"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 

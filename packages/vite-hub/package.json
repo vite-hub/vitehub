@@ -128,10 +128,20 @@
       "import": "./dist/_internal/agent/state/sqlite.js",
       "default": "./dist/_internal/agent/state/sqlite.js"
     },
+    "./_internal/auth/internal/server": {
+      "types": "./dist/_internal/auth/internal/server.d.ts",
+      "import": "./dist/_internal/auth/internal/server.js",
+      "default": "./dist/_internal/auth/internal/server.js"
+    },
     "./_internal/auth/runtime/console": {
       "types": "./dist/_internal/auth/runtime/console.d.ts",
       "import": "./dist/_internal/auth/runtime/console.js",
       "default": "./dist/_internal/auth/runtime/console.js"
+    },
+    "./_internal/auth/runtime/server": {
+      "types": "./dist/_internal/auth/runtime/server.d.ts",
+      "import": "./dist/_internal/auth/runtime/server.js",
+      "default": "./dist/_internal/auth/runtime/server.js"
     },
     "./_internal/blob": {
       "types": "./dist/_internal/blob.d.ts",
@@ -222,6 +232,11 @@
       "types": "./dist/_internal/rate-limit/operations.d.ts",
       "import": "./dist/_internal/rate-limit/operations.js",
       "default": "./dist/_internal/rate-limit/operations.js"
+    },
+    "./_internal/runtime/internal/h3": {
+      "types": "./dist/_internal/runtime/internal/h3.d.ts",
+      "import": "./dist/_internal/runtime/internal/h3.js",
+      "default": "./dist/_internal/runtime/internal/h3.js"
     },
     "./_internal/sandbox/task/runtime/state": {
       "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
@@ -442,11 +457,6 @@
       "types": "./dist/auth/presets.d.ts",
       "import": "./dist/auth/presets.js",
       "default": "./dist/auth/presets.js"
-    },
-    "./auth/runtime/server": {
-      "types": "./dist/auth/runtime/server.d.ts",
-      "import": "./dist/auth/runtime/server.js",
-      "default": "./dist/auth/runtime/server.js"
     },
     "./auth/schema": {
       "types": "./dist/auth/schema.d.ts",
@@ -847,16 +857,6 @@
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
       "default": "./dist/runtime.js"
-    },
-    "./runtime/h3": {
-      "types": "./dist/runtime/h3.d.ts",
-      "import": "./dist/runtime/h3.js",
-      "default": "./dist/runtime/h3.js"
-    },
-    "./runtime/node": {
-      "types": "./dist/runtime/node.d.ts",
-      "import": "./dist/runtime/node.js",
-      "default": "./dist/runtime/node.js"
     },
     "./sandbox": {
       "types": "./dist/sandbox.d.ts",
@@ -1283,16 +1283,6 @@
       "types": "./dist/console/runtime/server/documents.d.ts",
       "import": "./dist/console/runtime/server/documents.js",
       "default": "./dist/console/runtime/server/documents.js"
-    },
-    "./auth/console": {
-      "types": "./dist/auth/console.d.ts",
-      "import": "./dist/auth/console.js",
-      "default": "./dist/auth/console.js"
-    },
-    "./auth/console-runtime": {
-      "types": "./dist/auth/console-runtime.d.ts",
-      "import": "./dist/auth/console-runtime.js",
-      "default": "./dist/auth/console-runtime.js"
     },
     "./logs": {
       "types": "./dist/logs.d.ts",

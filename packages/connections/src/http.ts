@@ -1,4 +1,4 @@
-import { getStandardContext } from "@vite-hub/runtime/h3";
+import { getStandardContext } from "@vite-hub/runtime/internal/h3";
 
 import { isConnectionError } from "./errors.ts";
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";

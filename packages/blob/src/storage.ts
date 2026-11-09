@@ -2,7 +2,7 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"

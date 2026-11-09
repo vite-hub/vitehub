@@ -91,6 +91,12 @@ interface RateLimitUnavailableDecision extends RateLimitDecisionBase {
 
 export type RateLimitDecision = RateLimitAllowedDecision | RateLimitLimitedDecision | RateLimitUnavailableDecision
 
+/**
+ * The errors that `checkRateLimit()` returns. `RATE_LIMIT_R0013`: the request has no client address and the call has
+ * no `key`. `RATE_LIMIT_R0009`: the Cloudflare Rate Limiting binding of the policy is not on the request.
+ */
+export type CheckRateLimitErrorCode = "RATE_LIMIT_R0009" | "RATE_LIMIT_R0013"
+
 export interface RateLimitDriverCapabilities {
   readonly enforcement: RateLimitEnforcement
   readonly rejectedAttempts: RateLimitRejectedAttemptBehavior

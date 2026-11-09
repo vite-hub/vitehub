@@ -3,7 +3,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import { defineComments } from "../src/index.ts"
 
 import type { ViteHubContext } from "@vite-hub/runtime"
-import type {} from "@vite-hub/runtime/h3"
+import type {} from "@vite-hub/runtime/internal/h3"
 import type { H3Event } from "h3"
 import type { CommentAction, CommentsAuthorizeContext, CommentsErrorCode, CommentsGitHubAccess, CommentsIdentifyContext, CommentsRequestEvent, CommentSubject } from "../src/index.ts"
 

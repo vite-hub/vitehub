@@ -36,6 +36,24 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
+
+## `runtime-contracts`
+
+ViteHub moved the request context helpers to `vite-hub/runtime`, made private runtime and Auth entries private, and changed `checkRateLimit()` to return a Result. `runtime-contracts` rewrites an app:
+
+| Old code | New code |
+| --- | --- |
+| `getRuntimeContext`, `getStandardContext`, and the Standard Context types from `vite-hub/runtime/h3` | `vite-hub/runtime`. `H3RuntimeContext` and `H3RuntimeContextOptions` become `RequestRuntimeContext` and `RuntimeContextOptions`. |
+| `nodeRuntimeResources` from `vite-hub/runtime/node` | `vite-hub/agent/capabilities` |
+| `initLogger`, `useLogger`, and the other Evlog names from `vite-hub/logs` | `evlog`. The LogSource names stay in `vite-hub/logs`. |
+| `const decision = await checkRateLimit(...)` | `const [checkRateLimitError, decision] = await checkRateLimit(...)`, then `if (checkRateLimitError) throw checkRateLimitError`, which keeps the old behavior |
+
+The `@vite-hub/runtime/*` forms move to the same places. The report lists what needs a person: `installStandardContext()`, the other names of `vite-hub/runtime/node`, `@vite-hub/runtime/shutdown`, the Auth setters, factories, and access helpers that left `vite-hub/auth/server`, the `vite-hub/auth/runtime/server`, `vite-hub/auth/console`, and `vite-hub/auth/console-runtime` entries, and a `checkRateLimit()` call that is not a `const` declaration.
+
+```sh
+npx @vite-hub/codemods runtime-contracts [dir] [--dry-run]
+```
 
 ## `nuxt-safe-runtime-config`
 

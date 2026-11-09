@@ -3,7 +3,7 @@ import { admin, bearer } from "better-auth/plugins";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineAuth } from "../src/index.ts";
 import type { AuthDefinitionOptions } from "../src/types.ts";
-import { createBetterAuthOptions, getAuthForDefinition } from "../src/server.ts";
+import { createBetterAuthOptions, getAuthForDefinition } from "../src/internal/server.ts";
 import { eventDatabase } from "./event-helpers.ts";
 
 const origin = "http://localhost:5173";

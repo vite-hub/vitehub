@@ -71,7 +71,7 @@ In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as 
 ```ts [server/api/support.post.ts] fragment
 import { createError, defineEventHandler, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
@@ -109,7 +109,7 @@ Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer ne
 ```ts [server/api/support-stream.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
 import { streamAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
@@ -149,7 +149,7 @@ Use `runAgentTrigger()` or `streamAgentTrigger()` when a Capability owns the eve
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
 import { createError, defineEventHandler, readBody } from 'h3'
 import { streamAgentTrigger } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {

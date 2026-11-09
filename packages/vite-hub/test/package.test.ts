@@ -48,9 +48,8 @@ import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
-import * as frameworkRuntimeNode from "vite-hub/runtime/node";
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state";
-import * as ownerRuntimeNode from "@vite-hub/runtime/node";
+import * as ownerRuntimeNode from "@vite-hub/runtime/internal/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
@@ -150,8 +149,12 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  // The Console imports the Auth section and its management runtime. Generated Auth startup code imports the resolvers.
+  "@vite-hub/auth/console",
+  "@vite-hub/auth/console-runtime",
+  "@vite-hub/auth/runtime/server",
   "@vite-hub/comments/operations",
-  "@vite-hub/runtime/shutdown",
+  "@vite-hub/runtime/internal/shutdown",
   "@vite-hub/agent/runtime/registry",
   "@vite-hub/agent/runtime/invocations-dev",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
@@ -226,7 +229,12 @@ function sourceForwarderTargets(source: string): string[] | undefined {
   return targets;
 }
 
+// `vite-hub/operations` forwards the operation contract of the Runtime package.
+const renamedForwarders = new Map([["./operations", "@vite-hub/runtime/operations"]]);
+
 function ownerSpecifierForDistributionSubpath(subpath: string): string {
+  const renamed = renamedForwarders.get(subpath);
+  if (renamed) return renamed;
   const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/");
   return [`@vite-hub/${owner}`, ...rest].join("/");
 }
@@ -306,7 +314,7 @@ describe("framework package contract", () => {
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter);
     expect(frameworkWebContainer.bootWebContainer).toBe(ownerWebContainer.bootWebContainer);
     expect(frameworkWebContainerConnect.defineConnect).toBe(ownerWebContainerConnect.defineConnect);
-    expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
+    expect(frameworkCapabilities.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
   });
 
   it("keeps the Database environment setter on its owner runtime instance", () => {
@@ -372,7 +380,6 @@ describe("framework package contract", () => {
       "./logs/memory",
       "./logs/source",
       "./nuxt",
-      "./operations",
       "./skills",
       "./source/vite",
       "./task",
@@ -411,6 +418,7 @@ describe("framework package contract", () => {
 
       for (const subpath of Object.keys(Object(ownerExports))) {
         if (manifest.exports[distributionSubpath(packageName, subpath)]) continue;
+        if ([...renamedForwarders.values()].includes(ownerSpecifier(packageName, subpath))) continue;
         if (ownerOnlyReason(packageName, subpath)) continue;
         unclassified.push(ownerSpecifier(packageName, subpath));
       }

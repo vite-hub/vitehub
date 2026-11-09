@@ -2,7 +2,7 @@ import type { H3Event } from "h3"
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result, ViteHubContext } from "@vite-hub/runtime"
-import type {} from "@vite-hub/runtime/h3"
+import type {} from "@vite-hub/runtime/internal/h3"
 
 import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeSaved } from "../src/index.ts"
 import type { RealtimeCaretUser } from "../src/vue.ts"

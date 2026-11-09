@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
-import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
-import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
+import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/internal/server"
+import { getAuthForRequest, resetAuth } from "../../auth/src/internal/server.ts"
 import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
@@ -10,7 +10,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
 import consolePage from "../src/console/runtime/server/page.get.ts"
 import { requestEvent } from "./console-event.ts"
-import { installStandardContext } from "../src/runtime/h3.ts"
+import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
 
 const origin = "https://app.example.com"
 vi.mock("../../auth/dist/runtime/empty-definition.js", () => ({

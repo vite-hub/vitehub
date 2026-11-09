@@ -1,4 +1,4 @@
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { markCommentsDefinition } from "./operations-core/define.ts"
 import { commentsRuntime, hasCommentsRuntime, installCommentsRuntime } from "./operations-core/server.ts"

@@ -1,7 +1,7 @@
 import { IncomingMessage, ServerResponse } from "node:http"
 import { Socket } from "node:net"
 
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 

@@ -1,4 +1,4 @@
-import { registerPublicUrlAgentName } from "@vite-hub/runtime"
+import { registerPublicUrlAgentName } from "@vite-hub/runtime/internal/public-url"
 import { hasRuntimeType } from "./runtime-type.ts"
 import { agentDefinitionSourceSymbol } from "./agent-definition-source.ts"
 
@@ -46,4 +46,4 @@ export function readDiscoveredAgentName(agent: unknown): string | undefined {
   return names.find((name): name is string => hasRuntimeType(name, "string") && name.length > 0)
 }
 
-export { resetPublicUrlAgentNames } from "@vite-hub/runtime"
+export { resetPublicUrlAgentNames } from "@vite-hub/runtime/internal/public-url"

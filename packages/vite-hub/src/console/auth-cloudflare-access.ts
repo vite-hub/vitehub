@@ -1,5 +1,5 @@
 import { SecretEnv } from "@vite-hub/env/secret"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose"
 
 import type { ConsoleRequestEvent } from "./runtime/server/request.ts"

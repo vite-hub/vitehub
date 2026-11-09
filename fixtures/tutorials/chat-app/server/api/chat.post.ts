@@ -1,7 +1,7 @@
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { createError, defineEventHandler, readValidatedBody } from "h3";
 import { createMessage, streamAgent } from "vite-hub/agent";
-import { getRuntimeContext } from "vite-hub/runtime/h3";
+import { getRuntimeContext } from "vite-hub/runtime";
 import { z } from "zod";
 import { textMessage } from "../../shared/chat";
 import assistant from "../agents/assistant";

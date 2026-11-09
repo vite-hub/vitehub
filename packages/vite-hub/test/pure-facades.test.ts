@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest"
 // Each vite-hub subpath here re-exports its owner package. Both import paths must give the same values.
 const facades = [
   {
-    facade: () => import("../src/runtime/h3.ts"),
-    name: "vite-hub/runtime/h3",
-    owners: [() => import("@vite-hub/runtime/h3")],
+    facade: () => import("../src/runtime.ts"),
+    name: "vite-hub/runtime",
+    owners: [() => import("@vite-hub/runtime")],
+  },
+  {
+    facade: () => import("../src/operations.ts"),
+    name: "vite-hub/operations",
+    owners: [() => import("@vite-hub/runtime/operations")],
   },
   {
     facade: () => import("../src/source.ts"),

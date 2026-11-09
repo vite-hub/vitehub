@@ -1,14 +1,14 @@
 import { getCloudflareEnv, getCloudflareExecutionContext, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
-import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { createStandardRuntimeContext, firstAddress, getStandardContext as getRequestStandardContext, installRequestStandardContext, isHostRequest, requestAddressPaths } from "./request-context.ts"
+import { runtimeErrorDiagnostics } from "../error-diagnostics.ts"
+import { createStandardRuntimeContext, firstAddress, getStandardContext as getRequestStandardContext, installRequestStandardContext, isHostRequest, requestAddressPaths } from "../request-context.ts"
 import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 import type { EventHandlerRequest } from "h3"
 import type { StandardContext } from "standard-context"
-import type { RequestRuntimeContext, RuntimeContextOptions } from "./request-context.ts"
-import type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
+import type { RequestRuntimeContext, RuntimeContextOptions } from "../request-context.ts"
+import type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "../standard-context.ts"
 
-export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
+export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "../standard-context.ts"
 
 declare module "h3" {
   // The type parameters must match the H3Event class of H3 1 and H3 2.

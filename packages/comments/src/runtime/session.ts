@@ -1,4 +1,4 @@
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import type { Comments } from "../index.ts"
 import type { CommentsPolicyGate } from "../operations-core/define.ts"

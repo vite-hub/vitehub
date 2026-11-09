@@ -1,5 +1,5 @@
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"

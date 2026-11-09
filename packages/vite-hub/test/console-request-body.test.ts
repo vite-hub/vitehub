@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { installStandardContext } from "../src/runtime/h3.ts"
+import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
 import { consoleRequestJSON } from "../src/console/runtime/server/request.ts"
 import { nodeResponse, requestEvent } from "./console-event.ts"
 

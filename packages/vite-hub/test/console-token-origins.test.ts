@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
-import { createAuthAccessHandler, createAuthForRequest } from "@vite-hub/auth/server"
+import { createAuthAccessHandler, createAuthForRequest } from "@vite-hub/auth/internal/server"
 import { installedOperationSectionResolver } from "@vite-hub/internal/operations"
 import { defineHandler, H3 } from "h3"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { describe, expect, it } from "vitest"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"

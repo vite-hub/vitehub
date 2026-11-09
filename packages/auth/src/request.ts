@@ -1,5 +1,5 @@
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import type { ViteHubContext } from "@vite-hub/runtime"
 import type { AuthRequest, AuthRequestInput } from "./types.ts"

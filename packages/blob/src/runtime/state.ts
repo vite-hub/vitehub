@@ -7,7 +7,7 @@ import {
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { normalizeBlobOptions } from "../config.ts"
 import { setServedBlobRoute } from "../served.ts"

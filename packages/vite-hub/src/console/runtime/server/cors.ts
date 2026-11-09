@@ -1,4 +1,4 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 

@@ -1,0 +1,7 @@
+{
+  "name": "runtime-contracts-fixture",
+  "private": true,
+  "dependencies": {
+    "vite-hub": "^0.0.30"
+  }
+}

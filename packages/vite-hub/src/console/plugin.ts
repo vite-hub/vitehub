@@ -156,7 +156,7 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     )
     if (access.oauth) {
       imports.push(
-        'import { setAuthAccessIdentityResolver as vitehubSetAuthAccessIdentityResolver } from "vite-hub/auth/runtime/server"',
+        'import { setAuthAccessIdentityResolver as vitehubSetAuthAccessIdentityResolver } from "vite-hub/_internal/auth/runtime/server"',
         'import { resolveConsoleAppAuthIdentity as vitehubResolveConsoleAppAuthIdentity } from "vite-hub/console/sections"',
       )
       afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(access.oauth.path)}, vitehubResolveConsoleAppAuthIdentity)`)

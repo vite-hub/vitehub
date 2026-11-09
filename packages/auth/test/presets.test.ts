@@ -5,7 +5,7 @@ import { defineAuth } from "../src/index.ts"
 import { stateless } from "../src/presets.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
 import { statelessUserId } from "../src/stateless-user-id.ts"
-import { createAuth, getAuthForDefinition, handleAuthRequest, resetAuth } from "../src/server.ts"
+import { createAuth, getAuthForDefinition, handleAuthRequest, resetAuth } from "../src/internal/server.ts"
 
 const secret = "stateless-preset-test-secret-0123456789abcdef"
 const origin = "https://app.example.com"

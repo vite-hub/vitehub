@@ -8,8 +8,8 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { runWithActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
 
-import { getRuntimeContext, installStandardContext } from "../src/runtime/h3.ts"
-import type { ViteHubContext } from "../src/runtime/h3.ts"
+import { getRuntimeContext, installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
+import type { ViteHubContext } from "../src/_internal/runtime/internal/h3.ts"
 
 const url = "https://example.test/path"
 

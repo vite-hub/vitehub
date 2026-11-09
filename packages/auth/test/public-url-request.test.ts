@@ -4,7 +4,7 @@ vi.mock("#vitehub/auth/definition", () => ({
   default: { options: { appName: "Static Auth", secret: "abcdefghijklmnopqrstuvwxyz0123456789" } },
 }))
 
-import { assertAuthOrigin, getAuthForRequest, resetAuth } from "../src/server.ts"
+import { assertAuthOrigin, getAuthForRequest, resetAuth } from "../src/internal/server.ts"
 
 describe("static Auth public URL request helpers", () => {
   afterEach(() => {

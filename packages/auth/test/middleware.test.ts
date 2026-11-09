@@ -2,7 +2,7 @@ import { H3 } from "h3"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { getAuthorization, requireAuth, requireAuthorization } from "../src/server.ts"
+import { getAuthorization, requireAuth, requireAuthorization } from "../src/internal/server.ts"
 
 import type { H3Event } from "h3"
 import { requestEvent } from "./request-event.ts"

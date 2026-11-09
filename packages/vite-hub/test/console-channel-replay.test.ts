@@ -16,7 +16,7 @@ import channelReplayHandler from "../src/console/runtime/server/channel-replay.t
 import type { AgentRunContext } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import { consoleEvent, nodeResponse } from "./console-event.ts"
-import { installStandardContext } from "../src/runtime/h3.ts"
+import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
 import "./support/console-access.ts"
 
 const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receipt" }]

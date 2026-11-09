@@ -5,7 +5,7 @@ export default defineConfig({
     alias: {
       "#app": new URL("./test/fixtures/nuxt-app.ts", import.meta.url).pathname,
       "#vitehub/auth/definition": new URL("./src/runtime/empty-definition.ts", import.meta.url).pathname,
-      "#vitehub/auth/server": new URL("./src/server.ts", import.meta.url).pathname,
+      "#vitehub/auth/server": new URL("./src/internal/server.ts", import.meta.url).pathname,
     },
   },
   test: {

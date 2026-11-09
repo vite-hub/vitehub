@@ -4,7 +4,7 @@ import type { SecondaryStorage } from "better-auth"
 
 import { authDatabase } from "../src/database.ts"
 import { defineAuth } from "../src/definition.ts"
-import { createAuthForRequest, createAuthHandler, createBetterAuthOptions, handleAuthRequest, resetAuth } from "../src/server.ts"
+import { createAuthForRequest, createAuthHandler, createBetterAuthOptions, handleAuthRequest, resetAuth } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"

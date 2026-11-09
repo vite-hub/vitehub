@@ -7,7 +7,7 @@ import { runInNewContext } from "node:vm"
 import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
-import { handleAuthRequest, withAuthorization } from "@vite-hub/auth/server"
+import { handleAuthRequest, withAuthorization } from "@vite-hub/auth/internal/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"

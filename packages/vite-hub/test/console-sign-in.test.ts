@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
-import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes } from "@vite-hub/auth/internal/server"
 import { H3 } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 

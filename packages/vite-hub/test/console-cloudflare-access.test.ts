@@ -15,7 +15,7 @@ import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/conso
 import { cloudflareAccessIssuer } from "../src/console/auth-path.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
-import { installStandardContext } from "../src/runtime/h3.ts"
+import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const teamDomain = "acme.cloudflareaccess.com"

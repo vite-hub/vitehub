@@ -2,7 +2,7 @@ import { memoryAdapter } from "better-auth/adapters/memory"
 import { APIError, betterAuth } from "better-auth"
 import { describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
-import { createAuth, handleAuthRequest, withAuth } from "../src/server.ts"
+import { createAuth, handleAuthRequest, withAuth } from "../src/internal/server.ts"
 import { getAuthenticationSession } from "../src/session.ts"
 
 import type { AuthDefinition, AuthSessionRefresh } from "../src/index.ts"

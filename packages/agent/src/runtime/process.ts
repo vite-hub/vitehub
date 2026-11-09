@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises"
 import { posix } from "node:path"
 
-import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/node"
+import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/internal/node"
 
 import { shareAgentCapacityOptions } from "../internal/agent-capacity.ts"
 
