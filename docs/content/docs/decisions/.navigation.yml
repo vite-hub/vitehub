@@ -1,5 +1,5 @@
 title: Decisions
-icon: i-ph-list-checks-light
+icon: i-lucide-list-checks
 order: 26
 category: Compute
 related: [agents, ui]

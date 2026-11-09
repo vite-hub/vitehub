@@ -20,6 +20,48 @@ check and obtain its URL and authentication token.
 Enable Database and declare runtime environment sources. Keep secrets out of
 literal build configuration.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	preset: 'node',
+  	database: {
+  		connection: {
+  			url: env({ source: env.source('TURSO_DATABASE_URL') }),
+  			authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+  		},
+  	},
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+	plugins: [vitehub({
+		preset: 'node',
+		database: {
+			connection: {
+				url: env({ source: env.source('TURSO_DATABASE_URL') }),
+				authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+			},
+		},
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -37,6 +79,8 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
 A connection declared on a Database Definition takes precedence over matching
 integration options. Remove an old local connection from the Definition if the

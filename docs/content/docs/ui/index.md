@@ -4,7 +4,7 @@ description: "Console-ready Vue components for chat, sessions, Agent runs, and c
 navigation.title: Overview
 navigation.order: 1
 navigation.group: Start
-icon: i-ph-squares-four-light
+icon: i-lucide-layout-grid
 ---
 
 `@vite-hub/ui` is the Vue and Nuxt component layer for the ViteHub Console. Start with a complete Console block, then connect your own data.
@@ -15,19 +15,19 @@ The package owns presentation, layout, and interaction defaults. Your app owns t
 
 Select a session to read its messages and reply. This example uses the package styles and built-in layouts.
 
-::component-preview{name="ChatAppBlock" flush reset}
+::example{name="ChatAppBlock" flush reset height=36}
 ::
 
 [Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), or [Collaborative editor](/docs/ui/blocks/collaborative-editor) into your application. Each block explains how to connect real data.
 
 ## Components
 
-::ui-component-gallery
+::page-list{exclude="Start"}
 - **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), [Collaborative editor](/docs/ui/blocks/collaborative-editor)
-- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block)
+- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block), [Copy button](/docs/ui/copy-button), [Status](/docs/ui/status)
 - **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Markdown Editor](/docs/ui/markdown-editor), [Prompt input](/docs/ui/prompt-input), [Filter search](/docs/ui/filter-search), [Chat session](/docs/ui/chat-session)
 - **Collaboration:** [Comments](/docs/ui/comments), [Avatar stack](/docs/ui/avatar-stack), [Connection status](/docs/ui/connection-status), [Sync status](/docs/ui/sync-status), [Carets](/docs/ui/carets)
-- **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
+- **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree), [Device frame](/docs/ui/device-frame)
 - **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
 ::
 

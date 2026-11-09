@@ -3,12 +3,12 @@ title: Code Review
 description: "Review an Agent's changes with a file tree, a patch diff for the selected file, and the verification trace."
 navigation.order: 12
 navigation.group: Blocks
-icon: i-ph-git-diff-light
+icon: i-lucide-git-compare
 ---
 
 This block combines [`FileTree`](/docs/ui/file-tree), [`PatchDiff`](/docs/ui/diff), and [`TraceRun`](/docs/ui/trace). Select a changed file in the tree to see its diff. The trace under the diff shows the verification run. The patches and the run are synthetic.
 
-::component-preview{name="CodeReviewBlock" flush reset}
+::example{name="CodeReviewBlock" flush reset height=34}
 ::
 
 ## Wire the panes

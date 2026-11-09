@@ -1,7 +1,8 @@
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 
-import { defineComments, installComments } from "../src/index.ts"
+import { defineComments } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { commentsTables } from "../src/tables.ts"
 
 import type { CommentsDatabase } from "../src/operations-core/store.ts"

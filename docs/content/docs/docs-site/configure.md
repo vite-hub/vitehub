@@ -255,6 +255,7 @@ export default defineNuxtConfig({
       url: 'https://lumen.example.com',
       description: 'Resize and compress images from the command line.',
       // A one-color SVG in public/. The design fills it with the text color.
+      // A colored logo shows as it is: logo: { light: '/lumen.svg', dark: '/lumen-dark.svg' }.
       logo: '/lumen-mark.svg',
       badge: { label: 'beta', tooltip: 'The CLI flags can change.' },
     },
@@ -266,11 +267,11 @@ export default defineNuxtConfig({
 })
 ```
 
-`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it, or in the header's menu on narrow screens. The header appears on every page with search and a color mode button. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
+On docs pages the sidebar opens with the brand and search, and ends with a row of links: `github` adds a GitHub link with the star count when available, `socials` adds community links beside it, and the color mode button closes the row. Pages without the docs sidebar, such as a home page, and phones show the same parts in a header instead. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
 
 ## Design
 
-The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. On docs pages the sidebar holds the brand, search, a rail of sections or groups next to the page list, and the row of links at its foot. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts`: Nuxt UI `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in a stylesheet of your app:
@@ -288,7 +289,7 @@ The design follows the comark-ui site: Geist, neutral grays, hairline rings, sma
 
 ### Icons
 
-The shell uses Lucide, Phosphor, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/ph`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
+The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
 The ViteHub icon set is already registered: write `i-vitehub-<name>`, such as `icon: i-vitehub-kv` in a `.navigation.yml` file. The rail draws these icons inline and moves them on hover. The [`@vite-hub/icons`](https://github.com/vite-hub/vitehub/tree/main/packages/icons) README lists every name.
 
@@ -299,7 +300,7 @@ The ViteHub icon set is already registered: write `i-vitehub-<name>`, such as `i
 | `rail` | Rail icon per section id, such as `i-vitehub-reference`. It replaces the section icon in the rail only. |
 | `sections`, `pages` | Sidebar icon per section id or page path. It replaces the icon in the file. |
 | `aliases` | Replacement per icon name, so the sidebar keeps one icon style. |
-| `family` | Icon prefix of the sidebar, such as `i-ph-`, or a list of prefixes. Other icons that `aliases` does not map show the fallback. |
+| `family` | Icon prefix of the sidebar, such as `i-lucide-`, or a list of prefixes. Other icons that `aliases` does not map show the fallback. |
 | `page`, `section` | Fallback icons. |
 
 ## Replace a component
@@ -324,10 +325,10 @@ const { github } = useDocsConfig()
 
 | Component | Part of the shell |
 | --- | --- |
-| `AppHeader` | The site header on every page, with search, GitHub, social links, and the color mode button. |
+| `AppHeader` | The site header, with search, GitHub, social links, and the color mode button. On wide screens it hides beside the docs sidebar. |
 | `AppSearch` | The search dialog. |
 | `DocsRail` | The section rail. |
-| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The page sidebar and its parts. |
+| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The page sidebar and its parts: the brand and search, the page list, and the row of links. |
 | `DocsPage` | Chooses the layout of a page. |
 | `DocsArticle`, `DocsLanding` | The `article` and `tutorial` layouts, and the `landing` layout. |
 | `DocsMarkdown`, `DocsCodePre` | The rendered Markdown and its code blocks. |
@@ -372,17 +373,23 @@ Lumen does not run on Node.js 22 or older.
 ::
 ```
 
-The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, and `::agent-only`.
+The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Put an `md`, `markdown`, `mdc`, or `comark` code fence in each example; the default parser adds its preview. A site's parser can still supply its own `example-preview` node. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, and cards.
 
 ### Add Comark plugins
 
-The server parses every page with [Comark](https://comark.dev). To add Comark plugins, such as a plugin that turns `::code-group` into tabs, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
+The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. To add more, such as `comark-chips`, which turns web links into chips with their favicon, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
+
+Install the plugin in your app first:
+
+```sh
+pnpm add comark-chips
+```
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
-import tabs from 'comark-tabs'
+import chips from 'comark-chips'
 
-export default { plugins: [tabs()] } satisfies DocsParserOptions
+export default { plugins: [chips()] } satisfies DocsParserOptions
 ```
 
 ```ts [nuxt.config.ts]
@@ -392,7 +399,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The page route, search, and Console drafts parse with these plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
+The page route, search, and Console drafts parse with these plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert` or `comark-tabs`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
 
 ## Agent resources
 

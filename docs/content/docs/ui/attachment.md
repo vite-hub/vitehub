@@ -3,12 +3,12 @@ title: Attachment
 description: "Show a file with its upload state as a row or a tile, with an image preview, actions, sizes, and attachment groups."
 navigation.order: 13
 navigation.group: Parts
-icon: i-ph-paperclip-light
+icon: i-lucide-paperclip
 ---
 
 `Attachment` shows one file: an icon or an image, a title, a description, and actions. The `state` prop shows whether the file is waiting, uploading, processing, done, or failed. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
 
-::component-preview{name="AttachmentExample"}
+::example{name="AttachmentExample" height=20}
 ::
 
 ## Installation
@@ -41,14 +41,14 @@ const open = ref(false);
 <template>
   <Attachment>
     <AttachmentMedia>
-      <UIcon name="i-ph-file-text-light" />
+      <UIcon name="i-lucide-file-text" />
     </AttachmentMedia>
     <AttachmentContent>
       <AttachmentTitle>sales-dashboard.pdf</AttachmentTitle>
       <AttachmentDescription>PDF · 2.4 MB</AttachmentDescription>
     </AttachmentContent>
     <AttachmentActions>
-      <AttachmentAction icon="i-ph-x-light" aria-label="Remove sales-dashboard.pdf" />
+      <AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
     </AttachmentActions>
   </Attachment>
 </template>
@@ -92,14 +92,14 @@ AttachmentGroup
 
 Set `variant="image"` on `AttachmentMedia` and put an `img` in it. Use `orientation="vertical"` to show the media above the content. In a vertical attachment, the actions go to the top right corner of the media.
 
-::component-preview{name="AttachmentImageExample"}
+::example{name="AttachmentImageExample" height=11}
 ::
 
 ## States
 
 Set `state` to show the upload lifecycle. `idle` uses a dashed border. `error` uses the error color for the border, the media, and the description. An image dims while the state is `uploading`, `processing`, or `error`.
 
-::component-preview{name="AttachmentStatesExample"}
+::example{name="AttachmentStatesExample" height=21}
 ::
 
 shadcn/ui animates the title with a shimmer while the file is `uploading` or `processing`. ViteHub does not use continuous animations, so write the state in `AttachmentDescription`, for example "Uploading · 64%".
@@ -108,21 +108,21 @@ shadcn/ui animates the title with a shimmer while the file is `uploading` or `pr
 
 Use `size` to select `default`, `sm`, or `xs`.
 
-::component-preview{name="AttachmentSizesExample"}
+::example{name="AttachmentSizesExample" height=11}
 ::
 
 ## Group
 
 Put attachments in an `AttachmentGroup` to show them in a row that scrolls horizontally and snaps to each attachment. The group hides its scrollbar.
 
-::component-preview{name="AttachmentGroupExample"}
+::example{name="AttachmentGroupExample" height=8}
 ::
 
 ## Trigger
 
 Add an `AttachmentTrigger` to make the whole attachment open a link or a dialog. It covers the attachment behind the actions, so the actions stay clickable. Use `as` to render it as a link, for example `as="a"` with `href`, or `:as="NuxtLink"` with `to`. To open a dialog, set the open state of the dialog from `@click`.
 
-::component-preview{name="AttachmentTriggerExample"}
+::example{name="AttachmentTriggerExample" height=8}
 ::
 
 ```vue
@@ -148,7 +148,7 @@ const open = ref(false);
 `AttachmentAction` usually shows only an icon. Give each action an `aria-label` that names the action and the file.
 
 ```vue
-<AttachmentAction icon="i-ph-x-light" aria-label="Remove sales-dashboard.pdf" />
+<AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
 ```
 
 ### Label the trigger

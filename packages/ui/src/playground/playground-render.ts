@@ -1,5 +1,6 @@
 import type { LanguageInput } from "shiki/core";
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, shallowRef, useId, type VNode } from "vue";
+import { useCopy } from "../components/copy-button.ts";
 import { icon } from "../workspace/icons.ts";
 import {
   decodePlaygroundLink,
@@ -122,7 +123,7 @@ export const PlaygroundRender = defineComponent({
     const active = ref(0);
     const issues = ref<PlaygroundIssue[]>([]);
     const notice = ref<string>();
-    const copied = ref(false);
+    const { copy, copied } = useCopy({ duration: 1500 });
     const highlight = shallowRef<(code: string, language: string) => string | undefined>();
     const frame = ref<HTMLIFrameElement | null>(null);
     const confirm = ref<HTMLDialogElement | null>(null);
@@ -130,7 +131,6 @@ export const PlaygroundRender = defineComponent({
 
     const stopped = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let copiedTimer: ReturnType<typeof setTimeout> | undefined;
     let runs = 0;
     let loads = 0;
     let writes = 0;
@@ -210,15 +210,7 @@ export const PlaygroundRender = defineComponent({
         notice.value = tooLong;
         return;
       }
-      try {
-        await navigator.clipboard.writeText(location.href);
-        copied.value = true;
-        clearTimeout(copiedTimer);
-        copiedTimer = setTimeout(() => { copied.value = false; }, 1500);
-      }
-      catch {
-        notice.value = blockedClipboard;
-      }
+      if (!await copy(location.href)) notice.value = blockedClipboard;
     }
 
     onMounted(() => {
@@ -239,7 +231,6 @@ export const PlaygroundRender = defineComponent({
     onBeforeUnmount(() => {
       stopped.abort();
       clearTimeout(timer);
-      clearTimeout(copiedTimer);
     });
 
     expose({ setFile });
@@ -284,6 +275,7 @@ export const PlaygroundRender = defineComponent({
               h("button", {
                 "aria-current": template.value === preset.id && !edited.value ? "true" : undefined,
                 "class": "vh-pg-preset",
+                "data-focus-inset": "",
                 "data-preset": preset.id,
                 "type": "button",
                 "onClick": () => pick(preset),
@@ -297,6 +289,7 @@ export const PlaygroundRender = defineComponent({
             ? h("div", { "aria-label": "Files", class: "vh-pg-tabs", role: "group" }, props.panes.map((pane, index) => h("button", {
                 "aria-pressed": String(active.value === index),
                 "class": "vh-pg-tab",
+                "data-focus-inset": "",
                 "type": "button",
                 "onClick": () => { active.value = index; },
               }, pane.label)))

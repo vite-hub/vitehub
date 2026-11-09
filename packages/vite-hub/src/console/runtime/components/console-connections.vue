@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { TableColumn, TableRow } from "@nuxt/ui";
 import type { ConnectionInspection } from "@vite-hub/connections";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
@@ -22,7 +23,6 @@ import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 
 type DetailsTab = "activity" | "approvals" | "details";
 
@@ -121,15 +121,13 @@ onBeforeUnmount(() => request?.abort());
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />
-    <UDashboardPanel id="connections" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="connections">
       <ConsolePageHeader title="Connections" :toggle="false">
         <template #right>
           <UTooltip text="Refresh Connections">
             <UButton
               aria-label="Refresh Connections"
-              color="neutral"
               icon="i-lucide-refresh-cw"
-              size="sm"
               variant="ghost"
               :disabled="loading"
               @click="refresh"
@@ -142,7 +140,6 @@ onBeforeUnmount(() => request?.abort());
           v-model="search"
           class="w-full sm:w-64"
           icon="i-lucide-search"
-          size="sm"
           placeholder="Filter Connections…"
           aria-label="Filter Connections"
         />
@@ -154,7 +151,7 @@ onBeforeUnmount(() => request?.abort());
               :href="setupURL"
               target="_blank"
               rel="noopener"
-              class="rounded-sm text-muted underline-offset-2 outline-none hover:text-highlighted hover:underline focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
+              class="rounded-md text-muted underline-offset-2 hover:text-highlighted hover:underline"
               >Add a Connection<span class="sr-only"> (opens in a new tab)</span></a
             >
           </template>
@@ -174,7 +171,7 @@ onBeforeUnmount(() => request?.abort());
         >
           <pre
             aria-label="Example Connection Definition"
-            class="max-w-full overflow-x-auto rounded-md bg-elevated/50 px-3 py-2.5 text-left font-mono text-[11px] leading-5 text-toned"
+            class="max-w-full overflow-x-auto rounded-lg bg-muted px-3 py-2.5 text-left font-mono text-xs leading-5 text-toned"
           ><code>// server/connections/crm.ts
 import { apiKey, defineConnection } from 'vite-hub/connections'
 
@@ -184,17 +181,15 @@ export default defineConnection({
         </ConsoleState>
         <div v-else class="mx-auto w-full max-w-5xl p-4 sm:p-6">
           <UTable
-            class="rounded-md border border-default"
+            class="rounded-lg border border-default"
             :data="rows"
             :columns="columns"
             :on-select="selectRow"
             empty="No matching Connections."
             :ui="{
-              thead: 'bg-elevated/30',
-              th: 'h-9 py-0 text-xs font-medium text-muted',
               // Tall enough for an action button, so a row without one has the same height.
               td: 'h-10',
-              tr: 'group cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)',
+              tr: 'group cursor-pointer',
             }"
           >
             <template #name-cell="{ row }"
@@ -215,7 +210,7 @@ export default defineConnection({
             >
             <template #status-cell="{ row }"
               ><div class="flex items-center gap-2 whitespace-nowrap">
-                <ConsoleStatus
+                <Status
                   :label="connectionStatusLabel(row.original.status)"
                   :tone="connectionStatusTone(row.original.status)"
                 />
@@ -260,7 +255,6 @@ export default defineConnection({
                     v-if="connectionNextStep(row.original)?.kind === 'cli'"
                     label="Sign in with CLI"
                     :aria-label="`Show sign-in command for ${row.original.name}`"
-                    color="neutral"
                     size="xs"
                     variant="outline"
                     @click.stop="open(row.original.name, 'details')"
@@ -271,7 +265,6 @@ export default defineConnection({
                     :aria-label="`${remote ? 'Connect in the app:' : connectionNextStep(row.original)?.label} ${row.original.name}`"
                     :to="connectionConnectURL(managementBase, row.original.name, returnTo)"
                     external
-                    color="neutral"
                     size="xs"
                     trailing-icon="i-lucide-arrow-up-right"
                     variant="outline"
@@ -281,7 +274,6 @@ export default defineConnection({
                     v-else
                     :label="connectionNextStep(row.original)?.label"
                     :aria-label="`${connectionNextStep(row.original)?.label} for ${row.original.name}`"
-                    color="neutral"
                     icon="i-lucide-key-round"
                     size="xs"
                     variant="outline"

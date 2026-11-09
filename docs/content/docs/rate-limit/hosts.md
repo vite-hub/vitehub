@@ -32,18 +32,46 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Deploy to Cloudflare
 
-With a Cloudflare Nitro preset, `hubRateLimit()` infers the provider. Set a deployment-unique namespace so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
+With the `cloudflare` preset, ViteHub selects the Cloudflare provider and sets the Rate Limit namespace to the deployment name. It ignores a configured `rateLimit.namespace`. Use a deployment-unique name so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
 
-```ts [vite.config.ts]
-import { hubRateLimit } from '@vite-hub/rate-limit/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubRateLimit({ namespace: 'acme-image-service-production' })],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true },
 })
 ```
+:::
 
-`vitehub({ preset: 'cloudflare', rateLimit: true })` sets the namespace to the deployment name and ignores a configured `rateLimit.namespace`. The deployment name comes from `vitehub({ name })`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true })],
+})
+```
+:::
+::
+
+The deployment name comes from `name`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
 
 Cloudflare native enforcement is best-effort and exposes only 10-second and 60-second windows. It does not return portable quota metadata, so incompatible policies fail during the build. Use a different namespace for staging, production, and any separately deployed Worker because Cloudflare shares counters with the same namespace ID across Workers.
 

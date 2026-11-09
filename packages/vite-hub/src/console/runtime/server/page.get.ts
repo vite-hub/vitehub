@@ -1,4 +1,5 @@
 import { consoleDocumentMetadata } from "../../document-metadata.ts"
+import { consoleStandaloneHeader, consoleStandaloneStyles, consoleThemeColors } from "../../standalone-page.ts"
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 import { consoleAllowsRequest, consoleAppAuthBasePath, consolePageRejection, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
@@ -20,8 +21,8 @@ const page = `<!doctype html>
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
-    <meta name="theme-color" data-vitehub-console-theme="light" content="#fdfdfd" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" data-vitehub-console-theme="dark" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" data-vitehub-console-theme="light" content="${consoleThemeColors.light}" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" data-vitehub-console-theme="dark" content="${consoleThemeColors.dark}" media="(prefers-color-scheme: dark)">
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>ViteHub Console</title>
     <link rel="stylesheet" href="/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__">
@@ -53,16 +54,13 @@ async function rejectedPage(rejection: Response): Promise<Response> {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>${title} · ViteHub Console</title>
-    <style>
-      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
-      main { width: min(24rem, calc(100% - 3rem)); }
-      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
-      p { color: light-dark(#525252, #a3a3a3); line-height: 1.5; overflow-wrap: anywhere; }
+    <style>${consoleStandaloneStyles}
+      main p + p { margin-top: .75rem; }
     </style>
   </head>
   <body>
     <main>
+      ${consoleStandaloneHeader("")}
       <h1>${title}</h1>
       <p>${escapeAttribute(diagnostic.message)}</p>
       <p>${escapeAttribute(diagnostic.fix ?? "")}</p>
