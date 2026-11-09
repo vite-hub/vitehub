@@ -22,7 +22,8 @@ const minimumArea = 8;
 type Box = { left: number; top: number; width: number; height: number };
 
 // The element of the page that holds the whole box: the innermost one under its center whose box contains it. The
-// comment UI, the shadow hosts of the page tools, and the root are not the page.
+// comment UI, the shadow hosts of the page tools, and the root are not the page. Without such an element there is no
+// container: an anchor on a smaller element would cut the box.
 function containerOf(box: Box): Element | undefined {
   const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
   const under = document.elementsFromPoint(center.x, center.y).find((element) => !element.closest("[data-comments-ui]") && !element.localName.startsWith("vitehub-") && element !== document.documentElement);
@@ -30,7 +31,7 @@ function containerOf(box: Box): Element | undefined {
     const rect = element.getBoundingClientRect();
     if (rect.left <= box.left + 1 && rect.top <= box.top + 1 && rect.right >= box.left + box.width - 1 && rect.bottom >= box.top + box.height - 1) return element;
   }
-  return document.body ?? undefined;
+  return undefined;
 }
 
 // The overlay of a page: pins on the spots that threads point at, the hover preview, the open thread, and the composer of
@@ -187,8 +188,33 @@ export const CommentLayer = defineComponent({
       },
       { flush: "post" },
     );
+    // A new comment takes the focus. When it is sent or discarded, the focus goes back to the element of the page that
+    // had it, such as the element that Enter commented on in comment mode.
+    let draftReturn: HTMLElement | null = null;
+    watch(
+      () => state.draft.value,
+      (next, previous) => {
+        if (next && !previous) {
+          const active = document.activeElement;
+          const root = uiRoot();
+          draftReturn = active instanceof HTMLElement && active !== document.body && !(root instanceof ShadowRoot && active === root.host) && !layer.value?.contains(active) ? active : null;
+          return;
+        }
+        if (next || !previous) return;
+        const target = draftReturn;
+        draftReturn = null;
+        void nextTick(() => {
+          const focused = uiRoot().activeElement;
+          // Only when the focus was lost with the composer, not when the person already went elsewhere.
+          if (target?.isConnected && (!focused || focused === document.body)) target.focus({ preventScroll: true });
+        });
+      },
+      { flush: "sync" },
+    );
     // The height of a new comment's bubble, with its gap to the box under it.
     const draftAboveRoom = 72;
+    // `--vh-comment-x` lets the card move back on screen when the screen is narrower than the card.
+    const place = ({ x, y }: { x: number; y: number }) => ({ left: `${x}px`, top: `${y}px`, "--vh-comment-x": `${x}px` });
     const side = (x: number, y: number) => ({
       "data-flip-x": x + popoverWidth > window.innerWidth ? "true" : undefined,
       "data-flip-y": y + popoverHeight > window.innerHeight ? "true" : undefined,
@@ -232,7 +258,7 @@ export const CommentLayer = defineComponent({
               "data-kind": thread.anchor.kind,
               "data-slot": "comment-layer-item",
               key: thread.id,
-              style: { left: `${position.x}px`, top: `${position.y}px` },
+              style: place(position),
             },
             [
               h(CommentPin, {
@@ -268,7 +294,7 @@ export const CommentLayer = defineComponent({
             "data-kind": opened.anchor.kind,
             "data-slot": "comment-layer-item",
             key: "opened-thread",
-            style: pointForThread ? { left: `${pointForThread.x}px`, top: `${pointForThread.y}px` } : undefined,
+            style: pointForThread ? place(pointForThread) : undefined,
           }, h("div", { "data-floating": pointForThread ? undefined : "true", "data-slot": "comment-layer-popover" }, threadView(opened)))
         : null;
 
@@ -287,7 +313,7 @@ export const CommentLayer = defineComponent({
                 "data-draft": "true",
                 "data-kind": draft.anchor.kind,
                 "data-slot": "comment-layer-item",
-                style: { left: `${point.x}px`, top: `${point.y}px` },
+                style: place(point),
               },
               [
                 h(CommentPin, { author: user.value, draft: true }),
