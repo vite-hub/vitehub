@@ -25,6 +25,7 @@
   --vh-ui-bg-muted: var(--ui-bg-muted, light-dark(#f8fafc, #1e293b));
   --vh-ui-bg-elevated: var(--ui-bg-elevated, light-dark(#f1f5f9, #1e293b));
   --vh-ui-bg-accented: var(--ui-bg-accented, light-dark(#e2e8f0, #334155));
+  --vh-ui-agent-message: var(--ui-bg-muted, light-dark(#f8fafc, #1e293b));
   --vh-ui-highlighted: var(--ui-text-highlighted, light-dark(#0f172a, #f8fafc));
   --vh-ui-inverted: var(--ui-text-inverted, light-dark(#ffffff, #0f172a));
   --vh-ui-primary: var(--ui-primary, light-dark(#2563eb, #60a5fa));

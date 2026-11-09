@@ -5,7 +5,7 @@ import {
   AgentSessionDetailsSection,
   type AgentSessionSurface,
 } from "@vite-hub/ui/agent-session";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { AgentInvocation, invocationActivities, type AgentInvocationView } from "./invocation";
 import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
@@ -25,8 +25,29 @@ const props = defineProps<{
   selectedActivityId?: string;
 }>();
 const emit = defineEmits<{ focusActivity: [activityId: string]; refresh: [] }>();
-/** The Workspace file that the URL names. Opening one shows the Workspace surface. */
+/** The Workspace file that the URL names. */
 const selectedPath = defineModel<string | undefined>("selectedPath");
+const tab = defineModel<SurfaceId>("tab", { default: "details" });
+const details = defineModel<"closed" | "open" | "max">("details", { default: "closed" });
+// The launcher has no surface ID. Keep the last URL tab for reopening the panel.
+const launcherOpen = ref(false);
+const surface = computed(() => launcherOpen.value ? null : tab.value);
+watch([tab, details], () => { launcherOpen.value = false; });
+const panelOpen = computed({
+  get: () => details.value !== "closed",
+  set: (open: boolean) => { details.value = open ? details.value === "max" ? "max" : "open" : "closed"; },
+});
+const maximized = computed({
+  get: () => details.value === "max",
+  set: (value: boolean) => { details.value = value ? "max" : details.value === "closed" ? "closed" : "open"; },
+});
+function selectSurface(id: string | null) {
+  if (id === null) launcherOpen.value = true;
+  else if (surfaces.value.some(surface => surface.id === id)) {
+    launcherOpen.value = false;
+    tab.value = id as SurfaceId;
+  }
+}
 
 const session = ref<InstanceType<typeof AgentSession> & { openSurface: (id: string) => void }>();
 
@@ -48,13 +69,6 @@ function openWorkspace(path?: string) {
   session.value?.openSurface("workspace");
 }
 defineExpose({ openWorkspace, openSurface: (id: SurfaceId) => session.value?.openSurface(id) });
-
-onMounted(() => {
-  if (selectedPath.value) openWorkspace();
-});
-watch(selectedPath, (path, previous) => {
-  if (path && path !== previous) session.value?.openSurface("workspace");
-});
 
 function inspect(target: "agent" | "workspace", path?: string) {
   if (target === "workspace") openWorkspace(path);
@@ -122,11 +136,15 @@ const changedFiles = computed(() => {
 <template>
   <AgentSession
     ref="session"
+    v-model:panel-open="panelOpen"
+    v-model:maximized="maximized"
     class="console-agent-session"
     :title="title"
     :surfaces="surfaces"
+    :surface="surface"
     storage-key="vitehub-console:session-layout"
     :default-panel-open="false"
+    @update:surface="selectSurface"
   >
     <template #heading>
       <span v-if="project" class="hidden max-w-40 shrink-0 truncate text-sm text-muted sm:inline">{{ project }}</span>

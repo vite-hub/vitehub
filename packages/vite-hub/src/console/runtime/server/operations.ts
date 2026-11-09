@@ -16,6 +16,7 @@ declare global {
   interface ImportMeta {
     viteHubConsoleAgents?: boolean
     viteHubConsoleDatabase?: boolean
+    viteHubConsoleWorkspaces?: boolean
   }
 }
 
@@ -282,7 +283,7 @@ const workspacesFiles = defineConsoleOperation({
   input: v.strictObject({ cursor: optionalText, name: v.pipe(text, v.minLength(1)), path: optionalText, ref: optionalText, revision: optionalText }),
   kind: "read",
   name: "workspaces.files",
-  run: async (input, context) => (await import("./workspace-files.get.ts")).default(legacyEvent("workspace-files", "GET", { query: input }, context)),
+  run: async (input, context) => (await (import.meta.viteHubConsoleWorkspaces === false ? disabledConsoleFeature("Workspaces") : import("./workspace-files.get.ts"))).default(legacyEvent("workspace-files", "GET", { query: input }, context)),
   section: "workspaces",
 })
 

@@ -132,7 +132,7 @@ export function revisionValue(value: unknown, fallbackRef?: string): WorkspaceRe
 function historyPage(value: unknown, fallbackRef?: string): { revisions: WorkspaceRevision[], cursor?: string } {
   const page = record(value)
   if (!page || !Array.isArray(page.revisions)) throw failure(502, "Workspace history returned an invalid revision page.")
-  const revisions = page.revisions.map(revision => revisionValue(revision, fallbackRef))
+  const revisions = page.revisions.map(revision => ({ ...revisionValue(revision, fallbackRef), ...(fallbackRef ? { ref: fallbackRef } : {}) }))
   const cursor = stringValue(page.cursor)
   return cursor ? { revisions, cursor } : { revisions }
 }
@@ -157,7 +157,7 @@ export async function historyMetadata(history: WorkspaceHistoryReader, ref: stri
     return await loadHistoryPage(history, ref, cursor)
   }
   catch (error) {
-    if (required) throw error
+    if (required || record(error)?.code !== "WORKSPACE_R0069") throw error
     return undefined
   }
 }
@@ -219,17 +219,20 @@ export function revisionChanges(base: ReadonlyMap<string, string>, head: Readonl
  */
 export async function readWorkspaceRevision(
   history: WorkspaceHistoryReader,
-  options: { base?: string, history?: WorkspaceHistoryPage, path: string | null, ref?: string, repository: string, revision: string },
+  options: { base?: string, cursor?: string, history?: WorkspaceHistoryPage, path: string | null, ref?: string, repository: string, revision: string },
 ): Promise<WorkspaceDescriptor | WorkspaceFileResponse> {
   const view = await history.open(options.revision)
   const revision = revisionValue(view.revision, options.ref)
   if (options.path !== null) return await readHistoricalFile(view, options.path, revision.id)
+  // A revision can belong to several refs. Keep the caller's selected ref when it is known.
+  const ref = options.ref ?? revision.ref
+  const metadata = options.history?.ref === ref ? options.history : await historyMetadata(history, ref, options.cursor, true)
   const entries = await view.list("", { recursive: true })
   if (!Array.isArray(entries)) throw failure(502, "Workspace history returned an invalid file list.")
   const paths = entries.filter(isFileEntry).map(entry => entry.path).filter(visiblePath).sort()
-  const descriptor: WorkspaceDescriptor = { paths, repository: options.repository, revision: revision.id, ref: revision.ref }
-  if (options.history) descriptor.history = options.history
-  const baseHead = options.base && options.base !== revision.ref ? options.history?.refs.find(item => item.name === options.base)?.head : undefined
+  const descriptor: WorkspaceDescriptor = { paths, repository: options.repository, revision: revision.id, ref }
+  if (metadata) descriptor.history = metadata
+  const baseHead = options.base && options.base !== ref ? metadata?.refs.find(item => item.name === options.base)?.head : undefined
   if (baseHead && baseHead.id !== revision.id) {
     const [before, after] = await Promise.all([history.open(baseHead.id).then(revisionDigests), revisionDigests(view)])
     descriptor.base = { ref: options.base!, revision: baseHead.id }

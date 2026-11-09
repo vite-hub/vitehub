@@ -174,7 +174,10 @@ await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head
 
 Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
-Workspace your package does not define.
+Workspace your package does not define. In a history commit, each hook gets
+`input.commit`: the read-only `message`, revision `metadata`, and the sorted `paths`
+that the commit changes. A hook can check all paths at once, and read the intent of
+the caller from the metadata, as Content reads `lease: "override"`.
 
 File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
 The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
@@ -222,6 +225,11 @@ A push keeps the media type and metadata of the files that it replaces, and reco
 the signed-in user as `author` of the revision. When a Store starts a new ref from
 another ref, the first push also pulls the files of that ref. Unknown flags and extra
 positional arguments to pull or push fail before any call, so `vitehub push --dry-run` commits nothing.
+A push that writes a file that someone else holds an edit lease on, such as a Content
+document open in the Console, fails and saves nothing; the error names who edits which
+documents. `vitehub push --override-lease` writes anyway and records `lease: "override"`
+in the revision metadata. An Agent or an MCP client can pass `lease: "override"` to
+`workspace.commit` only with `operations({ overrideLeases: true })`.
 Checkout folders must be separate: they cannot share a folder or contain one another.
 On Windows and macOS, folder names that differ only in case are one folder.
 Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter
@@ -371,7 +379,7 @@ navigation, query, cache, and ranked full-text search.
 
 Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
-GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
+GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API. A hosted Session exposes that initial retained revision as `session.revision` when its Store provides one. Stores with retained history but no revision materializer, such as Blob Database, expose the retained head only when its file manifest matches the files copied to the host. Draft changes or unavailable history leave the revision unset and do not prevent the Session from opening.
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 

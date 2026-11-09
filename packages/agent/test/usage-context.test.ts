@@ -13,7 +13,8 @@ const runtime = () => ({
 
 describe("usage context", () => {
   it("exposes normalized usage on finish and delivery context", async () => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const deliveryUsage = vi.fn()
     const finish = vi.fn()
 
@@ -47,7 +48,7 @@ describe("usage context", () => {
       }), },
     })
 
-    const result = await runAgent(agent, runtime(), {})
+    const result = await runAgentWithContext(agent, runtime(), {})
 
     expect(result).toMatchObject({ text: "ok" })
     expect(finish).toHaveBeenCalledTimes(1)
@@ -74,7 +75,8 @@ describe("usage context", () => {
   })
 
   it("exposes streamed usage on finish context", async () => {
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
@@ -90,7 +92,7 @@ describe("usage context", () => {
       }), },
     })
 
-    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    const stream = await streamAgentInline(agent, runtime(), {}) as AsyncIterable<unknown>
     const events: unknown[] = []
     for await (const event of stream) events.push(event)
 
@@ -111,7 +113,8 @@ describe("usage context", () => {
   })
 
   it("preserves driver usage when output rendering replaces the result", async () => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
@@ -135,7 +138,7 @@ describe("usage context", () => {
       }), },
     })
 
-    await expect(runAgent(agent, runtime(), {})).resolves.toBe("rendered")
+    await expect(runAgentWithContext(agent, runtime(), {})).resolves.toBe("rendered")
 
     expect(finish).toHaveBeenCalledTimes(1)
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
@@ -149,7 +152,8 @@ describe("usage context", () => {
 
   it("preserves async event usage before UI message stream conversion", async () => {
     const { readUIMessageStream } = await import("ai")
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { streamAgentInline } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
@@ -163,7 +167,7 @@ describe("usage context", () => {
       })(), },
     })
 
-    const stream = await streamAgent(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    const stream = await streamAgentInline(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<never>
     for await (const _message of readUIMessageStream({ stream })) {}
 
     expect(finish).toHaveBeenCalledTimes(1)
@@ -173,7 +177,8 @@ describe("usage context", () => {
   })
 
   it("exposes non-token usage details in the invocation record", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
@@ -189,7 +194,7 @@ describe("usage context", () => {
       }), },
     })
 
-    await runAgent(agent, runtime(), {})
+    await runAgentWithContext(agent, runtime(), {})
 
     expect(finish).toHaveBeenCalledTimes(1)
     expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({

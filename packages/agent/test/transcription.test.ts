@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { getTranscriptionResults, openRouterTranscriptionModel, streamTranscription, title, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
-import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
+import { createMessage, defineAgent, serializeMessages } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 
 it("reads cross-realm ArrayBuffer audio data", async () => {
   const data = runInNewContext("new Uint8Array([1, 2, 3]).buffer") as ArrayBuffer
@@ -591,7 +592,7 @@ describe("agent transcription", () => {
         } },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [
         createMessage({
           parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
@@ -628,7 +629,7 @@ describe("agent transcription", () => {
       },
     })
 
-    await runAgent(agent, runtime(), {
+    await runAgentWithContext(agent, runtime(), {
       messages: [createMessage({ role: "user", text: "Old topic" }), createMessage({
         parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
         role: "user",
@@ -655,7 +656,7 @@ describe("agent transcription", () => {
       },
     })
 
-    await runAgent(agent, runtime(), {
+    await runAgentWithContext(agent, runtime(), {
       messages: [createMessage({ role: "user", text: "Old topic" }), createMessage({
         parts: ["authored context", { data: "AAAA", mediaType: "audio/wav", type: "audio" }],
         role: "user",
@@ -876,7 +877,7 @@ describe("agent transcription", () => {
         } },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [
         createMessage({
           parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
@@ -901,7 +902,7 @@ describe("agent transcription", () => {
         } },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [
         createMessage({
           parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
@@ -928,7 +929,7 @@ describe("agent transcription", () => {
         } },
     })
 
-    await expect(runAgent(agent, runtime(), {
+    await expect(runAgentWithContext(agent, runtime(), {
       messages: [
         createMessage({
           parts: ["please", { data: "AAAA", mediaType: "audio/wav", type: "audio" }],

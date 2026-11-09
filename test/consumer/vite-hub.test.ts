@@ -1096,7 +1096,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it("serves the Console on the Nuxt 4 development server", async () => {
+  it("serves the Console on the Nuxt 5 development server", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-console-dev-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -1106,7 +1106,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(join(appDir, "app"), { recursive: true }),
         mkdir(packDir, { recursive: true }),
       ])
-      const specs = await packWorkspacePackages(packDir)
+      const specs = await packWorkspacePackages(packDir, new Set(["vite-hub", "@vite-hub/kv"]))
       await Promise.all([
         writeFile(join(appDir, "app/app.vue"), "<template><main>ViteHub</main></template>\n", "utf8"),
         writeFile(join(appDir, "nuxt.config.ts"), `
@@ -1119,23 +1119,29 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/kv": specs["@vite-hub/kv"],
-            nuxt: "4.6.2",
+            h3: "2.0.8",
+            nitro: "3.0.261102-rc",
+            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
+          devDependencies: { "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
           type: "module",
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          rollup: "4.64.0",
+          nitro: "3.0.261102-rc",
+          "nitro>h3": "2.0.8",
+          rolldown: "1.2.4",
+          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
       await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
 
-      // Nuxt 4 runs Nitro 2, which leaves modules outside its inline list to Node in development.
       const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
         const page = await fetch(`${origin}/_vitehub`)
         const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
@@ -1152,7 +1158,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(server.value.page.status, `${server.value.page.body}\n${server.logs()}`).toBe(200)
       expect(server.value.page.body).toContain("<title>ViteHub Console</title>")
       expect(server.value.sections.status, server.value.sections.body).toBe(200)
-      expect(JSON.parse(server.value.sections.body)).toMatchObject({ ok: true, value: { sections: expect.arrayContaining(["env", "kv"]) } })
+      const sections = JSON.parse(server.value.sections.body)
+      expect(sections).toMatchObject({ ok: true, value: { sections: expect.arrayContaining(["kv"]) } })
+      expect(sections.value.sections).not.toContain("env")
     }
     finally {
       await rm(root, { recursive: true, force: true })

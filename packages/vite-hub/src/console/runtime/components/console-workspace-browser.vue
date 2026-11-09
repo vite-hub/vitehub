@@ -49,6 +49,7 @@ const fileSchema = v.object({ content: v.string(), path: v.string(), revision: v
 type Descriptor = v.InferOutput<typeof descriptorSchema>;
 type WorkspaceFile = v.InferOutput<typeof fileSchema>;
 type Change = v.InferOutput<typeof changeSchema>;
+type Revision = v.InferOutput<typeof revisionSchema>;
 
 // The ref, revision, and file live in the URL, so a reload or a shared link opens the same view.
 const { file: selectedPath, ref: selectedRef, revision: selectedRevision } = useConsoleQuery({
@@ -67,6 +68,12 @@ const diffOpen = ref(true);
 const wrapLines = useConsoleWordWrap();
 let request: AbortController | undefined;
 let fileRequest: AbortController | undefined;
+let historyRequest: AbortController | undefined;
+let historyIdentity: string | undefined;
+const revisions = ref<Revision[]>([]);
+const historyCursor = ref<string>();
+const historyLoading = ref(false);
+const historyError = ref<unknown>();
 
 const refs = computed(() => [...(descriptor.value?.history?.refs ?? [])].sort((left, right) =>
   Number(right.name === "main") - Number(left.name === "main") || right.head.createdAt.localeCompare(left.head.createdAt)));
@@ -77,7 +84,6 @@ const visibleRefs = computed(() => {
   return query ? refs.value.filter(item => item.name.toLowerCase().includes(query)) : refs.value;
 });
 const activeRef = computed(() => descriptor.value?.ref ?? descriptor.value?.history?.ref);
-const revisions = computed(() => descriptor.value?.history?.revisions ?? []);
 const changes = computed(() => descriptor.value?.changes ?? []);
 const selectedChange = computed(() => changes.value.find(change => change.path === selectedPath.value));
 const showDiff = computed(() => Boolean(diffOpen.value && selectedChange.value && descriptor.value?.base && baseContent.value !== undefined));
@@ -102,6 +108,9 @@ function subject(message?: string): string | undefined {
 
 async function load(): Promise<void> {
   request?.abort();
+  historyRequest?.abort();
+  historyLoading.value = false;
+  historyError.value = undefined;
   const controller = new AbortController();
   request = controller;
   loading.value = true;
@@ -117,6 +126,12 @@ async function load(): Promise<void> {
     }));
     if (request !== controller) return;
     descriptor.value = result;
+    const identity = `${props.name}:${result.history?.ref ?? ""}`;
+    if (historyIdentity !== identity) {
+      historyIdentity = identity;
+      revisions.value = result.history?.revisions ?? [];
+      historyCursor.value = result.history?.cursor;
+    }
     if (selectedPath.value && !result.paths.includes(selectedPath.value)) selectedPath.value = undefined;
     if (selectedPath.value) void loadFile(selectedPath.value);
   }
@@ -127,6 +142,34 @@ async function load(): Promise<void> {
     if (request === controller) {
       request = undefined;
       loading.value = false;
+    }
+  }
+}
+
+async function loadOlder(): Promise<void> {
+  const current = descriptor.value;
+  const cursor = historyCursor.value;
+  if (!current?.history?.ref || !cursor || historyLoading.value || loading.value) return;
+  const controller = new AbortController();
+  historyRequest = controller;
+  historyLoading.value = true;
+  historyError.value = undefined;
+  try {
+    const page = v.parse(descriptorSchema, await requestConsole(props.base, {
+      query: { name: props.name, ref: current.history.ref, revision: current.revision, cursor },
+      signal: controller.signal,
+    }));
+    if (controller.signal.aborted) return;
+    revisions.value = [...new Map([...revisions.value, ...(page.history?.revisions ?? [])].map(revision => [revision.id, revision])).values()];
+    historyCursor.value = page.history?.cursor;
+  }
+  catch (cause) {
+    if (!controller.signal.aborted) historyError.value = cause;
+  }
+  finally {
+    if (historyRequest === controller) {
+      historyRequest = undefined;
+      historyLoading.value = false;
     }
   }
 }
@@ -169,6 +212,11 @@ function selectRef(name: string): void {
   selectedRef.value = name;
 }
 
+function selectRevision(id: string): void {
+  selectedRef.value = activeRef.value;
+  selectedRevision.value = id;
+}
+
 watch(() => props.name, () => {
   descriptor.value = undefined;
   file.value = undefined;
@@ -185,6 +233,7 @@ watch(selectedPath, (path) => {
 onBeforeUnmount(() => {
   request?.abort();
   fileRequest?.abort();
+  historyRequest?.abort();
 });
 </script>
 
@@ -214,7 +263,7 @@ onBeforeUnmount(() => {
             </button>
           </li>
         </ul>
-        <template v-if="revisions.length > 1">
+        <template v-if="revisions.length > 1 || historyCursor">
           <h3><span>Revisions on {{ activeRef }}</span><small>{{ revisions.length }}</small></h3>
           <ul>
             <li v-for="revision in revisions" :key="revision.id">
@@ -222,7 +271,7 @@ onBeforeUnmount(() => {
                 type="button"
                 :aria-current="revision.id === descriptor?.revision ? 'true' : undefined"
                 :title="revision.message ?? revision.id"
-                @click="selectedRevision = revision.id"
+                @click="selectRevision(revision.id)"
               >
                 <span class="workspace-browser__ref-name">{{ subject(revision.message) ?? shortId(revision.id) }}</span>
                 <span class="workspace-browser__ref-meta">
@@ -232,6 +281,10 @@ onBeforeUnmount(() => {
               </button>
             </li>
           </ul>
+          <button v-if="historyCursor" type="button" :disabled="historyLoading || loading" @click="loadOlder">
+            {{ historyLoading ? "Loading revisions…" : "Load older" }}
+          </button>
+          <ConsoleState v-if="historyError" compact :error="historyError" title="Could not load older revisions" :retry="loadOlder" />
         </template>
       </template>
       <p v-else-if="descriptor" class="workspace-browser__note">

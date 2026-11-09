@@ -79,7 +79,8 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -3508,7 +3509,7 @@ cli_auth_credentials_store = "keyring"
     })
     const agent = defineAgent({ driver: codexDriver(), invocations, runtime: false })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: <T>(_key: string, create: () => T) => create(),
       run: { runId, threadId },
       runtime: "vite",
@@ -3884,7 +3885,7 @@ cli_auth_credentials_store = "keyring"
       runtime: false,
     })
 
-    await runAgent(agent, {
+    await runAgentWithContext(agent, {
       memo: <T>(_key: string, create: () => T) => create(),
       run: { runId, threadId },
       runtime: "vite",
@@ -6119,6 +6120,47 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     }) as never)
+  })
+
+  it.each(["current", "advanced", "unavailable"])("records the materialized Workspace revision with %s optional history", async (history) => {
+    const threadId = `thread-workspace-revision-${history}`
+    let materialized = false
+    const runContext = context(threadId, {
+      workspace: {
+        fs: {},
+        history: { head: vi.fn(async () => {
+          expect(materialized).toBe(true)
+          if (history === "unavailable") throw new Error("history provider unavailable")
+          return { id: history === "advanced" ? "later" : "prepared", ref: "run-1" }
+        }) },
+        materializeSources: vi.fn(async () => {
+          materialized = true
+          return { sources: [] }
+        }),
+        startSession: vi.fn(async () => ({
+          revision: "prepared",
+          close: vi.fn(async () => undefined),
+          exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+          readFile: vi.fn(async () => new Uint8Array()),
+        })),
+        tools: {},
+      },
+      workspaceDefinition: { name: "docs" },
+      workspaceMode: "read",
+    })
+    await setAgentTelemetryConfiguration(runContext.context, {
+      driver: { kind: "provider", provider: "codex" },
+      runtime: { name: "vite" },
+      workspace: { mode: "read", name: "docs" },
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(getAgentTelemetryConfiguration(runContext.context)?.value.workspace).toEqual({
+          mode: "read", name: "docs", revision: "prepared", ...(history === "current" ? { ref: "run-1" } : {}),
+        })
+      },
+    })
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
   })
 
   it("writes successful workspace sessions back before cleanup", async () => {
