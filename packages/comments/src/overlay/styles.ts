@@ -52,7 +52,7 @@ export const overlayStyles = `
 [data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 0px; --pin-y: -14px; }
 [data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: -14px; --pin-y: -14px; }
 [data-slot="comment-pin"] {
-  width: 28px; height: 28px; border: 0; border-radius: 14px 14px 14px 4px; overflow: hidden;
+  width: 28px; height: 28px; border: 0; border-radius: 14px 14px 14px 4px; touch-action: manipulation;
   background: var(--ui-text-highlighted); color: var(--ui-text-inverted);
   box-shadow: 0 0 0 2px var(--ui-bg), 0 2px 8px rgb(0 0 0 / .18);
   transform: translate(var(--pin-x), var(--pin-y)); transform-origin: 0 100%;
@@ -60,7 +60,11 @@ export const overlayStyles = `
 }
 [data-kind="text"] > [data-slot="comment-pin"] { transform-origin: 0 50%; }
 :is([data-kind="area"], [data-kind="image"]) > [data-slot="comment-pin"] { border-radius: 14px; transform-origin: 50% 50%; }
+/* The pin stays 28px, and its hit area is 44px. */
+[data-slot="comment-pin"]::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 [data-slot="comment-pin"]:is(:hover, :focus-visible, [data-active="true"]) { scale: 1.06; }
+/* A tap must not leave the pin grown, so only a fine pointer grows it on hover. */
+@media not ((hover: hover) and (pointer: fine)) { [data-slot="comment-pin"]:hover:not(:focus-visible, [data-active="true"]) { scale: none; } }
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: 28px; }
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { display: block; }
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
@@ -76,15 +80,21 @@ export const overlayStyles = `
 [data-slot="comment-pin"][data-status="resolved"] { opacity: .55; filter: grayscale(1); }
 [data-slot="comment-pin"][data-draft="true"] { outline: none; }
 
+/*
+ * --popover-width is the width the card wants. On a narrow screen it is the screen less 12px each side, and the card
+ * moves toward the middle so that no part of it goes off screen. --vh-comment-x is the x of the spot on the screen.
+ */
 [data-slot="comment-layer-popover"] {
-  left: calc(var(--pin-x) + 36px); top: var(--pin-y); width: 340px; max-width: calc(100vw - 24px);
+  --popover-width: 340px; --popover-room: min(var(--popover-width), calc(100vw - 24px));
+  left: min(calc(var(--pin-x) + 36px), calc(100vw - 12px - var(--popover-room) - var(--vh-comment-x, 0px)));
+  top: var(--pin-y); width: var(--popover-room); max-width: none;
   border-radius: 6px 16px 16px 16px; box-shadow: 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
   transform-origin: 0 14px; animation: vitehub-comments-pop 160ms cubic-bezier(.23, 1, .32, 1);
 }
-[data-draft="true"] > [data-slot="comment-layer-popover"] { width: 300px; border-radius: 6px 18px 18px 18px; }
-[data-slot="comment-layer-popover"][data-preview="true"] { width: 18rem; animation: none; }
+[data-draft="true"] > [data-slot="comment-layer-popover"] { --popover-width: 300px; border-radius: 6px 18px 18px 18px; }
+[data-slot="comment-layer-popover"][data-preview="true"] { --popover-width: 18rem; animation: none; }
 [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
-  left: auto; right: calc(-28px - var(--pin-x)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
+  left: auto; right: min(calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
 }
 [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
   top: auto; bottom: calc(-28px - var(--pin-y)); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
@@ -96,6 +106,18 @@ export const overlayStyles = `
   top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
 }
 [data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
+
+/*
+ * On a touch screen the small buttons of a card, such as Resolve and Close, take a 44px hit area. The box's own toolbar
+ * already has one, and an attachment's trigger covers its attachment.
+ */
+[data-slot="comment-layer-popover"] button { touch-action: manipulation; }
+@media (pointer: coarse) {
+  [data-slot="comment-layer-popover"] button:not([data-slot="attachment-trigger"], [data-slot="prompt-input-toolbar"] button) { position: relative; }
+  [data-slot="comment-layer-popover"] button:not([data-slot="attachment-trigger"], [data-slot="prompt-input-toolbar"] button)::after {
+    content: ""; position: absolute; inset: min(0px, calc((100% - 44px) / 2));
+  }
+}
 
 /* The area that a drag in comment mode draws. The areas of threads are in areaStyles, under the page's floating controls. */
 [data-slot="comment-layer-area"] {
@@ -122,7 +144,7 @@ export const overlayStyles = `
   border-radius: 8px; color: var(--bar-text); cursor: pointer; touch-action: manipulation; white-space: nowrap;
   transition: background-color 150ms, color 150ms, scale 150ms; transition-timing-function: cubic-bezier(.23, 1, .32, 1);
 }
-.selection-bar button::before { content: ""; position: absolute; inset: -8px -2px; }
+.selection-bar button::before { content: ""; position: absolute; inset: -9px -2px; }
 @media (hover: hover) { .selection-bar button:hover { background: var(--bar-hover); color: var(--bar-strong); } }
 .selection-bar button:active { scale: .96; }
 .selection-bar button:focus-visible { outline: 2px solid var(--bar-strong); outline-offset: 1px; }

@@ -140,5 +140,32 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal((await api.threads()).length, 2)
   })
 
+  await t.test("Enter comments on the focused element, and the focus goes back to it after the comment", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator(".menu-button").focus()
+    await page.keyboard.press("Enter")
+    await composer.waitFor({ timeout: 5000 })
+    await composer.fill("Rename the menu")
+    await composer.press("Escape")
+    assert.equal(await page.locator("vitehub-comments [data-slot='comment-composer-status']").textContent(), "Press Escape again to discard the comment.")
+    await composer.press("Escape")
+    await composer.waitFor({ state: "detached", timeout: 5000 })
+    assert.equal(await page.evaluate(() => document.activeElement?.className), "menu-button")
+  })
+
+  await t.test("on a narrow screen a new comment stays on screen", async () => {
+    await page.setViewportSize({ width: 390, height: 720 })
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
+    await page.mouse.click(200, 30)
+    await composer.waitFor({ timeout: 5000 })
+    const card = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").boundingBox()
+    assert.ok(card.x >= 0 && card.x + card.width <= 390, `the card is at ${card.x}..${card.x + card.width}`)
+    await page.keyboard.press("Escape")
+    await page.setViewportSize({ width: 1024, height: 720 })
+  })
+
   assert.deepEqual(errors, [])
 })

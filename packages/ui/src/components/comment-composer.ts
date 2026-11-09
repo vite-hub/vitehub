@@ -136,8 +136,8 @@ export const CommentComposer = defineComponent({
     const optionId = (index: number) => `${menuId}-option-${index}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Set by the shake of an Esc. The next Esc, with nothing typed in between, discards the text and closes.
-    let escaped = false;
-    watch(() => props.modelValue, () => (escaped = false));
+    const escaped = ref(false);
+    watch(() => props.modelValue, () => (escaped.value = false));
     let lookup = 0;
     let mentionCaret: number | undefined;
     // The `@` whose menu Esc closed. It stays closed until the caret leaves that mention.
@@ -211,7 +211,7 @@ export const CommentComposer = defineComponent({
       focus();
     }
     const onShake = (event: Event) => {
-      if (event instanceof CustomEvent && event.detail?.escape === true) escaped = true;
+      if (event instanceof CustomEvent && event.detail?.escape === true) escaped.value = true;
       void shake();
     };
     onMounted(() => {
@@ -343,8 +343,8 @@ export const CommentComposer = defineComponent({
         lookup++;
         dismissed = open.start;
         menu.value = null;
-      } else if (hasContent() && !escaped) {
-        escaped = true;
+      } else if (hasContent() && !escaped.value) {
+        escaped.value = true;
         void shake();
       } else void discard();
     }
@@ -353,7 +353,7 @@ export const CommentComposer = defineComponent({
     // before it closes finds none.
     async function discard() {
       if (props.busy) return;
-      escaped = false;
+      escaped.value = false;
       if (hasContent()) {
         emit("update:modelValue", "");
         emit("update:mentions", []);
@@ -454,6 +454,8 @@ export const CommentComposer = defineComponent({
                 )
               : null,
             (props.error ?? hint.value) ? h("p", { "data-slot": "comment-composer-error", role: "alert" }, props.error ?? hint.value) : null,
+            // The shake shows that the text stays. A screen reader hears what the next Esc does.
+            h("p", { "aria-live": "polite", class: "vh-visually-hidden", "data-slot": "comment-composer-status" }, escaped.value ? "Press Escape again to discard the comment." : ""),
           ]),
         ],
       );

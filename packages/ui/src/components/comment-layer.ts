@@ -188,8 +188,33 @@ export const CommentLayer = defineComponent({
       },
       { flush: "post" },
     );
+    // A new comment takes the focus. When it is sent or discarded, the focus goes back to the element of the page that
+    // had it, such as the element that Enter commented on in comment mode.
+    let draftReturn: HTMLElement | null = null;
+    watch(
+      () => state.draft.value,
+      (next, previous) => {
+        if (next && !previous) {
+          const active = document.activeElement;
+          const root = uiRoot();
+          draftReturn = active instanceof HTMLElement && active !== document.body && !(root instanceof ShadowRoot && active === root.host) && !layer.value?.contains(active) ? active : null;
+          return;
+        }
+        if (next || !previous) return;
+        const target = draftReturn;
+        draftReturn = null;
+        void nextTick(() => {
+          const focused = uiRoot().activeElement;
+          // Only when the focus was lost with the composer, not when the person already went elsewhere.
+          if (target?.isConnected && (!focused || focused === document.body)) target.focus({ preventScroll: true });
+        });
+      },
+      { flush: "sync" },
+    );
     // The height of a new comment's bubble, with its gap to the box under it.
     const draftAboveRoom = 72;
+    // `--vh-comment-x` lets the card move back on screen when the screen is narrower than the card.
+    const place = ({ x, y }: { x: number; y: number }) => ({ left: `${x}px`, top: `${y}px`, "--vh-comment-x": `${x}px` });
     const side = (x: number, y: number) => ({
       "data-flip-x": x + popoverWidth > window.innerWidth ? "true" : undefined,
       "data-flip-y": y + popoverHeight > window.innerHeight ? "true" : undefined,
@@ -233,7 +258,7 @@ export const CommentLayer = defineComponent({
               "data-kind": thread.anchor.kind,
               "data-slot": "comment-layer-item",
               key: thread.id,
-              style: { left: `${position.x}px`, top: `${position.y}px` },
+              style: place(position),
             },
             [
               h(CommentPin, {
@@ -269,7 +294,7 @@ export const CommentLayer = defineComponent({
             "data-kind": opened.anchor.kind,
             "data-slot": "comment-layer-item",
             key: "opened-thread",
-            style: pointForThread ? { left: `${pointForThread.x}px`, top: `${pointForThread.y}px` } : undefined,
+            style: pointForThread ? place(pointForThread) : undefined,
           }, h("div", { "data-floating": pointForThread ? undefined : "true", "data-slot": "comment-layer-popover" }, threadView(opened)))
         : null;
 
@@ -288,7 +313,7 @@ export const CommentLayer = defineComponent({
                 "data-draft": "true",
                 "data-kind": draft.anchor.kind,
                 "data-slot": "comment-layer-item",
-                style: { left: `${point.x}px`, top: `${point.y}px` },
+                style: place(point),
               },
               [
                 h(CommentPin, { author: user.value, draft: true }),

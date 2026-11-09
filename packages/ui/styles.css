@@ -1967,9 +1967,10 @@
     width: 22.5rem;
   }
 
+  /* `--vh-comment-x` is the x of the spot on the screen. On a narrow screen the card moves right so that it stays on screen. */
   [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
     left: auto;
-    right: 0.5rem;
+    right: min(0.5rem, calc(var(--vh-comment-x, 100vw) - min(22.5rem, 100vw - 1rem) - 0.5rem));
   }
 
   [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
