@@ -123,12 +123,16 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "drizzle-orm": "catalog:database",
     "nitro": "catalog:unjs",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "drizzle-orm": {
       "optional": true
     },
