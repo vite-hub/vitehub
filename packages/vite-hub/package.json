@@ -783,6 +783,26 @@
       "import": "./dist/env/server.js",
       "default": "./dist/env/server.js"
     },
+    "./forms": {
+      "types": "./dist/forms.d.ts",
+      "import": "./dist/forms.js",
+      "default": "./dist/forms.js"
+    },
+    "./forms/client": {
+      "types": "./dist/forms/client.d.ts",
+      "import": "./dist/forms/client.js",
+      "default": "./dist/forms/client.js"
+    },
+    "./forms/database": {
+      "types": "./dist/forms/database.d.ts",
+      "import": "./dist/forms/database.js",
+      "default": "./dist/forms/database.js"
+    },
+    "./forms/runtime": {
+      "types": "./dist/forms/runtime.d.ts",
+      "import": "./dist/forms/runtime.js",
+      "default": "./dist/forms/runtime.js"
+    },
     "./gateways": {
       "types": "./dist/gateways.d.ts",
       "import": "./dist/gateways.js",
@@ -1417,6 +1437,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
@@ -1499,6 +1520,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/kv": "workspace:*",
@@ -1619,6 +1641,9 @@
       "optional": true
     },
     "@vite-hub/email": {
+      "optional": true
+    },
+    "@vite-hub/forms": {
       "optional": true
     },
     "@vite-hub/gateways": {

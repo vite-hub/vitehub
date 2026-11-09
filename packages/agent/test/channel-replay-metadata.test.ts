@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { agentInvocationId, defineAgent } from "../src/index.ts"
 import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { setWorkflowJournalName } from "../src/internal/workflow-journal-name.ts"
@@ -17,7 +17,7 @@ const metadata = { annotations: { trigger: "history" }, channelId: "mailbox", or
 afterEach(() => vi.unstubAllGlobals())
 
 function channel() {
-  return defineChannel("mailbox", {
+  return channelAdapter("mailbox", {
     history: {
       collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
       key: item => item.id,
@@ -46,7 +46,7 @@ describe.each(["replay", "forced replay", "dispatch"])("%s Invocation references
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       ...(source === "explicit" ? { name: "support" } : {}), runtime: false, invocations, driver: { run: () => "done" },
-      channels: { mailbox: defineChannel("mailbox", {
+      channels: { mailbox: channelAdapter("mailbox", {
         messages: false,
         history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
         triggers: { received: defineChannelTrigger({
