@@ -207,25 +207,35 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     },
     async incrementItem(key, ttl) {
       const ms = ttlMilliseconds(ttl)
-      // One statement: a missing or expired counter starts at 1 with the TTL, and a live one keeps its expiry. The
-      // update runs only when the stored text is a canonical integer below the safe limit, so a failed increment
-      // changes nothing. SQLite casts text such as "hello" to 0, so the text comparison catches it. Postgres
-      // rejects the cast, which also fails the statement without a change.
+      // Counters such as rate limit windows are often written only by `increment()`, so it deletes expired rows too.
+      await sweep()
+      const { dialect } = await ready()
+      const value = `${table}.value`
+      // A canonical integer of at most 16 digits: no sign other than "-", no leading zero, and small enough that the
+      // cast to bigint cannot overflow. Postgres does not promise to short-circuit `or`, so every cast sits behind
+      // this check in a `case`, and a value such as "hello" gives null instead of a cast error on both dialects.
+      const integer = dialect === "postgresql"
+        // `query()` turns each `?` into a placeholder, so the pattern writes `-{0,1}`.
+        ? `${value} ~ '^(0|-{0,1}[1-9][0-9]{0,15})$'`
+        : `(length(${value}) <= 17 and (${value} = '0' or (${value} glob '[1-9]*' and ${value} not glob '*[^0-9]*') or (${value} glob '-[1-9]*' and substr(${value}, 2) not glob '*[^0-9]*')))`
+      const counter = `(case when ${integer} then cast(${value} as bigint) end)`
       const expired = `${table}.expires_at is not null and ${table}.expires_at <= {now}`
-      const counter = `cast(${table}.value as bigint)`
+      // One statement: a missing or expired counter starts at 1 with the TTL, also when the expired value was not an
+      // integer, and a live one keeps its expiry. A live value that is not an integer below the safe limit fails the
+      // `where`, so the statement changes nothing.
       const rows = await query(
         `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, '1', {now} + cast(? as bigint))
          on conflict (namespace, "key") do update set
            value = case when ${expired} then '1' else cast(${counter} + 1 as text) end,
            expires_at = case when ${expired} then excluded.expires_at else ${table}.expires_at end
-         where ${expired} or (cast(${counter} as text) = ${table}.value and ${counter} between -9007199254740992 and 9007199254740990)
+         where (${expired}) or ${counter} between -9007199254740992 and 9007199254740990
          returning value`,
         [namespace, key, ms],
       )
       if (rows.length === 0) throw new TypeError("kv.increment() needs a stored integer below 9007199254740991. The value did not change.")
-      const value = Number(rows[0]!.value)
-      if (!Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
-      return value
+      const counterValue = Number(rows[0]!.value)
+      if (!Number.isSafeInteger(counterValue)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
+      return counterValue
     },
     async deleteIfEqualsItem(key, expected) {
       const rows = await query(`delete from ${table} where namespace = ? and "key" = ? and value = ? and ${live} returning "key"`, [namespace, key, expected])

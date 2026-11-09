@@ -189,6 +189,28 @@ describe.each(targets)("$name", (target) => {
     expect(await storage!.incrementItem!("almost", 30)).toBe(Number.MAX_SAFE_INTEGER)
   })
 
+  it("restarts an expired counter at 1, also when the expired value is not an integer", async () => {
+    const [storage] = await target.stores(1)
+    await storage!.setItem("expired-text", "hello", { ttl: 0.5 })
+    await storage!.setItem("expired-huge", "99999999999999999999", { ttl: 0.5 })
+    await storage!.setItem("expired-top", Number.MAX_SAFE_INTEGER, { ttl: 0.5 })
+    await sleep(800)
+
+    expect(await storage!.incrementItem!("expired-text", 30)).toBe(1)
+    expect(await storage!.incrementItem!("expired-huge", 30)).toBe(1)
+    expect(await storage!.incrementItem!("expired-top", 30)).toBe(1)
+    expect(await storage!.incrementItem!("expired-text", 30)).toBe(2)
+  })
+
+  it("refuses a live value beyond the bigint range without a cast error", async () => {
+    const [storage] = await target.stores(1)
+    await storage!.setItem("huge", "99999999999999999999")
+    await storage!.setItem("negative", -5)
+    await expect(storage!.incrementItem!("huge", 30)).rejects.toThrow(/stored integer|safe integer/)
+    expect(await storage!.getItem("huge", { type: "text" })).toBe("99999999999999999999")
+    expect(await storage!.incrementItem!("negative", 30)).toBe(-4)
+  })
+
   it("returns a value to exactly one getAndDelete() caller", async () => {
     const stores = await target.stores(3)
     await stores[0]!.setItem("code", { user: "alice" })
@@ -307,6 +329,61 @@ describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
       cursor = page.cursor
     } while (cursor)
     expect([...new Set(keys)].sort()).toEqual(expected)
+  })
+})
+
+describe("database sweep", () => {
+  interface RawTarget {
+    name: string
+    /** A store and a query that counts the rows of its namespace, including expired rows. */
+    create(): Promise<{ storage: RuntimeStorage, rows: () => Promise<number> }>
+  }
+
+  const store = (): Extract<ResolvedKVStoreConfig, { driver: "database" }> => ({ driver: "database", database: "default", namespace: `sweep-${randomUUID()}` })
+  const rawTargets: RawTarget[] = [
+    {
+      name: "libSQL",
+      async create() {
+        const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
+        cleanups.push(async () => client.close())
+        const config = store()
+        const storage = track(createHostedKVStorage({ store: config }, "default", async () => ({ default: { db: { $client: client } } })))
+        const rows = async () => Number((await client.execute({ sql: `select count(*) as count from ${kvTable} where namespace = ?`, args: [config.namespace] })).rows[0]!.count)
+        return { rows, storage }
+      },
+    },
+    ...postgresUrl
+      ? [{
+          name: "Postgres",
+          async create() {
+            const sql = postgres(postgresUrl, { max: 2, onnotice: () => {} })
+            cleanups.push(() => sql.end())
+            const config = store()
+            const storage = track(createHostedKVStorage({ store: config }, "default", async () => ({ default: { db: { $client: sql } } })))
+            const rows = async () => Number((await sql.unsafe(`select count(*) as count from ${kvTable} where namespace = $1`, [config.namespace]))[0]!.count)
+            return { rows, storage }
+          },
+        }]
+      : [],
+  ]
+
+  it.each(rawTargets)("deletes expired counters in an increment-only workload on $name", async (target) => {
+    const { rows, storage } = await target.create()
+    // One counter per client and window, as Rate Limit writes them.
+    for (const client of ["a", "b", "c"]) await storage.incrementItem!(`window:1:${client}`, 0.5)
+    expect(await rows()).toBe(3)
+    await sleep(800)
+
+    // The sweep runs at most once a minute, so the next increment after a minute deletes the expired counters.
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 61_000)
+    try {
+      expect(await storage.incrementItem!("window:2:a", 30)).toBe(1)
+    }
+    finally {
+      clock.mockRestore()
+    }
+    expect(await rows()).toBe(1)
   })
 })
 

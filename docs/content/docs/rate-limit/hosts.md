@@ -8,9 +8,9 @@ icon: i-lucide-cloud-cog
 
 ## Inspect generated guarantees
 
-The integration writes `.vitehub/rate-limit/manifest.json` during configuration. Agents and tooling can inspect it. Application code keeps using the guard.
+ViteHub writes `.vitehub/rate-limit/manifest.json` at config time for agents and tools to inspect. Application code keeps using the guard.
 
-The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows` without duplicating optional response metadata contracts.
+The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows`. It does not repeat the optional response metadata.
 
 ```json [.vitehub/rate-limit/manifest.json]
 {
@@ -84,7 +84,7 @@ A build that counts in memory also prints a warning. Set `rateLimit: { provider:
 
 ## Deploy to Cloudflare
 
-With the `cloudflare` preset, ViteHub selects the Cloudflare provider and sets the Rate Limit namespace to the deployment name. It ignores a configured `rateLimit.namespace`. Use a deployment-unique name so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
+With the `cloudflare` preset, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -125,6 +125,6 @@ export default defineConfig({
 
 The deployment name comes from `name`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
 
-Cloudflare native enforcement is best-effort and exposes only 10-second and 60-second windows. It does not return portable quota metadata, so incompatible policies fail during the build. Use a different namespace for staging, production, and any separately deployed Worker because Cloudflare shares counters with the same namespace ID across Workers.
+Cloudflare native enforcement is best-effort and has only 10-second and 60-second windows. It returns no portable quota metadata, so policies it cannot meet fail the build.
 
-Inspect generated `wrangler.json` entries and exercise the deployed Worker. A request-scoped Cloudflare binding cannot be validated from an unrelated Node script.
+Inspect the generated `wrangler.json` entries and test the deployed Worker. A Node script cannot check a request-scoped Cloudflare binding.

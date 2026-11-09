@@ -1,6 +1,6 @@
 ---
 title: KV server API
-description: Read, write, and delete KV keys from server code with the public imports, the runtime helper, and application teardown.
+description: Read, write, and delete KV keys from server code, and close stores when the app shuts down.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
@@ -10,17 +10,17 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `kv` from `@vite-hub/kv` | Read and write the Default KV Store or a named KV Store. |
-| `disposeKVStores` from `@vite-hub/kv` | Dispose all cached stores from an application shutdown hook. |
+| `kv` from `@vite-hub/kv` | Read and write the default store or a named store. |
+| `disposeKVStores` from `@vite-hub/kv` | Close all cached stores in a shutdown hook. |
 | `getKVStoreDriver` from `@vite-hub/kv` | Name the driver that a store uses in this server process, for example `redis` when an inferred Node store finds `REDIS_URL`. Rate Limit reads it at boot. |
-| `hubKv` from `@vite-hub/kv/vite` | Register KV runtime configuration. |
-| `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve KV Vite runtime config manually. |
+| `hubKv` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
+| `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve the KV config by hand. |
 
-All KV driver, store, module, and storage types are exported from `@vite-hub/kv`.
+`@vite-hub/kv` also exports all driver, store, module, and storage types.
 
 ## Use it at runtime
 
-Use the `kv` Runtime Helper from server code.
+Import `kv` in server code to save and read values.
 
 ```ts [server/api/settings.put.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -44,7 +44,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Use named stores when configuration defines multiple KV Stores.
+When your config has more than one store, select one by name.
 
 ```ts [server/tenant-preferences.ts]
 import { kv } from '@vite-hub/kv'
@@ -59,7 +59,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` when code only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. It has no `set()`, `setIfAbsent()`, `del()`, `deleteIfEquals()`, `clear()`, `increment()`, or `getAndDelete()`, so calling them is a type error, and they are absent at runtime. The Default KV Store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `del()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
@@ -77,7 +77,9 @@ export default defineEventHandler(async () => {
 
 `mode` defaults to `'write'`. Another value throws [`KV_INVALID_STORE_MODE`](/docs/kv/limits-and-errors#kv_invalid_store_mode).
 
-The mode limits this API, not the host. The Cloudflare KV binding, the Upstash token, and the files of `fs-lite` keep full access, and the full `kv` export stays importable. It is not a security boundary against code that reads the binding or imports `kv` directly. Use it to show intent and to keep write calls out of code that only reads.
+::warning
+The mode limits this API, not the host. The Cloudflare KV binding, the Upstash token, and `fs-lite` files keep full access, and code can still import the full `kv`. It is not a security boundary. Use it to show intent and keep writes out of read-only code.
+::
 
 The `redis`, `database`, and `upstash` drivers provide atomic single-use reads and counters:
 
@@ -89,7 +91,7 @@ const [incrementError, attempts] = await kv.increment('rate-limit:user', 60)
 if (incrementError) throw incrementError
 ```
 
-Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes, and nonces. It writes the value only when the key has no value, in one atomic step, and returns `true` to the one call that wrote it:
+Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes, and nonces. It writes only when the key is empty, in one atomic step. It returns `true` to the one call that wrote:
 
 ```ts [server/api/uploads/[ticket].put.ts] fragment
 const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
@@ -97,15 +99,15 @@ if (claimError) throw claimError
 if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket already used' })
 ```
 
-`setIfAbsent()` needs a value: `undefined` fails with `KV_OPERATION_FAILED`, because it cannot mean "remove" as it does for `set()`. Do not use `kv.get()` and then `kv.set()` for this. Two requests can both read a missing key and both write it.
+`setIfAbsent()` needs a value: `undefined` fails with `KV_OPERATION_FAILED`, because it cannot mean "remove" as in `set()`. Do not use `kv.get()` then `kv.set()`: two requests can both see a missing key and both write.
 
 | Driver | `setIfAbsent()` |
 | --- | --- |
 | `redis` | Atomic. One `SET NX` command, with `PX` when you pass `ttl`. |
 | `database` | Atomic. One `INSERT ... ON CONFLICT` statement that also replaces an expired key. Expiry uses the clock of the Database. |
 | `upstash` | Atomic. One `SET NX` command, with `EX` when you pass `ttl`. |
-| `deno-kv` | Atomic. One atomic commit that checks that the key is missing. Deno KV deletes an expired key some time after the TTL, so the key can stay set for longer than `ttl`. |
-| `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file beside the key and links it into place, so other calls see the whole value or none. `fs-lite` never expires keys, so the key stays until you delete it. |
+| `deno-kv` | Atomic. One commit that checks the key is missing. Deno KV deletes expired keys some time after the TTL, so a key can stay longer than `ttl`. |
+| `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file and links it into place, so other calls see the whole value or none. `fs-lite` never expires keys. |
 | `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
 
 `increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. A stored value that is not an integer, or that is already `Number.MAX_SAFE_INTEGER`, returns `KV_OPERATION_FAILED` and does not change. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
@@ -134,7 +136,7 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 | `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
 | `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
 | `kv.set<T>(key, value)` | Writes a value. |
-| `kv.setIfAbsent<T>(key, value, { ttl? })` | Atomically writes a value only when the key has none. Returns `true` when this call wrote it. Not on Cloudflare KV. |
+| `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |
 | `kv.del(key)` | Deletes one key. |
@@ -144,13 +146,13 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |
 | `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Every async method returns `[error, value]`. The type of `error.code` lists the codes that the method can return, and `error.why`, `error.fix`, and `error.docs` explain each failure. A provider failure has the code `KV_OPERATION_FAILED` and keeps the provider error in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Configuration errors, for example an unknown named store, throw. See [Limits and errors](/docs/kv/limits-and-errors) for each code.
+Every async method returns `[error, value]`, so you need no `try/catch`. `error.code` is typed per method, and `why`, `fix`, and `docs` explain it. Provider failures are `KV_OPERATION_FAILED`, with the provider error in `cause`. Configuration errors, such as an unknown store, throw. Read [Limits and errors](/docs/kv/limits-and-errors) for each code.
 
-Keys are strings such as `users:alice` or `users/alice`, where `/` and `:` both separate segments. A key must have at least one segment and no `.` or `..` segment: `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`. On Cloudflare KV, a key above 512 bytes in UTF-8 returns `KV_KEY_TOO_LONG`. See [Limits](/docs/kv/limits-and-errors#limits).
+Keys are strings such as `users:alice` or `users/alice`. Both `/` and `:` separate segments. A key needs at least one segment and no `.` or `..` segment, so `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`. On Cloudflare KV, a key above 512 UTF-8 bytes returns `KV_KEY_TOO_LONG` ([Limits](/docs/kv/limits-and-errors#limits)).
 
 ## Typed reads
 
-`kv.get()` parses a stored string as JSON by default, so a value written as the string `'123'` reads back as the number `123`, and `'true'` as `true`. Pass `type` when you need the value in a fixed form:
+`kv.get()` parses a stored string as JSON, so the string `'123'` reads back as the number `123`, and `'true'` as `true`. Pass `type` to get a fixed form:
 
 ```ts [server/invite.ts] fragment
 const [error, code] = await kv.get('invite:alice', { type: 'text' })
@@ -159,19 +161,23 @@ const [error, code] = await kv.get('invite:alice', { type: 'text' })
 
 | `type` | Returns |
 | --- | --- |
-| `'text'` | The stored text as a `string`. An object or array value comes back as its JSON text. |
+| `'text'` | The stored text as a `string`. Objects and arrays come back as JSON text. |
 | `'json'` | The parsed JSON value, as without `type`. |
 | `'bytes'` | A `Uint8Array`. |
 | `'blob'` | A `Blob`. |
 | `'stream'` | A `ReadableStream<Uint8Array>`. |
 
-The return type follows `type`, so `kv.get(key, { type: 'text' })` is `string | null`. A missing key is `null` for every `type`. `kv.getAndDelete()` accepts `{ type: 'text' }`. The Upstash client parses JSON before it returns a value, so on Upstash `'text'` returns the JSON text of that value.
+The return type follows `type`: `kv.get(key, { type: 'text' })` is `string | null`. A missing key is `null` for every `type`. `kv.getAndDelete()` accepts `{ type: 'text' }`. The Upstash client parses JSON first, so on Upstash `'text'` returns the JSON text of the value.
 
 ## Application teardown
 
-After stopping new application work, call `disposeKVStores()` from your shutdown hook. It releases cached default and named stores, including Redis connections, retained filesystem iterators, and Upstash overflow pages. When a store can use Redis, ViteHub registers it on Nitro's `close` hook for you, so the process can exit after a stop signal. Concurrent calls share one cleanup promise. Cleanup failures reject with an `AggregateError`. Later operations create fresh stores, so restart process-local listings without an old cursor.
+After the app stops taking new work, call `disposeKVStores()` in your shutdown hook. It closes cached stores, including Redis connections, open filesystem iterators, and Upstash overflow pages. When a store can use Redis, ViteHub registers it on Nitro's `close` hook for you, so the process can exit after a stop signal.
 
-For Nitro, register the hook in a server plugin:
+- Calls at the same time share one cleanup promise.
+- Cleanup failures reject with an `AggregateError`.
+- Later operations create new stores, so restart in-process listings without an old cursor.
+
+In Nitro, register the hook in a server plugin:
 
 ```ts [server/plugins/kv-cleanup.ts] fragment
 import { disposeKVStores } from '@vite-hub/kv'

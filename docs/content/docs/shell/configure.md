@@ -1,6 +1,6 @@
 ---
 title: Shell configuration
-description: Select a Shell provider and set the runtime, session, and exec options that control what commands an Agent can run.
+description: Choose a Shell provider and set the runtime, session, and exec options that control what commands can run.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -8,16 +8,16 @@ icon: i-lucide-sliders-horizontal
 
 ## Providers
 
-Shell providers implement `ShellExecutionProvider`. Shell has provider adapters, not a Vite Integration or Provider Output.
+A Shell provider implements `ShellExecutionProvider`. Shell has no Vite plugin and generates no host files.
 
 | Provider | Configure with | Boundary |
 | --- | --- | --- |
-| Just Bash | `createJustBashProvider({ fs, commands?, cwd?, executionLimits?, executionLimitProfile?, networkGrants? })` | Runs `just-bash` against the filesystem adapter you provide. Network is off unless you pass `networkGrants`. No background or interactive processes. Output callbacks run once after the command ends. |
+| Just Bash | `createJustBashProvider({ fs, commands?, cwd?, executionLimits?, executionLimitProfile?, networkGrants? })` | Runs `just-bash` on the filesystem adapter you give it. Network is off unless you pass `networkGrants`. No background or interactive processes. Output callbacks run once, after the command ends. |
 | Custom | A `ShellExecutionProvider` object | Implement `boundary`, `exec`, and optional `analyze` and `startProcess`. |
 
-Just Bash starts in `/workspace` when you omit `cwd`. A provider `cwd` sets the default directory, and an `exec` `cwd` takes precedence. The provider reports the selected directory in its observations, including controlled curl and timeout results. Set `cwd` when your custom filesystem uses another root.
+Without `cwd`, Just Bash starts in `/workspace`. A provider `cwd` sets the default directory, and an `exec` `cwd` wins over it. Observations report the directory used, also for controlled curl and timeout results. Set `cwd` when your custom filesystem uses another root.
 
-`executionLimits` and `executionLimitProfile` pass through to the Just Bash interpreter. They bound interpreter work that a timeout alone can't stop cheaply: loop iterations, command count, call depth, jq/awk/sed iterations, file traversal, and retained bytes. `executionLimitProfile: "hardened"` selects Just Bash's stricter preset, and `executionLimits` values override it. Resource-limit failures exit with code 126 and name the limit in stderr; execution deadlines exit with code 124. The provider copies both options at creation.
+`executionLimits` and `executionLimitProfile` go to the Just Bash interpreter. They limit work that a timeout cannot stop cheaply: loop iterations, command count, call depth, jq/awk/sed iterations, file traversal, and retained bytes. `executionLimitProfile: "hardened"` picks the stricter Just Bash preset, and `executionLimits` values override it. A resource limit exits with code 126 and names the limit in stderr. A deadline exits with code 124. The provider copies both options when you create it.
 
 ```ts fragment
 const provider = createJustBashProvider({
@@ -27,33 +27,36 @@ const provider = createJustBashProvider({
 })
 ```
 
-Controlled `curl` runs as a Just Bash command through the Source network grant, including in pipelines and substitutions. Interpreter limits apply to its returned output and command deadline. Interpreter deadlines, Shell timeouts, and Shell cancellation abort the signal forwarded to the Source request. The Source executor must honor that signal. `maxOutputLength` truncates the returned output in characters. Source responses are buffered before interpreter output checks and Shell truncation; the Source executor must enforce response byte or memory limits while reading the response.
+Controlled `curl` is a Just Bash command that goes through the Source network grant, also in pipelines and substitutions. Interpreter limits apply to its output and deadline. Interpreter deadlines, Shell timeouts, and Shell cancellation abort the signal passed to the Source request, and the Source executor must respect it. `maxOutputLength` cuts the output to that many characters.
 
-Read `runtime.boundary` or `session.boundary` to check what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output resource enforcement. These are provider declarations for portable inspection; they do not turn an in-process provider into an OS isolate.
+> [!WARNING]
+> Source responses are buffered before output checks and truncation. The Source executor must limit response bytes or memory while it reads.
 
-To translate Shell calls into another runtime, implement a custom `ShellExecutionProvider`.
+Read `runtime.boundary` or `session.boundary` to see what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output limits. These are declarations for inspection. They do not make an in-process provider an OS isolate.
+
+To run Shell calls in another runtime, implement a custom `ShellExecutionProvider`.
 
 ## Runtime options
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `provider` | `ShellExecutionProvider` | Required Execution Provider. |
-| `policy` | `ShellSessionPolicy` | Default policy for runtime `exec()` calls and new sessions. |
+| `provider` | `ShellExecutionProvider` | Required provider. |
+| `policy` | `ShellSessionPolicy` | Default policy for `runtime.exec()` and new sessions. |
 
-`runtime.exec(command, options?)` creates a short-lived session, runs one command, disposes the session, and returns a Shell Observation.
+`runtime.exec(command, options?)` creates a short session, runs one command, closes the session, and returns a Shell Observation (the command result).
 
 ## Session and exec options
 
 | Option | Type | Applies to | Description |
 | --- | --- | --- | --- |
-| `policy` | `ShellSessionPolicy` | `createSession` | Session policy. Merged over the runtime policy. |
-| `env` | `Record<string, string>` | `createSession`, `exec` | Environment for commands. `exec` values override session values. |
-| `maxOutputLength` | `number` | `policy`, `exec` | Non-negative character limit for stdout and stderr in the Shell Observation. The session applies the stricter value when both exist. |
-| `maxShellCalls` | `number` | `policy` | Limits calls to `exec()` in one session. |
-| `maxProcesses` | `number` | `policy` | Limits tracked background processes when a provider supports them. |
-| `timeout` | `number` | `policy`, `exec` | Command timeout in milliseconds. `exec` overrides the policy value. |
-| `signal` | `AbortSignal` | `exec` | Cancels the command and provider-owned work, such as a controlled Source request. |
-| `cwd` | `string` | `exec` | Working directory when the provider supports CWD. |
-| `stdin` | `string` | `exec` | Standard input when the provider supports it. Just Bash passes it to the script as standard input. |
+| `policy` | `ShellSessionPolicy` | `createSession` | Session policy, merged over the runtime policy. |
+| `env` | `Record<string, string>` | `createSession`, `exec` | Command environment. `exec` values win. |
+| `maxOutputLength` | `number` | `policy`, `exec` | Character limit (zero or more) for stdout and stderr. When both are set, the lower one applies. |
+| `maxShellCalls` | `number` | `policy` | Most `exec()` calls in one session. |
+| `maxProcesses` | `number` | `policy` | Most tracked background processes, when the provider supports them. |
+| `timeout` | `number` | `policy`, `exec` | Command timeout in milliseconds. `exec` wins. |
+| `signal` | `AbortSignal` | `exec` | Cancels the command and provider work, such as a controlled Source request. |
+| `cwd` | `string` | `exec` | Working directory, when the provider supports CWD. |
+| `stdin` | `string` | `exec` | Standard input, when the provider supports it. Just Bash passes it to the script. |
 | `onStdout` | `function` | `exec` | Receives stdout. Streaming providers send chunks. |
 | `onStderr` | `function` | `exec` | Receives stderr. Streaming providers send chunks. |

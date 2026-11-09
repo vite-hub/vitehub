@@ -1,11 +1,20 @@
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
+// `@vercel/blob` reads only `getVercelOidcToken()`. The `@vercel/oidc` root also loads `verifyVercelOidcToken()` and
+// with it all of jose, which a bundle cannot drop from CommonJS. Bundle the one module that `@vercel/blob` calls.
+const vercelOidcTokenReader = fileURLToPath(new URL(
+  "get-vercel-oidc-token-with-refresh.js",
+  pathToFileURL(createRequire(import.meta.resolve("@vercel/blob")).resolve("@vercel/oidc")),
+));
+
 export default defineConfig({
   pack: {
     alias: {
+      "@vercel/oidc": vercelOidcTokenReader,
       undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
     },
     tsconfig: "tsconfig.build.json",
