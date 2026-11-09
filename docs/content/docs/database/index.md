@@ -28,6 +28,19 @@ icon: i-lucide-database
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // On Node, tables are saved in local SQLite
+      database: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -44,6 +57,23 @@ icon: i-lucide-database
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'node',
+        // On Node, tables are saved in local SQLite
+        database: true,
+      }),
+    ],
+  })
+  ```
+  ::::
 
   ```ts [server/api/notes.get.ts]
   import { defineEventHandler } from 'h3'

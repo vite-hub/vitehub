@@ -50,16 +50,39 @@ Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/
 
 Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, Teams, and Telegram Channels in `vite dev` before you create any bot or token:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: { channels: { simulate: true } } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [
-    vitehub({ preset: 'node', agent: { channels: { simulate: true } } }),
-  ],
+  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } })],
 })
 ```
+:::
+::
 
 Each simulated Channel replaces its provider with the Chat SDK [web adapter](https://chat-sdk.dev/adapters/official/web). Its webhook route accepts an AI SDK chat request and streams the reply as an AI SDK UI message stream:
 
@@ -746,6 +769,32 @@ export default defineAgent({
 
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'node', agent: true }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -756,6 +805,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Use the Vue client from the application:
 

@@ -1,7 +1,7 @@
 ---
 title: Installation
 navigation.title: Installation
-description: Set up a Vite or Nuxt app with ViteHub and check that it serves a route.
+description: Set up a Nuxt, Nitro, or Vite app with ViteHub and check that it serves a route.
 navigation.order: 2
 navigation.group: Get started
 icon: i-lucide-download
@@ -14,6 +14,7 @@ Set up an app with ViteHub, then check that it answers a request. Every tutorial
 - Node.js 22.22 or newer on 22.x, 24.11 or newer on 24.x, or 26 or newer. Node.js 23, Node.js 24 before 24.11, and Node.js 25 are not supported.
 - pnpm. The examples use pnpm.
 - For Nuxt: an app on Nuxt 5, which uses Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
+- For Nitro: a Nitro 3 app that adds `nitro()` in `vite.config.ts`.
 
 ::details{summary="Why Node.js 22.22?"}
 `vite-hub` installs Nitro, and Nitro needs Node.js 22.22. A package that you install alone, without `vite-hub`, can need less: Queue needs 22.19, and most others need 22.18.
@@ -23,9 +24,65 @@ On Node.js 22, features that open a local SQLite file print one `ExperimentalWar
 
 ## Set up the app
 
-Pick the framework that you use. Nitro is the server that runs your API routes. Nuxt already includes it.
+Pick the framework that you use. The docs remember your choice and show its code on every page. Nitro is the server that runs your API routes. Nuxt includes it, and `vitehub()` adds it to a Vite app.
 
 ::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
+
+```bash pm [commands/install-nuxt]
+pnpm add vite-hub h3@^2.0.8 valibot
+```
+
+> [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
+> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
+>
+> ```bash [commands/approve-esbuild-nuxt]
+> pnpm approve-builds esbuild
+> ```
+
+Add the module to `nuxt.config.ts`, and put its options under `vitehub`. Keep your other options.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { preset: "node" },
+})
+```
+
+`preset` tells ViteHub where the app runs. `node` is a Node.js server, which is correct for your computer. The other presets are `cloudflare`, `vercel`, `netlify`, and `deno`.
+
+Keep the `tsconfig.json` that Nuxt makes. The module adds the ViteHub types to it. The [Nuxt guide](/docs/frameworks-hosts/nuxt) has more Nuxt options.
+:::
+
+:::tabs-item{label="Nitro"}
+In your Nitro app, install ViteHub and the H3 version that it uses:
+
+```bash pm [commands/install-nitro]
+pnpm add vite-hub h3@^2.0.8 valibot
+```
+
+Add `vitehub()` to `vite.config.ts`, before `nitro()`. ViteHub then uses your Nitro plugin. Keep your other plugins.
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({ preset: "node" }), nitro()],
+})
+```
+
+`preset` tells ViteHub where the app runs. `node` is a Node.js server, which is correct for your computer. The other presets are `cloudflare`, `vercel`, `netlify`, and `deno`.
+
+The tutorials use port 3000. Set the `dev` script in `package.json` to `vite --port 3000 --strictPort`. Add `vite-hub/tsconfig` to the `extends` of your `tsconfig.json`, then write the types once:
+
+```bash [commands/prepare-types]
+pnpm vitehub types prepare
+```
+:::
+
 :::tabs-item{label="Vite"}
 Create a folder for the app:
 
@@ -106,39 +163,6 @@ If your `tsconfig.json` sets `files`, add `.vitehub/types.d.ts` to that list. Yo
 
 To do this again after each install, add `"postinstall": "vitehub types prepare"` to the scripts. `vite dev` and `vite build` also update the types.
 :::
-
-:::tabs-item{label="Nuxt"}
-In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
-
-```bash pm [commands/install-nuxt]
-pnpm add vite-hub h3@^2.0.8 valibot
-```
-
-> [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
-> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
->
-> ```bash [commands/approve-esbuild-nuxt]
-> pnpm approve-builds esbuild
-> ```
-
-Add the module to `nuxt.config.ts`. Keep your other options.
-
-```ts [nuxt.config.ts]
-import viteHubNuxt from "vite-hub/nuxt"
-
-export default defineNuxtConfig({
-  modules: [
-    [viteHubNuxt, { preset: "node" }],
-  ],
-})
-```
-
-`preset` tells ViteHub where the app runs. `node` is a Node.js server, which is correct for your computer.
-
-Keep the `tsconfig.json` that Nuxt makes. The module adds the ViteHub types to it.
-
-The [Nuxt guide](/docs/frameworks-hosts/nuxt) has more Nuxt options.
-:::
 ::
 
 ## Check that it works
@@ -187,7 +211,7 @@ Each feature other than Env, Source, Logs, and the Console needs its own package
 ```
 
 ::details{summary="Which features need their own package?"}
-`vite-hub` includes Env, Source, Logs, and the Console. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Vite and Nuxt.
+`vite-hub` includes Env, Source, Logs, and the Console. Every other feature has its own package, so your app installs and loads only the features that it uses. Add the packages below before you turn on a feature. This is the same for Nuxt, Nitro, and Vite.
 
 | Feature | Add these packages |
 | --- | --- |
@@ -229,16 +253,27 @@ Provider SDKs are in the guide of each provider. For example, Vercel Workflow ne
 
 Stop the dev server, then build and start the app:
 
-::code-group{sync="framework"}
-```bash [Vite]
-pnpm build
-pnpm start
-```
-
-```bash [Nuxt]
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```bash [commands/build-nuxt]
 pnpm build
 node .output/server/index.mjs
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```bash [commands/build-nitro]
+pnpm build
+node .output/server/index.mjs
+```
+:::
+
+:::tabs-item{label="Vite"}
+```bash [commands/build]
+pnpm build
+pnpm start
+```
+:::
 ::
 
 The server uses port `3000`. Send the health request again to check it.

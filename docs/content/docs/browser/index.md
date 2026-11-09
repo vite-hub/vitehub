@@ -63,6 +63,32 @@ icon: i-lucide-monitor
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  // Adds the Cloudflare browser setting for you
+
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: { preset: 'cloudflare', browser: true },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
+  import { vitehub } from 'vite-hub'
+
+  // Adds the Cloudflare browser setting for you
+  export default defineConfig({
+    plugins: [
+      vitehub({ preset: 'cloudflare', browser: true }),
+      nitro(),
+    ],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
   ```ts [vite.config.ts]
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
@@ -74,6 +100,7 @@ icon: i-lucide-monitor
     ],
   })
   ```
+  ::::
   :::
 ::
 

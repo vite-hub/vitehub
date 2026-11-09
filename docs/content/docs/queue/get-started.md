@@ -22,6 +22,30 @@ In this tutorial, you send a welcome job from an API route, and the handler writ
 
 In `vite.config.ts`, change the `vitehub()` options to use Cloudflare and turn on Queue. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', queue: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -31,6 +55,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'cloudflare', queue: true })],
 })
 ```
+::::
+:::
 
 - `preset: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
 - `queue: true` turns on Queue.

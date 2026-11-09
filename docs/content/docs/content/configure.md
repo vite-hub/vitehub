@@ -419,8 +419,10 @@ For client search, pass `searchClient()` from `comark-content/plugins/sqlite-ful
 
 | Database | Import | Use |
 | --- | --- | --- |
-| Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite. |
-| SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. |
+| Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite, such as the Node, Vercel, and Netlify presets. |
+| SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. Install `@sqlite.org/sqlite-wasm` too, because `comark-content` does not install it. |
+
+Full-text search does not run on Cloudflare Workers yet. Workers have no Node SQLite, and SQLite WASM cannot start inside a request there, which is where Content loads.
 
 The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
