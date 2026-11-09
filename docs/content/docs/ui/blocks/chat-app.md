@@ -8,7 +8,7 @@ icon: i-lucide-messages-square
 
 This block combines a session list, [`ChatSession`](/docs/ui/chat-session), and [`PromptInput`](/docs/ui/prompt-input) with attachments. Select a session, send a message, or attach a log file. The sessions and streamed replies are synthetic. No model runs and no network requests leave the page.
 
-::component-preview{name="ChatAppBlock" flush reset}
+::example{name="ChatAppBlock" flush reset height=36}
 ::
 
 The session list moves above the chat when the block is narrower than 42rem. Sending a message, stopping a reply, and switching sessions all work in the preview.

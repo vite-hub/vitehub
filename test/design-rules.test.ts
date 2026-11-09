@@ -26,7 +26,7 @@ const allowed = [
   // The pages that the server renders before the Console app loads copy the tokens of theme.css, and a test keeps them equal.
   "packages/vite-hub/src/console/standalone-page.ts",
   "docs/app/data/brand-colors.ts",
-  "docs/app/components/content/examples/",
+  "docs/app/examples/",
 ]
 
 const ignoreDirs = new Set([".nuxt", ".output", ".vitehub", "dist", "node_modules"])

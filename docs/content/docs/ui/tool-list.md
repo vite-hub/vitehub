@@ -8,7 +8,7 @@ icon: i-lucide-wrench
 
 `ToolList` renders a list of tool contracts. Each tool shows its name, label, icon, and call count. A tool with a description or schemas expands to show them, with a table of input fields. Use it to show which tools an Agent had and which it used. The inspectors use it, and the Capability reference pages in these docs use it too.
 
-::component-preview{name="ToolListExample"}
+::example{name="ToolListExample" height=20}
 ::
 
 ## Installation
@@ -43,7 +43,7 @@ import { ToolList, type AgentToolInspection } from "@vite-hub/ui";
 
 Leave out `calls` to show the contracts only, for example for a build-time reference. MCP tools show their server and original tool name.
 
-::component-preview{name="ToolListContractsExample"}
+::example{name="ToolListContractsExample" height=16}
 ::
 
 ## Call Counts

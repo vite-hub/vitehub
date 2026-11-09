@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
-// section manifest. The default slot renders in the right column: a `::product-files` file tree, a
+// section manifest. The default slot renders in the right column: a `::code-tree` file tree, a
 // `::product-screenshot` of the Console, or an animated component such as `::cms-console-demo`.
 // The only action is Get started. The sidebar lists the other product pages.
 

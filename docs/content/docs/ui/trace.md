@@ -8,7 +8,7 @@ icon: i-lucide-route
 
 `Trace` lists the steps of an Agent turn: thoughts, searches, commands, tool calls, sources, and plan steps. Each `TraceLine` has an icon, a title, an optional description, and a status. Wrap a line in `TraceCollapsible` to show its output when the reader expands it. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Trace](https://ui.shadcn.com/docs/components/trace).
 
-::component-preview{name="TracePartsExample"}
+::example{name="TracePartsExample" height=12}
 ::
 
 ## Installation
@@ -96,14 +96,14 @@ Trace
 
 Use a `TraceLine` alone for a step with no detail to show. It reads as plain text.
 
-::component-preview{name="TraceLineExample"}
+::example{name="TraceLineExample" height=8}
 ::
 
 ## Status
 
 Set `status` on `TraceLine` when a step is running, failed, or has not started.
 
-::component-preview{name="TraceStatusExample"}
+::example{name="TraceStatusExample" height=8}
 ::
 
 | Status      | Use for                                                                       |
@@ -119,21 +119,21 @@ shadcn/ui animates a running title with a shimmer. ViteHub does not use continuo
 
 Put secondary text such as a diff stat, a duration, or a count in a `TraceDescription` after the `TraceTitle`. It does not truncate.
 
-::component-preview{name="TraceDescriptionExample"}
+::example{name="TraceDescriptionExample" height=8}
 ::
 
 ## Collapsible
 
 Wrap the line in a `TraceCollapsible` to show more detail when it expands. Put the `TraceLine` in `TraceCollapsibleTrigger` and the detail in `TraceCollapsibleContent`.
 
-::component-preview{name="TraceCollapsibleExample"}
+::example{name="TraceCollapsibleExample" height=7}
 ::
 
 ## Open State
 
 Lines start closed. Set `default-open` on `TraceCollapsible` to start open, or use `v-model:open` to control a line.
 
-::component-preview{name="TraceOpenStateExample"}
+::example{name="TraceOpenStateExample" height=15}
 ::
 
 To open a line while it streams and let the reader's click win, keep the reader's choice in a ref that starts as `undefined`, and pass `open ?? running`:
@@ -158,7 +158,7 @@ const open = ref<boolean>();
 
 Wrap the `TraceLine` in a link. For a new tab, use an arrow icon and add "(opens in a new tab)" with `sr-only`.
 
-::component-preview{name="TraceLinkExample"}
+::example{name="TraceLinkExample" height=8}
 ::
 
 ```vue
@@ -181,7 +181,7 @@ Use `NuxtLink` the same way for a route in your application.
 
 Wrap the `TraceLine` in a button and put the button in the trigger slot of a Nuxt UI `UModal`. The modal owns its open state, Escape, and focus return.
 
-::component-preview{name="TraceDialogExample"}
+::example{name="TraceDialogExample" height=8}
 ::
 
 ```vue
@@ -202,49 +202,49 @@ Wrap the `TraceLine` in a button and put the button in the trigger slot of a Nux
 
 A `USlideover` works the same way as the modal. `UPopover` and `UDrawer` also work.
 
-::component-preview{name="TraceSheetExample"}
+::example{name="TraceSheetExample" height=8}
 ::
 
 ## Group
 
 Put lines that sit next to each other in a `Trace`. It also styles any button or link that wraps a `TraceLine`.
 
-::component-preview{name="TraceGroupExample"}
+::example{name="TraceGroupExample" height=8}
 ::
 
 ## Sources
 
 A collapsible line whose detail is a `Trace` of link lines.
 
-::component-preview{name="TraceSourcesExample"}
+::example{name="TraceSourcesExample" height=8}
 ::
 
 ## Chain of Thought
 
 A chain of thought is a collapsible line with step lines inside. Set the status and the title of the parent from its children.
 
-::component-preview{name="TraceChainOfThoughtExample"}
+::example{name="TraceChainOfThoughtExample" height=12}
 ::
 
 ## Commit
 
 A commit is a collapsible line with one line for each changed file. Say what changed in the title, Added, Edited, or Deleted, and put the line counts in the description. Each file opens its diff in a [Sheet](#sheet).
 
-::component-preview{name="TraceCommitExample"}
+::example{name="TraceCommitExample" height=8}
 ::
 
 ## Whole Turn
 
 Three levels: the turn, a summary, and the lines. Text between steps sits between two `Trace` lists.
 
-::component-preview{name="TraceTurnExample"}
+::example{name="TraceTurnExample" height=18}
 ::
 
 ## Reasoning
 
 Show a `reasoning` part from the AI SDK. The line is a `TraceLine` until the first text arrives. It opens while it streams. See [Open State](#open-state). Select **Send message** to stream the example.
 
-::component-preview{name="TraceReasoningExample" reset}
+::example{name="TraceReasoningExample" reset height=24}
 ::
 
 [`MessageParts`](/docs/ui/message-parts) renders reasoning parts in this form. Write your own only when you need a different layout.
@@ -253,7 +253,7 @@ Show a `reasoning` part from the AI SDK. The line is a `TraceLine` until the fir
 
 Show tool parts from the AI SDK. Map the state of the part to the title and the status: "Ran" when the output is available, "Failed to run" for `output-error`.
 
-::component-preview{name="TraceToolExample"}
+::example{name="TraceToolExample" height=15}
 ::
 
 [`MessageParts`](/docs/ui/message-parts) renders tool parts with their input, output, and error.
@@ -323,10 +323,10 @@ const runs = computed(() => deriveTraceRuns(events.value));
 </template>
 ```
 
-::component-preview{name="TraceExample"}
+::example{name="TraceExample" height=18}
 ::
 
-::component-preview{name="TraceFailedExample"}
+::example{name="TraceFailedExample" height=18}
 ::
 
 The status shows as text beside the title, for example `Failed · 2.8 s`. A failed line uses the error color. Durations under one second show in milliseconds. An unknown status from a newer runtime shows as its own text. ViteHub Runtime derives `TraceRunView` records. Loading, filtering, authorization, and retention stay in your application.

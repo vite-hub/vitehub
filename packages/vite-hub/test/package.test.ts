@@ -134,6 +134,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
+  "@vite-hub/ui/playground",
   "@vite-hub/ui/primitive-rail",
   // The design system: surfaces import the theme and its shared parts from @vite-hub/ui directly.
   "@vite-hub/ui/theme",

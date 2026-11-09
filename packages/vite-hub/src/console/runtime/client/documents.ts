@@ -27,6 +27,9 @@ export interface ConsoleDocumentScheduled extends ConsoleDocumentSchedule {
   documents: ConsoleDocumentPublishExpectation[]
 }
 
+/** How a translation compares with its source locale document. `stale`: the source changed since it was made. */
+export type ConsoleDocumentTranslationState = "current" | "stale" | "missing"
+
 /** The draft and the site both changed this document. `published` is the site digest, or null when the site deleted it. */
 export interface ConsoleDocumentConflict {
   published: string | null
@@ -45,6 +48,8 @@ export interface ConsoleDocumentSummary {
   schedule?: ConsoleDocumentSchedule
   state: ConsoleDocumentState
   title: string
+  /** The state of each translation, by locale, in a collection with locales. */
+  translations?: Record<string, ConsoleDocumentTranslationState>
   updatedAt: string | null
 }
 
@@ -52,6 +57,8 @@ export interface ConsoleDocumentSummary {
 export interface ConsoleDocumentPublishExpectation {
   digest: string | null
   id: string
+  /** The locale of the document, in a collection with locales. Defaults to the source locale. */
+  locale?: string
 }
 
 export interface ConsoleDocumentChange extends ConsoleDocumentPublishExpectation {
@@ -79,13 +86,21 @@ export interface ConsoleDocument {
   conflict?: ConsoleDocumentConflict
   data: Record<string, unknown>
   digest: string
+  /** The requested locale has no translation yet, so this is the source locale version. Save the translation with `ifDigest: null`. */
+  fallback?: true
   id: string
   /** Field issues of a draft saved in progress. It saved, but cannot publish until they are fixed. */
   issues?: ConsoleFieldIssue[]
+  /** The locale of this version, in a collection with locales. With `fallback`, it is the source locale. */
+  locale?: string
   path: string
   revision: string
   schedule?: ConsoleDocumentSchedule
+  /** The source locale version on the draft when this was read. Save a translation made from it with `sourceDigest: source.digest`. */
+  source?: { digest: string, path: string }
   state?: ConsoleDocumentState
+  /** The state of each translation of the document, by locale, in a collection with locales. */
+  translations?: Record<string, ConsoleDocumentTranslationState>
   updatedAt: string | null
   /** Public URL path, such as `/blog/hello`, when the collection maps documents to pages. */
   url?: string | null
@@ -269,9 +284,12 @@ export interface ConsoleDocumentsClient {
   remove(collection: string, id: string, ifDigest: string, session?: string, live?: boolean): Promise<null>
   restore(collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
-  /** `session` is this tab's token, so its own edit lease does not block the save. */
-  /** `ifPublishedDigest` names the version on the site that the person compared, which resolves a `conflict`. */
-  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }): Promise<ConsoleDocument>
+  /**
+   * `session` is this tab's token, so its own edit lease does not block the save. `ifPublishedDigest` names the version
+   * on the site that the person compared, which resolves a `conflict`. `sourceDigest` names the source version that a
+   * translation was made from. Without it, an existing translation keeps the one it records.
+   */
+  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string, sourceDigest?: string }): Promise<ConsoleDocument>
   /** Publishes exactly these drafts at `at`, an ISO timestamp. A draft saved after scheduling makes the schedule fail. */
   schedule(collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentScheduled>
   /** Cancels a pending schedule, or dismisses a failed one. */
@@ -282,9 +300,16 @@ export interface ConsoleDocumentsClient {
   sessions(options?: { collection?: string, session?: string, signal?: AbortSignal }): Promise<ConsoleDocumentSessions>
 }
 
-/** Calls the owner document actions of one document editor section. */
-export function createConsoleDocumentsClient(base: string, section: string): ConsoleDocumentsClient {
-  async function call<TAction extends keyof ConsoleDocumentActionResults>(action: TAction, body: Record<string, unknown>, signal?: AbortSignal, keepalive?: boolean): Promise<ConsoleDocumentActionResults[TAction]> {
+/** The actions on one document that read or write it in the locale of a client. */
+const localizedActions: ReadonlySet<keyof ConsoleDocumentActionResults> = new Set(["get", "raw", "remove", "restore", "revisions", "save", "session"])
+
+/**
+ * Calls the owner document actions of one document editor section. With `locale`, the actions on one document read and
+ * write that locale of a collection with locales, and `publish` publishes it. `schedule` stays on the source locale.
+ */
+export function createConsoleDocumentsClient(base: string, section: string, locale?: string): ConsoleDocumentsClient {
+  async function call<TAction extends keyof ConsoleDocumentActionResults>(action: TAction, input: Record<string, unknown>, signal?: AbortSignal, keepalive?: boolean): Promise<ConsoleDocumentActionResults[TAction]> {
+    const body = locale && localizedActions.has(action) ? { ...input, locale } : input
     const options: Parameters<typeof requestConsole>[1] = { body, method: "POST", query: { action, section } }
     if (signal) options.signal = signal
     if (keepalive) options.keepalive = true
@@ -300,11 +325,11 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
     get: (collection: string, id: string, ref?: "draft" | "published") => call("get", ref === "published" ? { collection, id, ref } : { collection, id }),
     preview: (collection: string, id: string) => call("preview", { collection, id }),
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
-    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }) =>
+    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string, sourceDigest?: string }) =>
       call("save", { collection, id, ...input }),
     remove: (collection: string, id: string, ifDigest: string, session?: string, live?: boolean) => call("remove", { collection, id, ifDigest, ...(session ? { session } : {}), ...(live ? { live } : {}) }),
     publish: (collection: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
-      call("publish", { collection, expect: expect.map(({ digest, id }) => ({ digest, id })) }),
+      call("publish", { collection, expect: expect.map(({ digest, id, locale: entry = locale }) => (entry ? { digest, id, locale: entry } : { digest, id })) }),
     revisions: (collection: string, id: string, cursor?: string) =>
       call("revisions", cursor ? { collection, cursor, id } : { collection, id }),
     restore: (collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean) =>
@@ -432,6 +457,30 @@ export function stableConsoleJSON(value: unknown): string {
 
 export function consoleDocumentStateLabel(state: ConsoleDocumentState): string {
   return { changed: "Changed", deleted: "Deleted", draft: "Draft", published: "Published" }[state]
+}
+
+export function consoleTranslationLabel(state: ConsoleDocumentTranslationState): string {
+  return { current: "Up to date", missing: "Not translated", stale: "Out of date" }[state]
+}
+
+/** The translations of a list row that need work, such as `ES out of date` or `FR missing`. Up-to-date ones stay quiet. */
+export function consoleTranslationsToDo(translations: Record<string, ConsoleDocumentTranslationState> | undefined): Array<{ label: string, locale: string, tone: "neutral" | "warning" }> {
+  return Object.entries(translations ?? {}).flatMap(([locale, state]) => state === "current"
+    ? []
+    : [{ label: `${locale.toUpperCase()} ${state === "stale" ? "out of date" : "missing"}`, locale, tone: state === "stale" ? "warning" as const : "neutral" as const }])
+}
+
+const localeNames = new Intl.DisplayNames(["en"], { type: "language" })
+
+/** The English name of a locale tag, such as `Spanish` for `es`, or the tag when the browser has no name for it. */
+export function consoleLocaleName(locale: string): string {
+  try {
+    return localeNames.of(locale) ?? locale
+  }
+  catch {
+    // `of()` throws on a tag that is well-formed for Content but not for Intl, such as `en-12`.
+    return locale
+  }
 }
 
 /** "Scheduled · Oct 20, 09:00" in the browser time zone, "Overdue · …", or "Schedule failed". */

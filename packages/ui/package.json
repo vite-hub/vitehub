@@ -172,6 +172,11 @@
       "import": "./dist/patch-diff.js",
       "default": "./dist/patch-diff.js"
     },
+    "./playground": {
+      "types": "./dist/playground.d.ts",
+      "import": "./dist/playground.js",
+      "default": "./dist/playground.js"
+    },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js",

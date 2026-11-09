@@ -81,8 +81,25 @@ The workspace entries render a live app next to a docs page: a tutorial with the
 | `@vite-hub/ui/workspace-boot-status` | `WorkspaceBootStatus`, the boot checklist with live times |
 | `@vite-hub/ui/connect-panel` | `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()` |
 | `@vite-hub/ui/browser-support-notice` | `BrowserSupportNotice` |
+| `@vite-hub/ui/playground` | Share links and zips for any playground: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, `downloadZip()` |
 
 None of them is in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
+
+A share link holds the files in its URL hash, so nothing is stored on a server. Only the changes from the template go into the link, deflated and in base64url. `@vite-hub/ui/playground` has no UI and runs in browsers and in Node, so a build can write links and starter zips too.
+
+```ts
+import { decodePlaygroundLink, encodePlaygroundLink, playgroundUrl, readPlaygroundHash } from "@vite-hub/ui/playground";
+
+const kv = { id: "kv", files: { "server/api/hello.get.ts": "export default () => 'hello'\n" } };
+const files = { ...kv.files, "server/api/hello.get.ts": "export default () => 'edited'\n" };
+const code = await encodePlaygroundLink({ template: "kv", files }, kv.files);
+const url = playgroundUrl("/playground", code); // "/playground#code=…"
+
+// A malformed link, an unsafe path, or an unknown template gives undefined.
+const state = await decodePlaygroundLink(readPlaygroundHash(location.hash) ?? "", [kv]);
+```
+
+A playground without templates, such as one Markdown file, leaves `template` out. Links longer than `playgroundLinkLimit` (16,000 characters) are cut by chat apps, so offer `downloadZip()` instead.
 
 ```vue
 <script setup lang="ts">

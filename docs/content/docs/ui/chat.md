@@ -9,7 +9,7 @@ icon: i-lucide-message-circle-code
 
 `Chat` is the default Console conversation surface. It renders AI SDK `UIMessage[]` as a scrollable message log, follows a live reply while the reader is at the end, and leaves the reader in place when they scroll back through the run. Pair it with [`PromptInput`](/docs/ui/prompt-input) when the view accepts input.
 
-::component-preview{name="ChatExample"}
+::example{name="ChatExample" height=28 flush}
 ::
 
 ## Installation
@@ -91,21 +91,21 @@ The last message gets the `streaming` state while `status` is `submitted` or `st
 
 While the reply is on its way and nothing in the message shows progress, one quiet `Working` line stays under the last message: before the first part, after a message ends, and after a tool finishes. Streaming text, a running tool step, and live reasoning show their own progress, so the line goes away while they do. The line has a static dot and does not animate. Use the `status` slot to draw it yourself, or `chatActivity(messages, status)` to get the same text in a custom layout. Select **Stream a reply** and scroll up while it runs. The chat stops following, and the scroll control returns to the live edge when you use it.
 
-::component-preview{name="ChatStreamingExample" reset}
+::example{name="ChatStreamingExample" reset height=24}
 ::
 
 ## Composer and Empty State
 
 Use the `composer` slot to place a prompt under the messages. The scroll control stays above it. Show an empty state from your own template when `messages` is empty.
 
-::component-preview{name="ChatComposerExample" reset}
+::example{name="ChatComposerExample" reset height=26}
 ::
 
 ## Custom Message Layout
 
 Use the `message` slot to replace the default `ChatMessage`. The slot receives `{ message, index }`. Reuse `MessageParts` inside it to keep the default part rendering.
 
-::component-preview{name="ChatCustomMessageExample"}
+::example{name="ChatCustomMessageExample" height=18}
 ::
 
 ## Accessibility

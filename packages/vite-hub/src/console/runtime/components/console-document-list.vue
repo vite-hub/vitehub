@@ -17,6 +17,7 @@ import {
   consoleListQuery,
   consolePublishedConflicts,
   consolePublishMismatches,
+  consoleTranslationsToDo,
   parseConsoleListQuery,
   rememberConsoleListQuery,
   stableConsoleJSON,
@@ -532,6 +533,7 @@ onBeforeUnmount(() => {
               <Status v-if="item.issues" tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" />
               <Status v-if="item.conflict" tone="warning" label="Changed on the site too" />
               <Status v-if="item.schedule" :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" />
+              <Status v-for="entry in consoleTranslationsToDo(item.translations)" :key="entry.locale" :tone="entry.tone" :label="entry.label" />
             </span>
           </td>
           <td class="hidden px-2 sm:table-cell">
@@ -546,6 +548,7 @@ onBeforeUnmount(() => {
               <UTooltip v-if="item.schedule" :text="consoleDocumentScheduleHint(item.schedule, setup)" :content="{ side: 'top' }">
                 <Status :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />
               </UTooltip>
+              <Status v-for="entry in consoleTranslationsToDo(item.translations)" :key="entry.locale" :tone="entry.tone" :label="entry.label" class="text-[13px]" />
             </span>
           </td>
           <td v-if="tagField" class="hidden truncate px-2 text-[13px] text-muted lg:table-cell">{{ formatValue(item.data[tagField.name]) }}</td>

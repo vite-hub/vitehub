@@ -8,7 +8,7 @@ icon: i-lucide-code
 
 `CodeView` renders a virtualized list of files and diffs in one scroll container. `FileView` renders one syntax-highlighted file without a diff. Both use Pierre's `@pierre/diffs` views with the Nuxt UI theme. Use them to show the files an Agent read or produced next to the changes it made.
 
-::component-preview{name="CodeViewExample"}
+::example{name="CodeViewExample" height=24}
 ::
 
 ## Installation
@@ -49,7 +49,7 @@ Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A 
 
 `FileView` renders one file. Set `selectedLines` to highlight a range from application state.
 
-::component-preview{name="FileExample"}
+::example{name="FileExample" height=20}
 ::
 
 ## Accessibility
