@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
-import { docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
+import { docsPanelOf, docsRailEntries, docsRailTarget, docsStartPage, normalizeDocsPath } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
 import type { DocsRailEntry, DocsSection } from "@vite-hub/docs"
@@ -29,8 +29,11 @@ const currentPanel = computed(() => {
   const page = section?.pages.find(candidate => candidate.path === normalizeDocsPath(route.path))
   return section && page ? docsPanelOf(section, page) : null
 })
+// The item of the start section opens the start link that leads it, such as an Introduction outside every section.
+const startPage = docsStartPage(useDocsManifest(), start)
 function target(entry: DocsRailEntry) {
-  return docsRailTarget(entry.sections[0]!, currentPanel.value)
+  const opensStart = startPage && !currentPanel.value && entry.sections.some(section => section.id === start?.section)
+  return opensStart ? startPage : docsRailTarget(entry.sections[0]!, currentPanel.value)
 }
 const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
