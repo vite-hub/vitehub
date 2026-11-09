@@ -362,11 +362,12 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
   const body = cleanBody(runtime, { attachments, body: input.body, subject: input.subject, ...(metadata ? { metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
   const mentioned = await checkMentions(runtime, { body, ids: input.mentions, subject: input.subject, user, ...(options.gate ? { gate: options.gate } : {}) })
+  const author = personOf(input.author)
   const threadId = newId("thread")
   const created = await runtime.store.createThread({
     anchor: input.anchor ?? { kind: "page" },
     attachments,
-    author: personOf(input.author),
+    author,
     body,
     id: newId("message"),
     mentions: mentioned.map(person => person.id),
@@ -382,7 +383,7 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
   })
   if (created.id !== threadId) {
     // A retry: the first call stored the thread and sent its notifications. Only its author gets it back.
-    if (created.author.id !== input.author.id || (options.canRead && !(await options.canRead(created)))) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
+    if (created.author.id !== author.id || (options.canRead && !(await options.canRead(created)))) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
     return created
   }
   await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
