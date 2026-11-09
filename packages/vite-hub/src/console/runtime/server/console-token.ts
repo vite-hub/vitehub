@@ -6,10 +6,12 @@ import { consoleBearerChallenge } from "./cors.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 /**
- * The runtime secret of `console: { auth: "token" }`: the SHA-256 of each accepted token as 64 hex characters, with commas
- * between them. The server never stores a token, so reading the host env, or a pulled `.env` file, does not give a
- * working bearer. Each caller, such as a Console or the CLI in CI, can have its own token, and removing its hash revokes
- * only that caller.
+ * The runtime secret of `console: { auth: "token" }`: the SHA-256 of a token as 64 hex characters. The server never
+ * stores a token, so reading the host env, or a pulled `.env` file, does not give a working bearer.
+ *
+ * Each caller can have its own variable, `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>`, such as `_CI` for the CLI in CI and
+ * `_CONSOLE_EXAMPLE_COM` for a Console. Hosts never give a secret back, so a command can add or remove its own variable
+ * without reading the others, and removing one revokes only that caller.
  */
 export const consoleTokenHashVariable = "VITEHUB_CONSOLE_TOKEN_SHA256"
 
@@ -33,10 +35,26 @@ function rejection(status: 401 | 500, code: ConsoleDiagnosticCode, message: stri
   })
 }
 
-/** A variable from the host environment of this request: the Cloudflare `env` first, then `process.env`. */
-function readVariable(event: ConsoleRequestEvent, name: string): string | undefined {
-  const value: unknown = getStandardContext(event).runtime?.cloudflare?.env?.[name] ?? globalThis.process?.env?.[name]
+const namedTokenHashVariable = /^VITEHUB_CONSOLE_TOKEN_SHA256_[A-Z0-9_]+$/
+
+function text(value: unknown): string | undefined {
   return String(value) === value && value.trim() ? value.trim() : undefined
+}
+
+/** The host environment of this request: the Cloudflare `env`, then `process.env` for the names it does not set. */
+function requestEnv(event: ConsoleRequestEvent): Record<string, unknown> {
+  return { ...globalThis.process?.env, ...getStandardContext(event).runtime?.cloudflare?.env }
+}
+
+/** The token hash variables that are set, by name: `VITEHUB_CONSOLE_TOKEN_SHA256` and every `_<NAME>` variable. */
+function tokenHashVariables(env: Record<string, unknown>): [string, string][] {
+  return Object.keys(env)
+    .filter(name => name === consoleTokenHashVariable || namedTokenHashVariable.test(name))
+    .sort()
+    .flatMap((name) => {
+      const value = text(env[name])
+      return value ? [[name, value]] : []
+    })
 }
 
 function hexBytes(value: string): Uint8Array | undefined {
@@ -44,13 +62,12 @@ function hexBytes(value: string): Uint8Array | undefined {
   return Uint8Array.from(value.match(/../g)!, byte => Number.parseInt(byte, 16))
 }
 
-/** The digests of a stored list, or the 1-based position of the first entry that is not 64 hex characters. */
-function parseHashList(value: string): { digests: Uint8Array[] } | { invalid: number } {
-  const entries = value.split(",").map(entry => entry.trim())
+/** The digests of the variables, or the name of the first one that is not 64 hex characters. */
+function parseTokenHashes(variables: [string, string][]): { digests: Uint8Array[] } | { invalid: string } {
   const digests: Uint8Array[] = []
-  for (const [index, entry] of entries.entries()) {
-    const digest = hexBytes(entry)
-    if (!digest) return { invalid: index + 1 }
+  for (const [name, value] of variables) {
+    const digest = hexBytes(value)
+    if (!digest) return { invalid: name }
     digests.push(digest)
   }
   return { digests }
@@ -75,19 +92,21 @@ export async function consoleTokenMatchesHash(expected: readonly Uint8Array[], r
 export type ConsoleTokenCheck = { ok: true } | { ok: false, response: Response }
 
 /**
- * Check the `Authorization: Bearer` token of a request against the hashes in `VITEHUB_CONSOLE_TOKEN_SHA256`. A rejection
- * is `500` when the server has no usable list, and `401` with a Bearer challenge when the token is missing, too short,
- * or matches no hash. Cookies never count.
+ * Check the `Authorization: Bearer` token of a request against the hashes in `VITEHUB_CONSOLE_TOKEN_SHA256` and the
+ * `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>` variables. A rejection is `500` when the server has no usable hash, or one of
+ * them is malformed, and `401` with a Bearer challenge when the token is missing, too short, or matches no hash.
+ * Cookies never count.
  */
 export async function checkConsoleToken(request: Request, event: ConsoleRequestEvent): Promise<ConsoleTokenCheck> {
-  const stored = readVariable(event, consoleTokenHashVariable)
-  const list = stored ? parseHashList(stored) : undefined
+  const env = requestEnv(event)
+  const variables = tokenHashVariables(env)
+  const list = variables.length ? parseTokenHashes(variables) : undefined
   if (!list || "invalid" in list) {
     const message = list
-      ? `Entry ${list.invalid} of \`${consoleTokenHashVariable}\` is not 64 hex characters, so the server refuses every Console request. Separate several hashes with commas.`
-      : readVariable(event, rawTokenVariable)
+      ? `\`${list.invalid}\` is not 64 hex characters, so the server refuses every Console request.`
+      : text(env[rawTokenVariable])
         ? `\`${rawTokenVariable}\` is set, but the server reads only \`${consoleTokenHashVariable}\`, the SHA-256 of the token. Store the hash and remove \`${rawTokenVariable}\`.`
-        : `\`console: { auth: "token" }\` needs \`${consoleTokenHashVariable}\` in the server environment, and it is not set.`
+        : `\`console: { auth: "token" }\` needs \`${consoleTokenHashVariable}\` or a \`${consoleTokenHashVariable}_<NAME>\` variable in the server environment, and none is set.`
     return { ok: false, response: rejection(500, "CONSOLE_TOKEN_NOT_CONFIGURED", message) }
   }
   const received = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(request.headers.get("authorization") ?? "")?.[1]

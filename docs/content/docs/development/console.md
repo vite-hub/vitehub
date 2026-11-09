@@ -719,7 +719,7 @@ VITEHUB_CONSOLE_TOKEN_SHA256=<hash> node .output/server/index.mjs
 wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256
 ```
 
-Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set, or one of its entries is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
+Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When no token hash variable is set, or one of them is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
 
 The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, with the token, not the hash:
 
@@ -745,17 +745,17 @@ The token is a bearer secret: anyone who has it can use the Console. Keep it out
 
 ### Give each caller its own token
 
-`VITEHUB_CONSOLE_TOKEN_SHA256` takes several hashes with commas between them. Give each caller its own token, such as one for a Console and one for the CLI in CI. Removing one hash then revokes only that caller:
+Next to `VITEHUB_CONSOLE_TOKEN_SHA256`, the server reads every variable named `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>`, where `<NAME>` has capital letters, digits, and underscores. Give each caller its own token and its own variable, such as one for a Console and one for the CLI in CI:
 
 ```bash [Terminal]
-VITEHUB_CONSOLE_TOKEN_SHA256=<console hash>,<ci hash> node .output/server/index.mjs
+VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE=<console hash> \
+VITEHUB_CONSOLE_TOKEN_SHA256_CI=<ci hash> \
+node .output/server/index.mjs
 ```
 
-The server compares the token with every hash in the list, so the time of the check does not show which hash matched. Spaces around an entry do not count. An empty entry, or an entry that is not 64 hex characters, refuses every request with `CONSOLE_TOKEN_NOT_CONFIGURED`, and the message gives the position of the entry.
+Hosts never give a secret back, so a command can add or remove its own variable without reading the others. Removing one variable revokes only that caller. The server compares the token with every hash, so the time of the check does not show which one matched. A variable that is not 64 hex characters refuses every request with `CONSOLE_TOKEN_NOT_CONFIGURED`, and the message names it.
 
-To rotate a token with no downtime, add the hash of the new token to the list and deploy. Give the new token to the caller, then remove the old hash and deploy again. The old token stops working at once.
-
-`vitehub deploy` sets `VITEHUB_CONSOLE_TOKEN_SHA256` to one hash when `vitehub init --console` left a pending link. Hosts do not give a secret back, so it cannot add to a list that is already set. Set the list again after it.
+To rotate a token with no downtime, add a variable with the hash of the new token and deploy. Give the new token to the caller, then remove the old variable and deploy again. The old token stops working at once.
 
 The Console page on the app's own origin cannot send the token yet, so with `auth: 'token'` it opens in its signed-out state. Use the CLI, MCP, or a Console on another origin.
 

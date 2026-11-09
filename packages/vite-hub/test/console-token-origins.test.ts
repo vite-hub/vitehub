@@ -77,16 +77,35 @@ describe("console: { auth: \"token\" }", () => {
     expect((await send(request)).status).toBe(200)
   })
 
-  it("accepts each token of a comma-separated hash list, so removing one hash revokes only that caller", async () => {
+  it("accepts the token of every VITEHUB_CONSOLE_TOKEN_SHA256_<NAME> variable, so removing one revokes only that caller", async () => {
     install({ mode: "token" })
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ` ${tokenHash} ,${ciTokenHash.toUpperCase()}`)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_EXAMPLE_COM", tokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CI", ` ${ciTokenHash.toUpperCase()} `)
     expect((await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
     expect((await send(rpc({ authorization: `Bearer ${ciToken}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ciTokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE_EXAMPLE_COM", undefined)
     const revoked = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
     expect(revoked.status).toBe(401)
     await expect(revoked.json()).resolves.toMatchObject({ code: "CONSOLE_TOKEN_INVALID" })
     expect((await send(rpc({ authorization: `Bearer ${ciToken}`, [consoleRpcHeader]: "1" }))).status).toBe(200)
+  })
+
+  it("reads the named variables from the Cloudflare env of the request too", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ciTokenHash)
+    const request = Object.assign(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }), {
+      runtime: { name: "cloudflare", cloudflare: { context: { passThroughOnException: vi.fn(), waitUntil: vi.fn() }, env: { DB: {}, VITEHUB_CONSOLE_TOKEN_SHA256_CONSOLE: tokenHash } } },
+    })
+    expect((await send(request)).status).toBe(200)
+  })
+
+  it("ignores variables that only start like the name", async () => {
+    install({ mode: "token" })
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", ciTokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256X", tokenHash)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256_lower", tokenHash)
+    expect((await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))).status).toBe(401)
   })
 
   it.each([
@@ -106,12 +125,12 @@ describe("console: { auth: \"token\" }", () => {
   })
 
   it.each([
-    ["no hash is set", {}, "`VITEHUB_CONSOLE_TOKEN_SHA256` in the server environment, and it is not set"],
-    ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "it is not set"],
+    ["no hash is set", {}, "`VITEHUB_CONSOLE_TOKEN_SHA256` or a `VITEHUB_CONSOLE_TOKEN_SHA256_<NAME>` variable in the server environment, and none is set"],
+    ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "none is set"],
     ["the hash is not 64 hex characters", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash.slice(1) }, "`VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
     ["the hash has a non-hex character", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash.slice(1)}g` }, "is not 64 hex characters"],
-    ["one entry of the list is not a hash", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash},${token}` }, "Entry 2 of `VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
-    ["the list has an empty entry", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash},,${ciTokenHash}` }, "Entry 2 of"],
+    ["a named variable is not a hash", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash, VITEHUB_CONSOLE_TOKEN_SHA256_CI: token }, "`VITEHUB_CONSOLE_TOKEN_SHA256_CI` is not 64 hex characters"],
+    ["a comma list", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash},${ciTokenHash}` }, "`VITEHUB_CONSOLE_TOKEN_SHA256` is not 64 hex characters"],
     ["only the raw token is set", { VITEHUB_CONSOLE_TOKEN: token }, "`VITEHUB_CONSOLE_TOKEN` is set, but the server reads only `VITEHUB_CONSOLE_TOKEN_SHA256`"],
   ] satisfies Array<[string, Record<string, string>, string]>)("refuses every request with a diagnostic when %s", async (_name, env, message) => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
