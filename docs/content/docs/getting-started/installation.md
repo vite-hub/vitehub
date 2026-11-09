@@ -178,6 +178,7 @@ a feature before you enable it. This applies to the Vite and the Nuxt path.
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| OAuth sign-in for a Console on another origin, with `consoleMcpOAuth()` | `@vite-hub/auth better-auth @better-auth/oauth-provider @better-auth/cimd` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/decisions` | `@vite-hub/decisions` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |

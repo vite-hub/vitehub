@@ -6,13 +6,14 @@ import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { consoleMountBase } from "../console-route.ts"
 import { consoleAuthorizedSections, installedConsoleAccessPolicy, isConsoleSignInPage } from "./access-policy.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { consoleMcpReadScope, consoleMcpWriteScope, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { consoleChallenge, consoleMcpReadScope, consoleMcpWriteScope, isConsoleDataPath, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleBearerResult, type ConsoleOAuthConfig } from "./bearer.ts"
 import { checkConsoleToken } from "./console-token.ts"
+import { withListedConsoleOrigin, withResponseHeaders } from "./cors.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 
-import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationCallKind, OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -37,7 +38,10 @@ export type ConsoleAccessPolicy =
     authorize?: ConsoleAuthorize
     impersonation?: boolean
     check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>
-    /** Accept an OAuth access token, as MCP clients send it, in place of a session. See `verifyConsoleBearer()`. */
+    /**
+     * Accept an OAuth access token in place of a session: MCP clients on the MCP endpoint, and Consoles on other origins on
+     * the Console data routes. See `verifyConsoleBearer()`.
+     */
     oauth?: ConsoleOAuthConfig
     signInPage?: string
     authBasePath?: (event: ConsoleRequestEvent) => Promise<string>
@@ -55,9 +59,16 @@ export interface ConsoleAccess {
    * section id, or `"<section>:read"` for a section that the request may only read.
    */
   readonly sections: "all" | readonly string[]
-  /** The OAuth scopes of the access token; sessions have no scope limit. */
+  /** The OAuth scopes of the access token; sessions have no scope limit. See `consoleScopesAllow()`. */
   readonly scopes?: readonly string[]
   readonly user?: ConsoleUser
+  /** The verified OAuth token's login session, used only by Auth management. */
+  readonly sessionId?: string
+  /**
+   * The bearer that the access check accepted: `"token"` for `VITEHUB_CONSOLE_TOKEN`, `"oauth"` for an OAuth access token.
+   * Not set for a session, Cloudflare Access, or an open Console. Only a bearer call may come from another origin.
+   */
+  readonly via?: "oauth" | "token"
 }
 
 /**
@@ -198,26 +209,66 @@ function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRou
   throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
-function invalidConsoleBearer(state: ConsoleOAuthState): Response {
+function invalidConsoleBearer(bearer: Extract<ConsoleBearerResult, { ok: false }>): Response {
+  const parameters = { description: "The access token is not valid.", error: "invalid_token" } as const
   return markBearerRejection(Response.json({ ...consoleDiagnosticBody("CONSOLE_SIGN_IN_REQUIRED", "The access token is not valid for this endpoint, or has expired."), ok: false, status: 401 }, {
-    headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(state, { description: "The access token is not valid.", error: "invalid_token" }), "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
+    headers: { "cache-control": "no-store", "www-authenticate": bearer.audience === "mcp" ? mcpChallenge(bearer.state, parameters) : consoleChallenge(bearer.state, parameters), "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
     status: 401,
   }))
 }
 
-/** Authenticate MCP at the app Auth middleware; Auth still checks its own matching route policies. */
+/** A `401` of a Console data route, with the challenge that names the Console resource metadata. */
+async function consoleSignInRequired(oauth: ConsoleOAuthConfig, event: ConsoleRequestEvent, request: Request, response?: Response): Promise<Response> {
+  const challenge = consoleChallenge(await resolveConsoleOAuth(oauth, event, request, isConsoleDevelopmentRuntime()))
+  if (!response) {
+    return Response.json({ ...consoleDiagnosticBody("CONSOLE_SIGN_IN_REQUIRED", "Sign in, or send an OAuth access token for the Console resource."), ok: false, status: 401 }, {
+      headers: { "cache-control": "no-store", "www-authenticate": challenge, "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
+      status: 401,
+    })
+  }
+  if (response.headers.has("www-authenticate")) return response
+  return withResponseHeaders(response, headers => headers.set("www-authenticate", challenge))
+}
+
+/**
+ * Authenticate an OAuth access token at the app Auth middleware: on the MCP endpoint, and on the Console data routes.
+ * Auth still checks its own matching route policies. Generated output registers it for each of these exact paths.
+ */
 export async function resolveConsoleAppAuthIdentity(request: Request, event: object, hasSession: boolean): Promise<ConsoleUser | Response | undefined> {
   const oauth = installedConsoleOAuth()
-  if (!oauth || new URL(request.url).pathname !== oauth.path) return undefined
+  if (!oauth) return undefined
+  const mcp = new URL(request.url).pathname === oauth.path
+  if (!mcp && !isConsoleDataPath(oauth, request)) return undefined
   // SAFETY: The Auth middleware supplies the original host event (or Web Request), as the OAuth Auth factory expects.
   const hostEvent = event as ConsoleRequestEvent
   const bearer = await verifyConsoleBearer(request, hostEvent, oauth, isConsoleDevelopmentRuntime())
-  if (bearer) return bearer.ok ? bearer.user : invalidConsoleBearer(bearer.state)
+  // The app Auth middleware answers before the Console route, so a Console on a listed origin needs the CORS headers here.
+  if (bearer) return bearer.ok ? bearer.user : mcp ? invalidConsoleBearer(bearer) : withListedConsoleOrigin(invalidConsoleBearer(bearer), request)
   if (hasSession) return undefined
+  if (!mcp) return withListedConsoleOrigin(await consoleSignInRequired(oauth, hostEvent, request), request)
   const state = await resolveConsoleOAuth(oauth, hostEvent, request, isConsoleDevelopmentRuntime())
   return Response.json({ code: "CONSOLE_SIGN_IN_REQUIRED", message: "Sign in to use the MCP endpoint.", fix: "Sign in with your MCP client. It starts the OAuth flow from the resource metadata." }, {
     headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(state), "x-content-type-options": "nosniff" },
     status: 401,
+  })
+}
+
+/**
+ * Whether the OAuth scopes of the access allow one call. A `read` call, or one that only reads, needs `vitehub:read`.
+ * A `write` or `destructive` call needs `vitehub:write`. A session, the Console token, and other access without scopes
+ * have no scope limit. `console.authorize` still decides the sections.
+ */
+export function consoleScopesAllow(access: ConsoleAccess, call: OperationCallKind): boolean {
+  if (!access.scopes) return true
+  return access.scopes.includes(call.kind === "read" || call.readOnly === true ? consoleMcpReadScope : consoleMcpWriteScope)
+}
+
+/** The `403` for a call that the OAuth scopes of the access token do not allow. */
+export function consoleScopeRejection(call: OperationCallKind, name: string): Response {
+  const scope = call.kind === "read" || call.readOnly === true ? consoleMcpReadScope : consoleMcpWriteScope
+  return Response.json({ ...consoleDiagnosticBody("CONSOLE_ACCESS_DENIED", `The access token does not have the ${scope} scope, which ${name} needs.`), ok: false, status: 403 }, {
+    headers: { "cache-control": "no-store", "www-authenticate": consoleChallenge(undefined, { error: "insufficient_scope", scope }), "x-content-type-options": "nosniff" },
+    status: 403,
   })
 }
 
@@ -230,6 +281,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   let user: ConsoleUser | undefined
   let scopes: readonly string[] | undefined
+  let sessionId: string | undefined
+  let via: ConsoleAccess["via"]
   if (policy.mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
@@ -240,17 +293,20 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     // The token is the only way in. A cookie or a session never counts.
     const token = await checkConsoleToken(consoleRequest(event), event)
     if (!token.ok) return token.response
+    via = "token"
   }
   else {
     const bearer = policy.mode === "auth" && policy.oauth ? await verifyConsoleBearer(consoleRequest(event), event, policy.oauth, isConsoleDevelopmentRuntime()) : undefined
     // A token that fails is a rejection, not a fall back to the session: the client has to sign in again.
     if (bearer && !bearer.ok) {
-      return invalidConsoleBearer(bearer.state)
+      return invalidConsoleBearer(bearer)
     }
     if (bearer) {
-      // A valid access token is the sign-in. `authorize` still decides the sections, and the scopes limit the tools.
+      // A valid access token is the sign-in. `authorize` still decides the sections, and the scopes limit the calls.
       user = bearer.user
       scopes = bearer.scopes
+      sessionId = bearer.sessionId
+      via = "oauth"
       if (policy.oauth?.authorize) {
         const allowed = await policy.oauth.authorize({ request: consoleRequest(event), user })
         if (isRuntimeResponse(allowed)) return allowed
@@ -264,6 +320,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
           : "Cloudflare Access Console Auth is not configured.")
       }
       const response = await policy.check(event)
+      // A Console on another origin reads the challenge to find where to get a token.
+      if (response?.status === 401 && policy.oauth && isConsoleDataPath(policy.oauth, consoleRequest(event))) return consoleSignInRequired(policy.oauth, event, consoleRequest(event), response)
       if (response) return response
       if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
     }
@@ -284,7 +342,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       sections = allowed
     }
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(scopes ? { scopes } : {}), ...(user ? { user } : {}) })
+  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(scopes ? { scopes } : {}), ...(user ? { user } : {}), ...(sessionId ? { sessionId } : {}), ...(via ? { via } : {}) })
   if (policy.mode === "auth" && !user && policy.user) {
     // Read the user once per access, however many handlers ask for it.
     let pending: Promise<ConsoleUser | undefined> | undefined
@@ -341,9 +399,12 @@ export function consoleOperationGranted(access: ConsoleAccess, operation: AnyOpe
   return operationListed(access, operation, operation.readOnlyWhen ? undefined : operation)
 }
 
-/** Whether the access may call the operation: its section grants allow it, and an access token holds its scope. */
+/** Whether section grants and OAuth scopes offer calls of the operation. Each call checks its own kind again. */
 export function consoleOperationOffered(access: ConsoleAccess, operation: AnyOperation): boolean {
-  return consoleOperationGranted(access, operation) && (!access.scopes || access.scopes.includes(consoleOperationScope(operation)))
+  return consoleOperationGranted(access, operation) && (
+    !access.scopes || access.scopes.includes(consoleOperationScope(operation))
+    || (operation.readOnlyWhen !== undefined && access.scopes.includes(consoleMcpReadScope))
+  )
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
@@ -495,6 +556,8 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
       if (declared.write === true && !consoleAccessWrites(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      // A route that changes state needs `vitehub:write`. Other section routes check each action, as Auth management does.
+      if (declared.write === true && !consoleScopesAllow(access, { kind: "write" })) return consoleScopeRejection({ kind: "write" }, `the ${section} section`)
     }
     // A bound RPC grant may defer its user until a legacy handler asks for it.
     if (declared.user === true && !access.user) {
