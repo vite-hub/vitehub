@@ -50,7 +50,8 @@ const projects = useConsoleProjects();
 // The app session and the Console build belong to the app origin. A Console on another origin reads neither.
 const remote = isRemoteProject();
 // The embedded Console of an `auth: "token"` app keeps the token in this browser. Sign out removes it.
-const tokenSignedIn = computed(() => projects.mode === "embedded" && Boolean(projects.current.value?.token));
+// The embedded app signs out of its Console token. A hosted Console signs out of the OAuth tokens of the open project.
+const tokenSignedIn = computed(() => projects.mode === "embedded" ? Boolean(projects.current.value?.token) : Boolean(projects.current.value?.oauth));
 const projectName = computed(() => navigation.value?.projectName || projects.info.value?.name || "ViteHub");
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
@@ -91,7 +92,7 @@ const userMenuItems = computed<DropdownMenuItem[]>(() => {
   }
   if (tokenSignedIn.value) {
     if (items.length > 0) items.push({ type: "separator" });
-    items.push({ icon: "i-lucide-log-out", label: "Sign out", onSelect: signOutConsoleProject });
+    items.push({ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsoleProject() });
   }
   if (signedIn.value) {
     items.push({ type: "separator" }, {

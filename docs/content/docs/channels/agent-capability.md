@@ -41,7 +41,7 @@ const reportAgent = defineAgent({
 export default defineSchedule({
   cron: '0 15 * * 5',
   handler: async (schedule) => {
-    const [error] = await runAgent(reportAgent, { prompt: 'Write the weekly report.' }, { schedule, output: 'drained' })
+    const [error] = await runAgent(reportAgent, { prompt: 'Write the weekly report.' }, { schedule })
     if (error) throw error
     return new Response('Report sent')
   },
