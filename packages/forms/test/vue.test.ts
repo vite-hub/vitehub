@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createApp, nextTick } from "vue"
+import { createApp, h, nextTick } from "vue"
 
 import { createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
 import { AutoForm, describeFormFields } from "../src/vue.ts"
@@ -60,7 +60,7 @@ describe("AutoForm", () => {
       element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
       await vi.waitFor(async () => {
         await nextTick()
-        if (root.querySelector("button")?.hasAttribute("disabled")) throw new Error("still sending")
+        if (root.querySelector("button")?.getAttribute("aria-disabled") === "true") throw new Error("still sending")
       })
       await new Promise(resolve => setTimeout(resolve, 0))
       await nextTick()
@@ -71,27 +71,32 @@ describe("AutoForm", () => {
   it("draws labelled controls, the honeypot, and the submit button", async () => {
     const { root } = await mount()
     expect([...root.querySelectorAll("label")].map(label => label.textContent)).toEqual(["Email", "Topic", "Your message", " Newsletter"])
-    expect(root.querySelector("#vitehub-form-contact-email")?.getAttribute("type")).toBe("email")
-    expect(root.querySelector("#vitehub-form-contact-message")?.tagName).toBe("TEXTAREA")
-    expect(root.querySelector("#vitehub-form-contact-message")?.getAttribute("aria-describedby")).toBe("vitehub-form-contact-message-help")
+    expect(root.querySelector("[data-field=email] :is(input, select, textarea)")?.getAttribute("type")).toBe("email")
+    expect(root.querySelector("[data-field=message] :is(input, select, textarea)")?.tagName).toBe("TEXTAREA")
+    const message = root.querySelector("[data-field=message] :is(input, select, textarea)")!
+    expect(root.querySelector(`#${message.getAttribute("aria-describedby")}`)?.textContent).toBe("A few lines is plenty.")
+    // Without JavaScript, or before it loads, the form posts to its route.
+    expect([root.querySelector("form")?.getAttribute("method"), root.querySelector("form")?.getAttribute("action")]).toEqual(["post", "/api/_vitehub/forms/contact"])
+    // The live region is there before the message, so screen readers announce it.
+    expect(root.querySelector("[role=status]")?.textContent).toBe("")
     expect(root.querySelector("input[name=website]")?.getAttribute("tabindex")).toBe("-1")
     expect(root.querySelector("button[type=submit]")?.textContent).toBe("Send")
   })
 
   it("shows client errors under each field and sends nothing", async () => {
     const { root, store, submit, type } = await mount()
-    await type("#vitehub-form-contact-email", "nope")
+    await type("[data-field=email] :is(input, select, textarea)", "nope")
     await submit()
     expect(root.querySelector("[data-field=email] [data-error]")?.textContent).toBe("Enter a valid email.")
-    expect(root.querySelector("#vitehub-form-contact-email")?.getAttribute("aria-invalid")).toBe("true")
+    expect(root.querySelector("[data-field=email] :is(input, select, textarea)")?.getAttribute("aria-invalid")).toBe("true")
     expect(await store.list()).toEqual([])
   })
 
   it("sends valid values, stores them, and shows the sent message", async () => {
     const { root, store, sent, submit, type } = await mount()
-    await type("#vitehub-form-contact-email", "ada@example.com")
-    await type("#vitehub-form-contact-topic", "1")
-    await type("#vitehub-form-contact-message", "Add dark mode.")
+    await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
+    await type("[data-field=topic] :is(input, select, textarea)", "idea")
+    await type("[data-field=message] :is(input, select, textarea)", "Add dark mode.")
     await submit()
     expect((await store.list()).map(row => row.data)).toEqual([{ email: "ada@example.com", topic: "idea", message: "Add dark mode." }])
     expect(root.querySelector("[data-sent]")?.textContent).toBe("Thanks. Your message was sent.")
@@ -106,22 +111,46 @@ describe("AutoForm", () => {
       terms: v.boolean(),
     })
     const { root, store, submit, type } = await mount(schema, schema)
-    await type("#vitehub-form-contact-age", "42")
-    await type("#vitehub-form-contact-count", "1")
+    await type("[data-field=age] :is(input, select, textarea)", "42")
+    await type("[data-field=count] :is(input, select, textarea)", "2")
     await submit()
     expect(root.querySelector("[data-error]")).toBeNull()
     expect((await store.list()).map(row => row.data)).toEqual([{ age: 42, count: 2, terms: false }])
+  })
+
+  it("keeps the labels of two forms with one name apart", async () => {
+    // One app with the form twice, such as in the footer and in a dialog.
+    const root = document.createElement("div")
+    document.body.append(root)
+    createApp({ render: () => [h(AutoForm, { name: "contact", schema: ContactSchema }), h(AutoForm, { name: "contact", schema: ContactSchema })] }).mount(root)
+    await nextTick()
+    const inputs = [...root.querySelectorAll<HTMLInputElement>("[data-field=email] input")]
+    expect(new Set(inputs.map(input => input.id)).size).toBe(2)
+    expect(root.querySelector(`label[for="${inputs[1]!.id}"]`)?.textContent).toBe("Email")
+  })
+
+  it("lets an optional select go back to empty and reads metadata around v.optional()", async () => {
+    const schema = v.object({
+      size: v.optional(v.picklist(["s", "l"])),
+      name: v.pipe(v.optional(v.string()), v.title("Your full name"), v.description("Use your legal name.")),
+    })
+    expect(describeFormFields(schema)[1]).toMatchObject({ label: "Your full name", description: "Use your legal name.", required: false })
+    const { root } = await mount(schema, schema)
+    expect(root.querySelector<HTMLOptionElement>("[data-field=size] option[value='']")?.disabled).toBe(false)
+    expect(root.querySelector<HTMLOptionElement>("[data-field=topic] option[value='']")).toBeNull()
   })
 
   it("puts a server issue under its field", async () => {
     // The server is stricter than the client, as when a server rule changes first.
     const strict = v.object({ ...ContactSchema.entries, message: v.pipe(v.string(), v.minLength(50, "Tell us more on the server.")) })
     const { root, store, submit, type } = await mount(strict)
-    await type("#vitehub-form-contact-email", "ada@example.com")
-    await type("#vitehub-form-contact-topic", "0")
-    await type("#vitehub-form-contact-message", "Short but valid here.")
+    await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
+    await type("[data-field=topic] :is(input, select, textarea)", "bug")
+    await type("[data-field=message] :is(input, select, textarea)", "Short but valid here.")
     await submit()
     expect(root.querySelector("[data-field=message] [data-error]")?.textContent).toBe("Tell us more on the server.")
+    // Focus moves to the field, as with a client error.
+    expect(document.activeElement).toBe(root.querySelector("[data-field=message] textarea"))
     expect(await store.list()).toEqual([])
   })
 })

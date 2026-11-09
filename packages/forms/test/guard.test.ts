@@ -29,12 +29,14 @@ describe("guardRequest", () => {
   it("runs the app check before the rate limit and the body", async () => {
     const rateLimit = vi.fn(async () => ({ allowed: true }))
     const request = post({ body: "Hi" })
-    // The check may read the body, since the guard reads it only after the check.
-    const check = vi.fn(async (incoming: Request) => (await incoming.clone().json()).body === "Hi" ? { status: 401, message: "Sign in." } : undefined)
+    // The check gets a copy, so it may read the body and the guard still reads it.
+    const check = vi.fn(async (incoming: Request) => (await incoming.json()).body === "Hi" ? { status: 401, message: "Sign in." } : undefined)
     const [stopped] = await guardRequest(request, { key: "comments:create", check }, { rateLimit })
     expect(stopped?.status).toBe(401)
     expect(await stopped?.json()).toEqual({ message: "Sign in." })
     expect(rateLimit).not.toHaveBeenCalled()
+    const [passed, guarded] = await guardRequest(post({ body: "Yo" }), { key: "comments:create", check }, { rateLimit })
+    expect([passed, guarded?.body]).toEqual([undefined, { body: "Yo" }])
     // A browser form without JavaScript goes back to its page.
     const html = new Request(`${origin}/api/_vitehub/forms/contact`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html", origin, referer: `${origin}/pricing` }, body: "message=Hi" })
     const [back] = await guardRequest(html, { key: "form:contact", check: () => ({ status: 403, message: "No." }) })
