@@ -8,6 +8,7 @@
 export const containerBrokerAddon = String.raw`
 import base64
 import binascii
+import ipaddress
 import json
 import os
 import re
@@ -23,6 +24,21 @@ def log(event, **fields):
 
 def normalize(host):
     return (host or "").lower().rstrip(".")
+
+
+def authority_host(value):
+    value = (value or "").strip()
+    if value.startswith("["):
+        return normalize(value[1:value.find("]")])
+    return normalize(value.rpartition(":")[0] if value.count(":") == 1 else value)
+
+
+def is_ip(host):
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
 
 
 def host_matches(pattern, host, port):
@@ -85,6 +101,14 @@ class Broker:
         host = normalize(request.host)
         port = request.port
         try:
+            # The TLS server name and the Host header pick the upstream site on shared hosting.
+            # Both must name the CONNECT target, or a request could reach another site there.
+            # Clients send no server name for an IP address.
+            sni = flow.client_conn.sni
+            if request.scheme == "https" and normalize(sni) != host and not (sni is None and is_ip(host)):
+                raise Blocked("SANDBOX_BROKER_B007", "The TLS server name does not match the host %s." % host)
+            if request.host_header is not None and authority_host(request.host_header) != host:
+                raise Blocked("SANDBOX_BROKER_B007", "The Host header does not match the host %s." % host)
             if not self.allowed(host, port):
                 raise Blocked("SANDBOX_BROKER_B001", "Host %s is not on the Sandbox egress allowlist." % host)
             if PLACEHOLDER.search(request.url):

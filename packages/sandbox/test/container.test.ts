@@ -141,6 +141,17 @@ describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
     }
   });
 
+  it("allows an HTTPS IP address without a server name", { timeout: 120_000 }, async () => {
+    const session = await (await resolveSandbox({ runtime: { egress: { allow: ["1.1.1.1"] }, image, kind: "container" } }, {})).open();
+    try {
+      const result = await session.exec("sh", ["-c", "curl -sS -o /dev/null -w '%{http_code}' https://1.1.1.1/"]);
+      expect(result.stdout).not.toBe("403");
+      expect(result.stdout).toMatch(/^[23]\d\d$/);
+    } finally {
+      await session.close();
+    }
+  });
+
   it("brokers egress and credentials", { timeout: 180_000 }, async () => {
     const session = await (await resolveSandbox({
       runtime: {
@@ -160,6 +171,11 @@ describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
       const denied = await session.exec("sh", ["-c", "curl -sS -o /dev/null -w '%{http_code}' https://example.com; true"]);
       expect(`${denied.stdout}${denied.stderr}`).toContain("403");
 
+      const host = await session.exec("sh", ["-c", "curl -sS -o /dev/null -w '%{http_code}' -H 'Host: example.com' -H \"Authorization: Bearer $NPM_TOKEN\" https://registry.npmjs.org/vite-hub"]);
+      expect(host.stdout).toBe("403");
+      const sni = await session.exec("sh", ["-c", "printf 'GET / HTTP/1.1\\r\\nHost: registry.npmjs.org\\r\\nConnection: close\\r\\n\\r\\n' | openssl s_client -quiet -proxy vitehub-broker:8080 -connect registry.npmjs.org:443 -servername example.com -CAfile /vitehub/broker-ca.pem 2>/dev/null | head -1"]);
+      expect(sni.stdout).toContain("403");
+
       const fetched = await session.exec("node", ["-e", "fetch('https://registry.npmjs.org/vite-hub').then(r => console.log(r.status))"]);
       expect(fetched.stdout.trim()).toBe("200");
 
@@ -174,10 +190,11 @@ describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
       expect(await new Response(child.stdout).text()).toBe("ping");
       expect((await child.wait()).code).toBe(0);
 
-      const sleeper = await session.spawn!("sh", ["-c", "sleep 300"]);
+      const sleeper = await session.spawn!("sh", ["-c", "sleep 301; true"]);
       await new Promise(resolve => setTimeout(resolve, 500));
       await sleeper.kill();
       expect((await sleeper.wait()).code).not.toBe(0);
+      expect((await session.exec("sh", ["-c", "ps -eo args | grep -c '[s]leep 301' || true"])).stdout.trim()).toBe("0");
     } finally {
       await session.close();
     }
