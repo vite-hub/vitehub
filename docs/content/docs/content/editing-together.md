@@ -140,15 +140,56 @@ Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` 
 
 Where Realtime runs, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: 'node',
-  console: { auth: 'app' },
-  realtime: { authority: 'memory' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    console: { auth: 'app' },
+    realtime: { authority: 'memory' },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      console: { auth: 'app' },
+      realtime: { authority: 'memory' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      console: { auth: 'app' },
+      realtime: { authority: 'memory' },
+    }),
+  ],
+})
+```
+:::
+::
 
 `vite dev` uses the memory authority without the option. A Node build needs `authority: 'memory'` (one server process), and a Cloudflare build uses Durable Objects. On Vercel, Netlify, and Deno there is no room authority: the build succeeds and Content keeps one editor at a time, as described above. Set `defineContent({ live: false })` to keep one editor at a time everywhere.
 
