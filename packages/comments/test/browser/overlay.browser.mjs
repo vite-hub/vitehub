@@ -126,5 +126,20 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
 
+  await t.test("a drag past the end of a short page draws no area that would be cut", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
+    const box = await page.locator("#second").boundingBox()
+    const body = await page.locator("body").boundingBox()
+    assert.ok(body.y + body.height < 680, "the test page ends above the drag")
+    // Away from the pin of the area above.
+    await drag(page, { x: box.x + 300, y: box.y + 4 }, { x: box.x + 500, y: 680 })
+    await page.waitForTimeout(300)
+    assert.equal(await composer.count(), 0)
+    assert.equal((await api.threads()).length, 2)
+  })
+
   assert.deepEqual(errors, [])
 })

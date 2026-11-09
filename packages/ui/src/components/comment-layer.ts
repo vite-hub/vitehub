@@ -22,7 +22,8 @@ const minimumArea = 8;
 type Box = { left: number; top: number; width: number; height: number };
 
 // The element of the page that holds the whole box: the innermost one under its center whose box contains it. The
-// comment UI, the shadow hosts of the page tools, and the root are not the page.
+// comment UI, the shadow hosts of the page tools, and the root are not the page. Without such an element there is no
+// container: an anchor on a smaller element would cut the box.
 function containerOf(box: Box): Element | undefined {
   const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
   const under = document.elementsFromPoint(center.x, center.y).find((element) => !element.closest("[data-comments-ui]") && !element.localName.startsWith("vitehub-") && element !== document.documentElement);
@@ -30,7 +31,7 @@ function containerOf(box: Box): Element | undefined {
     const rect = element.getBoundingClientRect();
     if (rect.left <= box.left + 1 && rect.top <= box.top + 1 && rect.right >= box.left + box.width - 1 && rect.bottom >= box.top + box.height - 1) return element;
   }
-  return document.body ?? undefined;
+  return undefined;
 }
 
 // The overlay of a page: pins on the spots that threads point at, the hover preview, the open thread, and the composer of
