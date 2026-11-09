@@ -213,6 +213,11 @@
       "import": "./dist/runtime/page-tools.js",
       "default": "./dist/runtime/page-tools.js"
     },
+    "./runtime/page-links": {
+      "types": "./dist/runtime/page-links.d.ts",
+      "import": "./dist/runtime/page-links.js",
+      "default": "./dist/runtime/page-links.js"
+    },
     "./runtime/page-pill": {
       "types": "./dist/runtime/page-pill.d.ts",
       "import": "./dist/runtime/page-pill.js",

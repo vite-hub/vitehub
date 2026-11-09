@@ -333,7 +333,7 @@ describe("framework package contract", () => {
       .toEqual(["@vite-hub/internal/build/included-nitro"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
-      .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
+      .toEqual(["@vite-hub/internal/runtime/page-links", "@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
     expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
     expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
