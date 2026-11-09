@@ -1,9 +1,7 @@
-import { Validator } from "@cfworker/json-schema"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
 import { consoleRequestText } from "./request.ts"
 
-import type { Schema } from "@cfworker/json-schema"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 
 /** MCP revisions that this server answers, newest first. It speaks the stateless JSON subset of Streamable HTTP. */
@@ -20,8 +18,8 @@ export interface McpToolResult {
 export interface McpTool extends Pick<ViteHubMcpTool, "name" | "title" | "description" | "annotations"> {
   /** The JSON Schema of the arguments, an object schema. */
   inputSchema: object
-  /** The handler checks the input with its own schema, which names the fields to fix, so the JSON Schema check is skipped. */
-  checksInput?: boolean
+  /** What is wrong with the arguments, or `undefined` when they fit. Without it, the handler checks them itself. */
+  checkInput?: (input: Record<string, unknown>) => string | undefined
   /** The largest `tools/call` request for this tool, in bytes. Without it, the server limit applies. */
   maxRequestBytes?: number
   /** The OAuth scopes that a call needs. A caller without them does not see the tool. */
@@ -44,7 +42,6 @@ type JsonRpcId = string | number | null
 
 const maximumBodyBytes = 2 * 1_024 * 1_024
 const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" }
-const validators = new WeakMap<object, Validator>()
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : undefined
@@ -56,15 +53,6 @@ function reply(id: JsonRpcId, result: unknown): Response {
 
 function rpcError(id: JsonRpcId, code: number, message: string, status = 200): Response {
   return Response.json({ jsonrpc: "2.0", id, error: { code, message } }, { headers, status })
-}
-
-/** The schema errors of `input`, or nothing when it is valid. Each schema compiles once. */
-function invalidInput(tool: McpTool, input: Record<string, unknown>): string | undefined {
-  let validator = validators.get(tool.inputSchema)
-  // SAFETY: The owner of a tool declares its arguments as a JSON Schema.
-  if (!validator) validators.set(tool.inputSchema, validator = new Validator(tool.inputSchema as Schema, "2020-12"))
-  const validation = validator.validate(input)
-  return validation.valid ? undefined : `Invalid arguments for ${tool.name}: ${validation.errors.map(error => error.error).join("; ")}`
 }
 
 function missingScopes(server: McpServer, tool: McpTool): string[] {
@@ -153,7 +141,8 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
       }
       const input = params.arguments === undefined ? {} : record(params.arguments)
       if (!input) return rpcError(id, -32602, `Invalid arguments for ${tool.name}: expected an object.`)
-      const invalid = tool.checksInput ? undefined : invalidInput(tool, input)
+      const problem = tool.checkInput?.(input)
+      const invalid = problem && `Invalid arguments for ${tool.name}: ${problem}`
       // Since 2025-11-25 (SEP-1303), a bad argument is a tool error, so the Agent reads it and calls again.
       if (invalid) return version === "2025-11-25" ? reply(id, { content: [{ type: "text", text: invalid }], isError: true }) : rpcError(id, -32602, invalid)
       return reply(id, await tool.handler(input))

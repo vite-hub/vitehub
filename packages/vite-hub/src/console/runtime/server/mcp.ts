@@ -1,6 +1,6 @@
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
-import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { checkViteHubMcpInput, getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
 import { isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
@@ -70,7 +70,6 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
         description: operation.description,
         inputSchema,
         annotations: { readOnlyHint: operation.kind === "read", destructiveHint: operation.kind === "destructive", openWorldHint: false },
-        checksInput: true,
         maxRequestBytes: operation.maxRequestBytes ?? defaultRequestBytes,
         scopes: [consoleOperationScope(operation)],
         async handler(arguments_) {
@@ -121,6 +120,7 @@ function registeredTools({ access, event }: ToolContext, tools: readonly ViteHub
       description: tool.description,
       inputSchema: tool.inputSchema,
       annotations: tool.annotations,
+      checkInput: input => checkViteHubMcpInput(tool.inputSchema, input),
       maxRequestBytes: registeredToolRequestBytes,
       scopes: [consoleOperationScope({ kind: tool.annotations?.readOnlyHint === true ? "read" : "write" })],
       async handler(input) {
