@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { consoleTimeOfDay } from "../client/format";
 import { Time, today } from "@internationalized/date";
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from "vue";
 import { AvatarStack, ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel, CopyButton, Status, useCopy } from "@vite-hub/ui";
@@ -40,7 +41,7 @@ import {
 import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
 import { isRemoteProject, projectConsoleUrl } from "../client/project";
-import { consoleClockTime, consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
+import { consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
@@ -63,6 +64,7 @@ import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevisio
 import type { ConsoleDocumentSetup } from "../definitions";
 import type { ConsoleLivePerson, ConsoleLiveReset } from "../client/live";
 import type { ConsoleLocalVersion, ConsolePreviewView, ConsolePreviewViewport } from "../client/preview";
+import ConsoleConfirm from "./console-confirm.vue";
 
 /**
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
@@ -370,7 +372,7 @@ const leaseBanner = computed<{ icon: string, text: string } | undefined>(() => {
     return { icon: "i-lucide-lock", text: name === "You" ? "Read-only · You're editing this in another tab" : `Read-only · ${name} is editing` };
   }
   if (leaseMode.value === "taken") {
-    const savedTime = consoleClockTime(savedAt.value ?? base.value?.updatedAt);
+    const savedTime = consoleTimeOfDay(savedAt.value ?? base.value?.updatedAt);
     const by = name === "You" ? "Your other tab took over" : `${name} took over`;
     return { icon: "i-lucide-user-round-pen", text: savedTime ? `${by} · Your changes up to ${savedTime} are saved` : by };
   }
@@ -2071,7 +2073,6 @@ const menuItems = computed(() => [[
           v-if="local"
           class="mb-6"
           color="warning"
-          variant="subtle"
           icon="i-lucide-laptop"
           title="Local only"
           role="status"
@@ -2505,7 +2506,7 @@ const menuItems = computed(() => [[
     @update:open="(open) => { if (!open) openReadOnly() }"
   >
     <template v-if="leaseHolder?.since || liveUnavailableReason" #body>
-      <p v-if="leaseHolder?.since" class="text-[13px] text-muted tabular-nums">{{ holderLive ? "Live since" : "Editing since" }} {{ consoleClockTime(leaseHolder.since) }}</p>
+      <p v-if="leaseHolder?.since" class="text-[13px] text-muted tabular-nums">{{ holderLive ? "Live since" : "Editing since" }} {{ consoleTimeOfDay(leaseHolder.since) }}</p>
       <p v-if="liveUnavailableReason && !holderLive" class="mt-1 text-xs text-dimmed">{{ consoleLiveUnavailable }}</p>
     </template>
     <template #footer>
@@ -2560,14 +2561,15 @@ const menuItems = computed(() => [[
     </template>
   </UModal>
 
-  <UModal v-model:open="deleteOpen" :title="`Delete this ${noun.toLowerCase()}?`" :description="`${title} is removed from the draft. It stays on the published site until you publish the deletion, and History can restore it.`">
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton variant="ghost" label="Cancel" @click="deleteOpen = false" />
-        <UButton color="error" label="Delete" :loading="deleting" @click="remove" />
-      </div>
-    </template>
-  </UModal>
+  <ConsoleConfirm
+    v-model:open="deleteOpen"
+    :title="`Delete this ${noun.toLowerCase()}?`"
+    :description="`${title} is removed from the draft. It stays on the published site until you publish the deletion, and History can restore it.`"
+    confirm-label="Delete"
+    destructive
+    :loading="deleting"
+    @confirm="remove"
+  />
 
   <USlideover v-model:open="historyOpen" title="History" :description="`Saves and publishes of ${id}`" :ui="{ content: 'sm:max-w-xl', footer: 'justify-end' }">
     <template #body>

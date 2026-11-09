@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { consoleNumber } from "../client/format";
 import { Status } from "@vite-hub/ui";
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import * as v from "valibot";
@@ -30,6 +31,8 @@ import {
   type ConsoleUsageChartPoint,
   type ConsoleUsageMetric as UsageMetric,
 } from "./console-usage-model";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 type UsageBreakdown = "model" | "time";
 type UsageSection = "overview" | "sessions" | "accounts";
@@ -264,7 +267,7 @@ const totals = computed(() => {
   const value = summary.value;
   if (!value) return [];
   const items = [
-    { label: "Sessions", text: `${value.sessionCount.toLocaleString("en")}${value.totals.invocationsAvailable ? "" : " recorded"}` },
+    { label: "Sessions", text: `${consoleNumber(value.sessionCount)}${value.totals.invocationsAvailable ? "" : " recorded"}` },
     { label: "Tokens", text: formatTokenEvidence(value.totals.totalTokens, value.totals.totalTokensAvailable) },
   ];
   if (costSupported.value) {
@@ -274,8 +277,8 @@ const totals = computed(() => {
     );
   }
   return items.map(({ label, text }) => ({
+    hint: text.endsWith(" recorded") ? "recorded" : undefined,
     label,
-    note: text.endsWith(" recorded") ? "recorded" : undefined,
     value: text.replace(/ recorded$/, ""),
   }));
 });
@@ -297,14 +300,13 @@ function runRoute(run: { id: string; agent: string }) {
   } catch { return undefined; }
 }
 
-const historyHeading = useTemplateRef<HTMLElement>("historyHeading");
+const historySection = useTemplateRef<InstanceType<typeof ConsoleSection>>("historySection");
 // The page buttons are disabled while a page loads, so focus moves to the heading at the start of the new rows.
 async function showHistoryPage(page: Promise<void>): Promise<void> {
   await page;
   if (error.value) return;
   await nextTick();
-  historyHeading.value?.scrollIntoView({ block: "start" });
-  historyHeading.value?.focus({ preventScroll: true });
+  historySection.value?.focus();
 }
 function nextRuns() {
   if (loading.value || !summary.value?.cursor) return;
@@ -357,11 +359,11 @@ const tokenTypeStats = computed(() => {
   const totals = summary.value?.totals;
   if (!totals) return [];
   return [
-    { label: "Input", note: "Including cache", value: totals.inputTokens, available: totals.inputTokensAvailable },
-    { label: "Cached input", value: totals.cachedInputTokens, available: totals.cachedInputTokensAvailable },
-    { label: "Cache writes", value: totals.cacheWriteTokens, available: totals.cacheWriteTokensAvailable },
-    { label: "Output", value: totals.outputTokens, available: totals.outputTokensAvailable },
-    { label: "Reasoning", note: "Included in output", value: totals.reasoningTokens, available: totals.reasoningTokensAvailable },
+    { label: "Input", hint: "Including cache", value: formatTokenEvidence(totals.inputTokens, totals.inputTokensAvailable) },
+    { label: "Cached input", value: formatTokenEvidence(totals.cachedInputTokens, totals.cachedInputTokensAvailable) },
+    { label: "Cache writes", value: formatTokenEvidence(totals.cacheWriteTokens, totals.cacheWriteTokensAvailable) },
+    { label: "Output", value: formatTokenEvidence(totals.outputTokens, totals.outputTokensAvailable) },
+    { label: "Reasoning", hint: "Included in output", value: formatTokenEvidence(totals.reasoningTokens, totals.reasoningTokensAvailable) },
   ];
 });
 // Agents first, then models. The kind label tells the two apart in one list.
@@ -473,7 +475,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 </script>
 
 <template>
-  <UDashboardPanel id="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
+  <UDashboardPanel id="console-usage">
     <template #header>
       <UDashboardNavbar title="Usage" :toggle="false" :ui="{ root: 'border-b border-default' }">
         <template #right>
@@ -497,15 +499,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           Some usage is unavailable. Recorded totals include only the evidence received.
         </p>
         <template v-if="summary">
-          <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-default bg-(--ui-border)" :class="costSupported ? 'sm:grid-cols-4' : 'sm:grid-cols-2'" aria-label="Session history totals">
-            <div v-for="total in totals" :key="total.label" class="bg-default px-4 py-3">
-              <dt class="text-xs text-muted">{{ total.label }}</dt>
-              <dd class="mt-1 flex items-baseline gap-1.5 tabular-nums">
-                <span class="text-lg font-semibold text-highlighted">{{ total.value }}</span>
-                <span v-if="total.note" class="text-xs text-muted">{{ total.note }}</span>
-              </dd>
-            </div>
-          </dl>
+          <ConsoleStatGrid :items="totals" size="lg" framed :columns="costSupported ? 4 : 2" label="Session history totals" />
         </template>
         <p v-else-if="loading" class="py-5 text-sm text-muted" role="status">Loading session history…</p>
         <UTabs
@@ -517,17 +511,13 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           <template #overview>
             <UEmpty v-if="summary && !summary.available && summary.totals.invocationsAvailable" v-bind="emptyState" variant="naked" />
             <div v-if="summary?.available" class="mt-3 flex flex-col gap-8">
-              <section class="flex flex-col gap-4">
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 class="text-sm font-semibold">{{ chartTitle }}</h2>
-                    <p class="mt-0.5 text-xs text-muted">
-                      {{ formatPeriod(summary.from, summary.resolution) }} to {{ formatPeriod(summary.to, summary.resolution) }} UTC
-                      <Status v-if="partialChart" class="ms-2 text-default" tone="warning" label="Partial points" />
-                    </p>
-                  </div>
+              <ConsoleSection :title="chartTitle" :description="`${formatPeriod(summary.from, summary.resolution)} to ${formatPeriod(summary.to, summary.resolution)} UTC`">
+                <template v-if="partialChart" #title>
+                  <Status class="font-normal text-default" tone="warning" label="Partial points" />
+                </template>
+                <template #actions>
                   <UTabs v-model="metric" :items="metricOptions" :content="false" aria-label="Usage metric" />
-                </div>
+                </template>
                 <ConsoleUsageChart
                   :points="chartPoints"
                   :format="formatMetricNumber"
@@ -548,7 +538,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     />
                   </template>
                 </ConsoleUsageChart>
-              </section>
+              </ConsoleSection>
 
               <!-- The bar splits input into uncached, cache read, and cache write. Without a consistent split, the totals per type show instead. -->
               <section v-if="tokenSegments?.segments.length && summary.totals.totalTokens > 0" aria-label="Usage mix" class="flex flex-col gap-2">
@@ -566,22 +556,14 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   Output includes {{ formatTokenEvidence(summary.totals.reasoningTokens, summary.totals.reasoningTokensAvailable) }} reasoning tokens.
                 </p>
               </section>
-              <section v-else aria-labelledby="usage-token-types-heading" class="flex flex-col gap-3">
-                <h2 id="usage-token-types-heading" class="text-sm font-semibold">Tokens by type</h2>
-                <dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
-                  <div v-for="stat in tokenTypeStats" :key="stat.label">
-                    <dt class="text-xs text-muted">{{ stat.label }}</dt>
-                    <dd class="mt-1 font-semibold tabular-nums">{{ formatTokenEvidence(stat.value, stat.available) }}</dd>
-                    <dd v-if="stat.note" class="mt-0.5 text-xs text-muted">{{ stat.note }}</dd>
-                  </div>
-                </dl>
-              </section>
+              <ConsoleSection v-else title="Tokens by type">
+                <ConsoleStatGrid :items="tokenTypeStats" :columns="5" label="Tokens by type" />
+              </ConsoleSection>
 
-              <section class="flex flex-col gap-3">
-                <div class="flex items-center justify-between gap-3">
-                  <h2 class="text-sm font-semibold">Breakdown</h2>
+              <ConsoleSection title="Breakdown">
+                <template #actions>
                   <UTabs v-model="breakdown" :items="breakdownOptions" :content="false" aria-label="Usage breakdown" />
-                </div>
+                </template>
                 <div class="overflow-x-auto rounded-lg border border-default">
                   <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-xl text-xs" data-slot="usage-model-breakdown">
                     <thead class="bg-elevated/30 text-left text-muted">
@@ -641,16 +623,13 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     </tbody>
                   </table>
                 </div>
-              </section>
+              </ConsoleSection>
 
-              <section v-if="costSupported && summary.totals.pricedInvocations" class="flex flex-col gap-3">
-                <div>
-                  <h2 class="text-sm font-semibold">Average cost per session</h2>
-                  <p class="mt-0.5 text-xs text-muted">
-                    {{ summary.totals.pricedInvocations }} of {{ summary.totals.invocations }} sessions have
-                    cost evidence. Averages use priced sessions. ~ indicates estimated cost.
-                  </p>
-                </div>
+              <ConsoleSection
+                v-if="costSupported && summary.totals.pricedInvocations"
+                title="Average cost per session"
+                :description="`${summary.totals.pricedInvocations} of ${summary.totals.invocations} sessions have cost evidence. Averages use priced sessions. ~ indicates estimated cost.`"
+              >
                 <div class="overflow-x-auto rounded-lg border border-default">
                   <table class="w-full min-w-lg text-xs">
                     <thead class="bg-elevated/30 text-left text-muted">
@@ -671,13 +650,9 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     </tbody>
                   </table>
                 </div>
-              </section>
+              </ConsoleSection>
 
-              <section v-if="costSupported && summary.expensive.length" class="flex flex-col gap-3">
-                <div class="flex items-baseline justify-between gap-3">
-                  <h2 class="text-sm font-semibold">Most expensive sessions</h2>
-                  <span class="text-xs text-muted">Top 10 with cost evidence</span>
-                </div>
+              <ConsoleSection v-if="costSupported && summary.expensive.length" title="Most expensive sessions" description="Top 10 with cost evidence">
                 <div class="overflow-x-auto rounded-lg border border-default">
                   <table class="w-full min-w-xl text-xs">
                     <thead class="bg-elevated/30 text-left text-muted">
@@ -707,15 +682,11 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     </tbody>
                   </table>
                 </div>
-              </section>
+              </ConsoleSection>
             </div>
           </template>
           <template #sessions>
-            <section v-if="summary" aria-labelledby="session-history-heading">
-              <div class="mb-3 flex items-baseline justify-between gap-3">
-                <h2 id="session-history-heading" ref="historyHeading" class="scroll-mt-4 text-sm font-semibold outline-none" tabindex="-1">Session history</h2>
-                <span class="text-xs text-muted">Newest first</span>
-              </div>
+            <ConsoleSection v-if="summary" ref="historySection" focusable heading-id="session-history-heading" title="Session history" description="Newest first">
               <div v-if="summary.sessions.length" class="overflow-x-auto rounded-lg border border-default">
                 <table class="w-full min-w-[42rem] table-fixed text-xs" data-slot="session-history">
                   <thead class="bg-elevated/30 text-left text-muted">
@@ -752,12 +723,10 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   <UButton label="Next" aria-label="Next history page" variant="ghost" size="xs" :disabled="!summary.cursor || loading" @click="nextRuns" />
                 </div>
               </div>
-            </section>
+            </ConsoleSection>
           </template>
           <template #accounts>
-            <section aria-labelledby="usage-accounts-heading">
-              <h2 id="usage-accounts-heading" class="text-sm font-semibold">Provider accounts</h2>
-              <p class="mt-0.5 mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
+            <ConsoleSection title="Provider accounts" description="Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.">
 
               <p v-if="statusError" class="flex items-start gap-2 p-3 text-sm" role="status">
                 <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
@@ -828,7 +797,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   </p>
                 </article>
               </div>
-            </section>
+            </ConsoleSection>
           </template>
         </UTabs>
         <USlideover

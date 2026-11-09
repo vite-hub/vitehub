@@ -107,7 +107,7 @@ defineExpose({
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-[440px]' }">
+  <UModal v-model:open="open" :title="title">
     <template #body>
       <form id="vitehub-media-move" class="grid gap-3" @submit.prevent="confirm">
         <UFormField v-if="props.name !== undefined" label="Name">

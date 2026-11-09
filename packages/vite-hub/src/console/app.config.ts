@@ -3,6 +3,14 @@ import { vitehubTheme } from "@vite-hub/ui/theme";
 // The Console uses the ViteHub design system. Only the parts that the docs do not have get slots here.
 export const consoleAppConfig = {
   ...vitehubTheme,
+  // A Console page fills its panel edge to edge: its toolbar, lists, and splitters set their own padding, and a list
+  // scrolls inside itself. So the panel body has no padding and no gap. It keeps Nuxt UI's `overflow-y-auto`, so a page
+  // that is one long column, such as Usage, scrolls in the body.
+  dashboardPanel: {
+    slots: {
+      body: "min-h-0 gap-0 p-0 sm:gap-0 sm:p-0",
+    },
+  },
   dashboardNavbar: {
     slots: {
       root: "h-11 px-3 sm:px-4",

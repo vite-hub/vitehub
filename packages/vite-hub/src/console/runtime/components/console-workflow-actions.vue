@@ -6,6 +6,8 @@ import type { ConsoleWorkflowRunView } from "../client/workflow";
 import { consoleStatusValue } from "../client/format";
 import { useConsoleToast } from "../client/toast";
 import { CopyButton, Status } from "@vite-hub/ui";
+import ConsoleConfirm from "./console-confirm.vue";
+import ConsoleSection from "./console-section.vue";
 
 const props = defineProps<{
   /** Console route that runs the `workflow.*` operations. */
@@ -110,17 +112,15 @@ async function resume(): Promise<void> {
 
 <template>
   <div v-if="canStart || canResume || workflowRuns.length" class="grid gap-6">
-    <section v-if="canStart" class="grid gap-2" aria-label="Start a run">
-      <h3 class="text-xs font-medium text-highlighted">Start a run</h3>
+    <ConsoleSection v-if="canStart" :level="3" title="Start a run">
       <UTextarea v-model="payloadText" :rows="5" :ui="{ base: 'font-mono' }" aria-label="Payload (JSON)" placeholder="Payload as JSON. Leave empty to start without one." />
       <p v-if="startError" class="text-xs text-error" role="alert">{{ startError }}</p>
       <div class="flex justify-end">
         <UButton icon="i-lucide-play" label="Start" :loading="starting" @click="start" />
       </div>
-    </section>
+    </ConsoleSection>
 
-    <section v-if="workflowRuns.length" class="grid gap-2" aria-label="Runs started here">
-      <h3 class="text-xs font-medium text-highlighted">Runs started here</h3>
+    <ConsoleSection v-if="workflowRuns.length" :level="3" title="Runs started here">
       <ul class="divide-y divide-default border-y border-default">
         <li v-for="run in workflowRuns" :key="run.id" class="grid gap-2 py-2.5">
           <div class="flex min-w-0 items-center gap-2">
@@ -145,30 +145,30 @@ async function resume(): Promise<void> {
           </div>
         </li>
       </ul>
-    </section>
+    </ConsoleSection>
 
-    <section v-if="canResume" class="grid gap-2" aria-label="Resume a signal">
-      <h3 class="text-xs font-medium text-highlighted">Resume a signal</h3>
+    <ConsoleSection v-if="canResume" :level="3" title="Resume a signal">
       <UInput v-model="signalToken" aria-label="Signal token" placeholder="Opaque signal token" :ui="{ base: 'font-mono' }" />
       <UTextarea v-model="signalPayload" :rows="3" :ui="{ base: 'font-mono' }" aria-label="Signal payload (JSON)" placeholder="Payload as JSON. Optional." />
       <p v-if="resumeError" class="text-xs text-error" role="alert">{{ resumeError }}</p>
       <div class="flex justify-end">
         <UButton icon="i-lucide-corner-down-right" label="Resume" variant="outline" :disabled="!signalToken.trim()" :loading="resuming" @click="resume" />
       </div>
-    </section>
+    </ConsoleSection>
 
-    <UModal :open="Boolean(cancelTarget)" title="Cancel this run?" :ui="{ content: 'sm:max-w-[440px]' }" @update:open="(open: boolean) => { if (!open) cancelTarget = undefined }">
-      <template #body>
-        <p class="text-[13px] text-muted">
-          <span class="font-mono text-xs text-highlighted">{{ cancelTarget?.id }}</span> stops. Only providers that support cancellation accept this.
-        </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton variant="ghost" label="Keep running" @click="cancelTarget = undefined" />
-          <UButton color="error" label="Cancel run" :loading="Boolean(busyRun)" @click="confirmCancel" />
-        </div>
-      </template>
-    </UModal>
+    <ConsoleConfirm
+      :open="Boolean(cancelTarget)"
+      title="Cancel this run?"
+      cancel-label="Keep running"
+      confirm-label="Cancel run"
+      destructive
+      :loading="Boolean(busyRun)"
+      @update:open="(open: boolean) => { if (!open) cancelTarget = undefined }"
+      @confirm="confirmCancel"
+    >
+      <p>
+        <span class="font-mono text-xs text-highlighted">{{ cancelTarget?.id }}</span> stops. Only providers that support cancellation accept this.
+      </p>
+    </ConsoleConfirm>
   </div>
 </template>

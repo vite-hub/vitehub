@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { consoleInitials } from "../client/format";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 
-import { consoleMcpAccount, consoleMcpInitials, consoleMcpPromptSchema, consoleMcpToolHints, requestConsoleMcp } from "../client/mcp-client";
+import { consoleMcpAccount, consoleMcpPromptSchema, consoleMcpToolHints, requestConsoleMcp } from "../client/mcp-client";
 import ConsoleMcpContent from "./console-mcp-content.vue";
 import ConsoleSchemaForm from "./console-schema-form.vue";
 import ConsoleState from "./console-state.vue";
@@ -37,6 +38,9 @@ const templates = ref<Item[]>([]);
 const loading = ref(false);
 const error = ref<unknown>();
 const filter = ref("");
+function clearFilter(): void {
+  filter.value = "";
+}
 const values = ref<Record<string, unknown>>({});
 const templateUri = ref("");
 const runAs = ref<string[]>([props.connection.id]);
@@ -205,9 +209,17 @@ onBeforeUnmount(() => request?.abort());
         <template v-else-if="loading && !items.length && !templates.length">
           <USkeleton v-for="index in 6" :key="index" class="mb-1 h-11 w-full rounded-md" />
         </template>
-        <p v-else-if="!items.length && !templates.length" class="px-2 py-1.5 text-[13px] text-muted">This server has no {{ nouns[kind] }}.</p>
+        <UEmpty v-else-if="!items.length && !templates.length" variant="naked" size="xs" icon="i-lucide-inbox" :title="`No ${nouns[kind]}`" :description="`This server lists no ${nouns[kind]}.`" />
         <template v-else>
-          <p v-if="!visibleItems.length && !visibleTemplates.length" class="px-2 py-1.5 text-[13px] text-muted">No {{ nouns[kind] }} match “{{ filter }}”.</p>
+          <UEmpty
+            v-if="!visibleItems.length && !visibleTemplates.length"
+            variant="naked"
+            size="xs"
+            icon="i-lucide-search"
+            :title="`No ${nouns[kind]} match “${filter}”`"
+            description="Try another name."
+            :actions="[{ label: 'Clear filter', variant: 'ghost', onClick: clearFilter }]"
+          />
           <ul class="grid gap-px">
             <li v-for="item in visibleItems" :key="keyOf(item)">
               <button
@@ -280,7 +292,7 @@ onBeforeUnmount(() => request?.abort());
               :aria-pressed="runAs.includes(peer.id)"
               @click="toggleRunAs(peer.id)"
             >
-              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleMcpInitials(consoleMcpAccount(peer).primary)" size="3xs" />
+              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleInitials(consoleMcpAccount(peer).primary)" size="3xs" />
               <span class="max-w-32 truncate">{{ consoleMcpAccount(peer).primary }}</span>
             </UButton>
           </div>
@@ -289,7 +301,7 @@ onBeforeUnmount(() => request?.abort());
         <div v-if="shownResults.length" class="grid gap-3" :class="shownResults.length > 1 ? '@3xl:grid-cols-2' : ''" aria-live="polite">
           <article v-for="{ connection: peer, result } in shownResults" :key="peer.id" class="grid min-w-0 content-start gap-3 rounded-lg border border-default p-3">
             <header v-if="shownResults.length > 1" class="flex min-w-0 items-center gap-2">
-              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleMcpInitials(consoleMcpAccount(peer).primary)" size="2xs" />
+              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleInitials(consoleMcpAccount(peer).primary)" size="2xs" />
               <span class="truncate text-[13px] font-medium text-highlighted">{{ consoleMcpAccount(peer).primary }}</span>
               <span v-if="consoleMcpAccount(peer).secondary" class="truncate text-xs text-dimmed">{{ consoleMcpAccount(peer).secondary }}</span>
             </header>

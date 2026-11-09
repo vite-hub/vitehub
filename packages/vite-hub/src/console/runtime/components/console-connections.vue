@@ -119,7 +119,7 @@ onBeforeUnmount(() => request?.abort());
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />
-    <UDashboardPanel id="connections" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="connections">
       <ConsolePageHeader title="Connections" :toggle="false">
         <template #right>
           <UTooltip text="Refresh Connections">

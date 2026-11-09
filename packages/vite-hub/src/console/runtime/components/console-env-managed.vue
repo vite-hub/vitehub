@@ -2,15 +2,17 @@
 import { onMounted, ref } from "vue";
 import * as v from "valibot";
 import {
+  envActivityLabel,
+  envActivitySchema,
   envInspectionSchema,
   envPermissionSchema,
   envPreviewSchema,
   requestEnvManagement,
 } from "../client/env-management";
 import { ConsoleRequestError } from "../client/request";
-import ConsoleEnvActivity from "./console-env-activity.vue";
+import ConsoleCredentialActivity from "./console-credential-activity.vue";
 import ConsoleEnvAccess from "./console-env-access.vue";
-import { consoleDateTime } from "../client/time";
+import { consoleDateTime } from "../client/format";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 const readonly = ref(false);
@@ -112,6 +114,9 @@ function replace() {
     }
   });
 }
+async function loadActivity(before?: string) {
+  return (await requestEnvManagement(props.endpoint, props.path, "activity", envActivitySchema, before ? { before } : {})).events;
+}
 onMounted(load);
 </script>
 
@@ -184,10 +189,13 @@ onMounted(load);
         <UButton type="submit" label="Save credential" :loading="busy" :disabled="!value" />
       </form>
     </template>
-    <ConsoleEnvActivity
+    <ConsoleCredentialActivity
       v-else-if="tab === 'activity' && access?.admin"
-      :endpoint="endpoint"
-      :path="path"
+      description="Persisted operations. Retrieval does not mean a credential was used."
+      empty-title="No recorded activity"
+      empty-description="Retrievals, uses, and access changes of this credential show here."
+      :label="envActivityLabel"
+      :load="loadActivity"
     />
     <ConsoleEnvAccess
       v-else-if="tab === 'access' && access?.admin"

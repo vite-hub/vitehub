@@ -6,6 +6,7 @@ import { consoleAspectRatio, consoleCropName, consoleFocalCropPosition, consoleM
 import { useConsoleToast } from "../client/toast";
 
 import type { ConsoleMediaClient, ConsoleMediaFile } from "../client/media-library";
+import ConsoleCodeText from "./console-code-text.vue";
 
 /**
  * Named crops of an image for art direction, such as `mobile` at 4:5 next to the original for wide screens. Each crop
@@ -92,9 +93,9 @@ async function remove(name: string): Promise<void> {
 
 <template>
   <div class="grid gap-2">
-    <p v-if="!crops.length && !adding" class="text-xs text-muted">
-      No crops. Add one for each layout that needs its own framing, such as <span class="font-mono">mobile</span> at 4:5.
-    </p>
+    <UEmpty v-if="!crops.length && !adding" variant="naked" size="xs" icon="i-lucide-crop" title="No crops yet">
+      <template #description><ConsoleCodeText text="Add one for each layout that needs its own framing, such as `mobile` at 4:5." /></template>
+    </UEmpty>
     <ul v-if="crops.length" class="divide-y divide-default rounded-lg border border-default">
       <li v-for="crop in crops" :key="crop.name" class="flex items-center gap-3 p-2">
         <div class="h-14 shrink-0 overflow-hidden rounded-md bg-elevated" :style="{ aspectRatio: String(crop.ratio), background: file.color }">

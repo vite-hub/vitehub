@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { consoleBytes } from "../client/format";
 import { computed, ref } from "vue";
 
 import type { ConsoleMcpOutcome } from "../mcp-client";
@@ -59,8 +60,7 @@ function mediaSource(block: Block): string | undefined {
 }
 
 function bytes(base64: string): string {
-  const size = Math.floor(base64.length * 3 / 4);
-  return size < 1_024 ? `${size} B` : `${(size / 1_024).toFixed(1)} KB`;
+  return consoleBytes(Math.floor(base64.length * 3 / 4));
 }
 </script>
 

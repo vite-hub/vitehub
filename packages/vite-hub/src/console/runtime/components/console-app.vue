@@ -1136,9 +1136,14 @@ onBeforeUnmount(() => {
               <div v-else-if="capabilitiesError" class="p-2">
                 <ConsoleState compact :error="capabilitiesError" title="Could not load session filters" :retry="loadCapabilityIds" />
               </div>
-              <p v-else-if="!sessionFilterGroups.length" class="px-3 py-4 text-xs text-muted">
-                No filter values recorded yet. Sessions record their Capabilities and who triggered them.
-              </p>
+              <UEmpty
+                v-else-if="!sessionFilterGroups.length"
+                variant="naked"
+                size="xs"
+                icon="i-lucide-list-filter"
+                title="No filter values yet"
+                description="Sessions record their Capabilities and who triggered them."
+              />
               <UCommandPalette
                 v-else
                 by="id"
@@ -1334,7 +1339,6 @@ onBeforeUnmount(() => {
       v-else
       id="chat-session"
       class="vitehub-console__session-panel"
-      :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }"
     >
       <template #body>
         <!-- No live region here: the thread is a log, and the connection state is an alert. A polite region around both made screen readers read the session again after each update. -->

@@ -1,6 +1,6 @@
 import { ConsoleRequestError, requestConsole } from "./request"
 import { consoleQueryText } from "./route-query"
-import { dayLabel } from "./time"
+import { dayLabel } from "./format"
 
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions"
 import type { ConsoleFieldIssue } from "./schema-form"

@@ -4,6 +4,7 @@ import { computed } from "vue";
 
 import { consoleStatusValue, consoleValueParts } from "../client/format";
 import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsoleCodeText from "./console-code-text.vue";
 
 /**
  * A text value from an owner package, shown the Console way: a status word such as `Enabled` or `failed` as a status
@@ -31,5 +32,5 @@ const parts = computed(() => consoleValueParts(props.value));
     <span class="text-dimmed" aria-hidden="true">·</span>
     <span class="text-xs text-muted"><ConsoleRelativeTime :value="statusAt.time" /></span>
   </span>
-  <span v-else><template v-for="(part, index) in parts" :key="index"><ConsoleRelativeTime v-if="part.kind === 'time'" :value="part.value" /><code v-else-if="part.kind === 'code'" class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted">{{ part.value }}</code><template v-else>{{ part.value }}</template></template></span>
+  <span v-else><template v-for="(part, index) in parts" :key="index"><ConsoleRelativeTime v-if="part.kind === 'time'" :value="part.value" /><ConsoleCodeText v-else-if="part.kind === 'code'" code :text="part.value" /><template v-else>{{ part.value }}</template></template></span>
 </template>

@@ -98,7 +98,7 @@ onBeforeUnmount(() => controller?.abort());
 
 <template>
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="definitionsBase" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
-    <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 overflow-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
+    <UDashboardPanel :id="`console-${details.id}`">
       <template #header>
         <ConsolePageHeader :title="details.label" :toggle="false">
           <template #right>

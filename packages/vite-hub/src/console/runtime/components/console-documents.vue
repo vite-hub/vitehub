@@ -338,7 +338,6 @@ onBeforeUnmount(() => {
           <div v-if="!collapsed && error && isConsoleSignInRequired(error)" class="px-1 pb-2">
             <UAlert
               color="neutral"
-              variant="subtle"
               icon="i-lucide-log-in"
               title="Sign in to edit"
               description="You are not signed in, or your session ended. Sign in, then reload."
@@ -348,7 +347,6 @@ onBeforeUnmount(() => {
           <div v-else-if="!collapsed && error" class="px-1 pb-2">
             <UAlert
               color="error"
-              variant="subtle"
               icon="i-lucide-cloud-off"
               title="Couldn't load collections"
               :description="consoleErrorMessage(error)"
@@ -434,7 +432,7 @@ onBeforeUnmount(() => {
       @changed="changes++"
     />
 
-    <UDashboardPanel :id="`${section}-documents`" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel :id="`${section}-documents`">
       <ConsoleDocumentDashboard
         v-if="page?.view.kind === 'document-dashboard'"
         :client="client"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { consoleDateTime } from "../client/format";
 import { inlineChannelArchiveMedia } from "@vite-hub/internal/channel-archive";
 import { ChatMessage, Status } from "@vite-hub/ui";
 import type { UIMessage } from "ai";
@@ -115,6 +116,9 @@ const selectedThread = computed(() => queryString(route.query.thread));
 const selected = computed(() => channels.value.find(entry => entry.agent === selectedAgent.value && entry.channel === selectedChannel.value));
 // The thread search lives in the URL with the Channel and the thread, so a reload or a shared link opens the same list.
 const { q: threadSearch } = useConsoleQuery({ q: queryText() });
+function clearThreadSearch(): void {
+  threadSearch.value = "";
+}
 /** Loaded threads whose title, participants, or id contain the search. */
 const visibleThreads = computed(() => {
   const query = threadSearch.value.trim().toLowerCase();
@@ -233,8 +237,7 @@ function select(query: { agent?: string; channel?: string; thread?: string }): v
 }
 
 function when(value: string | undefined): string {
-  const date = value ? new Date(value) : undefined;
-  return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "";
+  return value && Number.isFinite(Date.parse(value)) ? consoleDateTime(value) : "";
 }
 
 function view(message: MessageRow): UIMessage {
@@ -307,7 +310,7 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="channels-conversation" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="channels-conversation">
       <ConsolePageHeader title="Channels" :description="selectedThread ?? selected?.channel" :toggle="false">
         <template #right>
           <template v-if="selectedThread">
@@ -326,7 +329,7 @@ onBeforeUnmount(() => {
           <template v-if="channelsLoading && !channels.length">
             <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
           </template>
-          <p v-else-if="!channels.length" class="px-2 py-1.5 text-xs text-muted">No Agent has a Channel yet.</p>
+          <UEmpty v-else-if="!channels.length" variant="naked" size="xs" icon="i-lucide-message-square" title="No Channels yet" description="Add a Channel to an Agent, such as Slack or Teams, to see its threads here." />
           <template v-else>
             <button
               v-for="entry in channels"
@@ -353,12 +356,20 @@ onBeforeUnmount(() => {
               placeholder="Filter threads…"
               aria-label="Filter threads"
             />
-            <p v-if="!selected.conversations" class="px-2 py-1.5 text-xs text-muted">This Channel has its own history collection and no per-thread conversation.</p>
+            <UEmpty v-if="!selected.conversations" variant="naked" size="xs" icon="i-lucide-messages-square" title="No threads to show" description="This Channel keeps its own history and has no conversation per thread." />
             <template v-else-if="threadsLoading && !threads.length">
               <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
             </template>
             <template v-else-if="threads.length">
-              <p v-if="!visibleThreads.length" class="px-2 py-1.5 text-xs text-muted">No loaded thread matches “{{ threadSearch.trim() }}”.</p>
+              <UEmpty
+                v-if="!visibleThreads.length"
+                variant="naked"
+                size="xs"
+                icon="i-lucide-search"
+                :title="`No loaded thread matches “${threadSearch.trim()}”`"
+                description="The search checks only the threads that loaded."
+                :actions="[{ label: 'Clear search', variant: 'ghost', onClick: clearThreadSearch }]"
+              />
               <button
                 v-for="thread in visibleThreads"
                 :key="thread.thread"
@@ -377,7 +388,7 @@ onBeforeUnmount(() => {
               </button>
               <UButton v-if="threadsCursor" class="mt-1 self-start" label="Load more" variant="ghost" :loading="threadsLoading" @click="loadThreads(true)" />
             </template>
-            <p v-else class="px-2 py-1.5 text-xs text-muted">No conversations yet. A thread appears here after an Agent answers in it.</p>
+            <UEmpty v-else variant="naked" size="xs" icon="i-lucide-messages-square" title="No conversations yet" description="A thread shows here after an Agent answers in it." />
           </template>
         </nav>
 
@@ -386,7 +397,6 @@ onBeforeUnmount(() => {
             v-if="(retention ?? selected?.retention)?.warning && (selectedThread || selected)"
             class="m-3"
             color="warning"
-            variant="subtle"
             icon="i-lucide-triangle-alert"
             title="Older messages may be missing"
             :description="(retention ?? selected?.retention)?.warning"

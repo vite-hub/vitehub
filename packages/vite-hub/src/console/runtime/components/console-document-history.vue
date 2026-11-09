@@ -3,7 +3,7 @@ import { Status } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
 import { consoleErrorMessage, consoleRevisionLabel as label, consoleRevisionTone as tone, groupConsoleRevisionRuns } from "../client/documents";
-import { dayLabel } from "../client/time";
+import { consoleInitials, dayLabel } from "../client/format";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 
 import type { ConsoleDocumentRevision, ConsoleRevisionRun } from "../client/documents";
@@ -49,15 +49,12 @@ function toggle(run: ConsoleRevisionRun): void {
   expanded.value = next;
 }
 
-function initials(name: string): string {
-  return name.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join("") || "?";
-}
 
 </script>
 
 <template>
   <div class="grid gap-4">
-    <UAlert v-if="error" color="error" variant="subtle" title="Couldn't load history" :description="consoleErrorMessage(error)" />
+    <UAlert v-if="error" color="error" title="Couldn't load history" :description="consoleErrorMessage(error)" />
     <div v-else-if="loading && !revisions.length" class="grid gap-1">
       <USkeleton v-for="index in 4" :key="index" class="h-10" />
     </div>
@@ -80,7 +77,7 @@ function initials(name: string): string {
                     <span v-if="run.revisions.length > 1" class="shrink-0 text-xs text-muted tabular-nums">· {{ run.revisions.length }} edits</span>
                   </span>
                   <span v-if="run.revisions[0]!.author" class="flex min-w-0 items-center gap-1.5 text-xs text-muted">
-                    <UAvatar :text="initials(run.revisions[0]!.author)" :alt="run.revisions[0]!.author" size="3xs" class="shrink-0" />
+                    <UAvatar :text="consoleInitials(run.revisions[0]!.author)" :alt="run.revisions[0]!.author" size="3xs" class="shrink-0" />
                     <span class="truncate">{{ run.revisions[0]!.author }}</span>
                   </span>
                 </span>

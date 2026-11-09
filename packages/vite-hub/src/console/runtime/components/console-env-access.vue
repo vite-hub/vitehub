@@ -2,7 +2,7 @@
 import { onMounted, ref } from "vue";
 import * as v from "valibot";
 import { envGrantsSchema, requestEnvManagement } from "../client/env-management";
-import ConsoleState from "./console-state.vue";
+import ConsoleActivityFeed from "./console-activity-feed.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 type Grant = v.InferOutput<typeof envGrantsSchema>["grants"][number];
 const grants = ref<Grant[]>([]);
@@ -69,20 +69,24 @@ function revoke(actor: Grant["actor"]) {
 onMounted(() => run(load));
 </script>
 <template>
-  <div class="space-y-5">
-    <p class="text-xs text-muted">
-      Grants apply only to this credential. Agent tokens may further limit access.
-    </p>
-    <ConsoleState v-if="error" compact :error="error" title="Could not update access" />
-    <p v-if="warning" role="alert" class="text-sm text-warning">{{ warning }}</p>
-    <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
-    <ul role="list" class="divide-y divide-default">
-      <li
-        v-for="item in grants"
-        :key="`${item.actor.kind}:${item.actor.id}`"
-        class="flex items-start justify-between gap-3 py-3"
-      >
-        <div class="min-w-0 text-xs">
+  <ConsoleActivityFeed
+    description="Grants apply only to this credential. Agent tokens may further limit access."
+    :items="grants"
+    :item-key="(item) => `${item.actor.kind}:${item.actor.id}`"
+    :loading="busy"
+    :error="error"
+    error-title="Could not update access"
+    empty-title="No explicit grants"
+    empty-description="Add an identity below to give it access to this credential."
+    empty-icon="i-lucide-key-round"
+  >
+    <template #notices>
+      <p v-if="warning" role="alert" class="text-sm text-warning">{{ warning }}</p>
+      <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
+    </template>
+    <template #item="{ item }">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
           <p class="break-all text-highlighted">{{ item.actor.id }}</p>
           <p class="text-muted">{{ item.actor.kind }} · {{ item.permissions.join(", ") }}</p>
         </div>
@@ -109,9 +113,8 @@ onMounted(() => run(load));
           :disabled="busy"
           @click="removing = `${item.actor.kind}:${item.actor.id}`"
         />
-      </li>
-    </ul>
-    <p v-if="!grants.length && !busy && !error" class="text-sm text-muted">No explicit grants.</p>
+      </div>
+    </template>
     <form class="space-y-3" @submit.prevent="grant">
       <UFormField label="Identity" name="identity"
         ><div class="flex gap-2">
@@ -145,5 +148,5 @@ onMounted(() => run(load));
         :disabled="!id.trim() || !permissions.length"
       />
     </form>
-  </div>
+  </ConsoleActivityFeed>
 </template>

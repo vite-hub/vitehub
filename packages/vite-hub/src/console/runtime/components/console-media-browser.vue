@@ -24,6 +24,7 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
+import ConsoleConfirm from "./console-confirm.vue";
 
 /**
  * Browses one folder of the media library: breadcrumbs, folders, and files in a grid or a list, search by file name
@@ -729,31 +730,21 @@ defineExpose({
       @confirm="confirmMove"
     />
 
-    <UModal v-model:open="removeOpen" :title="removeTitle" :ui="{ content: 'sm:max-w-[440px]' }">
-      <template #body>
-        <div class="grid gap-3 text-[13px] text-muted">
-          <template v-if="removeState?.folder !== undefined">
-            <p v-if="removeState.checking">Checking the folder…</p>
-            <p v-else-if="removeState.count">Everything inside it is deleted too: files, their crops, and their variants. This cannot be undone.</p>
-            <p v-else>The folder is empty.</p>
-          </template>
-          <template v-else>
-            <p>The {{ removeState?.files?.length === 1 ? "file" : "files" }}, {{ removeState?.files?.length === 1 ? "its" : "their" }} crops, and {{ removeState?.files?.length === 1 ? "its" : "their" }} variants are deleted. This cannot be undone.</p>
-            <USkeleton v-if="removeState?.checking" class="h-9 w-full" />
-            <p v-else-if="removeState?.warning" class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2 text-xs">
-              <UIcon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
-              <span>{{ removeState.warning }}</span>
-            </p>
-          </template>
-        </div>
+    <ConsoleConfirm v-model:open="removeOpen" :title="removeTitle" confirm-label="Delete" destructive :loading="removing" :disabled="removeState?.checking" @confirm="confirmRemove">
+      <template v-if="removeState?.folder !== undefined">
+        <p v-if="removeState.checking">Checking the folder…</p>
+        <p v-else-if="removeState.count">Everything inside it is deleted too: files, their crops, and their variants. This cannot be undone.</p>
+        <p v-else>The folder is empty.</p>
       </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton variant="ghost" label="Cancel" @click="removeOpen = false" />
-          <UButton color="error" label="Delete" :loading="removing" :disabled="removeState?.checking" @click="confirmRemove" />
-        </div>
+      <template v-else>
+        <p>The {{ removeState?.files?.length === 1 ? "file" : "files" }}, {{ removeState?.files?.length === 1 ? "its" : "their" }} crops, and {{ removeState?.files?.length === 1 ? "its" : "their" }} variants are deleted. This cannot be undone.</p>
+        <USkeleton v-if="removeState?.checking" class="h-9 w-full" />
+        <p v-else-if="removeState?.warning" class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2 text-xs">
+          <UIcon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span>{{ removeState.warning }}</span>
+        </p>
       </template>
-    </UModal>
+    </ConsoleConfirm>
   </div>
 </template>
 

@@ -9,6 +9,7 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 
 import type { ConsoleBlobObject } from "../client/blob-media";
 import type { ConsoleMediaFile } from "../client/media-library";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 /**
  * The raw metadata of one Blob object, next to the Blob browser: what the store recorded, HTTP metadata, and custom
@@ -53,12 +54,7 @@ const customMetadata = computed(() => sorted(props.object?.customMetadata));
     </header>
     <div class="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto p-4" @keydown.esc="emit('close')">
       <section class="grid gap-3" aria-label="File information">
-        <dl class="grid grid-cols-3 gap-x-4 gap-y-2">
-          <div v-for="fact in facts" :key="fact.label" class="grid min-w-0 gap-0.5">
-            <dt class="text-xs text-dimmed">{{ fact.label }}</dt>
-            <dd class="truncate text-[13px] text-highlighted tabular-nums">{{ fact.value }}</dd>
-          </div>
-        </dl>
+        <ConsoleStatGrid :items="facts" :columns="3" />
         <div class="grid gap-0.5">
           <span class="text-xs text-dimmed">Uploaded</span>
           <span class="text-[13px] text-highlighted"><ConsoleRelativeTime :value="file.createdAt" /></span>
@@ -74,8 +70,8 @@ const customMetadata = computed(() => sorted(props.object?.customMetadata));
         </div>
       </section>
       <ConsolePropertyList title="Recorded by the store" :items="recorded" />
-      <ConsolePropertyList title="HTTP metadata" count :items="httpMetadata" empty="The store returned no HTTP metadata." />
-      <ConsolePropertyList title="Custom metadata" count :items="customMetadata" empty="The store returned no custom metadata." />
+      <ConsolePropertyList title="HTTP metadata" count :items="httpMetadata" empty="No HTTP metadata" empty-description="The store returned none for this object." />
+      <ConsolePropertyList title="Custom metadata" count :items="customMetadata" empty="No custom metadata" empty-description="Metadata that the app sets on upload shows here." />
       <p class="text-xs text-muted">Metadata only. The Console does not download object contents or change Blob Stores.</p>
     </div>
   </aside>

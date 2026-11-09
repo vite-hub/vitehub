@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { consoleInitials } from "../client/format";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
+import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
 import { projectUrl } from "../client/project";
 import { rememberConsoleSection } from "../sections";
 import ConsoleMcpConnect from "./console-mcp-connect.vue";
@@ -158,7 +159,7 @@ onBeforeUnmount(() => request?.abort());
               :aria-label="collapsed ? `${consoleMcpAccount(connection).primary}, ${consoleMcpStatus[connection.status].label}` : undefined"
               @click="open(connection)"
             >
-              <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleMcpInitials(consoleMcpAccount(connection).primary)" size="xs" />
+              <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleInitials(consoleMcpAccount(connection).primary)" size="xs" />
               <span v-if="!collapsed" class="grid min-w-0 flex-1 text-start">
                 <span class="truncate">{{ consoleMcpAccount(connection).primary }}</span>
                 <span v-if="consoleMcpAccount(connection).secondary" class="truncate text-xs font-normal text-dimmed">{{ consoleMcpAccount(connection).secondary }}</span>
@@ -183,7 +184,7 @@ onBeforeUnmount(() => request?.abort());
             </button>
           </UTooltip>
         </template>
-        <p v-if="!collapsed && overview && !groups.length" class="px-2 py-1.5 text-xs text-muted">No servers yet.</p>
+        <UEmpty v-if="!collapsed && overview && !groups.length" variant="naked" size="xs" icon="i-lucide-server" title="No servers yet" description="Connect to an MCP server to see its tools here." />
       </nav>
     </template>
   </UDashboardSidebar>
@@ -196,7 +197,7 @@ onBeforeUnmount(() => request?.abort());
     :sections-base="sectionsBase"
   />
 
-  <UDashboardPanel id="mcp-client" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+  <UDashboardPanel id="mcp-client">
     <ConsoleMcpConnectionView
       v-if="selected"
       :key="selected.id"

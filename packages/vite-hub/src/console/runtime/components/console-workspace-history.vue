@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { consoleDateTime } from "../client/time";
+import { consoleDateTime } from "../client/format";
 
 type WorkspaceRevision = {
   id: string;

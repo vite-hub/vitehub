@@ -18,7 +18,7 @@ import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
 import type { ConsoleNavigation } from "../client/sections"
-import { recentTimestamp } from "../client/time"
+import { recentTimestamp } from "../client/format"
 import { useConsoleToast } from "../client/toast"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
 import { parseConsoleSectionContent } from "../definitions"
@@ -800,18 +800,14 @@ onBeforeUnmount(() => {
     :ui="{ root: 'flex-1', content: 'flex-1', footer: 'px-3 py-2', itemLeadingIcon: 'size-4' }"
   >
     <template #empty="{ searchTerm: value }">
-      <div class="grid justify-items-center gap-2 px-6 py-10 text-center">
-        <UIcon
-          name="i-lucide-search-x"
-          class="size-6 text-dimmed"
-        />
-        <p class="text-sm font-medium text-highlighted">
-          No matches
-        </p>
-        <p class="text-xs text-muted">
-          {{ value.trim() ? "Try a page, document, Agent, definition, key, or session." : "No Console results are available yet." }}
-        </p>
-      </div>
+      <UEmpty
+        variant="naked"
+        size="sm"
+        icon="i-lucide-search-x"
+        title="No matches"
+        :description="value.trim() ? 'Try a page, document, Agent, definition, key, or session.' : 'No Console results are available yet.'"
+        class="py-10"
+      />
     </template>
     <!-- Items with the `section` slot show the same section icon as the rail and the Overview. -->
     <template #section-leading="{ item, ui }">

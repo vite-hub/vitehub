@@ -77,7 +77,7 @@ onMounted(() => {
       <template v-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Link your first project</h1>
-          <p class="vitehub-project-gate__text">This Console opens ViteHub apps that list it in <code class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted box-decoration-clone">console.origins</code>. The project list and tokens stay in this browser.</p>
+          <p class="vitehub-project-gate__text"><ConsoleCodeText text="This Console opens ViteHub apps that list it in `console.origins`. The project list and tokens stay in this browser." /></p>
         </div>
         <UButton icon="i-lucide-plus" label="Link project" class="justify-self-start" @click="projects.linkOpen.value = true" />
       </template>
@@ -87,7 +87,7 @@ onMounted(() => {
           <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
           <p class="vitehub-project-gate__text">
             <template v-if="gate.rejected && !tokenError">The saved token no longer works for {{ host }}. Paste the current token.</template>
-            <template v-else>{{ host }} uses <code class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
+            <ConsoleCodeText v-else :text="`${host} uses \`auth: &quot;token&quot;\`.`" />
           </p>
         </div>
         <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />

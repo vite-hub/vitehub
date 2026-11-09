@@ -8,6 +8,7 @@ import type { ConsoleLinkedProject } from "../client/projects";
 import { checkConsoleProjects, forgetConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleProjectLink from "./console-project-link.vue";
+import ConsoleConfirm from "./console-confirm.vue";
 
 const projects = useConsoleProjects();
 const forgetting = shallowRef<ConsoleLinkedProject>();
@@ -108,25 +109,15 @@ function forget(): void {
     </template>
   </UDropdownMenu>
 
-  <UModal
+  <ConsoleConfirm
     :open="Boolean(forgetting)"
     :title="forgetting ? `Forget ${consoleProjectName(forgetting)}?` : 'Forget project?'"
-    :content="{ role: 'alertdialog' }"
-    :ui="{ content: 'sm:max-w-[440px]' }"
+    :description="`This browser removes the URL and the Console token of ${forgetting ? consoleProjectHost(forgetting) : 'the project'}. The project does not change. To open it again, link it with its token.`"
+    confirm-label="Forget project"
+    destructive
     @update:open="(value: boolean) => { if (!value) forgetting = undefined; }"
-  >
-    <template #body>
-      <p class="text-pretty text-[13px] text-muted">
-        This browser removes the URL and the Console token of {{ forgetting ? consoleProjectHost(forgetting) : "the project" }}. The project does not change. To open it again, link it with its token.
-      </p>
-    </template>
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton variant="ghost" label="Cancel" @click="forgetting = undefined" />
-        <UButton color="error" label="Forget project" @click="forget" />
-      </div>
-    </template>
-  </UModal>
+    @confirm="forget"
+  />
 
   <ConsoleProjectLink v-model:open="projects.linkOpen.value" />
 </template>

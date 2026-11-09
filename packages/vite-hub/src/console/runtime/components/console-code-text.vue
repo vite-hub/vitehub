@@ -3,10 +3,13 @@ import { computed } from "vue";
 
 import { consoleHintParts } from "../client/documents";
 
-/** Text whose names in backticks, such as `console.origins`, render as code, the same way setup hints do. */
-const props = defineProps<{ text: string }>();
+/**
+ * Text whose names in backticks, such as `console.origins`, render as inline code, the same way setup hints do. With
+ * `code`, all of `text` is code. This is the one place that styles inline code in the Console.
+ */
+const props = defineProps<{ code?: boolean; text: string }>();
 
-const parts = computed(() => consoleHintParts(props.text));
+const parts = computed(() => (props.code ? [{ code: true, text: props.text }] : consoleHintParts(props.text)));
 </script>
 
 <template>

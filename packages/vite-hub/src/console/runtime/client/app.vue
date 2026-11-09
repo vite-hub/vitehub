@@ -10,7 +10,7 @@
         <RouterView v-slot="{ Component }">
           <component :is="Component" v-if="Component" />
           <!-- The same panel and status as the server page, so the first paint does not change shape. -->
-          <UDashboardPanel v-else id="console-opening" :ui="{ body: 'p-0 sm:p-0' }">
+          <UDashboardPanel v-else id="console-opening">
             <template #header>
               <UDashboardNavbar :toggle="false" :ui="{ root: 'border-0' }" />
             </template>

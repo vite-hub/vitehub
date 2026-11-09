@@ -97,7 +97,6 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
         icon="i-lucide-circle-alert"
         title="Could not start Agent"
         :description="errorMessage(error)"
-        variant="subtle"
       />
       <div class="console-invocation-composer__surface relative min-w-0">
         <PromptInput

@@ -401,7 +401,7 @@ onBeforeUnmount(() => {
                 <span v-if="!collapsed" class="min-w-0 flex-1 truncate text-start font-mono text-xs">{{ table.name }}</span>
               </button>
             </UTooltip>
-            <p v-if="!collapsed && !database.tables.length" class="px-2 py-1.5 text-xs text-muted">This database has no tables yet.</p>
+            <UEmpty v-if="!collapsed && !database.tables.length" variant="naked" size="xs" icon="i-lucide-table" title="No tables yet" description="Tables show here after a migration creates them." />
           </template>
         </nav>
       </template>
@@ -415,7 +415,7 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="database-inspector" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="database-inspector">
       <ConsolePageHeader
         :title="view === 'schema' ? 'Schema' : selectedTable?.name || 'Database'"
         :description="database?.database"

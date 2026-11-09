@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { consoleDuration } from "../client/format";
 import { CopyButton } from "@vite-hub/ui";
 import { useConsoleWordWrap } from "./console-wrap";
 const wordWrap = useConsoleWordWrap();
@@ -24,6 +25,7 @@ import {
   traceSpanEndMs,
   traceStartBoundaryMs,
 } from "./console-session-trace-model";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 type Observation = AgentInvocationView["observations"][number];
 type SpanStatus = "cancelled" | "completed" | "failed" | "recovered" | "running";
@@ -469,28 +471,19 @@ function timestamp(value: Date | string | undefined) {
   return Number.isFinite(result) ? result : Date.now();
 }
 
+const summaryFacts = computed(() => selectedSpan.value ? [
+  { label: "Duration", value: formatDuration(selectedSpan.value.durationMs) },
+  { label: "Trace ID", value: shortId(props.invocation.traceId) },
+  { label: "Span ID", value: shortId(selectedSpan.value.id) },
+] : []);
+
 function formatDuration(durationMs: number) {
-  if (durationMs < 1) return "<1ms";
-  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
-  if (durationMs < 60_000) return `${trim(durationMs / 1_000, durationMs < 10_000 ? 2 : 1)}s`;
-  return formatMinutes(durationMs);
+  return consoleDuration(durationMs) ?? "";
 }
 
+/** An axis tick starts at `0ms`, not `<1ms`. */
 function formatAxis(durationMs: number) {
-  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
-  if (durationMs < 60_000) return `${trim(durationMs / 1_000, 1)}s`;
-  return formatMinutes(durationMs);
-}
-
-function formatMinutes(durationMs: number) {
-  const totalSeconds = Math.round(durationMs / 1_000);
-  const minutes = Math.floor(totalSeconds / 60);
-  if (minutes < 60) return `${minutes}m ${totalSeconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-function trim(value: number, digits: number) {
-  return value.toFixed(digits).replace(/\.?0+$/, "");
+  return durationMs < 1 ? "0ms" : formatDuration(durationMs);
 }
 
 function shortId(value: string) {
@@ -623,24 +616,9 @@ const selectedAttributesText = () => JSON.stringify(selectedAttributes.value, nu
         <section class="session-trace__summary">
           <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
           <h3><UIcon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
-          <dl>
-            <div>
-              <dt>Duration</dt>
-              <dd>{{ formatDuration(selectedSpan.durationMs) }}</dd>
-            </div>
-            <div>
-              <dt>Trace ID</dt>
-              <dd>
-                <code>{{ shortId(invocation.traceId) }}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Span ID</dt>
-              <dd>
-                <code>{{ shortId(selectedSpan.id) }}</code>
-              </dd>
-            </div>
-          </dl>
+          <ConsoleStatGrid :items="summaryFacts" :columns="3" label="Span summary">
+            <template #value="{ item }"><span :class="item.label === 'Duration' ? '' : 'font-mono text-xs'">{{ item.value }}</span></template>
+          </ConsoleStatGrid>
         </section>
         <div class="session-trace__field-search">
           <UInput

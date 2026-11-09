@@ -8,6 +8,7 @@ import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, 
 import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
+import ConsoleCodeText from "./console-code-text.vue";
 
 const open = defineModel<boolean>("open", { required: true });
 const persistent = useConsoleProjects().persistent;
@@ -87,11 +88,11 @@ function back(): void {
     v-model:open="open"
     :title="tokenStep ? 'Enter the Console token' : 'Link project'"
     :content="content"
-    :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)] sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
+    :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
     <template #description>
-      <template v-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
-      <template v-else>Open a ViteHub app in this Console. The app must list this Console in <code class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted box-decoration-clone">console.origins</code>.</template>
+      <ConsoleCodeText v-if="tokenStep" :text="`${consoleProjectHost(tokenStep.target)} uses \`auth: &quot;token&quot;\`.`" />
+      <ConsoleCodeText v-else text="Open a ViteHub app in this Console. The app must list this Console in `console.origins`." />
     </template>
     <template #body>
       <div v-if="tokenStep" class="grid gap-3">

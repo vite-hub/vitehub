@@ -45,6 +45,13 @@ const stateIcon = computed(() => {
   return props.icon ?? "i-lucide-inbox";
 });
 
+// A compact state takes the color of its status: red for a failure, amber for access that the person must fix by
+// signing in or asking for a role, and neutral for an empty or unconfigured state.
+const alertColor = computed(() => {
+  if (!problem.value) return "neutral";
+  return problem.value.action === "sign-in" || problem.value.status === 401 || problem.value.status === 403 ? "warning" : "error";
+});
+
 function reload(): void {
   window.location.reload();
 }
@@ -90,33 +97,33 @@ const fix = computed(() => {
 </script>
 
 <template>
-  <!-- Compact: an inline alert for sidebars and panels. The icon has its own column; everything else starts on one edge. -->
-  <div
+  <!-- Compact: an inline alert for sidebars and panels. -->
+  <UAlert
     v-if="compact"
     :role="problem ? 'alert' : 'status'"
-    class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs"
+    :icon="stateIcon"
+    :title="title"
+    :color="alertColor"
   >
-    <UIcon :name="stateIcon" class="mt-0.5 size-4 text-muted" />
-    <div class="grid min-w-0 gap-1">
-      <h2 class="text-[13px] font-medium leading-5 text-highlighted">{{ title }}</h2>
-      <p v-if="problem?.why || description" class="leading-5 text-pretty text-muted">{{ problem?.why ?? description }}</p>
-      <p v-if="fix" class="leading-5 text-pretty text-default">{{ fix }}</p>
+    <template v-if="problem?.why || description || fix || $slots.default" #description>
+      <p v-if="problem?.why || description" class="text-pretty">{{ problem?.why ?? description }}</p>
+      <p v-if="fix" class="text-pretty">{{ fix }}</p>
       <slot />
-      <div v-if="stateActions.length" class="mt-1 flex flex-wrap items-center gap-1">
-        <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
-      </div>
+    </template>
+    <template v-if="stateActions.length || problem" #actions>
+      <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
       <UTooltip v-if="problem" text="Copy error code">
         <CopyButton
           :value="problem.code"
           size="xs"
-          class="-mx-2 max-w-full justify-self-start text-start font-mono text-dimmed [overflow-wrap:anywhere]"
+          class="max-w-full text-start font-mono [overflow-wrap:anywhere]"
           :aria-label="`Copy error code ${problem.code}`"
         >
           {{ problem.code }} <span v-if="problem.status" class="whitespace-nowrap">· {{ problem.status }}</span>
         </CopyButton>
       </UTooltip>
-    </div>
-  </div>
+    </template>
+  </UAlert>
   <UEmpty
     v-else
     :role="problem ? 'alert' : 'status'"

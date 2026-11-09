@@ -125,7 +125,7 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
 
 <template>
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
-    <UDashboardPanel id="skills" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
+    <UDashboardPanel id="skills">
       <template #header>
         <ConsolePageHeader title="Skills" :toggle="false">
           <template #right>

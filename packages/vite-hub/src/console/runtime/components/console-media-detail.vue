@@ -13,6 +13,8 @@ import ConsoleMediaCrops from "./console-media-crops.vue";
 import ConsoleMediaFocal from "./console-media-focal.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaFocal as ConsoleMediaFocalPoint, ConsoleMediaReferenceDocument } from "../client/media-library";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 /**
  * The details of one file: a preview, alt text and caption that save as you type, size and format, the served URL,
@@ -190,11 +192,10 @@ const facts = computed(() => [
         </p>
       </section>
 
-      <section class="grid gap-3 border-t border-default p-4" aria-labelledby="media-detail-text">
-        <div class="flex items-center justify-between">
-          <h3 id="media-detail-text" class="text-xs font-medium text-highlighted">Description</h3>
+      <ConsoleSection :level="3" title="Description" class="border-t border-default p-4">
+        <template #actions>
           <span class="text-xs text-dimmed" aria-live="polite">{{ saving ? "Saving…" : saved ? "Saved" : "" }}</span>
-        </div>
+        </template>
         <UFormField label="Alt text" :description="isImage ? 'What the image shows, for people who cannot see it.' : undefined">
           <UTextarea
             v-model="alt"
@@ -221,15 +222,10 @@ const facts = computed(() => [
             @blur="flush"
           />
         </UFormField>
-      </section>
+      </ConsoleSection>
 
       <section class="grid gap-3 border-t border-default p-4" aria-label="File information">
-        <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
-          <div v-for="fact in facts" :key="fact.label" class="grid gap-0.5">
-            <dt class="text-xs text-dimmed">{{ fact.label }}</dt>
-            <dd class="text-[13px] text-highlighted tabular-nums">{{ fact.value }}</dd>
-          </div>
-        </dl>
+        <ConsoleStatGrid :items="facts" />
         <div class="grid gap-1">
           <span class="text-xs text-dimmed">Pathname</span>
           <div class="flex min-w-0 items-center gap-1 rounded-md bg-elevated/60 py-1 ps-2 pe-1">
@@ -246,22 +242,23 @@ const facts = computed(() => [
         </div>
       </section>
 
-      <section v-if="isImage && url && consoleMediaTransformable(file.contentType)" class="grid gap-3 border-t border-default p-4" aria-labelledby="media-detail-crops">
-        <div class="grid gap-0.5">
-          <h3 id="media-detail-crops" class="text-xs font-medium text-highlighted">Crops</h3>
-          <p class="text-xs text-muted">Framing for other layouts. Upload a replacement when a phone needs a different image.</p>
-        </div>
+      <ConsoleSection
+        v-if="isImage && url && consoleMediaTransformable(file.contentType)"
+        :level="3"
+        title="Crops"
+        description="Framing for other layouts. Upload a replacement when a phone needs a different image."
+        class="border-t border-default p-4"
+      >
         <ConsoleMediaCrops :client="client" :file="file" :served="served" :disabled="!access.write" @updated="emit('updated', $event)" />
-      </section>
+      </ConsoleSection>
 
-      <section class="grid gap-2 border-t border-default p-4" aria-labelledby="media-detail-usage">
-        <h3 id="media-detail-usage" class="text-xs font-medium text-highlighted">Used in</h3>
+      <ConsoleSection :level="3" title="Used in" class="border-t border-default p-4">
         <div v-if="usageError" class="flex items-center gap-2 text-xs text-muted">
           <span class="min-w-0 flex-1">Couldn't find the documents that use this file.</span>
           <UButton variant="ghost" size="xs" label="Try again" @click="loadUsage" />
         </div>
         <USkeleton v-else-if="!usage" class="h-7 w-2/3" />
-        <p v-else-if="!usage.length" class="text-xs text-muted">No document uses this file.</p>
+        <UEmpty v-else-if="!usage.length" variant="naked" size="xs" icon="i-lucide-file-text" title="Not used yet" description="A document that links or embeds this file shows here." />
         <ul v-else class="grid gap-px">
           <li v-for="reference in usage" :key="`${reference.collection}/${reference.id}`">
             <RouterLink
@@ -274,7 +271,7 @@ const facts = computed(() => [
             </RouterLink>
           </li>
         </ul>
-      </section>
+      </ConsoleSection>
     </div>
   </aside>
 </template>

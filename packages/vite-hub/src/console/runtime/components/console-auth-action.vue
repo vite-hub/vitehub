@@ -6,7 +6,8 @@ import type {
   AuthConsoleValue,
 } from "@vite-hub/auth/console";
 import { computed, ref, watch } from "vue";
-import { authDuration, changeAuthConsole } from "../client/auth-management";
+import { changeAuthConsole } from "../client/auth-management";
+import { consoleDurationWords } from "../client/format";
 import { useConsoleToast } from "../client/toast";
 const props = defineProps<{
   base: string;
@@ -176,7 +177,7 @@ async function submit() {
           <li class="flex gap-3">
             <UIcon name="i-lucide-timer" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span class="text-pretty"
-              >The session ends after {{ authDuration(duration ?? 3600) }}. To stop sooner, open
+              >The session ends after {{ consoleDurationWords(duration ?? 3600) }}. To stop sooner, open
               Auth in the Console.</span
             >
           </li>

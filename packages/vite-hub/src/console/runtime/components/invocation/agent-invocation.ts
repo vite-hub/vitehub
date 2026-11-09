@@ -1,3 +1,4 @@
+import { consoleDateTime, consoleDuration, consoleNumber } from "../../client/format.ts";
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
@@ -59,13 +60,7 @@ function formatTokens(value: number | undefined): string | undefined {
 
 function formatDuration(startedAt: string | undefined, completedAt: string | undefined): string | undefined {
   if (!startedAt || !completedAt) return;
-  const duration = Date.parse(completedAt) - Date.parse(startedAt);
-  if (!Number.isFinite(duration) || duration < 0) return;
-  const seconds = Math.round(duration / 1_000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return consoleDuration(Date.parse(completedAt) - Date.parse(startedAt), { wholeSeconds: true });
 }
 
 /** Elapsed time of a live session as `m:ss`, or `h:mm:ss` after the first hour. */
@@ -509,7 +504,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
       : `${new Intl.DateTimeFormat("en", dateOptions).format(date)} ${time}`;
   return {
     short,
-    title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
+    title: consoleDateTime(value),
     value,
   };
 }
@@ -1886,7 +1881,7 @@ const agentInvocationInspector = defineComponent({
                   : null,
                 inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
                   ? "Unknown"
-                  : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
+                  : consoleNumber((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
                 // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
                 inspectorRow(
                   usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
@@ -1900,7 +1895,7 @@ const agentInvocationInspector = defineComponent({
                   ["Reasoning", partition?.reasoningTokens],
                 ] as const).flatMap(([label, value]) => value === undefined
                   ? []
-                  : [inspectorRow(label, new Intl.NumberFormat("en").format(value))]),
+                  : [inspectorRow(label, consoleNumber(value))]),
               ]),
             ),
             props.showTimeline

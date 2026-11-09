@@ -15,6 +15,7 @@ import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import ConsoleConfirm from "./console-confirm.vue";
 
 interface KVListResponse {
   cursor?: string;
@@ -79,6 +80,9 @@ const storeItems = computed(() => stores.value.map((store) => ({ label: store, v
 const valueLimit = 256 * 1024;
 // The filter lives in the URL with the store and key, so a reload or a shared link opens the same view.
 const { q: keyFilter } = useConsoleQuery({ q: queryText() });
+function clearKeyFilter(): void {
+  keyFilter.value = "";
+}
 // The filter narrows the loaded keys. Load more to search further in a large store.
 const visibleKeys = computed(() => {
   const filter = keyFilter.value.trim().toLowerCase();
@@ -419,7 +423,7 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="kv-value" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="kv-value">
       <ConsolePageHeader title="KV" :description="stores.length > 1 ? undefined : selectedStore" :toggle="false">
         <template #right>
                     <UTooltip text="Refresh keys">
@@ -456,8 +460,16 @@ onBeforeUnmount(() => {
             </button>
             <UButton v-if="nextCursor" class="mt-1 self-start" label="Load more" variant="ghost" :loading="listLoading" @click="loadMore" />
           </template>
-          <p v-else-if="keys.length" class="px-2 py-1.5 text-xs text-muted">No loaded keys match “{{ keyFilter.trim() }}”.</p>
-          <p v-else class="px-2 py-1.5 text-xs text-muted">No keys in this store yet.</p>
+          <UEmpty
+            v-else-if="keys.length"
+            variant="naked"
+            size="xs"
+            icon="i-lucide-search"
+            :title="`No loaded keys match “${keyFilter.trim()}”`"
+            description="The filter checks only the keys that loaded."
+            :actions="[{ label: 'Clear filter', variant: 'ghost', onClick: clearKeyFilter }]"
+          />
+          <UEmpty v-else variant="naked" size="xs" icon="i-lucide-key-round" title="No keys yet" description="Keys show here when the application writes them." />
         </nav>
 
         <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Value">
@@ -520,17 +532,9 @@ onBeforeUnmount(() => {
       </div>
     </UDashboardPanel>
 
-    <UModal v-model:open="removeOpen" title="Delete this key?" :ui="{ content: 'sm:max-w-[440px]' }">
-      <template #body>
-        <p class="text-[13px] text-muted">
-          <span class="font-mono text-xs text-highlighted">{{ selectedKey || "(empty key)" }}</span> is deleted from the store <span class="font-medium">{{ selectedStore }}</span>. This cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton variant="ghost" label="Cancel" @click="removeOpen = false" />
-          <UButton color="error" label="Delete" :loading="removing" @click="confirmRemove" />
-        </div>
-      </template>
-    </UModal>
+    <ConsoleConfirm v-model:open="removeOpen" title="Delete this key?" confirm-label="Delete" destructive :loading="removing" @confirm="confirmRemove">
+      <p>
+        <span class="font-mono text-xs text-highlighted">{{ selectedKey || "(empty key)" }}</span> is deleted from the store <span class="font-medium">{{ selectedStore }}</span>. This cannot be undone.
+      </p>
+    </ConsoleConfirm>
 </template>

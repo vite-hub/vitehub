@@ -11,6 +11,7 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection } from "../definitions";
+import ConsoleSection from "./console-section.vue";
 
 /**
  * The Settings page of a document editor section: one row per singleton, such as site settings or a home page, that
@@ -63,7 +64,6 @@ function editorRoute(name: string) {
       <UAlert
         v-if="error"
         color="error"
-        variant="subtle"
         icon="i-lucide-cloud-off"
         title="Couldn't load singletons"
         :description="consoleErrorMessage(error)"
@@ -72,11 +72,7 @@ function editorRoute(name: string) {
       <div v-else-if="firstLoad" class="grid gap-px">
         <USkeleton v-for="index in 2" :key="index" class="h-14" />
       </div>
-      <template v-else>
-        <h2 class="text-[13px] font-medium text-highlighted">
-          Singletons
-          <span class="ms-1 font-normal text-dimmed tabular-nums">{{ singletons.length }}</span>
-        </h2>
+      <ConsoleSection v-else title="Singletons" :count="singletons.length" description="Each is one document at a fixed path. It saves as a draft and publishes like any other document.">
         <!-- The list does not clip its rows, so the focus ring around a row stays visible. The end rows take its corners. -->
         <ul class="divide-y divide-default rounded-lg border border-default" aria-label="Settings">
           <li v-for="singleton in singletons" :key="singleton.name" class="first:*:rounded-t-md last:*:rounded-b-md">
@@ -103,8 +99,7 @@ function editorRoute(name: string) {
             </RouterLink>
           </li>
         </ul>
-        <p class="text-xs text-dimmed">Each is one document at a fixed path. It saves as a draft and publishes like any other document.</p>
-      </template>
+      </ConsoleSection>
     </div>
   </div>
 </template>

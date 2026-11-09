@@ -12,8 +12,7 @@ import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
-import { consoleStatusValue } from "../client/format";
-import { consoleInitials } from "../client/presence";
+import { consoleInitials, consoleStatusValue } from "../client/format";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsolePropertyList from "./console-property-list.vue";
@@ -25,6 +24,7 @@ import ConsoleState from "./console-state.vue";
 import ConsoleWorkflowActions from "./console-workflow-actions.vue";
 import ConsoleValue from "./console-value.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import ConsoleSection from "./console-section.vue";
 
 const props = defineProps<{
   agentsBase: string;
@@ -63,6 +63,9 @@ const section = computed(() => props.details.id);
 const { q: search } = useConsoleQuery({ q: queryText() }, {
   active: current => current.meta.consoleSection === props.details.id,
 });
+function clearSearch(): void {
+  search.value = "";
+}
 const sectionReadOnly = ref(false);
 const sectionDetails = computed(() => props.details);
 const catalogView = computed(() => props.details.view.kind === "definition-catalog");
@@ -338,7 +341,15 @@ onBeforeUnmount(() => request?.abort());
               :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
               :aria-label="`Filter ${sectionDetails.label}`"
             />
-            <p v-if="!visibleEntries.length" class="px-2 py-1.5 text-xs text-muted">No match for “{{ search.trim() }}”.</p>
+            <UEmpty
+              v-if="!visibleEntries.length"
+              variant="naked"
+              size="xs"
+              icon="i-lucide-search"
+              :title="`No match for “${search.trim()}”`"
+              description="Try another name."
+              :actions="[{ label: 'Clear filter', variant: 'ghost', onClick: clearSearch }]"
+            />
             <UTooltip v-for="entry in visibleEntries" :key="entry.id" :text="entry.id" :content="{ side: 'right' }" :disabled="!collapsed">
               <button
                 type="button"
@@ -356,9 +367,14 @@ onBeforeUnmount(() => request?.abort());
               </button>
             </UTooltip>
           </template>
-          <p v-else-if="!collapsed && !loading && !error" class="px-2 py-1.5 text-xs leading-relaxed text-muted">
-            No {{ sectionDetails.label }} Definitions in this project yet.
-          </p>
+          <UEmpty
+            v-else-if="!collapsed && !loading && !error"
+            variant="naked"
+            size="xs"
+            :icon="sectionDetails.icon"
+            :title="`No ${sectionDetails.label} Definitions yet`"
+            description="Define one in the project, then reload the Console."
+          />
         </nav>
       </template>
     </UDashboardSidebar>
@@ -373,7 +389,6 @@ onBeforeUnmount(() => request?.abort());
 
     <UDashboardPanel
       :id="`${section}-definition`"
-      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <ConsolePageHeader :title="(catalogView && selectedEntry?.id) || sectionDetails.label" :toggle="catalogView">
         <template #right>
@@ -573,11 +588,7 @@ onBeforeUnmount(() => request?.abort());
             trailing-icon="i-lucide-arrow-up-right"
             variant="outline"
           />
-          <section v-if="selectedRecord.activity?.length" class="grid gap-3" aria-label="Activity">
-            <h3 class="flex items-center gap-2 text-xs font-medium text-highlighted">
-              Activity
-              <span class="font-normal text-dimmed tabular-nums">{{ selectedRecord.activity.length }}</span>
-            </h3>
+          <ConsoleSection v-if="selectedRecord.activity?.length" :level="3" title="Activity" :count="selectedRecord.activity.length">
             <ol class="grid gap-4">
               <li v-for="(entry, index) in selectedRecord.activity" :key="index" class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5">
                 <UAvatar :text="consoleInitials(entry.author)" :alt="entry.author" size="xs" class="row-span-2" />
@@ -588,7 +599,7 @@ onBeforeUnmount(() => request?.abort());
                 <p class="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-pretty text-default">{{ entry.text }}</p>
               </li>
             </ol>
-          </section>
+          </ConsoleSection>
           <ConsolePropertyList :title="selectedRecord.activity?.length ? 'Details' : 'Fields'" :items="selectedRecord.fields" />
         </article>
       </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { consoleDayTime } from "../client/format";
 import { Status } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -27,6 +28,8 @@ import ConsoleSetupHint from "./console-setup-hint.vue";
 
 import type { ConsoleDocumentActivity, ConsoleDocumentOverview, ConsoleDocumentPendingChange, ConsoleDocumentScheduledChange, ConsoleDocumentsClient, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 /**
  * The dashboard of a document editor section: counts by state, the changes that wait for a publish, the scheduled
@@ -83,7 +86,7 @@ const totals = computed(() => {
   return totals;
 });
 const stats = computed(() => (["draft", "changed", "published", "deleted"] as const).map(state => ({
-  count: totals.value[state],
+  value: totals.value[state],
   label: { changed: "Changed", deleted: "Deleted", draft: "Drafts", published: "Published" }[state],
   state,
 })));
@@ -98,10 +101,6 @@ const scheduled = computed(() => (props.overview?.collections ?? [])
   .sort((left, right) => left.item.schedule.at.localeCompare(right.item.schedule.at)));
 const scheduleStatus = { failed: "Failed", overdue: "Overdue", pending: "Scheduled" } as const;
 
-/** `Oct 20, 09:00` in the browser time zone. */
-function scheduleTime(at: string): string {
-  return new Date(at).toLocaleString(undefined, { day: "numeric", hour: "2-digit", hour12: false, minute: "2-digit", month: "short" });
-}
 
 // Writers see the changes, but only collections they may publish count toward the Publish button.
 // Drafts with field issues stay out of Publish: they would make the whole publish fail.
@@ -233,7 +232,6 @@ async function publishAll(): Promise<void> {
       <UAlert
         v-if="error && !overview"
         color="error"
-        variant="subtle"
         icon="i-lucide-cloud-off"
         title="Couldn't load the dashboard"
         :description="consoleErrorMessage(error)"
@@ -242,25 +240,19 @@ async function publishAll(): Promise<void> {
 
       <!-- Counts: the numbers lead and the labels follow quietly. -->
       <UCard as="section" aria-label="Documents by state">
-        <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div v-for="stat in stats" :key="stat.state" class="grid gap-1">
-            <dt><Status :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" /></dt>
-            <dd>
-              <!-- The height of the text-2xl count, so the card keeps its height when the counts arrive. -->
-              <USkeleton v-if="firstLoad" class="my-1 h-6 w-10" />
-              <span v-else class="text-2xl font-semibold tracking-[-0.015em] tabular-nums" :class="stat.count ? 'text-highlighted' : 'text-dimmed'">{{ stat.count }}</span>
-            </dd>
-          </div>
-        </dl>
+        <ConsoleStatGrid :items="stats" size="lg" :columns="4">
+          <template #label="{ item }"><Status :tone="consoleDocumentStateColor(item.state)" :label="item.label" /></template>
+          <template #value="{ item }">
+            <!-- The height of the 24px count, so the card keeps its height when the counts arrive. -->
+            <USkeleton v-if="firstLoad" class="my-1 h-6 w-10" />
+            <span v-else :class="item.value ? '' : 'text-dimmed'">{{ item.value }}</span>
+          </template>
+        </ConsoleStatGrid>
       </UCard>
 
       <div class="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         <div class="grid grid-cols-1 gap-8">
-          <section v-if="openNow.length" aria-labelledby="open-now" class="grid gap-2">
-            <h2 id="open-now" class="text-[13px] font-medium text-highlighted">
-              Open now
-              <span class="ms-1 font-normal text-dimmed tabular-nums">{{ openNow.length }}</span>
-            </h2>
+          <ConsoleSection v-if="openNow.length" title="Open now" :count="openNow.length">
             <!-- These lists do not clip their rows, so the focus ring around a row stays visible. The end rows take the corners. -->
             <ul class="divide-y divide-default rounded-lg border border-default">
               <li v-for="entry in openNow.slice(0, 12)" :key="`${entry.collection.name}/${entry.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
@@ -271,16 +263,9 @@ async function publishAll(): Promise<void> {
                 </RouterLink>
               </li>
             </ul>
-          </section>
+          </ConsoleSection>
 
-          <section aria-labelledby="needs-publishing" class="grid gap-2">
-            <header class="flex items-baseline justify-between gap-3">
-              <h2 id="needs-publishing" class="text-[13px] font-medium text-highlighted">
-                Needs publishing
-                <span v-if="pending.length" class="ms-1 font-normal text-dimmed tabular-nums">{{ pending.length }}</span>
-              </h2>
-              <p v-if="pending.length && !canPublishAny" class="text-xs text-dimmed">An editor publishes these.</p>
-            </header>
+          <ConsoleSection title="Needs publishing" :count="pending.length || undefined" :description="pending.length && !canPublishAny ? 'An editor publishes these.' : undefined">
             <!-- One line, the height of "Everything is published": most visits find nothing to publish. -->
             <USkeleton v-if="firstLoad" class="h-24" />
             <UEmpty v-else-if="!pending.length && noAccess" icon="i-lucide-lock" title="No one can read documents yet">
@@ -317,13 +302,9 @@ async function publishAll(): Promise<void> {
               </li>
             </ul>
             <p v-if="pending.length > 12" class="text-xs text-dimmed tabular-nums">And {{ pending.length - 12 }} more. Each collection lists all of its changes.</p>
-          </section>
+          </ConsoleSection>
 
-          <section v-if="scheduled.length" aria-labelledby="scheduled" class="grid gap-2">
-            <h2 id="scheduled" class="text-[13px] font-medium text-highlighted">
-              Scheduled
-              <span class="ms-1 font-normal text-dimmed tabular-nums">{{ scheduled.length }}</span>
-            </h2>
+          <ConsoleSection v-if="scheduled.length" title="Scheduled" :count="scheduled.length">
             <p v-if="setup?.schedule" class="text-xs text-muted"><ConsoleSetupHint :hint="setup.schedule" /></p>
             <ul class="divide-y divide-default rounded-lg border border-default">
               <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
@@ -338,15 +319,14 @@ async function publishAll(): Promise<void> {
                     <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.item.id)" :user="sessionUser" variant="row" />
                   </span>
                   <span class="vitehub-dashboard-row__meta">{{ entry.collection.label }}</span>
-                  <time class="vitehub-dashboard-row__time" :datetime="entry.item.schedule.at">{{ scheduleTime(entry.item.schedule.at) }}</time>
+                  <time class="vitehub-dashboard-row__time" :datetime="entry.item.schedule.at">{{ consoleDayTime(entry.item.schedule.at) }}</time>
                 </RouterLink>
               </li>
             </ul>
             <p v-if="scheduled.length > 12" class="text-xs text-dimmed tabular-nums">And {{ scheduled.length - 12 }} more. Each collection's Scheduled tab lists all of them.</p>
-          </section>
+          </ConsoleSection>
 
-          <section aria-labelledby="collections" class="grid gap-2">
-            <h2 id="collections" class="text-[13px] font-medium text-highlighted">Collections</h2>
+          <ConsoleSection title="Collections">
             <div v-if="firstLoad && !listed.length" class="grid gap-px">
               <USkeleton v-for="index in 2" :key="index" class="h-11" />
             </div>
@@ -388,11 +368,10 @@ async function publishAll(): Promise<void> {
               </li>
             </ul>
             <p v-if="listed.length && !writable.length" class="text-xs text-dimmed">You can read these collections but not edit them.</p>
-          </section>
+          </ConsoleSection>
         </div>
 
-        <section aria-labelledby="recent-activity" class="grid gap-2">
-          <h2 id="recent-activity" class="text-[13px] font-medium text-highlighted">Recent activity</h2>
+        <ConsoleSection title="Recent activity">
           <div v-if="firstLoad" class="grid gap-3">
             <USkeleton v-for="index in 5" :key="index" class="h-9" />
           </div>
@@ -424,7 +403,7 @@ async function publishAll(): Promise<void> {
             :aria-expanded="showAllActivity"
             @click="showAllActivity = !showAllActivity"
           />
-        </section>
+        </ConsoleSection>
       </div>
     </div>
   </div>

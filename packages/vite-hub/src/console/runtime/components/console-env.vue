@@ -181,7 +181,7 @@ onBeforeUnmount(() => request?.abort());
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />
-    <UDashboardPanel id="env" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="env">
       <ConsolePageHeader title="Env" :toggle="false">
         <template #right>
           <UButton

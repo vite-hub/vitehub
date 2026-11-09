@@ -6,12 +6,14 @@ import { logPageSchema, logSourceInfoSchema } from "../../../logs/source";
 import type { LogEntry, LogSourceInfo } from "../../../logs/source";
 import { requestConsole } from "../client/request";
 import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
-import { consoleClockTime, exactTimestamps } from "../client/time";
+import { consoleClockTime, exactTimestamps } from "../client/format";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
+import ConsolePropertyList from "./console-property-list.vue";
+import ConsoleSection from "./console-section.vue";
 
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
@@ -24,6 +26,15 @@ const { entry: selectedId, level, q: text, view: mode } = useConsoleQuery({
   q: queryText(),
   view: queryChoice(["explorer", "stream"], "explorer", { history: "push" }),
 });
+const selectedProperties = computed(() => (selected.value ? [
+  { label: "Time", mono: true, value: selected.value.timestamp },
+  { label: "Service", value: selected.value.service },
+  { label: "Event ID", mono: true, value: selected.value.id },
+] : []));
+function clearFilters(): void {
+  text.value = "";
+  level.value = "all";
+}
 // The row shows the day without the year; the title of the time shows the exact timestamp.
 const logDateFormat = new Intl.DateTimeFormat("en", { day: "numeric", month: "short" });
 function logDate(timestamp: string) {
@@ -164,7 +175,7 @@ onBeforeUnmount(() => {
 
 <template>
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
-    <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="logs">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
         <template #right>
           <UTooltip text="Refresh logs">
@@ -226,9 +237,16 @@ onBeforeUnmount(() => {
           <p v-if="loading && !entries.length" role="status" class="p-6 text-sm text-muted">
             Loading events…
           </p>
-          <p v-else-if="!entries.length" role="status" class="p-6 text-sm text-muted">
-            No events match these filters.
-          </p>
+          <UEmpty
+            v-else-if="!entries.length"
+            role="status"
+            variant="naked"
+            size="sm"
+            icon="i-lucide-search"
+            :title="text || level !== 'all' ? 'No events match these filters' : 'No events yet'"
+            :description="text || level !== 'all' ? 'Change the search or the level.' : 'Events show here when the application logs them.'"
+            :actions="text || level !== 'all' ? [{ label: 'Clear filters', variant: 'ghost', onClick: clearFilters }] : undefined"
+          />
           <div v-bind="containerProps" class="min-h-0 flex-1 overflow-auto">
             <!-- The inset keeps the hover fill off the edges; data-focus-inset keeps the focus ring inside the scroller. -->
             <div v-bind="wrapperProps" class="px-1">
@@ -267,28 +285,21 @@ onBeforeUnmount(() => {
           aria-label="Event details"
           class="min-h-0 min-w-0 overflow-auto border-l border-default p-5"
         >
-          <template v-if="selected">
-            <div class="mb-5 flex items-center justify-between gap-3">
-              <h2 class="text-sm font-medium">Event details</h2>
-              <span class="font-mono text-xs uppercase" :class="levelClass(selected.level)">{{
-                selected.level
-              }}</span>
-            </div>
-            <h3 class="break-words text-sm font-medium">{{ selected.message }}</h3>
-            <dl class="my-5 grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs">
-              <dt class="text-muted">Time</dt>
-              <dd class="break-all font-mono">{{ selected.timestamp }}</dd>
-              <dt class="text-muted">Service</dt>
-              <dd>{{ selected.service }}</dd>
-              <dt class="text-muted">Event ID</dt>
-              <dd class="break-all font-mono">{{ selected.id }}</dd>
-            </dl>
+          <ConsoleSection v-if="selected" title="Event details" class="gap-5">
+            <template #actions>
+              <span class="font-mono text-xs uppercase" :class="levelClass(selected.level)">{{ selected.level }}</span>
+            </template>
+            <p class="break-words text-sm font-medium text-highlighted">{{ selected.message }}</p>
+            <!-- The exact timestamp, not a relative time: a log is read next to other logs. -->
+            <ConsolePropertyList :items="selectedProperties">
+              <template #value="{ item }">{{ item.value }}</template>
+            </ConsolePropertyList>
             <div
               v-if="
                 diagnostic &&
                 (diagnostic.code || diagnostic.name || diagnostic.why || diagnostic.fix)
               "
-              class="mb-6 space-y-3 text-sm"
+              class="space-y-3 text-sm"
             >
               <p v-if="diagnostic.code || diagnostic.name" class="font-mono text-xs text-error">
                 {{ field(diagnostic.code ?? diagnostic.name) }}
@@ -306,12 +317,13 @@ onBeforeUnmount(() => {
                 >Documentation</a
               >
             </div>
-            <h3 class="mb-3 text-xs font-medium text-muted">Structured data</h3>
-            <pre class="whitespace-pre-wrap break-all font-mono text-xs leading-6">{{
-              JSON.stringify(selected.data, null, 2)
-            }}</pre>
-          </template>
-          <p v-else class="text-sm text-muted">Select an event to inspect its data.</p>
+            <ConsoleSection :level="3" title="Structured data">
+              <pre class="whitespace-pre-wrap break-all font-mono text-xs leading-6">{{
+                JSON.stringify(selected.data, null, 2)
+              }}</pre>
+            </ConsoleSection>
+          </ConsoleSection>
+          <UEmpty v-else variant="naked" size="sm" icon="i-lucide-mouse-pointer-click" title="No event selected" description="Select an event to inspect its data." />
         </aside>
       </div>
       <footer

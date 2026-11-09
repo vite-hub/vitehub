@@ -471,14 +471,14 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.js`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.d.ts`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/format.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/format.d.ts`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.d.ts`)).toBe(true);
     expect(manifest.exports).not.toHaveProperty("./console/runtime/console-route");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/sections");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
-    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/format");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/appearance");
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toContain('aria-label="Filter sessions"');

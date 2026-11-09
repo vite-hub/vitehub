@@ -78,7 +78,7 @@ onBeforeUnmount(() => unsubscribe?.());
 
 <template>
   <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
-  <UDashboardPanel id="console-connect" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0' }">
+  <UDashboardPanel id="console-connect">
     <template #header>
       <ConsolePageHeader title="Connect an agent" :toggle="false">
         <template #right>

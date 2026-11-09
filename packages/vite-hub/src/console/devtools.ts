@@ -1,7 +1,7 @@
 import { mountPath } from "./nitro.ts"
 
 const title = "ViteHub Console"
-const icon = "ph:hexagon-duotone"
+const icon = "lucide:hexagon"
 
 /** The Console entry of the Vite DevTools dock, which Devframe renders. */
 export interface ConsoleDevToolsDock {
