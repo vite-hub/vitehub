@@ -9,7 +9,7 @@ export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition }
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { hasChatMessageHeaders, stripEchoedChatMessageMetadata } from "./internal/chat-message-header.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
-import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { readDiscoveredAgentIdentity, readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -933,8 +933,11 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   // Only reuse identity for the same Definition. An unnamed child cannot inherit its parent's grants.
   const owner = context[agentIdentityOwner]
   if (owner === agent) return context
+  // A caller outside the host routes, such as a developer route, runs a discovered Agent with its host identity.
+  const hostIdentity = owner || context.agentIdentity ? undefined : readDiscoveredAgentIdentity(agent)
+  if (hostIdentity) context = { ...context, agentIdentity: hostIdentity }
   // Keep host discovery separate from the identity minted for Connection access.
-  const discovered = context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
+  const discovered = hostDiscovered(context)
   context = { ...context, [agentWorkflowDiscovery]: discovered }
   const name = agent.name || readDiscoveredAgentName(agent)
   if (!name) return { ...context, agentIdentity: !owner ? context.agentIdentity : undefined, [agentIdentityOwner]: agent, [agentEnvIdentity]: undefined }
@@ -968,12 +971,16 @@ function resolveAgentWorkflowRuntimeBinding<
   return agent.runtime && agent.runtime.kind === "workflow" ? agent.runtime : undefined
 }
 
+/** Whether the host discovered the running Agent, so its Workflow name selects the discovered Workflow. */
+function hostDiscovered(context: IdentityRuntimeContext): boolean {
+  return context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
+}
+
 function canDispatchAgentWorkflow(
   binding: AgentWorkflowRuntimeBinding | undefined,
   context: IdentityRuntimeContext,
 ): binding is AgentWorkflowRuntimeBinding {
-  const discovered = context[agentWorkflowDiscovery] ?? Boolean(context.agentIdentity)
-  return Boolean(binding && (!("discoveryDefault" in binding) || (discovered && context.agentIdentity)))
+  return Boolean(binding && (!("discoveryDefault" in binding) || (hostDiscovered(context) && context.agentIdentity)))
 }
 
 function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1024,7 +1031,12 @@ async function getAgentWorkflowHandle<
 
   const { createWorkflow } = await loadAgentWorkflowModule()
   const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry, loadWorkflowDefinition, registerInlineWorkflowDefinition } = await loadAgentWorkflowRuntimeStateModule()
-  const registered = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  const registry = getWorkflowRuntimeRegistry()
+  const discoveredWorkflow = registry && Object.hasOwn(registry, name) ? registry[name] : undefined
+  if (discoveredWorkflow && !reuseRegistry && !recovery) {
+    throw agentDiagnostics.AGENT_R0422({ message: `[vitehub] Workflow name ${JSON.stringify(name)} belongs to a discovered Agent. Another Agent cannot use it. Give this Agent its own name with workflow("other-name"), or run the discovered Agent.` })
+  }
+  const registered = (reuseRegistry && discoveredWorkflow) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
   if (registered) {
     const definition = await loadWorkflowDefinition(name)
     if (Boolean(definition?.internalAgentInvocationRecovery) !== recovery) {
@@ -1142,7 +1154,7 @@ export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntim
       // is disabled. There is no provider run to inspect in this case, so keep
       // the claimed reservation for the inline retry path.
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
-      const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, Boolean(context.agentIdentity))
+      const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
       // Legacy reservations lack dispatch intent and may already have been accepted.
       if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw new AgentInvocationClaimConflict()
       if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.provider) || dispatch.name !== workflowName)) {
@@ -1283,7 +1295,7 @@ async function runAgentAsWorkflow<
   let parsedInputData = false
   try {
     workflowName = resolveAgentWorkflowName(agent, binding, context)
-    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, hostDiscovered(context))
     // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
     parsedInput = hasAgentDefinition(agent)
       ? await withParsedAgentMessageMeta<TRuntimeConfig, CALL_OPTIONS>(agent, input, context.run)
@@ -1376,7 +1388,7 @@ async function runAgentAsWorkflow<
       const recoveryHandle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(
         agent,
         getAgentInvocationRecoveryWorkflowName(handle.name),
-        Boolean(context.agentIdentity),
+        hostDiscovered(context),
         true,
       )
       await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => deferAgentWorkflowRecovery(recoveryHandle, {

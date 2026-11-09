@@ -133,6 +133,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/shell/providers/just-bash` | Just Bash Shell provider. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
 | `vite-hub/task` | Nitro `defineTask()` and `runTask()` for `server/tasks/` files. |
+| `vite-hub/test` | `setupViteHubTest()` for app tests: local backends for KV, Blob, Database, Queue, Email, and Rate Limit, Server Env values, and Channel deliveries. See [Testing](/docs/development/testing). |
 | `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, and Collections (`defineCollection`, `array`, `table`). |
 | `vite-hub/source/client` and `vite-hub/source/server` | Vue Collection pagination and the H3 Collection route adapter. |
 | `vite-hub/source/file`, `vite-hub/source/glob`, and `vite-hub/source/markdown` | Local file implementations, loaded only when selected. |
@@ -205,7 +206,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/sandbox/ssh` | Sandbox Package | `sshLaunch` and `serveSsh` for a trusted SSH command transport. |
 | `@vite-hub/channels` | Channels Package | Channels with `defineChannel()`, HTTP sender adapters, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
-| `@vite-hub/comments` | Comments Package | `defineComments()`, `installComments()`, the runtime methods, and portable types. |
+| `@vite-hub/comments` | Comments Package | `defineComments()`, the runtime methods, and portable types. `installComments()` is in `@vite-hub/comments/server`. |
 | `@vite-hub/comments/anchor` | Comments Package | Browser helpers that create and place [anchors](/docs/comments/server-api#anchors) of pins. |
 | `@vite-hub/comments/database` | Comments Package | `commentsSchema`, the tables of Comments, and `migrateComments()` with `commentsMigrationSql()` to move the tables of the live-site model. |
 | `@vite-hub/comments/realtime` and `@vite-hub/comments/runtime` | Comments Package | The presence room definition, the Comments API handler, and the Nitro plugin that generated output imports. |
