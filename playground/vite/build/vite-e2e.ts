@@ -14,7 +14,7 @@ import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.
 import { getCloudflareQueueBindingName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getCloudflareQueueName } from "../../../packages/queue/src/internal/cloudflare-resource-name.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
-import { discoverRateLimitCatalog } from "../../../packages/rate-limit/src/discovery.ts"
+import { discoverRateLimitDeclarations } from "../../../packages/rate-limit/src/discovery.ts"
 import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
@@ -109,7 +109,7 @@ interface GeneratedFeatureArtifacts {
   generatedDir: string
   queueDefinitions: Array<{ name: string, handler: string }>
   queueRegistryFile?: string
-  rateLimitDeclarations: ReturnType<typeof discoverRateLimitCatalog>["declarations"]
+  rateLimitDeclarations: ReturnType<typeof discoverRateLimitDeclarations>
   scheduleCrons: Map<string, string>
   scheduleDefinitions: Array<{ name: string, handler: string }>
   scheduleRegistryFile?: string
@@ -698,7 +698,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     ? discoverQueueDefinitions({ mode: "server-queues", scanDirs: [resolve(options.rootDir, "server")] })
     : []
   const rateLimitDeclarations = options.rateLimit
-    ? discoverRateLimitCatalog({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] }).declarations
+    ? discoverRateLimitDeclarations({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] })
     : []
   const scheduleDefinitions = options.schedule
     ? discoverScheduleDefinitions({ rootDir: options.rootDir })
