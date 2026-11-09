@@ -92,6 +92,9 @@ export const overlayStyles = `
 [data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
   bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px; transform-origin: 100% 100%;
 }
+[data-slot="comment-layer-item"][data-above="true"] > [data-slot="comment-layer-popover"] {
+  top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
+}
 [data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
 
 /* Areas: the one being drawn and the ones that threads point at. A resolved area is dashed and faint. */

@@ -187,6 +187,8 @@ export const CommentLayer = defineComponent({
       },
       { flush: "post" },
     );
+    // The height of a new comment's bubble, with its gap to the box under it.
+    const draftAboveRoom = 72;
     const side = (x: number, y: number) => ({
       "data-flip-x": x + popoverWidth > window.innerWidth ? "true" : undefined,
       "data-flip-y": y + popoverHeight > window.innerHeight ? "true" : undefined,
@@ -280,6 +282,8 @@ export const CommentLayer = defineComponent({
               "div",
               {
                 ...side(point.x, point.y),
+                // A new comment on an area opens above it, so the box stays in view while the person types.
+                ...(draft.anchor.kind === "area" || draft.anchor.kind === "image") && point.y > draftAboveRoom ? { "data-above": "true" } : {},
                 "data-draft": "true",
                 "data-kind": draft.anchor.kind,
                 "data-slot": "comment-layer-item",

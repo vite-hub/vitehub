@@ -315,8 +315,8 @@ interface TextResolution {
 
 /** The space between a text block and its 28px pin, as in Drop. */
 const PIN_GUTTER = 8
-/** The room that a pin takes right of its spot: the pin and the same space to the screen's edge. */
-const PIN_ROOM = 28 + PIN_GUTTER
+/** The room that a pin takes right of its spot at the screen's edge: the pin and 2px. */
+const PIN_ROOM = 28 + 2
 
 function resolveText(anchor: TextAnchor, element: Element): TextResolution | undefined {
   const nodes = textNodes(element)
