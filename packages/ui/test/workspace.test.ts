@@ -5,7 +5,7 @@ import type { WebContainerStep } from "@vite-hub/web-container";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { h, nextTick } from "vue";
 import { BrowserSupportNotice, detectUnsupportedBrowser } from "../src/workspace/browser-support-notice.ts";
-import { bootChecklist, formatElapsed, WorkspaceBootStatus } from "../src/workspace/workspace-boot-status.ts";
+import { bootChecklist, formatElapsed, WorkspaceBootStatus } from "../src/workspace.ts";
 import { WorkspacePreview } from "../src/workspace/workspace-preview.ts";
 import { WorkspaceShell } from "../src/workspace/workspace-shell.ts";
 import { WorkspaceTerminal } from "../src/workspace/workspace-terminal.ts";

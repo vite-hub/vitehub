@@ -250,7 +250,10 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/shell` | Shell Package | Command analysis and provider-neutral Shell runtime execution. |
 | `@vite-hub/shell/providers/just-bash` | Shell Package | Just Bash Shell provider. |
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |
-| `@vite-hub/ui`, `@vite-hub/ui/<name>`, and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components, shadcn/ui parts, and headless message scrolling. |
+| `@vite-hub/ui` and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components, shadcn/ui parts, and headless message scrolling. |
+| `@vite-hub/ui/markdown-editor` and `@vite-hub/ui/workspace` | UI Package | `MarkdownEditor` with Tiptap, and the WebContainer workspace parts with `PlaygroundContainer`, outside the root so a chat page never loads Tiptap, CodeMirror, or xterm. |
+| `@vite-hub/ui/playground` | UI Package | Share links and zips for a playground, with no UI. They run in Node too. |
+| `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | UI Package | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |
 | `@vite-hub/sandbox/task` | Sandbox Package | Sandbox Task Definitions and `runSandboxTask()`. |
 | `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers, manual runs, and Schedule Run stores. |
 | `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |

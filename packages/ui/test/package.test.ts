@@ -65,7 +65,7 @@ const publicEntries = [".", "./headless", "./markdown-editor", "./nuxt", "./play
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./package.json", "./styles.css"].sort());
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
@@ -138,7 +138,7 @@ describe("@vite-hub/ui package contract", () => {
     // The app runs the WebContainer with `useWebContainer()` of @vite-hub/web-container/vue, and the parts render its state.
     // Only PlaygroundContainer, the whole playground, runs it itself.
     const webContainerImporters = (readdirSync(dist, { recursive: true }) as string[])
-      .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container/.test(read(name)));
+      .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container(?:\/vue)?"/.test(read(name)));
     expect(webContainerImporters).toEqual(["parts/workspace/playground-container.js"]);
     expect(read("parts/workspace/workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
     expect(read("parts/workspace/workspace-terminal.js")).not.toMatch(/from\s*"@xterm\//);

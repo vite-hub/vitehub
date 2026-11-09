@@ -90,6 +90,8 @@ describe("ConnectPanel", () => {
   it("asks for a token in a labeled password input", async () => {
     const wrapper = mount(ConnectPanel, { attachTo: document.body, props: { connect } });
     await wrapper.get("[aria-label='Connect Anthropic']").trigger("click");
+    // The field is Nuxt UI's UInput, which loads on first render and takes focus.
+    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.find("input").element), { timeout: 5_000 });
     const input = wrapper.get("input");
     expect(input.attributes()).toMatchObject({ autocomplete: "off", type: "password" });
     expect(wrapper.get(`label[for='${input.attributes("id")}']`).text()).toBe("Anthropic token");
