@@ -222,7 +222,7 @@ With `name`, the preview is a Vue file in `app/examples/`, and Code shows its so
 
 ### Code trees and page lists
 
-`::code-tree` shows its code blocks as a project: a file tree beside the open file. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
+`::code-tree` shows its code blocks as a project: file tabs beside the open file, or above it in a narrow panel. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
 
 `::page-list` lists the pages of the page's section under their sidebar groups, with their icons and descriptions, for an Overview. `section` lists another section, and `exclude="Start"` leaves groups out. Put a plain Markdown list inside it: the site doesn't show it, and agents read it in the Markdown copy.
 

@@ -3,7 +3,7 @@ title: Device Frame
 description: "Show a page, an app preview, or an iframe at a phone's, a tablet's, or any size, with Chrome's device toolbar above it."
 navigation.order: 45
 navigation.group: Agent work
-icon: i-ph-device-mobile-light
+icon: i-lucide-smartphone
 ---
 
 `DeviceFrame` shows its content at a device's size, after Chrome's device toolbar and Firefox's responsive mode. The page gets exactly that many CSS pixels, so its media queries see a phone. It sits centered on a muted stage and fits the pane, scaled down but never up, as in T3 Code's preview. Off, the content fills the frame.

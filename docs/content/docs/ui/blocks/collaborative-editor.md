@@ -6,14 +6,14 @@ navigation.group: Blocks
 icon: i-lucide-users-round
 ---
 
-This block combines [`AvatarStack`](/docs/ui/avatar-stack), [`ConnectionStatus`](/docs/ui/connection-status), [`SyncStatus`](/docs/ui/sync-status), and the [caret styles](/docs/ui/carets) around a document. Ben types, and Cleo has a phrase selected. Save to see the save state, or drop the connection to see the header wait, then say Reconnecting. The room is synthetic. No editor runs and no network requests leave the page.
+This block combines [`AvatarStack`](/docs/ui/avatar-stack), [`ConnectionStatus`](/docs/ui/connection-status), [`SyncStatus`](/docs/ui/sync-status), and the [caret styles](/docs/ui/carets) around a document. Ben types, and Cleo has a phrase selected. Save to see the save state. Drop the connection to see the header wait, then show Reconnecting. The room is fake. No editor runs and no requests leave the page.
 
 ::example{name="CollaborativeEditorBlock" flush reset height=21}
 ::
 
 ## Connect Realtime
 
-[Realtime](/docs/realtime) runs the room. `useRealtimeTiptap()` returns everything the header needs, and its `extensions` already draw the carets with `RealtimeCaret`.
+[Realtime](/docs/realtime) runs the room. `useRealtimeTiptap()` returns all the header needs. Its `extensions` draw the carets with `RealtimeCaret`.
 
 | From `useRealtimeTiptap()` | Into |
 | --- | --- |
@@ -63,11 +63,11 @@ async function save() {
 </template>
 ```
 
-Key the editor component by `path`, so opening another document joins another room.
+Key the editor component by `path`, so another document joins another room.
 
 ## Change the carets
 
-Pass `carets` options to change how the carets render. `selectionRender` returns the decoration attributes for a remote selection, and `render` builds the caret element. An option that you leave out keeps the default.
+Pass `carets` options to change the carets. `selectionRender` returns the attributes for a remote selection. `render` builds the caret element. Options you leave out keep the default.
 
 ```ts fragment
 import { useEditor } from "@tiptap/vue-3";
@@ -86,9 +86,9 @@ const editor = useEditor({ extensions: realtime.extensions.value });
 
 ## What to keep
 
-- `people` comes from the room's awareness, and with `auth: true` the server sets each name and image from the session. Do not let the client choose them.
-- `AvatarStack` shows each person once, so a person with two tabs open shows as one face.
-- The presence colors are `#RRGGBB`. The avatar rings, the carets, and the selections all use them, so each person has one color across the page.
+- `people` comes from the room's awareness (shared presence state). With `auth: true`, the server sets each name and image from the session. Do not let the client choose them.
+- `AvatarStack` shows a person with two tabs as one face.
+- Presence colors are `#RRGGBB`. Avatar rings, carets, and selections all use them, so each person has one color.
 
 ## Components used
 
