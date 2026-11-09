@@ -1,6 +1,11 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { copyFile, mkdir } from "node:fs/promises"
 
 import { join } from "pathe"
+
+import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
+
+import type { MigrationEntry } from "./migration-journal.ts"
 
 /** Wrangler's default ledger. `wrangler d1 migrations apply` and `vitehub db migrate` share it. */
 export const defaultD1MigrationsTable = "d1_migrations"
@@ -57,43 +62,107 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
   }
 }
 
-/** Lists the `.sql` files of a migrations directory in the order that Wrangler applies them. */
-export function listD1MigrationFiles(migrationsDir: string): string[] {
+/** A migration as Wrangler applies it: its `.sql` file name in the ledger, and the SQL file it comes from. */
+export interface D1MigrationFile {
+  name: string
+  source: string
+  /** The Drizzle Kit folder, or the flat file name without `.sql`. */
+  tag: string
+}
+
+const folderTag = /^\d{14}_(.+)$/
+
+/**
+ * Lists the migrations of a directory with the `.sql` file names that Wrangler applies, in Wrangler's order.
+ *
+ * A Drizzle Kit folder gets the name that Drizzle Kit 0.x gave the same migration: `NNNN_<name>.sql`, numbered by the
+ * folder order. `drizzle-kit up` keeps that order and name, so a converted migration keeps its row in Wrangler's
+ * `d1_migrations`, and Wrangler does not apply it again. A flat `.sql` file, such as one from
+ * `wrangler d1 migrations create`, keeps its name.
+ */
+export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
   if (!existsSync(migrationsDir)) return []
-  return readdirSync(migrationsDir).filter(name => name.endsWith(".sql")).sort((a, b) => {
-    const aNumber = Number.parseInt(a.split("_")[0]!, 10)
-    const bNumber = Number.parseInt(b.split("_")[0]!, 10)
+  const entries = readdirSync(migrationsDir, { withFileTypes: true })
+  const folders = entries
+    .filter(entry => entry.isDirectory() && existsSync(join(migrationsDir, entry.name, "migration.sql")))
+    .map(entry => entry.name)
+    .sort((a, b) => a.localeCompare(b))
+  const files: D1MigrationFile[] = folders.map((tag, index) => ({
+    name: `${String(index).padStart(4, "0")}_${folderTag.exec(tag)?.[1] ?? tag}.sql`,
+    source: join(migrationsDir, tag, "migration.sql"),
+    tag,
+  }))
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".sql")) continue
+    const folder = files.find(file => file.name === entry.name)
+    if (folder) {
+      throw new Error(`${join(migrationsDir, entry.name)} has the Wrangler name of the migration folder ${folder.tag}. Rename the file, for example with the next free number.`)
+    }
+    files.push({ name: entry.name, source: join(migrationsDir, entry.name), tag: entry.name.slice(0, -".sql".length) })
+  }
+  return files.sort((a, b) => {
+    const aNumber = Number.parseInt(a.name.split("_")[0]!, 10)
+    const bNumber = Number.parseInt(b.name.split("_")[0]!, 10)
     if (aNumber !== bNumber) {
       if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber
       if (Number.isFinite(aNumber)) return -1
       if (Number.isFinite(bNumber)) return 1
     }
-    return a < b ? -1 : a > b ? 1 : 0
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
   })
 }
 
+/** Writes the migrations of `migrationsDir` into `outputDir` as the flat `.sql` files that Wrangler reads from `migrations_dir`. */
+export async function copyD1MigrationFiles(migrationsDir: string, outputDir: string): Promise<void> {
+  const files = listD1Migrations(migrationsDir)
+  await mkdir(outputDir, { recursive: true })
+  await Promise.all(files.map(file => copyFile(file.source, join(outputDir, file.name))))
+}
+
 /**
- * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the journal entries that
+ * Fails when a ledger row has the name part of a migration under another number. The numbers follow the folder order,
+ * so a folder that sorts before applied ones renumbers them, and Wrangler would apply them again.
+ */
+function assertNumbering(applied: ReadonlySet<string>, files: readonly D1MigrationFile[]) {
+  const names = new Set(files.map(file => file.name))
+  for (const name of applied) {
+    if (names.has(name)) continue
+    const suffix = /^\d+_(.+)$/.exec(name)?.[1]
+    const moved = suffix && files.find(file => file.name.endsWith(`_${suffix}`))
+    if (moved) {
+      throw new Error(`Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). A migration folder sorts before migrations that are already applied, so Wrangler would apply them again. Give the new folder a later timestamp.`)
+    }
+  }
+}
+
+/**
+ * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the migrations that
  * Drizzle Kit applied count as applied, so a database that `vitehub db migrate` migrated before keeps its state.
  */
 export async function readD1Ledger(
   query: D1Query,
   { cloudflare, migrationsDir }: { cloudflare?: { migrationsTable?: string }, migrationsDir: string },
-  journal: ReadonlyArray<{ tag: string, when: number }>,
+  migrations: readonly MigrationEntry[],
 ): Promise<D1Ledger> {
   const migrationsTable = cloudflare?.migrationsTable ?? defaultD1MigrationsTable
   const tables = new Set((await query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)", [migrationsTable, drizzleMigrationsTable]))
     .map(row => readRowValue(row, "name", 0)))
   if (tables.has(migrationsTable)) {
     const rows = await query(`SELECT name FROM ${quoteIdentifier(migrationsTable)}`)
-    return { applied: new Set(rows.map(row => String(readRowValue(row, "name", 0)))), table: migrationsTable }
+    const applied = new Set(rows.map(row => String(readRowValue(row, "name", 0))))
+    assertNumbering(applied, listD1Migrations(migrationsDir))
+    return { applied, table: migrationsTable }
   }
   let adopted: string[] = []
   if (tables.has(drizzleMigrationsTable)) {
-    const [last] = await query(`SELECT created_at FROM ${drizzleMigrationsTable} ORDER BY created_at DESC LIMIT 1`)
-    const lastApplied = Number(readRowValue(last, "created_at", 0))
-    const files = new Set(listD1MigrationFiles(migrationsDir))
-    adopted = journal.filter(entry => entry.when <= lastApplied).map(entry => `${entry.tag}.sql`).filter(name => files.has(name))
+    // ViteHub wrote this ledger as Drizzle Kit 0.x did, without `name`, so rows match by time and hash.
+    const rows = await query(`SELECT id, hash, created_at FROM ${drizzleMigrationsTable}`)
+    const { applied } = matchLedger(rows.map(row => toLedgerRow({
+      created_at: readRowValue(row, "created_at", 2),
+      hash: readRowValue(row, "hash", 1),
+      id: readRowValue(row, "id", 0),
+    })), migrations)
+    adopted = listD1Migrations(migrationsDir).filter(file => applied.has(file.tag)).map(file => file.name)
   }
   return { applied: new Set(adopted), missing: { adopted }, table: migrationsTable }
 }
@@ -117,11 +186,11 @@ export async function applyD1Migrations(
       ...ledger.missing.adopted.map(insert),
     ].join("\n"))
   }
-  for (const name of listD1MigrationFiles(migrationsDir)) {
-    if (ledger.applied.has(name)) continue
-    const sql = normalizeSqlLineEndings(readFileSync(join(migrationsDir, name), "utf8"))
-    await query(`${sql}\n;\n${insert(name)}`)
-    onApplied(name)
+  for (const file of listD1Migrations(migrationsDir)) {
+    if (ledger.applied.has(file.name)) continue
+    const sql = normalizeSqlLineEndings(readFileSync(file.source, "utf8"))
+    await query(`${sql}\n;\n${insert(file.name)}`)
+    onApplied(file.name)
   }
 }
 

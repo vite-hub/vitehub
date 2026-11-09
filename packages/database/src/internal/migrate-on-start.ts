@@ -1,10 +1,7 @@
-import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
-
-import { join, resolve } from "pathe"
+import { resolve } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { readJournal, readPendingMigration } from "./migration-journal.ts"
+import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 
 import type { StartMigration } from "../runtime/migrate-on-start.ts"
 import type { DatabaseIntegrationOptions, ResolvedDBViteConfig } from "../types.ts"
@@ -89,12 +86,11 @@ export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | und
   }
 }
 
-/** Reads the migrations of a folder with the hash and timestamp that Drizzle Kit's ledger stores. */
+/** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
 export function readStartMigrations(migrationsDir: string): StartMigration[] {
-  const entries = readJournal(migrationsDir)
+  const entries = readMigrations(migrationsDir)
   return entries.map((entry) => {
     const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
-    const hash = createHash("sha256").update(readFileSync(join(migrationsDir, `${entry.tag}.sql`), "utf8")).digest("hex")
-    return { dataLoss, hash, name: entry.tag, statements, when: entry.when }
+    return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
   })
 }

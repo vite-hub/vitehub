@@ -1,6 +1,6 @@
 ---
 title: Database limits and errors
-description: Read Database error codes, and repair Database configuration and build errors.
+description: Read Database error codes and learn how to fix configuration and build errors.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -8,14 +8,14 @@ icon: i-lucide-circle-alert
 
 ## Handle Database errors
 
-`useDatabase()` returns a Drizzle client. Queries use the Drizzle API, so a failed query rejects, as it does in Drizzle. ViteHub does not change that API to `[error, data]`.
+`useDatabase()` returns a Drizzle client, so a failed query rejects, as in Drizzle. ViteHub does not change it to `[error, data]`.
 
-ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` links to the page of the code in [Database diagnostics](/docs/database/diagnostics). Each one means that the code or the deployment must change, so ViteHub throws it:
+ViteHub errors have `code`, `why`, `fix`, `docs`, and `cause`. `error.docs` links to the code in [Database diagnostics](/docs/database/diagnostics). Each one means the code or the deployment must change, so ViteHub throws it:
 
 - A Definition error throws from `defineDatabase()`.
-- A build error throws when ViteHub discovers Database Definitions or builds the app.
+- A build error throws when ViteHub finds Definitions or builds the app.
 - A config error throws when code first uses the database, for example when a binding or a connection URL is missing.
-- A Cloudflare D1 HTTP error rejects the Drizzle query. Drizzle can wrap it, so read `error.cause` of the query error.
+- A D1 HTTP error rejects the Drizzle query. Drizzle can wrap it, so read `error.cause`.
 
 ```ts [server/api/notes.get.ts]
 import { useDatabase } from '@vite-hub/database/drizzle'
@@ -32,7 +32,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-`JSON.stringify()` of a ViteHub error includes only `name`, `code`, `why`, `fix`, and `docs`. It does not include `cause` or `stack`.
+`JSON.stringify()` of a ViteHub error keeps only `name`, `code`, `why`, `fix`, and `docs`, not `cause` or `stack`.
 
 | Code | Thrown |
 | --- | --- |
@@ -42,12 +42,12 @@ export default defineEventHandler(async () => {
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub db migrate`, which then exits with code 1 |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub db export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
-| `DATABASE_INVALID_CASING`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
+| `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
 ## D1 limits
 
-A query to Cloudflare D1, through the binding or through D1 HTTP, checks these [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) before D1 runs it. The query rejects with a named code instead of the D1 error.
+Before a query reaches D1, through the binding or D1 HTTP, ViteHub checks these [D1 limits](https://developers.cloudflare.com/d1/platform/limits/). The query rejects with a named code instead of the D1 error.
 
 | Limit | Cloudflare D1 | Code |
 | --- | --- | --- |
@@ -55,37 +55,37 @@ A query to Cloudflare D1, through the binding or through D1 HTTP, checks these [
 | SQL statement length, in UTF-8 bytes | 100,000 bytes | `DATABASE_D1_STATEMENT_TOO_LONG` |
 | One bound string or BLOB | 2,000,000 bytes | `DATABASE_D1_VALUE_TOO_LARGE` |
 
-`vite dev` for Cloudflare uses local SQLite when no D1 binding exists, and SQLite accepts more than D1. When the build targets Cloudflare, with `vitehub({ preset: 'cloudflare' })` or the Cloudflare Nitro preset, the dev server runs the same checks on local SQLite for each Database with D1 options. A query that D1 rejects then rejects in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
+Without a D1 binding, `vite dev` uses local SQLite, which accepts more than D1. So when the build targets Cloudflare (`vitehub({ preset: 'cloudflare' })` or the Cloudflare Nitro preset), the dev server runs the same checks for each database with D1 options. A query that D1 rejects then fails in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
 
-D1 also limits the size of a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations that `vitehub db migrate` runs are not checked.
+D1 also limits a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations from `vitehub db migrate` are not checked.
 
 ## Runtime errors
 
 ### DATABASE_D1_INVALID_RESPONSE
 
-Cloudflare D1 HTTP returned a different number of results than the number of queries in the batch. Retry the query. If it fails again, open a ViteHub issue with the query and the response.
+D1 HTTP returned a different number of results than queries in the batch. Retry. If it fails again, open a ViteHub issue with the query and the response.
 
 ### DATABASE_D1_REQUEST_FAILED
 
-A Cloudflare D1 HTTP request, or one query of a batch, failed. `error.why` has the HTTP status and the D1 message, for example `no such table: notes`. Check the SQL, the D1 API token permissions, and the D1 database id.
+A D1 HTTP request, or one query of a batch, failed. `error.why` has the HTTP status and the D1 message, for example `no such table: notes`. Check the SQL, the API token permissions, and the database id.
 
 ### DATABASE_D1_STATEMENT_TOO_LONG
 
-The SQL text of one statement is longer than 100,000 bytes, the D1 limit. Bind values as parameters instead of writing them into the SQL, or split the statement into several queries.
+One statement is longer than 100,000 bytes, the D1 limit. Bind values as parameters instead of writing them into the SQL, or split the statement.
 
 ### DATABASE_D1_TOO_MANY_PARAMETERS
 
-The query binds more than 100 parameters, the D1 limit. A long `inArray()` or a multi-row `insert().values()` often does it. Split the values with [`chunkParameters()`](/docs/database/server-api#stay-under-the-bound-parameter-limit), and run one query for each chunk.
+The query binds more than 100 parameters, the D1 limit, often from a long `inArray()` or a multi-row `insert().values()`. Split the values with [`chunkParameters()`](/docs/database/server-api#stay-under-the-bound-parameter-limit) and run one query per chunk.
 
 ### DATABASE_D1_VALUE_TOO_LARGE
 
-One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store large files in [Blob](/docs/blob), and keep the Blob pathname in the row.
+One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store large files in [Blob](/docs/blob) and keep the pathname in the row.
 
 ## Configuration errors
 
 ### DATABASE_DISABLED
 
-Code imported `@vite-hub/database/drizzle`, but the runtime has no Database configuration. Add `hubDb()` to the Vite config, and do not set `database: false`.
+Code imported `@vite-hub/database/drizzle`, but the runtime has no Database config. Add `hubDb()` to the Vite config, and do not set `database: false`.
 
 ### DATABASE_INVALID_D1_HTTP_URL
 
@@ -93,41 +93,41 @@ Code imported `@vite-hub/database/drizzle`, but the runtime has no Database conf
 
 ### DATABASE_MISSING_CONNECTION
 
-The database has no connection at runtime. `error.why` lists what it needs: a Cloudflare D1 binding, a Hyperdrive binding, D1 HTTP configuration, a `connection.url`, or for Postgres outside Cloudflare, PG* environment variables such as `PGHOST`. On Cloudflare, add the binding to the Worker configuration. On other hosts, set `connection.url`. A Postgres database can use the PG* environment variables instead.
+The database has no connection at runtime. `error.why` lists what it needs: a D1 binding, a Hyperdrive binding, D1 HTTP config, a `connection.url`, or for Postgres outside Cloudflare, PG* variables such as `PGHOST`. On Cloudflare, add the binding to the Worker config. On other hosts, set `connection.url`, or the PG* variables for Postgres.
 
 ### DATABASE_MISSING_D1_HTTP_CONFIG
 
-The database uses D1 HTTP, and a value is missing at runtime: `cloudflare.databaseId`, `cloudflare.http.url` and `cloudflare.http.authToken`, or the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables when `cloudflare.http` is `true`.
+The database uses D1 HTTP, and a runtime value is missing: `cloudflare.databaseId`, `cloudflare.http.url` and `cloudflare.http.authToken`, or `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` when `cloudflare.http` is `true`.
 
 ### DATABASE_NOT_CONNECTED
 
-`connectDatabase()` found no database for a query. `error.why` says what it looked for: the environment variable of an `env:` location, the D1 binding of a `d1:` location, or, with no location, `DATABASE_URL`, `TURSO_DATABASE_URL`, and the D1 binding `DB`. Set the variable or add the binding to the Worker, then retry. See [Connect without a Definition](/docs/database/configure#connect-without-a-definition).
+`connectDatabase()` found no database for a query. `error.why` says what it looked for: the variable of an `env:` location, the D1 binding of a `d1:` location, or with no location, `DATABASE_URL`, `TURSO_DATABASE_URL`, and the D1 binding `DB`. Set the variable or add the binding, then retry. See [Connect without a Definition](/docs/database/configure#connect-without-a-definition).
 
 ### DATABASE_UNSUPPORTED_URL
 
-`connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet, and a `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
+`connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet. A `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
 
 ### DATABASE_NOT_FOUND
 
-`agentDb.database(name)` received a name that has no Database Definition. A query on a Named Database that has no runtime configuration also throws it.
+`agentDb.database(name)` got a name with no Definition, or a query ran on a named database with no runtime config.
 
-`useDatabase(name)` does not throw this error. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no Default Database.
+`useDatabase(name)` does not throw it. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no default database.
 
-Run `vitehub inspect definitions --kind database` to see the discovered database names.
+Run `vitehub inspect definitions --kind database` to see the database names.
 
 ## Migration errors
 
-`vitehub db migrate` reads the Drizzle migrations table of each database before it applies anything. It prints these errors, changes no database, and exits with code 1.
+`vitehub db migrate` reads the migrations table of each database first. On these errors, it changes no database and exits with code 1.
 
 ### DATABASE_MIGRATION_CHECK_FAILED
 
-ViteHub cannot read which migrations the database has applied. `error.why` has the reason, for example missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, or an invalid `meta/_journal.json`. Make the database reachable with the same connection that `vitehub db migrate` uses. To apply the migrations without the check, run `vitehub db migrate --allow-data-loss`.
+ViteHub cannot read which migrations the database has applied. `error.why` has the reason, such as missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, a migrations folder from Drizzle Kit 0.x that needs `npx drizzle-kit up`, or a Drizzle Kit 0.x migrations table with rows that match no migration folder. Make the database reachable with the connection that `vitehub db migrate` uses. To skip the check, run `vitehub db migrate --allow-data-loss`.
 
 ### DATABASE_MIGRATION_DATA_LOSS
 
-A pending migration drops a table, a column, or a schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. A table that an earlier pending migration created or dropped does not count, because it has no rows from before the run. For PostgreSQL, this exception requires schema-qualified table names and, for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, subsequent losses stay in the check because unqualified names can switch between temporary and permanent tables. `error.why` names each migration and statement. Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.
+A pending migration drops a table, column, or schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. A table that an earlier pending migration created or dropped does not count, because it has no old rows. For PostgreSQL, this skip needs schema-qualified table names, and for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, later losses stay in the check, because unqualified names can switch between temporary and permanent tables. `error.why` names each migration and statement.
 
-With `migrateOnStart`, the server throws this error when it starts and does not handle requests. To accept the loss, back up the data and set `migrateOnStart: { allowDataLoss: true }`.
+Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`. With `migrateOnStart`, the server throws this at startup and handles no requests. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to accept the loss.
 
 ### DATABASE_MIGRATION_FAILED
 
@@ -135,23 +135,23 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
-`migrateOnStart` applies migrations only to Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails with this error for another host or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file or a Postgres database have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories, or a separate file or Postgres database for each Definition. For unsupported connections, build with the Node preset and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub db migrate` from the deployment.
+`migrateOnStart` works only for Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails for another host or D1 over HTTP. The server fails to start when a database connects to remote libSQL; when Definitions that share a SQLite file or a Postgres database have one folder name with different SQL, or SQL that differs from an applied folder of that name; or when a migrations table from Drizzle Kit 0.x has a row that matches no migration folder. For shared databases, rename the migration folder or use a separate file or database for each Definition. Otherwise, build with the Node preset and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub db migrate` from the deployment.
 
 ## Export errors
 
 ### DATABASE_EXPORT_FAILED
 
-`vitehub db export` cannot write the SQL dump. `error.why` has the reason, for example a missing local SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. The command writes no output file when it fails. See [Export a database](/docs/database/configure#export-a-database).
+`vitehub db export` cannot write the dump. `error.why` has the reason, such as a missing SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. It writes no file on failure. See [Export a database](/docs/database/configure#export-a-database).
 
 ## Definition errors
 
-### DATABASE_INVALID_CASING
+### DATABASE_DRIZZLE_OPTION_REMOVED
 
-`drizzle.casing` is not `snake_case` or `camelCase`.
+The Definition sets `drizzle`. Drizzle 1.0 has no `casing` option on the database, so ViteHub removed the `drizzle` option. Declare each table with `snakeCase.table()` from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` to map camelCase keys to snake_case columns.
 
 ### DATABASE_INVALID_DIALECT
 
-`dialect` is not `sqlite` or `postgresql`. The build reads `dialect` from the source, so it must be a string literal.
+`dialect` is not `sqlite` or `postgresql`. The build reads it from the source, so write a string literal.
 
 ### DATABASE_INVALID_NAME
 
@@ -159,7 +159,7 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 ### DATABASE_INVALID_OPTIONS
 
-The options of `defineDatabase()`, or one of its objects such as `schema`, `cloudflare`, or `connection`, is not a plain object.
+The options of `defineDatabase()`, or an object in them such as `schema`, `cloudflare`, or `connection`, is not a plain object.
 
 ### DATABASE_INVALID_REMOTE
 
@@ -171,70 +171,70 @@ A Definition sets `remote: false`, but its `cloudflare.http`, or the `cloudflare
 
 ### DATABASE_UNKNOWN_OPTION
 
-`defineDatabase()` received an option that it does not support. A PostgreSQL Definition supports only `cloudflare.binding`, `cloudflare.hyperdriveId`, and `connection.url` in those objects.
+`defineDatabase()` got an option it does not support. In those objects, a PostgreSQL Definition supports only `cloudflare.binding`, `cloudflare.hyperdriveId`, and `connection.url`.
 
 ## Build errors
 
 ### DATABASE_BINDING_CONFLICT
 
-Two Database Definitions, or a Database Definition and the Nuxt host D1 resource, use one Cloudflare D1 or Hyperdrive binding. Set `cloudflare.binding` to a different name for each Definition.
+Two Definitions, or a Definition and the Nuxt host D1 resource, use one D1 or Hyperdrive binding. Give each Definition its own `cloudflare.binding`.
 
 ### DATABASE_DUPLICATE_DEFINITION
 
-Two files define the same database in the same layer, two plugins contribute different Definitions with one name, or the application already defines a contributed Database. Remove one, or give it another name.
+Two files define the same database in one layer, two plugins contribute different Definitions with one name, or the app already defines a contributed database. Remove one, or rename it.
 
 ### DATABASE_DUPLICATE_TABLE
 
-Two schema sources of one database use the same schema key or the same SQL table name. Rename one, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.
+Two schema sources of one database use the same key or SQL table name. Rename one, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.
 
 ### DATABASE_INVALID_CONTRIBUTION
 
-A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins contributed tables with the same name, a contributed Definition module does not exist, or the contributed module does not export an object of Drizzle tables. `error.why` names the plugin.
+A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins used the same name, a contributed Definition module does not exist, or a contributed module exports no object of Drizzle tables. `error.why` names the plugin.
 
 ### DATABASE_INVALID_CONTRIBUTION_TARGET
 
-Contributed tables or data have no Database to go to. The app has several Database Definitions and none is named `default`, the contribution names a missing database or uses another dialect, or the contributions for the implicit default Database need different dialects. Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution.
+Contributed tables or data have no database to go to. The app has several Definitions and none is `default`, the contribution names a missing database or uses another dialect, or contributions to the implicit default database need different dialects. Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the contribution's `database`.
 
 ### DATABASE_INVALID_SCHEMA_EXPORT
 
-A Database Definition file does not default export `defineDatabase({ schema })` with a schema object.
+A Definition file does not default export `defineDatabase({ schema })` with a schema object.
 
 ### DATABASE_LAYER_OPTIONS_CONFLICT
 
-The options of one database come from more than one Nuxt layer, or the application definition replaces layer options and does not repeat them. Keep every option in one file. Pass an object literal to `defineDatabase()`, so that ViteHub can read the options.
+The options of one database come from more than one Nuxt layer, or the app Definition replaces layer options without repeating them. Keep every option in one file. Pass an object literal to `defineDatabase()`, so ViteHub can read it.
 
 ### DATABASE_LAYER_TABLE_CONFLICT
 
-Two Nuxt layers declare the same table in one database. Rename one, or declare the table in the application definition to replace both.
+Two Nuxt layers declare the same table in one database. Rename one, or declare the table in the app Definition to replace both.
 
 ### DATABASE_MISSING_D1_RESOURCE
 
-Cloudflare D1 output needs the D1 database id and name at build time. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.
+D1 output needs the database id and name at build time. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. For values known only at runtime, use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_MIXED_DEFINITIONS
 
-The app has a default Database Definition and named ones. Use one default database, or only named databases.
+The app has a default Definition and named ones. Use one default database, or only named ones.
 
 ### DATABASE_NAME_MISMATCH
 
-The `name` in a Database Definition is not the name from its file path. Set it to that name, or remove it.
+The `name` in a Definition does not match its file path. Fix it, or remove it.
 
 ### DATABASE_OPAQUE_CLOUDFLARE_CONFIG
 
-ViteHub reads the `cloudflare` object of a Database Definition from the source to write the D1 binding. Write it as an object literal, or use D1 HTTP or a remote libSQL connection.
+ViteHub reads the `cloudflare` object from the source to write the D1 binding. Write it as an object literal, or use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_PROVISION_FAILED
 
-`vitehub provision run` received a D1 database or a database list from Cloudflare that it cannot use. Run it again with `--dry-run`, and check the permissions of the Cloudflare token.
+`vitehub provision run` got a D1 database or database list from Cloudflare that it cannot use. Run it again with `--dry-run`, and check the Cloudflare token permissions.
 
 ### DATABASE_RESERVED_SCHEMA_KEY
 
-A schema uses a key that the generated schema module uses for its own exports. Rename the table key.
+A schema key is one that the generated schema module uses for its own exports. Rename the table key.
 
 ### DATABASE_SCHEMA_LOAD_FAILED
 
-A Database Definition or a contributed schema module threw when it loaded. `error.why` has the import error, and `error.cause` keeps it. During config resolution ViteHub can warn and read the literal `schema` keys instead, but `vitehub db generate` needs every schema module to load.
+A Definition or contributed schema module threw when it loaded. `error.why` has the import error, and `error.cause` keeps it. While it reads config, ViteHub can warn and use the literal `schema` keys instead, but `vitehub db generate` needs every schema module to load.
 
 ### DATABASE_WRANGLER_BINDING_CONFLICT
 
-An app on Cloudflare declares a D1 binding in its project `wrangler.json` (or `wrangler.jsonc`, `wrangler.toml`) that ViteHub also writes, and the two name a different `database_id`, `database_name`, or `preview_database_id`. An all-zero id never conflicts: the real id replaces it. Remove the binding from the project file, since ViteHub writes it, or rename one of them. When the two agree, ViteHub keeps one binding and fills fields it lacks from the project entry.
+The project `wrangler.json` (or `wrangler.jsonc`, `wrangler.toml`) declares a D1 binding that ViteHub also writes, with a different `database_id`, `database_name`, or `preview_database_id`. An all-zero id never conflicts: the real id replaces it. Remove the binding from the project file, or rename one. When the two agree, ViteHub keeps one binding and fills its missing fields from the project entry.

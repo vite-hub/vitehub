@@ -130,9 +130,9 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Definition errors. `defineDatabase()` throws them.
-    DATABASE_INVALID_CASING: {
-      why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",
-      fix: "Set `drizzle: { casing: 'snake_case' }` or `drizzle: { casing: 'camelCase' }`, or remove `casing`.",
+    DATABASE_DRIZZLE_OPTION_REMOVED: {
+      why: "`defineDatabase()` has no `drizzle` option. Drizzle 1.0 removed the database `casing` option.",
+      fix: "Remove `drizzle`. To map camelCase keys to snake_case columns, declare each table with `snakeCase.table()` from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`.",
     },
     DATABASE_INVALID_DIALECT: {
       why: ({ file }: { file?: string }) => file

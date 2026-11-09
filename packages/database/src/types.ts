@@ -1,9 +1,9 @@
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core/db"
+import type { EmptyRelations, ExtractTablesFromSchema, ExtractTablesWithRelations } from "drizzle-orm"
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
+import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 import type { ResolvedDatabaseContribution } from "./contributions.ts"
 
-export type DrizzleCasing = "snake_case" | "camelCase"
 export type DatabaseDialect = "sqlite" | "postgresql"
 
 export interface RuntimeEnvDeclarationLike {
@@ -41,10 +41,6 @@ export interface CloudflareD1BindingConfig {
 export interface DatabaseConnectionConfig {
   authToken?: DatabaseConfigValue
   url?: DatabaseConfigValue
-}
-
-export interface DatabaseDrizzleOptions {
-  casing?: DrizzleCasing
 }
 
 export interface DatabaseLocalRuntimeOptions {
@@ -93,7 +89,6 @@ export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknow
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   dialect?: "sqlite"
-  drizzle?: DatabaseDrizzleOptions
   name?: string
   /**
    * In `vite dev`, query the real D1 database over HTTP instead of local SQLite. Writes change real data. It uses the
@@ -119,7 +114,6 @@ export interface PostgresDatabaseDefinitionOptions<TSchema extends Record<string
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
-  drizzle?: DatabaseDrizzleOptions
   name?: string
   /** Only D1 has a remote development mode. */
   remote?: never
@@ -130,23 +124,27 @@ export interface PostgresDatabaseDefinition<TSchema extends Record<string, unkno
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
-  drizzle: DatabaseDrizzleOptions
   name: string
   schema: TSchema
 }
 
-export type RuntimePostgresDatabase<TSchema extends Record<string, unknown>> = PgDatabase<PgQueryResultHKT, TSchema>
+/**
+ * The relations that ViteHub gives Drizzle for a schema, as `defineRelations(schema)` returns them: each table of the
+ * schema, with no relations between tables. `db.query.<table>` reads one table.
+ */
+export type SchemaRelations<TSchema extends Record<string, unknown>> = ExtractTablesWithRelations<EmptyRelations, ExtractTablesFromSchema<TSchema>>
+
+export type RuntimePostgresDatabase<TSchema extends Record<string, unknown>> = PgAsyncDatabase<PgQueryResultHKT, SchemaRelations<TSchema>>
 
 export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
-  drizzle: DatabaseDrizzleOptions
   name: string
   remote?: boolean
   schema: TSchema
 }
 
-export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema> & {
+export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = SQLiteAsyncDatabase<"async", unknown, SchemaRelations<TSchema>> & {
   /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
 }
@@ -192,7 +190,6 @@ export interface ResolvedCloudflareD1BindingConfig {
 export interface RuntimeDrizzleDatabaseConfig {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
-  drizzle: DatabaseDrizzleOptions
   /** Set by the dev server when the build targets Cloudflare: local SQLite then checks the D1 limits. */
   localLimits?: "d1"
   name: string

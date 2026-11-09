@@ -310,10 +310,10 @@ function buildTables<TColumn, TTable>(dialect: Dialect<TColumn, TTable>): Record
 }
 
 /** A Better Auth table in a SQLite Database (SQLite, libSQL, or Cloudflare D1). */
-export type AuthSqliteTable = SQLiteTableWithColumns<{ name: string, schema: undefined, columns: Record<string, SQLiteColumn>, dialect: "sqlite" }>
+export type AuthSqliteTable = SQLiteTableWithColumns<{ name: string, schema: undefined, columns: Record<string, SQLiteColumn>, dialect: "sqlite", isAlias: false }>
 
 /** A Better Auth table in a Postgres Database. */
-export type AuthPostgresTable = PgTableWithColumns<{ name: string, schema: undefined, columns: Record<string, PgColumn>, dialect: "pg" }>
+export type AuthPostgresTable = PgTableWithColumns<{ name: string, schema: undefined, columns: Record<string, PgColumn>, dialect: "pg", isAlias: false }>
 
 /** The Better Auth tables for SQLite, libSQL, and Cloudflare D1. Auth adds them to the app Database. */
 export type AuthSqliteSchema = Readonly<Record<AuthTableName, AuthSqliteTable>>

@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { readFile, rm } from "node:fs/promises"
 import { watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve, sep } from "node:path"
@@ -14,6 +14,7 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
+import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
@@ -789,15 +790,8 @@ function installNitroCloudflareMigrations(config: Record<string, unknown>, sourc
   }) => {
     nitro.hooks.hook("compiled", async () => {
       const outputDir = resolve(nitro.options.output.serverDir, targetDir)
-      const entries = await readdir(sourceDir, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return []
-        throw error
-      })
       await rm(outputDir, { force: true, recursive: true })
-      await mkdir(outputDir, { recursive: true })
-      await Promise.all(entries
-        .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
-        .map(entry => copyFile(resolve(sourceDir, entry.name), resolve(outputDir, entry.name))))
+      await copyD1MigrationFiles(sourceDir, outputDir)
     })
   })
   config.modules = modules

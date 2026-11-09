@@ -61,13 +61,13 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
-    "drizzle-orm": "catalog:database",
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
@@ -76,6 +76,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

@@ -183,7 +183,7 @@ async function readLedger(sql: postgres.Sql) {
 }
 
 function postgresDatabase(url: string, migrationsDir: string): ResolvedDrizzleDatabaseConfig {
-  return { connection: { url }, dialect: "postgresql", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" }
+  return { connection: { url }, dialect: "postgresql", generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" }
 }
 
 describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {

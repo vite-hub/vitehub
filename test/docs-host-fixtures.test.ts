@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { describe, expect, it, type TestContext } from "vitest"
-import { array, object, parse, picklist, string } from "valibot"
+import { array, object, optional, parse, picklist, string } from "valibot"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = join(repoRoot, "fixtures/docs-hosts")
@@ -30,6 +30,7 @@ interface SnippetContract {
   label: string
   page: string
   verification: "build" | "json" | "typecheck"
+  framework?: "Nuxt" | "Nitro" | "Vite"
 }
 
 const snippetContractsSchema = array(object({
@@ -37,6 +38,7 @@ const snippetContractsSchema = array(object({
   label: string(),
   page: string(),
   verification: picklist(["build", "json", "typecheck"]),
+  framework: optional(picklist(["Nuxt", "Nitro", "Vite"])),
 }))
 
 function parseSnippetContracts(source: string): SnippetContract[] {
@@ -250,6 +252,7 @@ describe("host documentation fixtures", () => {
       "--types",
       "node",
       join(fixturesRoot, "globals.d.ts"),
+      join(fixturesRoot, "nuxt-schema.d.ts"),
       ...sources.map(source => join(fixturesRoot, source)),
     ], context)
   }, 120_000)

@@ -128,7 +128,6 @@
     "@vite-hub/web-container": "workspace:*",
     "better-auth": "catalog:auth",
     "bun-types": "^1.4.3",
-    "drizzle-orm": "catalog:database",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
@@ -148,7 +147,8 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "@better-auth/oauth-provider": "catalog:auth"
+    "@better-auth/oauth-provider": "catalog:auth",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
     "@better-auth/oauth-provider": "catalog:auth",
@@ -156,6 +156,7 @@
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },

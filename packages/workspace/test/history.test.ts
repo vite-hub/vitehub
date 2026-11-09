@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
-import { eq, sql } from "drizzle-orm"
+import { defineRelations, eq, sql } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -43,7 +43,7 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
   if (driver === "libsql") {
     const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
     cleanup.push(() => client.close())
-    database = drizzleLibsql(client, { schema: workspaceHistorySchema })
+    database = drizzleLibsql({ client })
   }
   else {
     const worker = new Miniflare({ compatibilityDate: "2026-07-14", d1Databases: ["DB"], r2Buckets: ["HISTORY_R2"], modules: true, script: "export default { fetch() { return new Response('history') } }" })
@@ -52,15 +52,15 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
     setActiveCloudflareEnv({ HISTORY_R2: await worker.getR2Bucket("HISTORY_R2") })
     cleanup.push(() => setActiveCloudflareEnv(undefined))
     blob = createBlobStorage(createR2Driver({ driver: "cloudflare-r2", binding: "HISTORY_R2" }))
-    database = driver === "d1" ? drizzleD1(binding, { schema: workspaceHistorySchema }) : createCloudflareD1HttpResolver({
-      name: "history", drizzle: {}, cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
-    }, workspaceHistorySchema, async (_url, options) => {
+    database = driver === "d1" ? drizzleD1(binding) : createCloudflareD1HttpResolver({
+      name: "history", cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
+    }, defineRelations(workspaceHistorySchema), async (_url, options) => {
       // SAFETY: The test transport receives only this resolver's serialized query payload.
       const payload = JSON.parse(String(options?.body)) as { sql: string, params: unknown[], batch?: Array<{ sql: string, params: unknown[] }> }
       const queries = payload.batch ?? [payload]
       try {
         const results = await binding.batch<Record<string, unknown>>(queries.map(query => binding.prepare(query.sql).bind(...query.params)))
-        return Response.json({ success: true, result: results.map(result => ({ success: true, results: { rows: result.results.map(row => Object.values(row)) } })) })
+        return Response.json({ success: true, result: results.map(result => ({ success: true, results: { columns: Object.keys(result.results[0] ?? {}), rows: result.results.map(row => Object.values(row)) } })) })
       }
       catch (error) {
         return Response.json({ success: false, errors: [{ message: String(error) }] }, { status: 400 })

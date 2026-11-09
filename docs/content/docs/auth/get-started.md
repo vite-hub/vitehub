@@ -19,14 +19,37 @@ In this tutorial, you sign up a user with an email and a password. Then you use 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add Auth and Better Auth to your app:
+Add Auth, Better Auth, and Drizzle to your app. Auth uses the `drizzle-orm` of your app, so the app has one copy:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/auth better-auth
+pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5
 ```
 
-Add `auth: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Add `auth: true` to the ViteHub options of your app. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', auth: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', auth: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -35,8 +58,9 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', auth: true })],
 })
 ```
+::::
+:::
 
-Did you choose Nuxt in Installation? Then add `auth: true` to the options of the `vite-hub/nuxt` module.
 
 ::
 
