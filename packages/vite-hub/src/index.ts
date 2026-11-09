@@ -1470,7 +1470,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent())
+  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: options.contentImportBase ?? "vite-hub/content" }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
