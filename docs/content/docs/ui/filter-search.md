@@ -6,16 +6,16 @@ navigation.group: Chat
 icon: i-lucide-search
 ---
 
-`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, it does not send the request, and it does not hold the selection. `useChoices()` from `vite-hub/decisions/vue` does the request, and your `onSelect` applies the result to your own state.
+`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/decisions/vue` sends the request, and your `onSelect` applies the result to your state.
 
 ::example{name="FilterSearchExample" height=8}
 ::
 
-Type `suppliers except vak` and press Enter. Type `error` to see the error state. The `resolve` function in this example waits and answers on the page, so no request leaves it.
+Type `suppliers except vak` and press Enter. Type `error` to see the error state. The example's `resolve` answers on the page, so no request leaves it.
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
 import { FilterSearch } from "@vite-hub/ui";
@@ -23,7 +23,12 @@ import { FilterSearch } from "@vite-hub/ui";
 
 ## Usage
 
-Write two bridges and one server route. The route is yours. `resolve` sends the text to it and returns the selection. `onSelect` writes the selection to your filters. Wrap `clear()` to reset those filters too.
+Write one server route and two functions:
+
+- `resolve` sends the text to your route and returns the selection.
+- `onSelect` writes the selection to your filters.
+
+Wrap `clear()` to reset your filters too.
 
 ```vue
 <script setup lang="ts">
@@ -51,7 +56,7 @@ const choices = {
 </template>
 ```
 
-Enter sends the text. Escape clears it and cancels a request that is still running. Escape and the clear button call the `clear()` on the object you pass. In this example, the wrapper clears the composable and resets your filters. `useChoices().clear()` alone resets only its own state. `FilterSearch` never calls `resolve`, so a test that passes a stub object needs no network.
+Enter sends the text. Escape clears it and cancels a running request. Escape and the clear button call `clear()` on the object you pass. Here, the wrapper clears the composable and resets your filters. `useChoices().clear()` alone resets only its own state. `FilterSearch` never calls `resolve`, so a test with a stub object needs no network.
 
 ## Composition
 
@@ -67,16 +72,16 @@ FilterSearch
 
 ## Features
 
-- One prop connects it: `choices` takes the object that `useChoices()` returns. The type is structural, so any object with `text`, `status`, `error`, `submit`, `clear`, and `abort` works.
-- A loading icon while the status is `thinking`, and a clear button when the text is not empty.
+- One prop, `choices`, takes the object from `useChoices()`. Any object with `text`, `status`, `error`, `submit`, `clear`, and `abort` works.
+- A loading icon while `thinking`, and a clear button when there is text.
 - The error shows as text under the input. The `#error` slot replaces it.
 - `#leading` and `#trailing` slots for an icon or a filter menu.
-- Every part has a `data-slot` and a `data-state` (`idle`, `thinking`, `ready`, or `error`), so one CSS selector styles a part for each state.
-- No chips. Your filter bar shows the selection, so it matches the rest of your page.
+- Every part has a `data-slot` and a `data-state` (`idle`, `thinking`, `ready`, or `error`) for CSS.
+- No chips. Your filter bar shows the selection, so it matches your page.
 
 ## Headless parts
 
-Use the parts without Nuxt UI when you need your own markup, for example in a command palette. Import them from `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
+Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
 
 ```vue
 <script setup lang="ts">
@@ -93,15 +98,15 @@ import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, 
 </template>
 ```
 
-`ChoicesInputField` renders an `input`. Set `as` to render a component instead. The component receives `modelValue` and `onUpdate:modelValue`, and the other attributes. `FilterSearch` does this with `UInput`.
+`ChoicesInputField` renders an `input`. Set `as` to render a component that receives `modelValue`, `onUpdate:modelValue`, and the other attributes. `FilterSearch` does this with `UInput`.
 
 ## Accessibility
 
-The input has an accessible name from `label`. While the status is `thinking`, it has `aria-busy="true"`. After a failed request it has `aria-invalid="true"` and `aria-describedby` points to the error text.
+- The input gets its accessible name from `label`. While `thinking`, it has `aria-busy="true"`. After a failed request, it has `aria-invalid="true"`, and `aria-describedby` points to the error.
 
-`ChoicesInputStatus` is a polite live region (`role="status"`). It stays in the page from the first render, and it says "Thinking", then "Ready", or the error message. `FilterSearch` hides it from sight with `vh-visually-hidden`, because the loading icon and the error text already show the state.
+- `ChoicesInputStatus` is a polite live region (`role="status"`) from the first render. It says "Thinking", then "Ready" or the error. `FilterSearch` hides it visually with `vh-visually-hidden`, because the icon and error text already show the state.
 
-Enter sends the text. Editing cancels a running request, so its result cannot apply after the text changes. Escape clears it, and cancels a request that is running. When there is nothing to clear, Escape goes to the page, so it can still close a dialog. Enter does nothing while an input method composes text, and it does nothing with Shift, Ctrl, Alt, or Meta held.
+- Editing cancels a running request, so a stale result cannot apply. With nothing to clear, Escape goes to the page, so it can still close a dialog. Enter does nothing during input method composition or with Shift, Ctrl, Alt, or Meta held.
 
 ## API Reference
 
@@ -113,22 +118,22 @@ The styled component. Renders a `div` with `data-slot="choices-input"`, the Nuxt
 
 | Prop          | Type                                      | Default    | Description                                                    |
 | ------------- | ----------------------------------------- | ---------- | -------------------------------------------------------------- |
-| `choices`     | `ChoicesInputSource`                      | Required   | The object that `useChoices()` returns.                        |
-| `label`       | `string`                                  | `"Search"` | The accessible name of the input.                              |
-| `placeholder` | `string`                                  |            | The placeholder of the input.                                  |
-| `size`        | `"xs" \| "sm" \| "md" \| "lg" \| "xl"`    | `"md"`     | The size of the Nuxt UI input.                                 |
+| `choices`     | `ChoicesInputSource`                      | Required   | The object from `useChoices()`. |
+| `label`       | `string`                                  | `"Search"` | The input's accessible name. |
+| `placeholder` | `string`                                  |            | The input placeholder. |
+| `size`        | `"xs" \| "sm" \| "md" \| "lg" \| "xl"`    | `"md"`     | The Nuxt UI input size. |
 
 #### Slots
 
 | Slot       | Props       | Description                                                          |
 | ---------- | ----------- | -------------------------------------------------------------------- |
-| `#leading` |             | Content at the start of the input.                                   |
-| `#trailing`|             | Content at the end of the input, after the loading icon or clear button. |
-| `#error`   | `{ error }` | Replaces the error message. It shows only after a failed request.    |
+| `#leading` |             | Content at the start of the input. |
+| `#trailing`|             | Content at the end, after the loading icon or clear button. |
+| `#error`   | `{ error }` | Replaces the error message, shown only after a failed request. |
 
 ### ChoicesInputSource
 
-The type of the `choices` prop. `useChoices()` returns an object of this shape:
+The type of the `choices` prop, which `useChoices()` returns:
 
 ```ts
 import type { Ref } from "vue"
@@ -145,13 +150,13 @@ interface ChoicesInputSource {
 
 ### ChoicesInput
 
-The root of the headless parts. Renders a `div` with `data-slot="choices-input"` and `data-state`. The default slot receives `{ state }`.
+The headless root. Renders a `div` with `data-slot="choices-input"` and `data-state`. The default slot receives `{ state }`.
 
 #### Props
 
 | Prop      | Type                 | Default  | Description                             |
 | --------- | -------------------- | -------- | --------------------------------------- |
-| `choices` | `ChoicesInputSource` | Required | The object that `useChoices()` returns. |
+| `choices` | `ChoicesInputSource` | Required | The object from `useChoices()`. |
 
 ### ChoicesInputField
 
@@ -161,27 +166,27 @@ The text box. Renders an `input` with `data-slot="choices-input-field"`. Enter s
 
 | Prop    | Type                 | Default    | Description                                                                                       |
 | ------- | -------------------- | ---------- | ------------------------------------------------------------------------------------------------- |
-| `as`    | `string \| Component` | `"input"`  | The element or component to render. A component receives `modelValue` and `onUpdate:modelValue`. |
-| `label` | `string`             | `"Search"` | The accessible name of the input.                                                                 |
+| `as`    | `string \| Component` | `"input"`  | Element or component to render. A component receives `modelValue` and `onUpdate:modelValue`. |
+| `label` | `string`             | `"Search"` | The input's accessible name. |
 
 ### ChoicesInputClear
 
-A button that cancels a running request and clears the text. Renders a `button` with `data-slot="choices-input-clear"`.
+Cancels a running request and clears the text. Renders a `button` with `data-slot="choices-input-clear"`.
 
 #### Props
 
 | Prop    | Type                 | Default    | Description                                                   |
 | ------- | -------------------- | ---------- | ------------------------------------------------------------- |
-| `as`    | `string \| Component` | `"button"` | The element or component to render, for example your own button. |
-| `label` | `string`             | `"Clear"`  | The accessible name of the button.                            |
+| `as`    | `string \| Component` | `"button"` | Element or component to render, such as your own button. |
+| `label` | `string`             | `"Clear"`  | The button's accessible name. |
 
 ### ChoicesInputStatus
 
-A polite live region. Renders a `div` with `data-slot="choices-input-status"` and `role="status"`. It says "Thinking", "Ready", or the error message. The default slot receives `{ message, state }` and replaces the text. Has no props.
+A polite live region. Renders a `div` with `data-slot="choices-input-status"` and `role="status"`. It says "Thinking", "Ready", or the error. The default slot receives `{ message, state }` and replaces the text. No props.
 
 ### ChoicesInputError
 
-The error as text. Renders a `p` with `data-slot="choices-input-error"` only while the status is `error`. The default slot receives `{ error }` and replaces the message. Has no props.
+Renders the error in a `p` with `data-slot="choices-input-error"`, only while the status is `error`. The default slot receives `{ error }` and replaces the message. No props.
 
 ## Related
 

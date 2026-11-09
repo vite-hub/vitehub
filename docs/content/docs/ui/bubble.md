@@ -6,16 +6,16 @@ navigation.group: Parts
 icon: i-lucide-message-circle
 ---
 
-`Bubble` frames the text of a turn. Seven variants cover the current user, the assistant, quiet notes, and errors. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Bubble](https://ui.shadcn.com/docs/components/bubble). Colors come from the Nuxt UI tokens of your app.
+`Bubble` frames the text of a turn. Seven variants cover the current user, the assistant, quiet notes, and errors. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Bubble](https://ui.shadcn.com/docs/components/bubble). Colors come from your app's Nuxt UI tokens.
 
-`Bubble` is only the framed surface. Put avatars, names, timestamps, and message actions in [Message](/docs/ui/message).
+`Bubble` is only the frame. Put avatars, names, timestamps, and message actions in [Message](/docs/ui/message).
 
 ::example{name="BubbleExample" height=26}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Bubble, BubbleContent, BubbleGroup, BubbleReactions } from "@vite-hub/ui";
@@ -46,7 +46,7 @@ Bubble
 └── BubbleReactions
 ```
 
-Use `BubbleGroup` to group consecutive bubbles from the same sender:
+`BubbleGroup` groups consecutive bubbles from one sender:
 
 ```text
 BubbleGroup
@@ -59,15 +59,15 @@ BubbleGroup
 ## Features
 
 - Seven variants, from a strong primary bubble to unframed ghost content.
-- Start and end alignment for the sender and the receiver.
-- Reactions on the top or bottom edge of the bubble, at the start or the end.
-- A bubble sizes to its content, up to 80% of the container width.
-- `as` on `BubbleContent` renders a link or a button with hover and focus styles.
-- The default styles are in the `components` layer of `@vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
+- Start and end alignment for sender and receiver.
+- Reactions on the top or bottom edge, at the start or end.
+- A bubble fits its content, up to 80% of the container width.
+- `as` on `BubbleContent` renders a link or button with hover and focus styles.
+- Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
 
 ## Variants
 
-Use `variant` to change the visual treatment of the bubble.
+Use `variant` to change the look.
 
 ::example{name="BubbleVariantsExample" height=48}
 ::
@@ -75,39 +75,39 @@ Use `variant` to change the visual treatment of the bubble.
 | Variant       | Use for                                       |
 | ------------- | --------------------------------------------- |
 | `default`     | The current user. Uses the primary color.     |
-| `secondary`   | Standard conversation content.                |
+| `secondary`   | Normal conversation content. |
 | `muted`       | Quiet supporting content.                     |
 | `tinted`      | A subtle primary tint.                        |
-| `outline`     | Secondary or rich content with a border.      |
+| `outline`     | Secondary or rich content, with a border. |
 | `ghost`       | Unframed assistant text or rich content.      |
 | `destructive` | Errors and failed actions.                    |
 
-The `ghost` variant removes the maximum width, so assistant text and rich content can use the full row.
+`ghost` removes the maximum width, so assistant text and rich content can use the full row.
 
 ## Alignment
 
-Use `align` on `Bubble` to align the bubble to the start or the end of the conversation.
+Set `align` on `Bubble` to place it at the start or end of the conversation.
 
 ::example{name="BubbleAlignmentExample" height=10}
 ::
 
 | Align   | Description                                        |
 | ------- | -------------------------------------------------- |
-| `start` | Aligns the bubble to the start of the conversation. |
-| `end`   | Aligns the bubble to the end of the conversation.   |
+| `start` | The start of the conversation. |
+| `end`   | The end of the conversation. |
 
 In a chat, set `align` on [Message](/docs/ui/message) instead. A bubble in a `Message` with `align="end"` aligns to the end.
 
 ## Bubble Group
 
-Use `BubbleGroup` to group consecutive bubbles from the same sender. Set `align` on each `Bubble`, not on the group.
+Group consecutive bubbles from one sender. Set `align` on each `Bubble`, not on the group.
 
 ::example{name="BubbleGroupExample" height=22}
 ::
 
 ## Links and Buttons
 
-Set `as` on `BubbleContent` to render it as another element or component. The bubble then gets hover and focus styles.
+Set `as` on `BubbleContent` to render another element or component, with hover and focus styles.
 
 ::example{name="BubbleLinksExample" height=14}
 ::
@@ -120,7 +120,7 @@ Set `as` on `BubbleContent` to render it as another element or component. The bu
 
 ## Reactions
 
-Use `BubbleReactions` for reactions or quick actions. Use `side` and `align` to place the row. `side="top"` puts it on the upper edge. Reactions overlap the edge of the bubble, so leave vertical space between rows. The examples use a larger `gap` for this reason.
+Use `BubbleReactions` for reactions or quick actions. Place the row with `side` and `align`. `side="top"` puts it on the upper edge. Reactions overlap the bubble edge, so leave vertical space between rows, as the larger `gap` in the examples does.
 
 ::example{name="BubbleReactionsExample" height=25}
 ::
@@ -134,25 +134,25 @@ Put a toggle in `BubbleContent` to show more or less of a long message. The butt
 
 ## Tooltip
 
-Put a `UTooltip` in `BubbleReactions` to show metadata on hover, such as when the reader read the message.
+Put a `UTooltip` in `BubbleReactions` to show details on hover, such as when the message was read.
 
 ::example{name="BubbleTooltipExample" height=9}
 ::
 
 ## Popover
 
-Put a `UPopover` in `BubbleReactions` to show more information on demand, such as the full error of a failed action.
+Put a `UPopover` in `BubbleReactions` to show more on demand, such as the full error of a failed action.
 
 ::example{name="BubblePopoverExample" height=9}
 ::
 
 ## Accessibility
 
-`Bubble` renders the visual surface of a message. Keep the conversation semantics on the container around it, for example `role="log"` as [Chat](/docs/ui/chat) does.
+`Bubble` is only the visual surface. Keep conversation semantics on the container, such as `role="log"` as [Chat](/docs/ui/chat) does.
 
 ### Labeling Reactions
 
-A screen reader reads each emoji with no context, and it reads a counter such as `+8` as "plus eight". Give the row `role="img"` and an `aria-label`, so it is read once. `role="img"` also hides each emoji from assistive technology.
+A screen reader reads each emoji with no context, and `+8` as "plus eight". Give the row `role="img"` and an `aria-label`, so it is read once. `role="img"` also hides each emoji from assistive technology.
 
 ```vue
 <BubbleReactions role="img" aria-label="Reactions: thumbs up, fire, and 8 more">
@@ -162,7 +162,7 @@ A screen reader reads each emoji with no context, and it reads a counter such as
 </BubbleReactions>
 ```
 
-When reactions are interactive, use buttons. Give an icon-only button an `aria-label`.
+For interactive reactions, use buttons. Give icon-only buttons an `aria-label`.
 
 ```vue
 <BubbleReactions>
@@ -172,7 +172,7 @@ When reactions are interactive, use buttons. Give an icon-only button an `aria-l
 
 ### Interactive Bubbles
 
-When a bubble is clickable, set `as="button"` or `as="a"` on `BubbleContent`. The bubble is then focusable, has the correct role, and shows a focus ring. The bubble text is the accessible name.
+For a clickable bubble, set `as="button"` or `as="a"` on `BubbleContent`. It is then focusable, has the correct role, and shows a focus ring. Its text is the accessible name.
 
 ```vue
 <BubbleContent as="button" type="button" @click="reply">I forgot my password</BubbleContent>
@@ -180,45 +180,45 @@ When a bubble is clickable, set `as="button"` or `as="a"` on `BubbleContent`. Th
 
 ### Meaning Beyond Color
 
-Variants show role and tone with color. Do not use color as the only signal. In a `destructive` bubble, say "Failed" in the text.
+Variants show role and tone with color. Do not use color alone. In a `destructive` bubble, say "Failed" in the text.
 
 ## API Reference
 
 ### Bubble
 
-The root of a bubble. Renders a `div` with `data-slot="bubble"`.
+Renders a `div` with `data-slot="bubble"`.
 
 #### Props
 
 | Prop      | Type                                                                                       | Default     | Description                         |
 | --------- | ------------------------------------------------------------------------------------------ | ----------- | ----------------------------------- |
-| `variant` | `"default" \| "secondary" \| "muted" \| "tinted" \| "outline" \| "ghost" \| "destructive"` | `"default"` | The visual treatment of the bubble. |
-| `align`   | `"start" \| "end"`                                                                         | `"start"`   | The inline alignment of the bubble. |
+| `variant` | `"default" \| "secondary" \| "muted" \| "tinted" \| "outline" \| "ghost" \| "destructive"` | `"default"` | The look of the bubble. |
+| `align`   | `"start" \| "end"`                                                                         | `"start"`   | Inline alignment. |
 
 ### BubbleContent
 
-The framed content of the bubble. Renders `data-slot="bubble-content"` on the element that `as` selects.
+The framed content. Renders `data-slot="bubble-content"` on the element that `as` selects.
 
 #### Props
 
 | Prop | Type                  | Default | Description                                                |
 | ---- | --------------------- | ------- | ---------------------------------------------------------- |
-| `as` | `string \| Component` | `"div"` | Renders the content as another element, such as a link.    |
+| `as` | `string \| Component` | `"div"` | Renders another element, such as a link. |
 
 ### BubbleReactions
 
-A row of reactions that overlaps the edge of the bubble. Renders a `div` with `data-slot="bubble-reactions"`.
+A reaction row that overlaps the bubble edge. Renders a `div` with `data-slot="bubble-reactions"`.
 
 #### Props
 
 | Prop    | Type                | Default    | Description                                      |
 | ------- | ------------------- | ---------- | ------------------------------------------------ |
-| `side`  | `"top" \| "bottom"` | `"bottom"` | The side of the bubble that holds the reactions. |
-| `align` | `"start" \| "end"`  | `"end"`    | The inline alignment of the reactions.           |
+| `side`  | `"top" \| "bottom"` | `"bottom"` | The bubble edge for the reactions. |
+| `align` | `"start" \| "end"`  | `"end"`    | Inline alignment of the reactions. |
 
 ### BubbleGroup
 
-Groups consecutive bubbles from the same sender. Has no props. Renders a `div` with `data-slot="bubble-group"`.
+Groups consecutive bubbles from one sender. No props. Renders a `div` with `data-slot="bubble-group"`.
 
 ## Related
 
