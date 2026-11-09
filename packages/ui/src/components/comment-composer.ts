@@ -86,6 +86,7 @@ const pastedFiles = (clipboard: DataTransfer): File[] => {
 
 // The Figma composer. Enter sends and Shift+Enter breaks the line. Esc in an empty composer closes it. Esc in a composer
 // with text, and a click outside it, shake the box and keep the focus and the text, so a draft is never lost by accident.
+// A second Esc right after that shake means it: the text and files go and the composer closes.
 export const CommentComposer = defineComponent({
   name: "CommentComposer",
   props: {
@@ -134,6 +135,9 @@ export const CommentComposer = defineComponent({
     const menuId = useId();
     const optionId = (index: number) => `${menuId}-option-${index}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Set by the shake of an Esc. The next Esc, with nothing typed in between, discards the text and closes.
+    let escaped = false;
+    watch(() => props.modelValue, () => (escaped = false));
     let lookup = 0;
     let mentionCaret: number | undefined;
     // The `@` whose menu Esc closed. It stays closed until the caret leaves that mention.
@@ -206,7 +210,10 @@ export const CommentComposer = defineComponent({
       timer = setTimeout(() => (shaking.value = null), 450);
       focus();
     }
-    const onShake = () => void shake();
+    const onShake = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.escape === true) escaped = true;
+      void shake();
+    };
     onMounted(() => {
       root.value?.addEventListener(shakeEventName, onShake);
       if (props.autofocus) void nextTick(focus);
@@ -336,8 +343,24 @@ export const CommentComposer = defineComponent({
         lookup++;
         dismissed = open.start;
         menu.value = null;
-      } else if (hasContent()) void shake();
-      else emit("cancel");
+      } else if (hasContent() && !escaped) {
+        escaped = true;
+        void shake();
+      } else void discard();
+    }
+
+    // Empties the box, then closes it once the parent has rendered the empty box, so a parent that checks for unsent text
+    // before it closes finds none.
+    async function discard() {
+      if (props.busy) return;
+      escaped = false;
+      if (hasContent()) {
+        emit("update:modelValue", "");
+        emit("update:mentions", []);
+        setFiles([]);
+        await nextTick();
+      }
+      emit("cancel");
     }
 
     const hasFiles = (event: DragEvent) => attachmentsOn.value && (event.dataTransfer?.types.includes("Files") ?? false);

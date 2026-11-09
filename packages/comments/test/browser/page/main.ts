@@ -1,15 +1,5 @@
-// Mounts the real overlay the way the page tools loader does, with a Comments API that lets this visitor comment.
+// Mounts the real overlay the way the page tools loader does. The test server answers the Comments API.
 import start from "../../../src/overlay/index.ts"
-
-const session = { user: { id: "u1", name: "Maxi" }, can: { read: true, comment: true, resolve: true, delete: true }, realtime: false, content: false }
-const posted: unknown[] = []
-Object.assign(window, { posted })
-window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
-  const url = new URL(String(input instanceof Request ? input.url : input), location.href)
-  if (url.pathname.endsWith("/session")) return Response.json({ data: session })
-  if ((init.method ?? "GET") !== "GET") posted.push({ path: url.pathname, body: init.body ? JSON.parse(String(init.body)) : undefined })
-  return Response.json({ data: [] })
-}
 
 document.querySelector(".menu-button")!.addEventListener("click", () => document.querySelector<HTMLDialogElement>("#menu")!.show())
 

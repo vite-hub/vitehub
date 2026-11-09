@@ -1,6 +1,6 @@
 // Mounts the comments overlay from its sources in headless Chromium, next to a page with text and a site menu, and
-// checks what a person does on that page while the overlay is on. happy-dom computes no CSS, so these checks need a
-// real browser.
+// checks what a person does on that page. The real Comments API answers from memory. happy-dom computes no CSS and
+// has no layout, so these checks need a real browser.
 // Run: pnpm --filter @vite-hub/comments test:browser
 import assert from "node:assert/strict"
 import { test } from "node:test"
@@ -11,14 +11,48 @@ import { createServer } from "vite"
 import { overlayAliases, standaloneUI } from "../../overlay.aliases.ts"
 
 const port = Number(process.env.COMMENTS_BROWSER_PORT ?? 4797)
+const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
+const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 
-test("the idle overlay leaves the page usable", { timeout: 120_000 }, async (t) => {
+/** Serves `/api/_vitehub/comments/**` from the real handler, with one signed-in person. */
+function commentsApi() {
+  let comments
+  return {
+    name: "comments-api",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url.startsWith("/api/_vitehub/comments/")) return next()
+        const [{ createComments }, { createCommentsHandler }, { H3 }] = await Promise.all([server.ssrLoadModule(harness), server.ssrLoadModule(handlerFile), import("h3")])
+        comments ??= await createComments()
+        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: () => ({ id: "u1", name: "Maxi" }) }))
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const response = await app.fetch(new Request(`http://127.0.0.1:${port}${req.url}`, { method: req.method, headers: req.headers, body: chunks.length ? Buffer.concat(chunks) : undefined }))
+        res.writeHead(response.status, Object.fromEntries(response.headers))
+        res.end(Buffer.from(await response.arrayBuffer()))
+      })
+    },
+    threads: async () => (await comments.list())[1],
+  }
+}
+
+const highlights = page => page.evaluate(() => Object.fromEntries([...CSS.highlights].map(([name, highlight]) => [name, highlight.size])))
+
+async function drag(page, from, to) {
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(to.x, to.y, { steps: 10 })
+  await page.mouse.up()
+}
+
+test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
+  const api = commentsApi()
   const server = await createServer({
     configFile: false,
     logLevel: "warn",
     // Pre-bundling found on the first load reloads the page in the middle of a test.
     optimizeDeps: { noDiscovery: true },
-    plugins: [standaloneUI()],
+    plugins: [standaloneUI(), api],
     resolve: { alias: overlayAliases, dedupe: ["vue"] },
     root: fileURLToPath(new URL("./page", import.meta.url)),
     server: { host: "127.0.0.1", port, strictPort: true },
@@ -33,9 +67,8 @@ test("the idle overlay leaves the page usable", { timeout: 120_000 }, async (t) 
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${port}/`)
-  await page.locator("vitehub-comments").waitFor({ state: "attached" })
-  // Until the session answers, the pill shows a busy "Comments" button. The comment layer mounts with the listeners.
-  await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+  await page.locator("vitehub-tool").getByRole("button", { name: /^Comment/ }).first().waitFor()
+  const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
 
   await t.test("a click on the site's own button reaches it", async () => {
     const target = await page.evaluate(() => {
@@ -48,21 +81,37 @@ test("the idle overlay leaves the page usable", { timeout: 120_000 }, async (t) 
     await page.evaluate(() => document.querySelector("#menu").close())
   })
 
-  await t.test("a drag over text selects it", async () => {
+  await t.test("selected text gets a Comment bar, and the comment keeps the quote highlighted", async () => {
     const box = await page.locator("#first").boundingBox()
-    await page.mouse.move(box.x + 2, box.y + 10)
-    await page.mouse.down()
-    await page.mouse.move(box.x + box.width * 0.6, box.y + 10, { steps: 8 })
-    await page.mouse.up()
+    await drag(page, { x: box.x + 2, y: box.y + 10 }, { x: box.x + box.width * 0.6, y: box.y + 10 })
     assert.match(await page.evaluate(() => getSelection().toString()), /^Most of you/)
+    const bar = page.locator("vitehub-comments .selection-bar")
+    await bar.waitFor({ timeout: 5000 })
+    await bar.getByRole("button", { name: /Comment/ }).click()
+    await composer.waitFor({ timeout: 5000 })
+    assert.equal((await highlights(page))["vitehub-comment-active"], 1)
+    await composer.fill("Say which airport")
+    await composer.press("Enter")
+    await page.waitForFunction(() => CSS.highlights.get("vitehub-comment")?.size === 1, undefined, { timeout: 5000 })
+    const [thread] = await api.threads()
+    assert.equal(thread.anchor.kind, "text")
+    assert.match(thread.anchor.exact, /^Most of you/)
   })
 
-  await t.test("in comment mode a click on the page opens a comment there", async () => {
-    await page.mouse.click(900, 600)
+  await t.test("in comment mode a drag comments on an area", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
     await page.keyboard.press("c")
     await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
-    await page.mouse.click(300, 300)
-    await page.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
+    const box = await page.locator("#second").boundingBox()
+    await drag(page, { x: box.x + 10, y: box.y + 4 }, { x: box.x + 200, y: box.y + box.height - 4 })
+    await composer.waitFor({ timeout: 5000 })
+    await composer.fill("This paragraph is too long")
+    await composer.press("Enter")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector(".area"), undefined, { timeout: 5000 })
+    const threads = await api.threads()
+    assert.equal(threads.length, 2)
+    assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
 
   assert.deepEqual(errors, [])

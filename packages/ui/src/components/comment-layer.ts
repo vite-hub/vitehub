@@ -16,9 +16,26 @@ const popoverHeight = 420;
 
 // A pointer that moved more than this between down and up was a scroll or a drag, not a click.
 const clickSlop = 6;
+// A drag in comment mode draws an area. A smaller one is a slip, not an area.
+const minimumArea = 8;
+
+type Box = { left: number; top: number; width: number; height: number };
+
+// The element of the page that holds the whole box: the innermost one under its center whose box contains it. The
+// comment UI, the shadow hosts of the page tools, and the root are not the page.
+function containerOf(box: Box): Element | undefined {
+  const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  const under = document.elementsFromPoint(center.x, center.y).find((element) => !element.closest("[data-comments-ui]") && !element.localName.startsWith("vitehub-") && element !== document.documentElement);
+  for (let element: Element | null = under ?? null; element && element !== document.documentElement; element = element.parentElement) {
+    const rect = element.getBoundingClientRect();
+    if (rect.left <= box.left + 1 && rect.top <= box.top + 1 && rect.right >= box.left + box.width - 1 && rect.bottom >= box.top + box.height - 1) return element;
+  }
+  return document.body ?? undefined;
+}
 
 // The overlay of a page: pins on the spots that threads point at, the hover preview, the open thread, and the composer of
-// a new comment. In comment mode a click anywhere drops a pin. It is built from the other comment parts.
+// a new comment. In comment mode a click anywhere drops a pin, and a drag draws an area. It is built from the other
+// comment parts. Each item says the kind of its anchor in `data-kind`, so a pin can sit by a quote or on an area.
 // Give it a `client` and a `subject`, or the `comments` state from `useComments()`.
 export const CommentLayer = defineComponent({
   name: "CommentLayer",
@@ -89,15 +106,45 @@ export const CommentLayer = defineComponent({
       return threads;
     });
 
-    // A pin drops on pointer up, and only if the pointer stayed put: a touch that scrolls the page is not a click.
-    let down: { x: number; y: number } | null = null;
+    // A pin drops on pointer up, and only if the pointer stayed put: a touch that scrolls the page is not a click. A mouse
+    // or a pen that moves draws an area instead, and the area becomes the comment's anchor.
+    let down: { x: number; y: number; draw: boolean } | null = null;
+    const drawing = ref<Box | null>(null);
+    const boxFrom = (start: { x: number; y: number }, event: PointerEvent): Box => ({
+      left: Math.min(start.x, event.clientX),
+      top: Math.min(start.y, event.clientY),
+      width: Math.abs(event.clientX - start.x),
+      height: Math.abs(event.clientY - start.y),
+    });
     const press = (event: PointerEvent) => {
-      down = consumedPointerEvents.has(event) || event.button !== 0 ? null : { x: event.clientX, y: event.clientY };
+      drawing.value = null;
+      down = consumedPointerEvents.has(event) || event.button !== 0 ? null : { x: event.clientX, y: event.clientY, draw: event.pointerType !== "touch" };
+      if (down?.draw && event.target instanceof Element) event.target.setPointerCapture?.(event.pointerId);
+    };
+    const move = (event: PointerEvent) => {
+      if (!down?.draw) return;
+      if (!drawing.value && Math.hypot(event.clientX - down.x, event.clientY - down.y) <= clickSlop) return;
+      drawing.value = boxFrom(down, event);
     };
     const release = (event: PointerEvent) => {
       const start = down;
+      const drawn = drawing.value;
       down = null;
-      if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > clickSlop) return;
+      drawing.value = null;
+      if (!start) return;
+      if (drawn) {
+        const box = boxFrom(start, event);
+        const element = box.width >= minimumArea && box.height >= minimumArea ? containerOf(box) : undefined;
+        if (!element) return;
+        event.preventDefault();
+        try {
+          state.startDraft(element, { area: box, point: { x: box.left, y: box.top } });
+        } catch {
+          // The area is outside the page.
+        }
+        return;
+      }
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > clickSlop) return;
       event.preventDefault();
       try {
         state.startDraft({ x: event.clientX, y: event.clientY });
@@ -180,6 +227,7 @@ export const CommentLayer = defineComponent({
             "div",
             {
               ...side(position.x, position.y),
+              "data-kind": thread.anchor.kind,
               "data-slot": "comment-layer-item",
               key: thread.id,
               style: { left: `${position.x}px`, top: `${position.y}px` },
@@ -215,6 +263,7 @@ export const CommentLayer = defineComponent({
       const openThread = opened
         ? h("div", {
             ...(pointForThread ? side(pointForThread.x, pointForThread.y) : {}),
+            "data-kind": opened.anchor.kind,
             "data-slot": "comment-layer-item",
             key: "opened-thread",
             style: pointForThread ? { left: `${pointForThread.x}px`, top: `${pointForThread.y}px` } : undefined,
@@ -232,6 +281,7 @@ export const CommentLayer = defineComponent({
               {
                 ...side(point.x, point.y),
                 "data-draft": "true",
+                "data-kind": draft.anchor.kind,
                 "data-slot": "comment-layer-item",
                 style: { left: `${point.x}px`, top: `${point.y}px` },
               },
@@ -288,10 +338,19 @@ export const CommentLayer = defineComponent({
           state.active.value
             ? h("div", {
                 "data-slot": "comment-layer-overlay",
-                onPointercancel: () => (down = null),
+                onPointercancel: () => {
+                  down = null;
+                  drawing.value = null;
+                },
                 onPointerdown: press,
+                onPointermove: move,
                 onPointerup: release,
-              })
+              }, drawing.value
+                ? [h("div", {
+                    "data-slot": "comment-layer-area",
+                    style: { left: `${drawing.value.left}px`, top: `${drawing.value.top}px`, width: `${drawing.value.width}px`, height: `${drawing.value.height}px` },
+                  })]
+                : [])
             : null,
           ...items,
           composing,

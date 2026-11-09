@@ -17,7 +17,7 @@ export const overlayStyles = `
 .root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif); }
 .root > * { pointer-events: auto; }
 /* The comment layer covers the page. Only its parts and the comment mode overlay take the pointer, as @vite-hub/ui styles them. */
-.root > .cursors, .root > .outlines, .root > [data-slot="comment-layer"] { pointer-events: none; }
+.root > .cursors, .root > .outlines, .root > .areas, .root > [data-slot="comment-layer"] { pointer-events: none; }
 .avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 
@@ -42,10 +42,96 @@ export const overlayStyles = `
 .toast a { color: var(--vh-primary); font-weight: 500; white-space: nowrap; text-underline-offset: 3px; }
 .toast > span { padding: 4px 0; }
 
+/*
+ * Drop's comment marks. A pin is the author's avatar in a 22px drop whose sharp corner points at the spot: after the end
+ * of a quote, in the middle of its last line; at the corner of an area; at the point of a click. --pin-x and --pin-y
+ * place the pin's corner from the spot, and the card opens beside the pin, level with it, or under it near the right
+ * edge of the screen.
+ */
+[data-slot="comment-layer-item"] { --pin-x: 0px; --pin-y: -22px; }
+[data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 2px; --pin-y: -11px; }
+[data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: -11px; --pin-y: -11px; }
+[data-slot="comment-pin"] {
+  width: 22px; height: 22px; border: 0; border-radius: 11px 11px 11px 2px; overflow: hidden;
+  background: var(--ui-text-highlighted); color: var(--ui-text-inverted);
+  box-shadow: 0 1px 4px rgb(0 0 0 / .25), 0 0 0 2px var(--ui-bg);
+  transform: translate(var(--pin-x), var(--pin-y)); transform-origin: 0 100%;
+  transition: scale 120ms ease-out, opacity 150ms ease-out;
+}
+[data-kind="text"] > [data-slot="comment-pin"] { transform-origin: 0 50%; }
+:is([data-kind="area"], [data-kind="image"]) > [data-slot="comment-pin"] { border-radius: 11px; transform-origin: 50% 50%; }
+[data-slot="comment-pin"]:is(:hover, :focus-visible, [data-active="true"]) { scale: 1.15; }
+[data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: 22px; }
+[data-slot="comment-pin"] [data-slot="avatar-stack"] { display: block; }
+[data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
+  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 9px/22px ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em;
+}
+/* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
+[data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
+[data-draft="true"] [data-slot="prompt-input-group"] { flex-flow: row wrap; align-items: flex-end; border: 0; box-shadow: none; background: none; }
+[data-draft="true"] [data-slot="prompt-input-attachments"] { flex-basis: 100%; }
+[data-draft="true"] [data-slot="prompt-input-textarea"] { flex: 1; min-width: 0; min-height: 2.25rem; padding: .5rem .25rem .375rem .625rem; }
+[data-draft="true"] [data-slot="prompt-input-toolbar"] { padding: .25rem; }
+[data-slot="comment-pin-number"] { display: none; }
+[data-slot="comment-pin"][data-status="resolved"] { opacity: .55; filter: grayscale(1); }
+[data-slot="comment-pin"][data-draft="true"] { outline: none; }
+
+[data-slot="comment-layer-popover"] {
+  left: calc(var(--pin-x) + 30px); top: var(--pin-y); width: 340px; max-width: calc(100vw - 24px);
+  border-radius: 6px 16px 16px 16px; box-shadow: 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
+  transform-origin: 0 11px; animation: vitehub-comments-pop 160ms cubic-bezier(.23, 1, .32, 1);
+}
+[data-draft="true"] > [data-slot="comment-layer-popover"] { width: 300px; border-radius: 6px 18px 18px 18px; }
+[data-slot="comment-layer-popover"][data-preview="true"] { width: 18rem; animation: none; }
+[data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
+  left: auto; right: calc(-22px - var(--pin-x)); top: calc(var(--pin-y) + 30px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
+}
+[data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
+  top: auto; bottom: calc(-22px - var(--pin-y)); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
+}
+[data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
+  bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px; transform-origin: 100% 100%;
+}
+[data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
+
+/* Areas: the one being drawn and the ones that threads point at. A resolved area is dashed and faint. */
+.area, [data-slot="comment-layer-area"] {
+  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ui-text-highlighted); border-radius: 3px;
+  background: color-mix(in oklab, var(--ui-text-highlighted) 6%, transparent); pointer-events: none; transition: background-color 120ms ease-out;
+}
+.area[data-status="active"], [data-slot="comment-layer-area"] { background: color-mix(in oklab, var(--ui-text-highlighted) 14%, transparent); }
+.area[data-status="resolved"] { border-style: dashed; border-color: var(--ui-text-muted); background: none; opacity: .6; }
+
+/* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. */
+.selection-bar {
+  position: fixed; z-index: 2147483001; translate: -50% -100%; display: flex; gap: 4px; padding: 4px;
+  border: 1px solid rgb(255 255 255 / 12%); border-radius: 12px; background: rgb(17 17 17 / 92%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  --bar-text: #d4d4d4; --bar-strong: #fafafa; --bar-hover: rgb(255 255 255 / 8%);
+  transform-origin: 50% 100%; animation: vitehub-comments-pop 140ms cubic-bezier(.23, 1, .32, 1);
+}
+.selection-bar[data-below="true"] { translate: -50% 0; transform-origin: 50% 0; }
+:host(.dark) .selection-bar {
+  border-color: rgb(0 0 0 / 10%); background: rgb(250 250 250 / 94%); box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
+  --bar-text: #404040; --bar-strong: #0a0a0a; --bar-hover: rgb(0 0 0 / 6%);
+}
+.selection-bar button {
+  all: unset; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border-radius: 8px; color: var(--bar-text); cursor: pointer; touch-action: manipulation; white-space: nowrap;
+  transition: background-color 150ms, color 150ms, scale 150ms; transition-timing-function: cubic-bezier(.23, 1, .32, 1);
+}
+.selection-bar button::before { content: ""; position: absolute; inset: -8px -2px; }
+@media (hover: hover) { .selection-bar button:hover { background: var(--bar-hover); color: var(--bar-strong); } }
+.selection-bar button:active { scale: .96; }
+.selection-bar button:focus-visible { outline: 2px solid var(--bar-strong); outline-offset: 1px; }
+
+@keyframes vitehub-comments-pop { from { opacity: 0; scale: .96; } }
 @keyframes vitehub-comments-enter { from { opacity: 0; transform: translateY(4px); } }
 .toast, .card { animation: vitehub-comments-enter 180ms cubic-bezier(.23, 1, .32, 1); }
 @media (prefers-reduced-motion: reduce) {
-  .toast, .card { animation: none; }
+  .toast, .card, .selection-bar, [data-slot="comment-layer-popover"] { animation: none; }
+  [data-slot="comment-pin"] { transition: none; }
   .cursor { transition: none; }
 }
 `
@@ -70,15 +156,21 @@ export const pillBarStyles = `
 .toolbar { display: flex; flex-direction: var(--vitehub-pill-flow, row); align-items: inherit; gap: 2px; font-variant-numeric: tabular-nums; }
 .toolbar svg { flex: none; }
 .sep { width: 4px; height: 4px; flex: none; }
-.people { display: flex; padding: 0 2px; }
+.people { display: flex; padding: 2px var(--vitehub-pill-inset, 2px); }
 .avatar { width: 20px; height: 20px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--vitehub-pill-surface); }
 img.me { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
 `
 
-/** Rules in the host document, scoped to classes on `<html>`, for edit mode. */
+/**
+ * Rules in the host document: edit mode, scoped to classes on `<html>`, and the highlights of commented text, as in Drop.
+ * Highlights draw on the page itself, so they take a grey that shows on light and dark pages.
+ */
 export const documentStyles = `
+::highlight(vitehub-comment) { background-color: rgb(128 128 128 / 16%); text-decoration: underline; text-decoration-color: rgb(128 128 128 / 55%); text-underline-offset: 3px; }
+::highlight(vitehub-comment-resolved) { background-color: rgb(128 128 128 / 8%); }
+::highlight(vitehub-comment-active) { background-color: rgb(128 128 128 / 30%); text-decoration: underline; text-decoration-color: rgb(128 128 128 / 75%); text-underline-offset: 3px; }
 html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 [data-vitehub-editing] { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 2px; }
 `

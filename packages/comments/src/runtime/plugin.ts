@@ -80,7 +80,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       label: "Comments",
       icon: "i-lucide-message-square-text",
       script,
-      lazy: true,
+      // Not lazy: as in Drop, selected text gets the Comment bar and comments show on the page as soon as it loads.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
       async allowed({ event, request }) {

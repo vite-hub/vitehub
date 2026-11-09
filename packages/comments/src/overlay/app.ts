@@ -6,7 +6,7 @@ import uiCss from "@vite-hub/ui/styles.css?inline"
 import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Teleport, toRaw, watch } from "vue"
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
-import { createCommentsClient } from "../client.ts"
+import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
@@ -18,7 +18,7 @@ import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentCan } from "@vite-hub/ui/headless"
 import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentUser } from "../types.ts"
+import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 
 interface Cursor {
@@ -26,6 +26,16 @@ interface Cursor {
   x: number
   y: number
 }
+
+/** Text that the reader selected on the page, and where it is, in client coordinates. */
+interface Selected {
+  left: number
+  top: number
+  bottom: number
+}
+
+/** The names of the CSS highlights of commented text. `documentStyles` colors them. */
+export const highlightNames = { open: "vitehub-comment", resolved: "vitehub-comment-resolved", active: "vitehub-comment-active" } as const
 
 interface Toast {
   text: string
@@ -70,6 +80,8 @@ export interface OverlayControl {
   leave: () => void
   /** The page scrolled, resized, or changed, so cursors and outlines move. */
   layout: () => void
+  /** The selection of the page changed, so the bar over selected text shows, moves, or goes. */
+  selectionChanged: () => void
   editMode: () => boolean
   editElement: () => HTMLElement | undefined
   startEdit: (element: HTMLElement) => Promise<void>
@@ -119,6 +131,8 @@ function isTyping(event: KeyboardEvent): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
 }
 
+const commentIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" }))
+
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
 /** Elements of the overlay, the pill, and its windows. Anchors skip them, as they skip the comment parts. */
@@ -157,6 +171,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const known = shallowRef<readonly CommentUser[]>([])
   const panelStatus = ref<CommentStatus>("open")
   const panelThread = ref<string | null>(null)
+  const selected = shallowRef<Selected>()
   let room: RealtimeRoom | undefined
   // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
@@ -345,6 +360,70 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     else showToast({ text: "Comments are only for the site's team. Sign in with an account that may comment.", kind: "error", action: ["Close", options.exit] }, true)
   }
 
+  /** The text that the reader selected on the page, when they may comment on it. */
+  function pageSelection(): Selection | undefined {
+    const selection = getSelection()
+    if (!canComment || editing.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
+    const container = selection.getRangeAt(0).commonAncestorContainer
+    const element = container instanceof Element ? container : container.parentElement
+    if (!element?.isConnected || ignored(element) || element.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return
+    return selection
+  }
+  /** Shows or moves the bar over the selected text. */
+  function trackSelection() {
+    const selection = state?.draft.value ? undefined : pageSelection()
+    const rect = selection?.getRangeAt(0).getBoundingClientRect()
+    selected.value = rect && (rect.width || rect.height) ? { left: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom } : undefined
+  }
+  /** Starts a comment on the selected text, as Drop does: the composer opens at the end of the quote. */
+  function commentOnSelection(): boolean {
+    const selection = pageSelection()
+    if (!selection) return false
+    if (needsName.value) {
+      naming.value = true
+      return true
+    }
+    void edit.finish(true)
+    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    try {
+      state.startDraft(selection, { point: { x: rect.right, y: rect.top } })
+      selection.removeAllRanges()
+    }
+    catch {
+      return false
+    }
+    selected.value = undefined
+    return true
+  }
+
+  /**
+   * Colors the commented text with the CSS Custom Highlight API, so the page's DOM stays as it is: open threads, resolved
+   * ones when they show, and the thread that is open, hovered, or being written, darker.
+   */
+  const highlights = typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight === "function"
+  function paintHighlights() {
+    if (!highlights) return
+    const groups = { open: [] as Range[], resolved: [] as Range[], active: [] as Range[] }
+    const active = new Set([state.openId.value, state.hoverId.value].filter(Boolean))
+    const threads: CommentThread[] = [...state.pageThreads.value]
+    const opened = state.opened.value
+    if (opened && opened.subject.id === page.value && !threads.includes(opened)) threads.push(opened)
+    for (const thread of threads) {
+      if (thread.anchor.kind !== "text") continue
+      const range = anchorRange(thread.anchor)
+      if (range) groups[active.has(thread.id) ? "active" : thread.status === "resolved" ? "resolved" : "open"].push(range)
+    }
+    const draft = state.draft.value?.anchor
+    if (draft?.kind === "text") {
+      const range = anchorRange(toRaw(draft))
+      if (range) groups.active.push(range)
+    }
+    for (const [group, name] of Object.entries(highlightNames)) CSS.highlights.set(name, new Highlight(...groups[group as keyof typeof groups]))
+  }
+  function clearHighlights() {
+    if (highlights) for (const name of Object.values(highlightNames)) CSS.highlights.delete(name)
+  }
+
   const NameCard = defineComponent({
     setup() {
       const input = ref<HTMLInputElement | null>(null)
@@ -404,6 +483,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         // The state sends the raw anchor, so the context is kept by it, not by its reactive proxy.
         contexts.set(toRaw(draft.anchor), captureContext(target))
       }, { flush: "sync" })
+      // Positions change when the page scrolls, resizes, or changes, so the ranges are found again then too.
+      watch([state.positions, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor], paintHighlights, { flush: "post" })
+      watch(() => state.draft.value, trackSelection)
 
       return () => {
         const nodes: Array<VNode | null> = []
@@ -411,6 +493,20 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors" }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
+          nodes.push(h("div", { class: "areas" }, areas()))
+          const bar = selected.value
+          if (bar && !state.draft.value) {
+            const below = bar.top < 56
+            nodes.push(h("div", {
+              class: "selection-bar",
+              "data-below": below ? "true" : undefined,
+              role: "group",
+              "aria-label": "Selected text",
+              style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${below ? bar.bottom + 8 : bar.top - 8}px` },
+              // A press here must not take the selection away from the page.
+              onMousedown: (event: MouseEvent) => event.preventDefault(),
+            }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: commentOnSelection }, [commentIcon(), "Comment"])))
+          }
           if (panelTarget.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
               key: page.value,
@@ -471,6 +567,28 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             session.user?.image ? h("img", { alt: "", class: "me", src: session.user.image }) : initials(session.user?.name ?? session.github.login))
         : null,
     ])
+  }
+
+  /** The outlines of the areas that threads point at, and of the one being written. Resolved ones are dashed. */
+  function areas(): VNode[] {
+    const nodes: VNode[] = []
+    const box = (key: string, kind: CommentAnchor["kind"], status: string) => {
+      const position = state.positions.value.get(key)
+      if (!position || position.detached || position.clipped || (kind !== "area" && kind !== "image") || !position.width || !position.height) return
+      nodes.push(h("div", {
+        class: "area",
+        key,
+        "data-status": status,
+        style: { left: `${position.x}px`, top: `${position.y}px`, width: `${position.width}px`, height: `${position.height}px` },
+      }))
+    }
+    const active = new Set([state.openId.value, state.hoverId.value])
+    for (const thread of state.pageThreads.value) box(thread.id, thread.anchor.kind, active.has(thread.id) ? "active" : thread.status)
+    const opened = state.opened.value
+    if (opened && !state.pageThreads.value.includes(opened)) box(opened.id, opened.anchor.kind, "active")
+    const draft = state.draft.value
+    if (draft) box("draft", draft.anchor.kind, "active")
+    return nodes
   }
 
   function cursors(): VNode[] {
@@ -555,7 +673,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       } satisfies Cursor)
     },
     leave: () => room?.setLocal("cursor", null),
-    layout: () => tick.value++,
+    layout: () => {
+      tick.value++
+      if (selected.value) trackSelection()
+    },
+    selectionChanged: trackSelection,
     editMode: () => editing.value,
     editElement: () => edit.element,
     startEdit: element => edit.start(element),
@@ -568,7 +690,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // The key acts here only. Without preventDefault it would also type into the name box that comment mode opens.
       if (event.key === "c" && canComment) {
         event.preventDefault()
-        setMode(mode.value === "comment" ? "view" : "comment")
+        // With text selected, C comments on it and leaves the mode as it is, like Drop's selection bar.
+        if (!commentOnSelection()) setMode(mode.value === "comment" ? "view" : "comment")
       }
       if (event.key === "e" && session?.content && canComment) {
         event.preventDefault()
@@ -576,6 +699,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }
     },
     destroy() {
+      clearHighlights()
       clearTimeout(toastTimer)
       void edit.finish(false)
       leaveRoom()

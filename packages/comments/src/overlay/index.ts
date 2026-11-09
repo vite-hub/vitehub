@@ -157,6 +157,16 @@ class CommentsOverlay extends HTMLElement {
     }
     this.on(window, "popstate" as keyof DocumentEventMap, navigate)
 
+    // The bar over selected text: shown once the selection settles, so it does not chase a drag.
+    let selectionTimer: ReturnType<typeof setTimeout> | undefined
+    const selectionChanged = (delay: number) => {
+      clearTimeout(selectionTimer)
+      selectionTimer = setTimeout(() => this.control?.selectionChanged(), delay)
+    }
+    this.on(document, "selectionchange", () => selectionChanged(200))
+    this.on(document, "pointerup", () => selectionChanged(0))
+    this.cleanups.push(() => clearTimeout(selectionTimer))
+
     this.on(document, "pointermove", event => this.pointerMoved(event), { passive: true })
     this.on(document, "pointerleave" as keyof DocumentEventMap, () => this.control?.leave())
     this.on(document, "click", event => this.clicked(event), { capture: true })
