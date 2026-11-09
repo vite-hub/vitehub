@@ -313,7 +313,8 @@ apply any new migration to an existing D1 database:
    its D1 resource identity and `migrations_dir` refer to the existing database
    and the copied migrations, and that it has no `migrations_table`. The build
    writes each migration folder there as one `NNNN_<name>.sql` file, because
-   Wrangler reads flat files. ViteHub writes
+   Wrangler reads flat files, and keeps the names in `d1-migrations.json` next
+   to your migrations. Commit that file with the migrations. ViteHub writes
    the D1, KV, and R2 bindings, so you can remove them from the project's
    Wrangler config; if you keep one, it must name the same resource (see
    [Database hosts](/docs/database/hosts)). Then list the pending migrations:

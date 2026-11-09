@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { copyFile, mkdir } from "node:fs/promises"
 
 import { join } from "pathe"
@@ -73,33 +73,61 @@ export interface D1MigrationFile {
 const folderTag = /^\d{14}_(.+)$/
 
 /**
+ * The file next to the migrations that keeps the Wrangler name of each migration folder, such as
+ * `{ "20261109120000_init": "0000_init.sql" }`. Commit it: a listed folder keeps its name, so a folder that sorts
+ * before applied ones, for example after a merge, cannot renumber them.
+ */
+export const d1MigrationNamesFile = "d1-migrations.json"
+
+function readD1MigrationNames(migrationsDir: string): Record<string, string> {
+  const file = join(migrationsDir, d1MigrationNamesFile)
+  if (!existsSync(file)) return {}
+  const value: unknown = JSON.parse(readFileSync(file, "utf8"))
+  const valid = isRecord(value) && !Array.isArray(value) && Object.values(value).every(name => typeof name === "string" && name.endsWith(".sql"))
+  if (!valid) throw new Error(`${file} must map each migration folder to its Wrangler file name, such as { "20261109120000_init": "0000_init.sql" }.`)
+  return value as Record<string, string>
+}
+
+function migrationNumber(name: string): number {
+  const number = Number.parseInt(name.split("_")[0]!, 10)
+  return Number.isFinite(number) ? number : -1
+}
+
+/**
  * Lists the migrations of a directory with the `.sql` file names that Wrangler applies, in Wrangler's order.
  *
- * A Drizzle Kit folder gets the name that Drizzle Kit 0.x gave the same migration: `NNNN_<name>.sql`, numbered by the
- * folder order. `drizzle-kit up` keeps that order and name, so a converted migration keeps its row in Wrangler's
- * `d1_migrations`, and Wrangler does not apply it again. A flat `.sql` file, such as one from
+ * A Drizzle Kit folder takes its name from `d1-migrations.json`. A folder that the file does not list gets the next
+ * number, `NNNN_<name>.sql`. Without the file, the numbers follow the folder order, which gives each folder the name
+ * that Drizzle Kit 0.x gave the same migration, because `drizzle-kit up` keeps that order and name. So a converted
+ * migration keeps its row in Wrangler's `d1_migrations` and does not run again. A flat `.sql` file, such as one from
  * `wrangler d1 migrations create`, keeps its name.
  */
 export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
   if (!existsSync(migrationsDir)) return []
   const entries = readdirSync(migrationsDir, { withFileTypes: true })
+  const recorded = readD1MigrationNames(migrationsDir)
+  const flat = entries.filter(entry => entry.isFile() && entry.name.endsWith(".sql")).map(entry => entry.name)
   const folders = entries
     .filter(entry => entry.isDirectory() && existsSync(join(migrationsDir, entry.name, "migration.sql")))
     .map(entry => entry.name)
     .sort((a, b) => a.localeCompare(b))
-  const files: D1MigrationFile[] = folders.map((tag, index) => ({
-    name: `${String(index).padStart(4, "0")}_${folderTag.exec(tag)?.[1] ?? tag}.sql`,
+  let next = Math.max(-1, ...Object.values(recorded).map(migrationNumber), ...flat.map(migrationNumber)) + 1
+  // Without the file, number every folder in order from 0000, as Drizzle Kit 0.x did, flat files aside.
+  if (!Object.keys(recorded).length) next = 0
+  const files: D1MigrationFile[] = folders.map(tag => ({
+    name: recorded[tag] ?? `${String(next++).padStart(4, "0")}_${folderTag.exec(tag)?.[1] ?? tag}.sql`,
     source: join(migrationsDir, tag, "migration.sql"),
     tag,
   }))
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".sql")) continue
-    const folder = files.find(file => file.name === entry.name)
+  for (const name of flat) {
+    const folder = files.find(file => file.name === name)
     if (folder) {
-      throw new Error(`${join(migrationsDir, entry.name)} has the Wrangler name of the migration folder ${folder.tag}. Rename the file, for example with the next free number.`)
+      throw new Error(`${join(migrationsDir, name)} has the Wrangler name of the migration folder ${folder.tag}. Rename the file, for example with the next free number.`)
     }
-    files.push({ name: entry.name, source: join(migrationsDir, entry.name), tag: entry.name.slice(0, -".sql".length) })
+    files.push({ name, source: join(migrationsDir, name), tag: name.slice(0, -".sql".length) })
   }
+  const duplicate = files.find((file, index) => files.findIndex(other => other.name === file.name) !== index)
+  if (duplicate) throw new Error(`${join(migrationsDir, d1MigrationNamesFile)} gives two migrations the Wrangler name ${duplicate.name}. Give one of them the next free number.`)
   return files.sort((a, b) => {
     const aNumber = Number.parseInt(a.name.split("_")[0]!, 10)
     const bNumber = Number.parseInt(b.name.split("_")[0]!, 10)
@@ -112,16 +140,28 @@ export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
   })
 }
 
+/** Writes `d1-migrations.json` when it does not list every migration folder yet. Returns the migrations. */
+export function recordD1MigrationNames(migrationsDir: string): D1MigrationFile[] {
+  const files = listD1Migrations(migrationsDir)
+  const recorded = readD1MigrationNames(migrationsDir)
+  const folders = files.filter(file => file.source.endsWith("/migration.sql"))
+  if (folders.length && folders.some(file => recorded[file.tag] !== file.name)) {
+    const names = Object.fromEntries([...Object.entries(recorded), ...folders.map(file => [file.tag, file.name] as const)].sort(([a], [b]) => a.localeCompare(b)))
+    writeFileSync(join(migrationsDir, d1MigrationNamesFile), `${JSON.stringify(names, null, 2)}\n`)
+  }
+  return files
+}
+
 /** Writes the migrations of `migrationsDir` into `outputDir` as the flat `.sql` files that Wrangler reads from `migrations_dir`. */
 export async function copyD1MigrationFiles(migrationsDir: string, outputDir: string): Promise<void> {
-  const files = listD1Migrations(migrationsDir)
+  const files = recordD1MigrationNames(migrationsDir)
   await mkdir(outputDir, { recursive: true })
   await Promise.all(files.map(file => copyFile(file.source, join(outputDir, file.name))))
 }
 
 /**
- * Fails when a ledger row has the name part of a migration under another number. The numbers follow the folder order,
- * so a folder that sorts before applied ones renumbers them, and Wrangler would apply them again.
+ * Fails when a ledger row has the name part of a migration under another number, for example when `d1-migrations.json`
+ * is missing and a folder sorts before applied ones. Wrangler would apply them again.
  */
 function assertNumbering(applied: ReadonlySet<string>, files: readonly D1MigrationFile[]) {
   const names = new Set(files.map(file => file.name))
@@ -130,7 +170,7 @@ function assertNumbering(applied: ReadonlySet<string>, files: readonly D1Migrati
     const suffix = /^\d+_(.+)$/.exec(name)?.[1]
     const moved = suffix && files.find(file => file.name.endsWith(`_${suffix}`))
     if (moved) {
-      throw new Error(`Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). A migration folder sorts before migrations that are already applied, so Wrangler would apply them again. Give the new folder a later timestamp.`)
+      throw new Error(`Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). Wrangler would apply it again. Restore ${d1MigrationNamesFile} next to the migrations, or set "${moved.tag}": "${name}" in it.`)
     }
   }
 }
@@ -186,7 +226,7 @@ export async function applyD1Migrations(
       ...ledger.missing.adopted.map(insert),
     ].join("\n"))
   }
-  for (const file of listD1Migrations(migrationsDir)) {
+  for (const file of recordD1MigrationNames(migrationsDir)) {
     if (ledger.applied.has(file.name)) continue
     const sql = normalizeSqlLineEndings(readFileSync(file.source, "utf8"))
     await query(`${sql}\n;\n${insert(file.name)}`)
