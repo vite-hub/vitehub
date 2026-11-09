@@ -10,6 +10,7 @@ import {
   addRouteMiddleware,
   addServerHandler,
   addTemplate,
+  addTypeTemplate,
   createResolver,
   defineNuxtModule,
   extendPages,
@@ -417,6 +418,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
+    // An app page in the docs layout picks its sidebar in `definePageMeta`, like the `sidebar` frontmatter of a docs page.
+    addTypeTemplate({
+      filename: "types/docs-page-meta.d.ts",
+      getContents: () => `declare module "#app" {\n  interface PageMeta {\n    /** \`false\` hides the docs sidebar. \`"collapsed"\` shows a narrow strip with a button that opens it. */\n    sidebar?: boolean | "collapsed"\n  }\n}\nexport {}\n`,
+    })
 
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
     if (nuxt.options.dev) {

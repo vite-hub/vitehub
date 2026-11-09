@@ -242,7 +242,19 @@ toc: false
 ---
 ```
 
-A tutorial with `codePanel: true` starts with the navigation closed, so the prose and the code get the width. The reader opens it with the button in the top left corner. A cookie keeps the choice.
+### Collapsed navigation
+
+A page that needs the width, such as a playground, can start with the navigation collapsed. Set `sidebar: collapsed` in the frontmatter. On wide screens the navigation shrinks to a narrow column with the logo, a button that opens it, search, and the site links. A site with a rail keeps the rail in that column. The reader opens the navigation and collapses it again with a button in the same place. A cookie keeps the choice on every page that starts collapsed. A tutorial with `codePanel: true` starts collapsed too.
+
+An app page in the docs layout sets the same in its page meta:
+
+```vue [app/pages/playground.vue]
+<script setup lang="ts">
+definePageMeta({ layout: "docs", sidebar: "collapsed" })
+</script>
+```
+
+Pages with a collapsible navigation fill the viewport, so they leave out the `banner`.
 
 ## Site options
 
