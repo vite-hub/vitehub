@@ -56,6 +56,8 @@ Header controls have accessible names and pressed states. Surface tabs expose th
 
 ### AgentSession
 
+#### Props
+
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `title` | `string` | Required | Session heading. |
@@ -70,6 +72,8 @@ Header controls have accessible names and pressed states. Surface tabs expose th
 | `panelOpen` | `boolean` | | Controlled panel visibility. |
 | `maximized` | `boolean` | | Controlled panel maximization. |
 
+#### Events
+
 | Event | Payload | Description |
 | --- | --- | --- |
 | `update:surface` | `string \| null` | Selected surface changed. |
@@ -78,28 +82,36 @@ Header controls have accessible names and pressed states. Surface tabs expose th
 
 ### AgentSessionDetailsSection
 
+#### Props
+
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `title` | `string` | | Heading above the default slot. |
 
 ### AgentSessionDetailsRow
 
+#### Props
+
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `icon` | `string` | | Iconify name. The `icon` slot can replace it. |
-| `label` | `string` | | Row label. |
-| `value` | `string \| number` | | Row value, replaced by the default slot when supplied. |
+| `label` | `string` | | Row label, replaced by the default slot when supplied. |
+| `value` | `string \| number` | | Row value, replaced by the `value` slot when supplied. |
 | `href` | `string` | | Link destination. An `onClick` handler makes a button when no link is set. |
 | `tone` | `"default" \| "muted" \| "success" \| "error" \| "info"` | `"default"` | Value color. |
 | `title` | `string` | | Browser tooltip. |
 
 ### AgentSessionTimeline
 
+#### Props
+
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `items` | `AgentSessionItem[]` | Required | Session turns in display order. |
 
 ### AgentSessionWorkGroup
+
+#### Props
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |

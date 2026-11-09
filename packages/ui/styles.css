@@ -3245,7 +3245,7 @@
     --vh-agent-details-width: 17.5rem;
     --vh-agent-hover: color-mix(in oklab, var(--vh-text) 6%, transparent);
     --vh-agent-pressed: color-mix(in oklab, var(--vh-text) 9%, transparent);
-    --vh-agent-message: var(--vh-ui-agent-message, color-mix(in oklab, var(--vh-bg) 93%, var(--vh-text)));
+    --vh-agent-message: color-mix(in oklab, var(--vh-bg) 93%, var(--vh-text));
     --vh-agent-hairline: color-mix(in oklab, var(--vh-border) 65%, transparent);
     /* The typeset grain would mark each answer as a box on the timeline. */
     --comark-grain: none;
@@ -3261,7 +3261,7 @@
     position: relative;
   }
   /* A user turn stands one step off the canvas: lighter on a dark page, darker on a light one. */
-  :where(.dark) .vh-agent-session { --vh-agent-message: var(--vh-ui-agent-message, color-mix(in oklab, var(--vh-bg) 88%, var(--vh-text))); }
+  :where(.dark) .vh-agent-session { --vh-agent-message: color-mix(in oklab, var(--vh-bg) 88%, var(--vh-text)); }
   .vh-agent-session :where(button) { font: inherit; }
   .vh-agent-session__sr {
     block-size: 1px; clip-path: inset(50%); inline-size: 1px; overflow: hidden; position: absolute; white-space: nowrap;
