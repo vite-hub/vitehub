@@ -1951,10 +1951,10 @@ describe("Database Nuxt integration", () => {
         database: undefined,
         root: rootDir,
       })
-      const id = await (plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>)(
+      const id = await (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler(
         "#vitehub/database/definition-defaults",
       )
-      const code = await (plugin.load as (id: string) => string | undefined | Promise<string | undefined>)(id!)
+      const code = await (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler(id!)
 
       const defaults = Function(`return (${code!.replace(/^export default /, "")})`)()
       expect(defaults.cloudflare).toEqual({

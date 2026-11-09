@@ -588,25 +588,34 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           : { vercel: runtimeModule, "vercel-definition-defaults": definitionDefaults },
       }, siblingRuntimeGenerations.get(this))
     },
-    resolveId(id) {
-      return resolveDatabaseVirtualId(id)
+    resolveId: {
+      filter: { id: /^(?:(?:#|virtual:)vitehub\/database\/(?:schema|databases)|#vitehub\/database\/definition-defaults)$/ },
+      handler(id) {
+        return resolveDatabaseVirtualId(id)
+      },
     },
-    transform(code, id) {
-      if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+    transform: {
+      filter: { id: /(?:^|[\\/])(?:@vite-hub[\\/]database|database)[\\/]dist[\\/]drizzle\.js$/ },
+      handler(code, id) {
+        if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+      },
     },
-    load(id) {
-      if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
-      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined)
-      if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
-        const options = resolvedOptions()
-        return `export default ${serializeGeneratedRegistry({
-          ...runtimeConfig?.definitionDefaults ?? {
-            ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
-            ...(options && options.connection ? { connection: options.connection } : {}),
-          },
-          ...(resolved?.command === "serve" ? { dev: true } : {}),
-        })}\n`
-      }
+    load: {
+      filter: { id: /^\0#vitehub\/database\/(?:schema|databases|definition-defaults)$/ },
+      handler(id) {
+        if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
+        if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined)
+        if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
+          const options = resolvedOptions()
+          return `export default ${serializeGeneratedRegistry({
+            ...runtimeConfig?.definitionDefaults ?? {
+              ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
+              ...(options && options.connection ? { connection: options.connection } : {}),
+            },
+            ...(resolved?.command === "serve" ? { dev: true } : {}),
+          })}\n`
+        }
+      },
     },
   }
 }
