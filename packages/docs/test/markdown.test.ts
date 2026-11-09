@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
 
-import type { Node as ComarkNode } from "comark"
+import type { ComarkPlugin, Node as ComarkNode } from "comark"
 
 const parse = createDocsParser()
 
@@ -78,6 +78,13 @@ describe("docs parser", () => {
 })
 
 describe("docs search sections", () => {
+  it("keeps example headings out of page search and the outline", async () => {
+    const { nodes, toc } = await parse("## Install\n\n::examples\n:::example{label=First}\n```md\n## Install\n\n### Preview details\n```\n:::\n:::example{label=Second}\n```md\n## Install\n```\n:::\n::\n\n## Continue\n")
+
+    expect(docsSearchSections("/guide", "Guide", nodes).map(section => section.id)).toEqual(["/guide", "/guide#install", "/guide#continue"])
+    expect(toc.map(link => link.id)).toEqual(["install", "continue"])
+  })
+
   it("splits a page by h2 and h3 and skips agent-only blocks", async () => {
     const { nodes } = await parse(source)
     const sections = docsSearchSections("/docs/kv", "KV", nodes)
@@ -93,5 +100,85 @@ describe("docs search sections", () => {
     expect(sections[2]?.content).toBe("Use pnpm.")
     expect(sections[3]?.content).toBe("One item Two item")
     expect(sections.some(section => section.content.includes("Only agents"))).toBe(false)
+  })
+})
+
+describe("comark-ui blocks", () => {
+  function find(nodes: ComarkNode[], tag: string): Extract<ComarkNode, unknown[]> | undefined {
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null) continue
+      if (node[0] === tag) return node
+      const found = find(node.slice(2) as ComarkNode[], tag)
+      if (found) return found
+    }
+    return undefined
+  }
+
+  it("turns a GitHub alert into comark-ui's callout", async () => {
+    const { nodes } = await parse("> [!WARNING]\n> Rotate the key first.\n")
+
+    expect(find(nodes, "github-callout")?.[1]).toMatchObject({ type: "warning" })
+  })
+
+  it("gives each tab its label", async () => {
+    const { nodes } = await parse("::tabs\n:::tabs-item{label=\"npm\"}\nnpm i\n:::\n:::tabs-item{label=\"pnpm\"}\npnpm add\n:::\n::\n")
+
+    expect(find(nodes, "tabs")?.[1]).toMatchObject({ labels: ["npm", "pnpm"] })
+  })
+
+  it.each(["md", "markdown", "mdc", "comark"])("renders an example's %s source with the default parser", async (language) => {
+    const { nodes } = await parse(`::examples\n:::example{label="Note" play="/play"}\n\`\`\`${language}\n> [!NOTE]\n> Keep a backup.\n\`\`\`\n:::\n::\n`)
+    const example = find(nodes, "example")
+    const preview = find(nodes, "example-preview")
+
+    expect(example?.[1]).toMatchObject({ label: "Note", play: "/play" })
+    expect(example?.[2]).toBe(preview)
+    expect(find([preview!], "github-callout")?.[1]).toMatchObject({ type: "note" })
+    expect(find([preview!], "pre")).toBeUndefined()
+    const source = example?.[3] as ComarkNode
+    expect(find([source], "pre")?.[1]).toMatchObject({ language })
+    expect(JSON.stringify(source)).toContain("Keep a backup.")
+  })
+
+  it("preserves a preview supplied by the site's plugin", async () => {
+    const plugin: ComarkPlugin = {
+      name: "site-examples",
+      post({ tree }) {
+        find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {}, ["p", {}, "Site preview"]])
+      },
+    }
+    const { nodes } = await createDocsParser({ plugins: [plugin] })("::example\n```md\nSource\n```\n::\n")
+    const example = find(nodes, "example")
+
+    expect(example).toHaveLength(4)
+    expect(example?.[2]).toEqual(["example-preview", {}, ["p", {}, "Site preview"]])
+    expect(find([example?.[3] as ComarkNode], "pre")?.[1]).toMatchObject({ language: "md" })
+  })
+
+  it("isolates a site's preview headings and keeps fragment links inside that preview", async () => {
+    const plugin: ComarkPlugin = {
+      name: "site-examples",
+      post({ tree }) {
+        find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {},
+          ["h2", { id: "install" }, "Preview install"],
+          ["p", {}, ["a", { href: "#install" }, "Jump to install"]],
+        ])
+      },
+    }
+    const { nodes } = await createDocsParser({ plugins: [plugin] })("::example\n```md\nSource\n```\n::\n\n## Install\n\n## Reserved {#docs-example-1-install}\n")
+    const preview = find(nodes, "example-preview")!
+    const heading = find([preview], "h2")!
+
+    expect(heading[1].id).not.toBe("install")
+    expect(heading[1].id).not.toBe("docs-example-1-install")
+    expect(find([preview], "a")?.[1].href).toBe(`#${heading[1].id}`)
+    expect(docsSearchSections("/guide", "Guide", nodes).map(section => section.id)).toEqual(["/guide", "/guide#install", "/guide#docs-example-1-install"])
+  })
+
+  it("keeps the site's plugin when it has a built-in name", async () => {
+    const own = { name: "alert", markdownItPlugins: [] }
+    const { nodes } = await createDocsParser({ plugins: [own] })("> [!WARNING]\n> Rotate the key first.\n")
+
+    expect(find(nodes, "github-callout")).toBeUndefined()
   })
 })

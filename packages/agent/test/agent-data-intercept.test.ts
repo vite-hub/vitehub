@@ -67,6 +67,23 @@ function interceptChannel(options: { omitMessage?: boolean } = {}) {
 }
 
 describe("Agent data and intercept", () => {
+  it("does not traverse input data for mutation tracking without a data schema", async () => {
+    const ownKeys = vi.fn((target: object) => Reflect.ownKeys(target))
+    const data = { records: new Proxy([{ id: 1 }], { ownKeys }) }
+    const run = vi.fn(({ input }: { input: { data?: unknown } }) => {
+      expect(input.data).toBe(data)
+      return "ok"
+    })
+    const agent = defineAgent({ driver: { run }, runtime: false })
+
+    const [error, result] = await runAgent(agent, { data })
+
+    expect(error).toBeUndefined()
+    expect(result?.output).toBe("ok")
+    expect(run).toHaveBeenCalledOnce()
+    expect(ownKeys).not.toHaveBeenCalled()
+  })
+
   it("rejects invalid data before the Driver runs", async () => {
     const run = vi.fn(() => ({ label: "jev" }))
     const intercept = vi.fn(() => undefined)
