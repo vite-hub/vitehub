@@ -63,16 +63,55 @@ Use an Env provider when application-owned credentials live outside the host env
 
 Configure the provider module and declare only the keys the application uses.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    env: {
+      providers: {
+        credentials: './server/env/credentials.ts',
+      },
+      server: {
+        credentialsGatewayKey: env({ secret: true }),
+        codexAuthJson: env({
+          secret: true,
+          source: env.provider('credentials', 'codex/auth.json'),
+        }),
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    providers: {
-      credentials: './server/env/credentials.ts',
-    },
-  })],
+  plugins: [
+    vitehub({
+      preset: 'node',
+      env: {
+        providers: {
+          credentials: './server/env/credentials.ts',
+        },
+      },
+    }),
+    nitro(),
+  ],
   env: {
     server: {
       credentialsGatewayKey: env({ secret: true }),
@@ -88,6 +127,42 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      env: {
+        providers: {
+          credentials: './server/env/credentials.ts',
+        },
+      },
+    }),
+  ],
+  env: {
+    server: {
+      credentialsGatewayKey: env({ secret: true }),
+      codexAuthJson: env({
+        secret: true,
+        source: env.provider('credentials', 'codex/auth.json'),
+      }),
+      githubToken: env({
+        secret: true,
+        source: env.provider('credentials', 'github/token'),
+      }),
+    },
+  },
+})
+```
+:::
+::
 
 The provider reads all requested keys once. It receives a frozen snapshot containing only literal and host-backed Server Env values, so a Kubernetes or Cloudflare secret can authenticate the external store without importing `#vitehub/env/server` recursively.
 

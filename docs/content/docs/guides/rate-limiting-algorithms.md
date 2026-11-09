@@ -113,6 +113,29 @@ If the fixed window burst is a problem for your route, use a shorter window with
 
 Enable Rate Limit in the Vite config:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', rateLimit: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', rateLimit: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -121,6 +144,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', rateLimit: true })],
 })
 ```
+:::
+::
 
 Call `requireRateLimit()` before the work. This route allows 10 requests per minute for each signed-in user. Request 11 in the same clock minute gets a `429` with a `Retry-After` header.
 

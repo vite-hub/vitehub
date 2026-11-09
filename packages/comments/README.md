@@ -116,7 +116,7 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 
 | Import | Purpose |
 | --- | --- |
-| `@vite-hub/comments` | `defineComments()`, `installComments()`, and types. |
+| `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
 | `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, and `resolveAnchor()`. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |

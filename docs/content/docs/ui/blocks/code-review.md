@@ -8,7 +8,7 @@ icon: i-ph-git-diff-light
 
 This block combines [`FileTree`](/docs/ui/file-tree), [`PatchDiff`](/docs/ui/diff), and [`TraceRun`](/docs/ui/trace). Select a changed file in the tree to see its diff. The trace under the diff shows the verification run. The patches and the run are synthetic.
 
-::component-preview{name="CodeReviewBlock" flush reset}
+::example{name="CodeReviewBlock" flush reset height=34}
 ::
 
 ## Wire the panes

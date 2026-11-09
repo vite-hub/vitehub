@@ -81,6 +81,44 @@ Check the policy of your own package inside `run`. The section check only decide
 
 A Vite plugin contributes operations through its metadata. `vite-hub` collects them from every plugin and installs them in the Console server plugin.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+const reports = {
+  name: 'reports',
+  vitehub: {
+    operations: [{ module: 'my-app/operations', export: 'reportOperations' }],
+  },
+}
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node' },
+  vite: {
+    plugins: [reports],
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+const reports = {
+  name: 'reports',
+  vitehub: {
+    operations: [{ module: 'my-app/operations', export: 'reportOperations' }],
+  },
+}
+
+export default defineConfig({ plugins: [vitehub({ preset: 'node' }), nitro(), reports] })
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -92,8 +130,10 @@ const reports = {
   },
 }
 
-export default defineConfig({ plugins: [vitehub(), reports] })
+export default defineConfig({ plugins: [vitehub({ preset: 'node' }), reports] })
 ```
+:::
+::
 
 The module is the specifier that your app can import. The export is one operation or a list of them. Two operations with the same name fail the build with `INTERNAL_B0048`, and the message names both plugins.
 
