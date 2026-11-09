@@ -255,6 +255,7 @@ export default defineNuxtConfig({
       url: 'https://lumen.example.com',
       description: 'Resize and compress images from the command line.',
       // A one-color SVG in public/. The design fills it with the text color.
+      // A colored logo shows as it is: logo: { light: '/lumen.svg', dark: '/lumen-dark.svg' }.
       logo: '/lumen-mark.svg',
       badge: { label: 'beta', tooltip: 'The CLI flags can change.' },
     },
@@ -266,11 +267,11 @@ export default defineNuxtConfig({
 })
 ```
 
-`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it, or in the header's menu on narrow screens. The header appears on every page with search and a color mode button. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
+On docs pages the sidebar opens with the brand and search, and ends with a row of links: `github` adds a GitHub link with the star count when available, `socials` adds community links beside it, and the color mode button closes the row. Pages without the docs sidebar, such as a home page, and phones show the same parts in a header instead. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
 
 ## Design
 
-The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. On docs pages the sidebar holds the brand, search, a rail of sections or groups next to the page list, and the row of links at its foot. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts`: Nuxt UI `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in a stylesheet of your app:
@@ -324,10 +325,10 @@ const { github } = useDocsConfig()
 
 | Component | Part of the shell |
 | --- | --- |
-| `AppHeader` | The site header on every page, with search, GitHub, social links, and the color mode button. |
+| `AppHeader` | The site header, with search, GitHub, social links, and the color mode button. On wide screens it hides beside the docs sidebar. |
 | `AppSearch` | The search dialog. |
 | `DocsRail` | The section rail. |
-| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The page sidebar and its parts. |
+| `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The page sidebar and its parts: the brand and search, the page list, and the row of links. |
 | `DocsPage` | Chooses the layout of a page. |
 | `DocsArticle`, `DocsLanding` | The `article` and `tutorial` layouts, and the `landing` layout. |
 | `DocsMarkdown`, `DocsCodePre` | The rendered Markdown and its code blocks. |

@@ -158,11 +158,53 @@ A server never takes the issuer or the resource from the `Host` header of a requ
 
 In `vite dev` the request origin is used, because the port changes. Without any of these in production, OAuth is off: the metadata endpoints answer `503` with `CONSOLE_MCP_ORIGIN_REQUIRED`, and a bearer token is not accepted. The issuer is the `jwt.issuer` or the `baseURL` of the Auth. Set `console.mcp.issuer` when tokens carry another one. Configured issuer URLs are normalized with their final slash removed. Set `jwt.issuer` to that canonical URL without a trailing slash: Better Auth 1.7.7 normalizes discovery but preserves the option in access-token claims, so the Console rejects a noncanonical Auth issuer with `CONSOLE_MCP_OAUTH_INCOMPLETE`. Resource identifiers remain exact, including any trailing slash.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    console: { auth: 'app', mcp: { resource: 'https://app.example.com/_vitehub/mcp' } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-vitehub({ console: { auth: 'app', mcp: { resource: 'https://app.example.com/_vitehub/mcp' } } })
+export default defineConfig({
+  plugins: [
+    vitehub({
+      auth: true,
+      console: { auth: 'app', mcp: { resource: 'https://app.example.com/_vitehub/mcp' } },
+    }),
+    nitro(),
+  ],
+})
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      auth: true,
+      console: { auth: 'app', mcp: { resource: 'https://app.example.com/_vitehub/mcp' } },
+    }),
+  ],
+})
+```
+:::
+::
 
 The Console checks an access token on `/_vitehub/mcp` and nowhere else: the path of the request must be exactly the endpoint (`/portal/_vitehub/mcp` below a base path), and a path that only contains it, such as `/_vitehub/rpc/_vitehub/mcp`, does not count. It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience (the resource), and the expiry with 30 seconds of tolerance. Then it reads the person by the `sub` claim from the Auth, so a deleted or banned person loses access while the token is still valid, and runs `console.authorize` with that user. Other Console routes keep to the session.
 

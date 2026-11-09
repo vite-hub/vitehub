@@ -26,8 +26,33 @@ pnpm add evlog
 
 ::tutorial-step{title="Enable local capture"}
 
-Add `logs` and `console` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. `vitehub()` includes Nitro, so you do not add `nitro()`.
+Add `logs` and `console` to the ViteHub options of your app. Keep the other options of your app. In Vite, `vitehub()` includes Nitro. In a Nitro app, keep `nitro()` after `vitehub()`.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', logs: true, console: { auth: false } },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'node', logs: true, console: { auth: false } }), nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -38,6 +63,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 - `logs: true` saves the log events on your computer while the dev server runs.
 - `auth: false` lets you open the Console with no sign-in. Use it only on your computer. See [Console](/docs/development/console) before you deploy.
