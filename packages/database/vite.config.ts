@@ -44,6 +44,7 @@ export default defineConfig({
       "src/runtime/hosted.ts",
       "src/runtime/migrate-on-start.ts",
       "src/runtime/postgres.ts",
+      "src/runtime/postgres-connection.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",
       "src/runtime/virtual-databases.ts",

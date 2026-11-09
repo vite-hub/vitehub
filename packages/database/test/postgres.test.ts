@@ -287,6 +287,9 @@ describe("Postgres build configuration", () => {
       expect(code).toContain("runtime/postgres")
       expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).not.toContain("createHostedDrizzleDb")
+      // The module stands in for `@vite-hub/database/drizzle`, so it has the export that OpenWorkflow imports.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }")
+      expect(code).toContain("runtime/postgres-connection")
     }
   })
 

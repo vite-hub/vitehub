@@ -1089,6 +1089,8 @@ describe("Database Nuxt integration", () => {
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
       expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      // The Nuxt alias of `@vite-hub/database/drizzle` has the same exports, so Workflow can import from it.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\")")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

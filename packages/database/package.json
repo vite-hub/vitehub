@@ -115,6 +115,11 @@
       "import": "./dist/runtime/postgres.js",
       "default": "./dist/runtime/postgres.js"
     },
+    "./runtime/postgres-connection": {
+      "types": "./dist/runtime/postgres-connection.d.ts",
+      "import": "./dist/runtime/postgres-connection.js",
+      "default": "./dist/runtime/postgres-connection.js"
+    },
     "./runtime/request-stats": {
       "types": "./dist/runtime/request-stats.d.ts",
       "import": "./dist/runtime/request-stats.js",

@@ -53,6 +53,7 @@ it("installs Comments on the sole named Database in a generated runtime registry
     createAgentDatabaseImport: "@vite-hub/database/runtime/agent",
     databaseEntries: ["  main: { db: main },"],
     imports: [],
+    postgresConnectionImport: "@vite-hub/database/runtime/postgres-connection",
   })
   const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn databases"
   const databases = new Function("main", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(

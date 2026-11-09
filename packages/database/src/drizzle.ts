@@ -1,7 +1,7 @@
 import virtualSchema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase } from "./runtime/agent.ts"
-import { postgresConnectionUrl } from "./runtime/postgres-connection.ts"
+import { readPostgresConnectionUrl } from "./runtime/postgres-connection.ts"
 
 import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "./types.ts"
 
@@ -58,9 +58,7 @@ export const agentDb = createAgentDatabase(databases)
  * has none of these. Use it in a package that opens its own Postgres client, so that it uses the same database.
  */
 export function getPostgresConnectionUrl(name = "default"): string | undefined {
-  if (!Object.hasOwn(databases, name)) return undefined
-  const read: unknown = Reflect.get(databases[name]!.db, postgresConnectionUrl)
-  return typeof read === "function" ? read() : undefined
+  return readPostgresConnectionUrl(databases, name)
 }
 
 // SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.

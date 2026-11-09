@@ -3,12 +3,15 @@ interface RenderDatabaseRuntimeModuleOptions {
   createAgentDatabaseImport: string
   databaseEntries: string[]
   imports: string[]
+  /** The module that exports `readPostgresConnectionUrl()`, for `getPostgresConnectionUrl()`. */
+  postgresConnectionImport: string
 }
 
 export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModuleOptions): string {
   return [
     `import { createAgentDatabase, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
     `export { chunkParameters } from ${JSON.stringify(options.chunkParametersImport)}`,
+    `import { readPostgresConnectionUrl } from ${JSON.stringify(options.postgresConnectionImport)}`,
     ...options.imports,
     "",
     "const configuredDatabases = {",
@@ -25,6 +28,8 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "export const agentDb = createAgentDatabase(databases)",
     "export const db = databases.default.db",
     "export const schema = databases.default.schema",
+    // The same exports as `@vite-hub/database/drizzle`, which this module stands in for.
+    "export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }",
     "",
   ].join("\n")
 }

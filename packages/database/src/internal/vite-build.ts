@@ -57,6 +57,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     chunkParametersImport: createImportPath(file, resolveRuntimeModule("runtime/chunk-parameters")),
     createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
     databaseEntries,
+    postgresConnectionImport: createImportPath(file, resolveRuntimeModule("runtime/postgres-connection")),
     imports: [
       ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesD1HttpOnly(runtimeConfig) ? "runtime/d1" : "runtime/hosted")))}`] : []),
       ...(usesPostgres(runtimeConfig) ? [`import { createPostgresDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/postgres")))}`] : []),
