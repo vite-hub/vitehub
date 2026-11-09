@@ -423,13 +423,13 @@ onBeforeUnmount(() => {
       <ConsolePageHeader title="KV" :description="stores.length > 1 ? undefined : selectedStore" :toggle="false">
         <template #right>
                     <UTooltip text="Refresh keys">
-            <UButton aria-label="Refresh keys" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="listLoading || valueLoading" @click="refresh" />
+            <UButton aria-label="Refresh keys" icon="i-lucide-refresh-cw" variant="ghost" :loading="listLoading || valueLoading" @click="refresh" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
       <ConsolePageToolbar v-if="stores.length > 1 || keys.length">
-        <USelect v-if="stores.length > 1" v-model="selectedStore" class="w-40" size="sm" :items="storeItems" aria-label="KV store" />
-        <UInput v-model="keyFilter" class="w-full sm:w-64" icon="i-lucide-search" size="sm" placeholder="Filter loaded keys…" aria-label="Filter loaded keys" />
+        <USelect v-if="stores.length > 1" v-model="selectedStore" class="w-40" :items="storeItems" aria-label="KV store" />
+        <UInput v-model="keyFilter" class="w-full sm:w-64" icon="i-lucide-search" placeholder="Filter loaded keys…" aria-label="Filter loaded keys" />
         <span class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ keyFilter.trim() ? `${visibleKeys.length} of ${keyCount}` : keyCount }}</span>
       </ConsolePageToolbar>
 
@@ -454,7 +454,7 @@ onBeforeUnmount(() => {
                 <span class="max-w-[80%] shrink-0 truncate">{{ key.slice(keyPrefix(key).length) || "(empty key)" }}</span>
               </span>
             </button>
-            <UButton v-if="nextCursor" class="mt-1 self-start" label="Load more" size="sm" variant="ghost" :loading="listLoading" @click="loadMore" />
+            <UButton v-if="nextCursor" class="mt-1 self-start" label="Load more" variant="ghost" :loading="listLoading" @click="loadMore" />
           </template>
           <p v-else-if="keys.length" class="px-2 py-1.5 text-xs text-muted">No loaded keys match “{{ keyFilter.trim() }}”.</p>
           <p v-else class="px-2 py-1.5 text-xs text-muted">No keys in this store yet.</p>
@@ -484,17 +484,17 @@ onBeforeUnmount(() => {
               <span v-if="valueFormat" class="text-xs text-muted">{{ valueFormat }}</span>
               <template v-if="!editing">
                 <UTooltip :text="editable ? 'Edit value' : readOnly ? 'This access can only read KV' : reserved ? 'ViteHub keeps this key for itself' : 'Bytes and cut values are read only'">
-                  <UButton aria-label="Edit value" icon="i-lucide-pencil" size="sm" variant="ghost" :disabled="!editable" @click="startEdit" />
+                  <UButton aria-label="Edit value" icon="i-lucide-pencil" variant="ghost" :disabled="!editable" @click="startEdit" />
                 </UTooltip>
                 <UTooltip text="Delete key">
-                  <UButton aria-label="Delete key" color="error" icon="i-lucide-trash-2" size="sm" variant="ghost" :disabled="reserved || readOnly" @click="removeOpen = true" />
+                  <UButton aria-label="Delete key" color="error" icon="i-lucide-trash-2" variant="ghost" :disabled="reserved || readOnly" @click="removeOpen = true" />
                 </UTooltip>
               </template>
             </header>
             <div v-if="editing" class="flex min-h-0 flex-1 flex-col gap-2 p-4">
-              <UTextarea v-model="editText" class="min-h-0 flex-1 items-stretch" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
+              <UTextarea v-model="editText" class="min-h-0 flex-1 items-stretch" :rows="12" :ui="{ base: 'font-mono' }" aria-label="Value" autofocus />
               <div class="flex flex-wrap items-center gap-2">
-                <UInput v-model="editTtl" class="w-40" size="sm" type="number" min="1" placeholder="No expiry" aria-label="Expires in seconds" />
+                <UInput v-model="editTtl" class="w-40" type="number" min="1" placeholder="No expiry" aria-label="Expires in seconds" />
                 <span class="text-xs text-muted">Expires in seconds</span>
               </div>
               <p v-if="selectedValue.expiry === 'unknown'" class="text-xs text-warning" role="status">

@@ -544,13 +544,15 @@ defineExpose({
       <USelect v-model="type" class="w-32" :items="typeItems" aria-label="Filter by type" />
       <!-- Controls of the page that hosts the browser, such as the Blob section's store picker. -->
       <slot name="toolbar" />
-      <div class="ms-auto flex items-center gap-1.5">
-        <!-- Icon tabs: the label stays in the accessible name only. -->
+      <!-- Icon tabs: the label stays in the accessible name only. -->
+      <template #tabs-end>
         <UTabs v-model="view" :items="viewItems" :content="false" aria-label="View">
           <template #default="{ item }">
             <span class="sr-only">{{ item.label }}</span>
           </template>
         </UTabs>
+      </template>
+      <div class="ms-auto flex items-center gap-1.5">
         <!-- The Media page moves its actions into the page header, next to the title, like New on a collection. -->
         <Teleport v-if="canWrite" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
           <UPopover v-if="client.capabilities?.folders !== false" v-model:open="folderOpen" :content="{ align: 'end' }">

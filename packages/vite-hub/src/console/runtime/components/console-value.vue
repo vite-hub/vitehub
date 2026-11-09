@@ -31,5 +31,5 @@ const parts = computed(() => consoleValueParts(props.value));
     <span class="text-dimmed" aria-hidden="true">·</span>
     <span class="text-xs text-muted"><ConsoleRelativeTime :value="statusAt.time" /></span>
   </span>
-  <span v-else><template v-for="(part, index) in parts" :key="index"><ConsoleRelativeTime v-if="part.kind === 'time'" :value="part.value" /><code v-else-if="part.kind === 'code'" class="rounded-md bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted">{{ part.value }}</code><template v-else>{{ part.value }}</template></template></span>
+  <span v-else><template v-for="(part, index) in parts" :key="index"><ConsoleRelativeTime v-if="part.kind === 'time'" :value="part.value" /><code v-else-if="part.kind === 'code'" class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted">{{ part.value }}</code><template v-else>{{ part.value }}</template></template></span>
 </template>

@@ -7,7 +7,8 @@ import type { RouteLocationRaw } from "vue-router";
  * right. Content, KV, Database, Blob, and the contributed sections share it, so titles keep one weight, one height, and
  * one place for the next action.
  *
- * Ancestors hide on small screens; Back then leads one level up.
+ * Ancestors hide on small screens; Back then leads one level up. A `UTabs` view switch goes in the `tabs` slot, after the
+ * actions, never in `right`.
  */
 withDefaults(defineProps<{
   /** One level up. Pages with ancestors usually pass the last one. */
@@ -23,7 +24,7 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5' }" :toggle="toggle ? { 'aria-label': 'Open section navigation' } : false">
+  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5 self-stretch' }" :toggle="toggle ? { 'aria-label': 'Open section navigation' } : false">
     <template v-if="back" #leading>
       <UButton :to="back.to" variant="ghost" icon="i-lucide-arrow-left" :aria-label="`Back to ${back.label}`" />
     </template>
@@ -45,6 +46,10 @@ withDefaults(defineProps<{
     </template>
     <template #right>
       <slot name="right" />
+      <!-- A view switch rests on the header's bottom border, so the tab line and the border are one line. -->
+      <div v-if="$slots.tabs" class="self-end">
+        <slot name="tabs" />
+      </div>
     </template>
   </UDashboardNavbar>
 </template>

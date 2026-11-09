@@ -60,12 +60,13 @@ const SkillLink = defineComponent({
 
 <template>
   <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Skill file preview">
-    <header class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b border-default px-3 py-2 sm:px-4">
-      <p class="flex min-w-0 flex-1 basis-64 items-start gap-2 font-mono text-xs leading-5 text-highlighted">
+    <!-- No vertical padding: the tabs rest on the bottom border, so the tab line and the border are one line. -->
+    <header class="flex min-h-11 flex-wrap items-center gap-x-3 border-b border-default px-3 sm:px-4">
+      <p class="flex min-w-0 flex-1 basis-64 items-start gap-2 py-3 font-mono text-xs leading-5 text-highlighted">
         <UIcon name="i-lucide-file-text" class="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
         <span class="min-w-0 [overflow-wrap:anywhere]">{{ file.path }}</span>
       </p>
-      <UTabs v-if="markdown" v-model="view" :items="views" :content="false" aria-label="File view" />
+      <UTabs v-if="markdown" v-model="view" :items="views" :content="false" class="self-end" aria-label="File view" />
       <UButton :label="copied ? 'Copied' : 'Copy'" :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'" aria-label="Copy file contents" size="xs" variant="ghost" @click="copy" />
     </header>
     <span role="status" class="sr-only">{{ copied ? 'File contents copied' : '' }}</span>

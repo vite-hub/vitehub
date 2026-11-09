@@ -24,7 +24,8 @@ const { entry: selectedId, level, q: text, view: mode } = useConsoleQuery({
   q: queryText(),
   view: queryChoice(["explorer", "stream"], "explorer", { history: "push" }),
 });
-const logDateFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium" });
+// The row shows the day without the year; the title of the time shows the exact timestamp.
+const logDateFormat = new Intl.DateTimeFormat("en", { day: "numeric", month: "short" });
 function logDate(timestamp: string) {
   const time = Date.parse(timestamp);
   return Number.isFinite(time) ? logDateFormat.format(time) : "";
@@ -168,7 +169,6 @@ onBeforeUnmount(() => {
         <template #right>
           <UTooltip text="Refresh logs">
             <UButton
-              size="sm"
               variant="ghost"
               icon="i-lucide-refresh-cw"
               aria-label="Refresh logs"
@@ -186,7 +186,9 @@ onBeforeUnmount(() => {
         </template>
       </ConsolePageHeader>
       <ConsolePageToolbar>
-        <UTabs v-model="mode" :items="modeItems" :content="false" aria-label="Log view" />
+        <template #tabs>
+          <UTabs v-model="mode" :items="modeItems" :content="false" aria-label="Log view" />
+        </template>
         <UInput
           v-model="text"
           icon="i-lucide-search"
@@ -228,24 +230,24 @@ onBeforeUnmount(() => {
             No events match these filters.
           </p>
           <div v-bind="containerProps" class="min-h-0 flex-1 overflow-auto">
-            <!-- The inset keeps the focus ring of a full-width row inside the scroll container. -->
+            <!-- The inset keeps the hover fill off the edges; data-focus-inset keeps the focus ring inside the scroller. -->
             <div v-bind="wrapperProps" class="px-1">
               <button
                 v-for="{ data: entry } in visibleEntries"
                 :key="entry.id"
                 class="log-row w-full rounded-md text-left hover:bg-elevated"
                 :class="[{ 'bg-elevated': selected?.id === entry.id }, mode]"
+                data-focus-inset
                 :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"
               >
                 <time
-                  class="font-mono text-xs text-muted tabular-nums"
+                  class="whitespace-nowrap font-mono text-xs text-muted tabular-nums"
                   :datetime="entry.timestamp"
                   :title="exactTitle(entry.timestamp)"
-                  ><span class="block text-[10px] leading-3">{{ logDate(entry.timestamp) }}</span>
-                  <span class="block leading-4">{{ consoleClockTime(entry.timestamp) }}</span></time
+                  ><span class="text-dimmed">{{ logDate(entry.timestamp) }}</span> {{ consoleClockTime(entry.timestamp) }}</time
                 >
-                <span class="font-mono text-[11px] uppercase" :class="levelClass(entry.level)">{{
+                <span class="font-mono text-xs uppercase" :class="levelClass(entry.level)">{{
                   entry.level
                 }}</span>
                 <span v-if="mode === 'explorer'" class="truncate text-xs text-muted">{{
@@ -256,7 +258,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div v-if="cursor && !following" class="p-3">
-            <UButton variant="ghost" size="sm" :loading="loading" @click="load(true)"
+            <UButton variant="ghost" :loading="loading" @click="load(true)"
               >Load older events</UButton
             >
           </div>
@@ -268,7 +270,7 @@ onBeforeUnmount(() => {
           <template v-if="selected">
             <div class="mb-5 flex items-center justify-between gap-3">
               <h2 class="text-sm font-medium">Event details</h2>
-              <span class="font-mono text-[11px] uppercase" :class="levelClass(selected.level)">{{
+              <span class="font-mono text-xs uppercase" :class="levelClass(selected.level)">{{
                 selected.level
               }}</span>
             </div>
@@ -314,7 +316,7 @@ onBeforeUnmount(() => {
       </div>
       <footer
         v-if="source"
-        class="flex flex-wrap justify-between gap-2 border-t border-default px-4 py-2 text-[11px] text-muted"
+        class="flex flex-wrap justify-between gap-2 border-t border-default px-4 py-2 text-xs text-muted"
       >
         <span>{{ retention }}</span
         ><span v-if="dropped">{{ dropped }} dropped or evicted</span><span>Read-only</span>
@@ -336,14 +338,14 @@ onBeforeUnmount(() => {
   padding: 0 16px;
 }
 .log-row.explorer {
-  grid-template-columns: 84px 40px 90px minmax(0, 1fr);
+  grid-template-columns: 140px 40px 90px minmax(0, 1fr);
 }
 .log-row.stream {
-  grid-template-columns: 84px 40px minmax(0, 1fr);
+  grid-template-columns: 140px 40px minmax(0, 1fr);
 }
 @media (max-width: 900px) {
   .log-row.explorer {
-    grid-template-columns: 84px 40px minmax(0, 1fr);
+    grid-template-columns: 140px 40px minmax(0, 1fr);
   }
   .log-row.explorer > :nth-child(3) {
     display: none;

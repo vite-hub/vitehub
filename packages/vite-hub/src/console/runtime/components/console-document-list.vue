@@ -360,15 +360,8 @@ onBeforeUnmount(() => {
   </ConsolePageHeader>
 
   <ConsolePageToolbar>
-    <UInput
-      v-model="search"
-      class="w-full sm:w-56"
-      icon="i-lucide-search"
-      :placeholder="`Search ${collection.label.toLowerCase()}…`"
-      aria-label="Search documents"
-    />
-    <!-- The state tabs scroll on a phone. The 1px padding keeps the underline of the active tab inside the scroller. -->
-    <div class="min-w-0 max-w-full overflow-x-auto pb-px">
+    <!-- The state tabs scroll on a phone, so a focused tab scrolls into view. -->
+    <template #tabs>
       <UTabs
         v-model="state"
         :items="stateTabs"
@@ -378,7 +371,14 @@ onBeforeUnmount(() => {
         :aria-busy="!page && loading"
         @focusin="revealStateTab"
       />
-    </div>
+    </template>
+    <UInput
+      v-model="search"
+      class="w-full sm:w-56"
+      icon="i-lucide-search"
+      :placeholder="`Search ${collection.label.toLowerCase()}…`"
+      aria-label="Search documents"
+    />
     <div v-if="activeFilters.length" class="flex flex-wrap items-center gap-1.5">
       <UButton
         v-for="filter in activeFilters"

@@ -50,7 +50,6 @@ const tab = defineModel<"credential" | "activity" | "access">("tab", { default: 
       v-if="entry.source === 'provider' && entry.path && !managing"
       class="justify-self-start"
       label="Manage credential"
-      color="neutral"
       variant="outline"
       @click="managing = true"
     />

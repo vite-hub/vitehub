@@ -83,7 +83,6 @@ const methodLabel = (method: string) =>
           </h2>
           <UButton
             :to="{ name: 'vitehub-console-auth', params: { page: 'activity' } }"
-            color="neutral"
             variant="ghost"
             size="xs"
             trailing-icon="i-lucide-arrow-right"

@@ -149,7 +149,7 @@ onMounted(load);
                   : "Credential unavailable"
           }}
         </p>
-        <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="load" />
+        <UButton label="Reload" variant="ghost" :loading="busy" @click="load" />
       </div>
       <p v-if="inspection?.metadata" class="text-xs text-muted">
         Updated {{ consoleDateTime(inspection.metadata.updatedAt) }}
@@ -158,7 +158,6 @@ onMounted(load);
         <code v-if="preview" class="break-all text-sm">{{ preview }}</code>
         <UButton
           :label="preview ? 'Hide preview' : 'Show masked preview'"
-          color="neutral"
           variant="outline"
           :disabled="busy"
           @click="preview ? (preview = undefined) : showPreview()"

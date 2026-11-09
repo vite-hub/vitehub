@@ -152,9 +152,7 @@ const impersonation = computed(() => {
           </div>
           <UButton
             v-if="impersonation.openInApp"
-            color="neutral"
             variant="outline"
-            size="sm"
             class="shrink-0"
             trailing-icon="i-lucide-arrow-up-right"
             aria-describedby="auth-impersonate-note"
@@ -166,9 +164,7 @@ const impersonation = computed(() => {
           <UButton
             v-else
             icon="i-lucide-venetian-mask"
-            color="neutral"
             variant="outline"
-            size="sm"
             class="shrink-0"
             aria-describedby="auth-impersonate-note"
             :disabled="!impersonation.enabled"
@@ -191,7 +187,6 @@ const impersonation = computed(() => {
                 <span>{{ detail.user.role }}</span
                 ><UButton
                   size="xs"
-                  color="neutral"
                   variant="ghost"
                   :disabled="!description.actions.setRole.enabled"
                   @click="act('setRole')"
@@ -223,7 +218,6 @@ const impersonation = computed(() => {
                   ><UButton
                     v-if="!item.computed"
                     size="xs"
-                    color="neutral"
                     variant="ghost"
                     :disabled="!item.edit.enabled"
                     :aria-label="`Edit ${item.label}`"
@@ -255,7 +249,6 @@ const impersonation = computed(() => {
               </div>
               <UButton
                 size="xs"
-                color="neutral"
                 variant="ghost"
                 :disabled="!description.actions.revokeSession.enabled"
                 :title="description.actions.revokeSession.reason"
@@ -328,7 +321,6 @@ const impersonation = computed(() => {
               </div>
               <UButton
                 size="xs"
-                color="neutral"
                 variant="ghost"
                 :disabled="!description.actions.revokeConsent.enabled"
                 @click="act('revokeConsent', client.id)"
@@ -397,7 +389,6 @@ const impersonation = computed(() => {
             <UButton
               :color="item.id === 'remove' ? 'error' : 'neutral'"
               variant="ghost"
-              size="sm"
               :disabled="!description.actions[item.id].enabled"
               @click="act(item.id)"
               >{{ item.label }}</UButton

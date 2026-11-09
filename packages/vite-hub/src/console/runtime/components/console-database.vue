@@ -432,6 +432,8 @@ onBeforeUnmount(() => {
       >
         <template #right>
           <span class="hidden text-xs text-dimmed sm:inline">Read-only</span>
+        </template>
+        <template #tabs>
           <UTabs :model-value="view" :items="viewItems" :content="false" aria-label="View" @update:model-value="selectView" />
         </template>
       </ConsolePageHeader>

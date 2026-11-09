@@ -13,7 +13,8 @@ vi.mock("../src/console/runtime/client/media", () => ({ useConsoleMediaPicker: (
 vi.mock("@tiptap/vue-3", async () => {
   const { defineComponent, h } = await import("vue")
   const wrapper = defineComponent({ props: { as: String }, setup: (props, { slots }) => () => h(props.as ?? "div", slots.default?.()) })
-  return { NodeViewContent: wrapper, NodeViewWrapper: wrapper }
+  const { nodeViewProps } = await vi.importActual<typeof import("@tiptap/vue-3")>("@tiptap/vue-3")
+  return { NodeViewContent: wrapper, NodeViewWrapper: wrapper, nodeViewProps }
 })
 
 const fieldNote: ConsoleDocumentComponent = {

@@ -136,15 +136,14 @@ async function disconnect(): Promise<void> {
           v-if="needsSignIn"
           icon="i-lucide-log-in"
           label="Sign in again"
-          size="sm"
           :loading="busy === 'reconnect'"
           @click="reconnect()"
         />
         <UTooltip v-else text="Start a new MCP session">
-          <UButton aria-label="Start a new MCP session" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="busy === 'reconnect'" @click="reconnect()" />
+          <UButton aria-label="Start a new MCP session" icon="i-lucide-refresh-cw" variant="ghost" :loading="busy === 'reconnect'" @click="reconnect()" />
         </UTooltip>
         <UTooltip text="Disconnect">
-          <UButton aria-label="Disconnect" color="neutral" icon="i-lucide-unplug" size="sm" variant="ghost" :disabled="Boolean(busy)" @click="confirmOpen = true" />
+          <UButton aria-label="Disconnect" icon="i-lucide-unplug" variant="ghost" :disabled="Boolean(busy)" @click="confirmOpen = true" />
         </UTooltip>
       </template>
     </ConsolePageHeader>
@@ -224,7 +223,7 @@ async function disconnect(): Promise<void> {
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" label="Cancel" variant="ghost" @click="confirmOpen = false" />
+          <UButton label="Cancel" variant="ghost" @click="confirmOpen = false" />
           <UButton color="error" label="Disconnect" :loading="busy === 'disconnect'" @click="disconnect" />
         </div>
       </template>

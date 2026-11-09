@@ -254,7 +254,6 @@ onBeforeUnmount(() => {
           ><template #right
             ><UButton
               aria-label="Refresh Auth"
-              color="neutral"
               icon="i-lucide-refresh-cw"
               size="xs"
               variant="ghost"
@@ -299,11 +298,10 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="flex shrink-0 gap-2">
-              <UButton :to="appRoot" external size="xs" color="neutral" variant="ghost"
+              <UButton :to="appRoot" external size="xs" variant="ghost"
                 >Open app</UButton
               ><UButton
                 size="xs"
-                color="neutral"
                 :loading="stopping"
                 @click="stopImpersonating"
                 >Stop impersonating</UButton
@@ -318,7 +316,6 @@ onBeforeUnmount(() => {
             aria-label="Search users by name or email"
             placeholder="Search name or email…"
             icon="i-lucide-search"
-            size="sm"
             class="min-w-48 flex-1 sm:max-w-72"
           /><USelect
             v-model="filter"
@@ -332,7 +329,6 @@ onBeforeUnmount(() => {
                 ? [{ label: 'With agents', value: 'agents' }]
                 : []),
             ]"
-            size="sm"
             class="w-36"
           />
         </ConsolePageToolbar>
@@ -371,7 +367,7 @@ onBeforeUnmount(() => {
                   <li v-for="rule in description.access" :key="rule">{{ rule }}</li>
                 </ul>
               </details>
-              <div class="overflow-x-auto rounded-md border border-default">
+              <div class="overflow-x-auto rounded-lg border border-default">
               <table class="w-full text-left text-sm auth-table" :aria-label="labels[page]">
                 <thead class="bg-elevated/30">
                   <tr v-if="page === 'users'">
@@ -451,7 +447,6 @@ onBeforeUnmount(() => {
                     <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(session.expiresAt) }}</td>
                     <td class="text-right">
                       <UButton
-                        color="neutral"
                         variant="ghost"
                         size="xs"
                         :disabled="!description?.actions.revokeSession.enabled"
@@ -501,7 +496,6 @@ onBeforeUnmount(() => {
                     <td class="text-muted">{{ authDate(client.lastUsed) }}</td>
                     <td class="text-right">
                       <UButton
-                        color="neutral"
                         variant="ghost"
                         size="xs"
                         :disabled="!description?.actions.revokeConsent.enabled"
@@ -545,14 +539,12 @@ onBeforeUnmount(() => {
               >
               <div class="flex gap-1">
                 <UButton
-                  color="neutral"
                   variant="ghost"
                   size="xs"
                   :disabled="offset === 0"
                   @click="offset -= limit"
                   >Previous</UButton
                 ><UButton
-                  color="neutral"
                   variant="ghost"
                   size="xs"
                   :disabled="offset + limit >= total"

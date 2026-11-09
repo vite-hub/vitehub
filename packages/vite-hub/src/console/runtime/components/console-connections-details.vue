@@ -199,7 +199,6 @@ onMounted(async () => {
         <UButton
           v-if="current.credential === 'api-key'"
           :label="current.status === 'connected' ? 'Replace key' : 'Set key'"
-          color="neutral"
           variant="outline"
           :disabled="busy"
           :aria-expanded="settingKey"
@@ -216,7 +215,6 @@ onMounted(async () => {
           "
           :to="connectionConnectURL(endpoint, current.name, returnTo)"
           external
-          color="neutral"
           variant="outline"
           trailing-icon="i-lucide-arrow-up-right"
           :disabled="busy"
@@ -229,7 +227,7 @@ onMounted(async () => {
           :disabled="busy"
           @click="revoking = !revoking"
         />
-        <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="reload" />
+        <UButton label="Reload" variant="ghost" :loading="busy" @click="reload" />
       </div>
       <ConsoleState v-if="error" compact :error="error" title="Could not complete the request" />
       <p v-if="keyBlocked" role="alert" class="text-sm text-error">{{ connectionKeyTransportMessage }}</p>

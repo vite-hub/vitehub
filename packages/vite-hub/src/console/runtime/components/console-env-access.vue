@@ -96,7 +96,6 @@ onMounted(() => run(load));
             @click="revoke(item.actor)"
           /><UButton
             label="Cancel"
-            color="neutral"
             variant="ghost"
             size="xs"
             @click="removing = undefined"
@@ -105,7 +104,6 @@ onMounted(() => run(load));
         <UButton
           v-else
           label="Remove"
-          color="neutral"
           variant="ghost"
           size="xs"
           :disabled="busy"

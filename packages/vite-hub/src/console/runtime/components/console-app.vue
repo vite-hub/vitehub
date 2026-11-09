@@ -1089,7 +1089,6 @@ onBeforeUnmount(() => {
           <UTooltip v-if="newChatTargetName" text="New chat">
             <UButton
               aria-label="New chat"
-              color="neutral"
               icon="i-lucide-square-pen"
               size="xs"
               square
@@ -1168,6 +1167,7 @@ onBeforeUnmount(() => {
           <h2 class="m-0">
             <UButton
               class="vitehub-console__section-toggle"
+              data-focus-inset
               aria-controls="vitehub-console-agent-list"
               :aria-expanded="agentListOpen"
               block
@@ -1190,6 +1190,7 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="vitehub-console__agent-row"
+                data-focus-inset
                 :aria-current="name === selectedAgentName ? 'true' : undefined"
                 :title="name"
                 @click="selectAgent(name)"
@@ -1202,6 +1203,7 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="vitehub-console__agent-row vitehub-console__agent-more"
+                data-focus-inset
                 @click="showAllAgents = true"
               >
                 <span class="vitehub-console__agent-dot invisible" aria-hidden="true" />
@@ -1332,7 +1334,7 @@ onBeforeUnmount(() => {
       v-else
       id="chat-session"
       class="vitehub-console__session-panel"
-      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
+      :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }"
     >
       <template #body>
         <!-- No live region here: the thread is a log, and the connection state is an alert. A polite region around both made screen readers read the session again after each update. -->
@@ -1729,7 +1731,7 @@ onBeforeUnmount(() => {
 /* Recency headings sit under the Sessions label and use the same sentence case. */
 .vitehub-console__session-list .vh-invocation-list__group-heading {
   color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0;
   min-height: 1.5rem;

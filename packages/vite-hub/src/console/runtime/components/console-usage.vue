@@ -476,16 +476,16 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
     <template #header>
       <UDashboardNavbar title="Usage" :toggle="false" :ui="{ root: 'border-b border-default' }">
         <template #right>
-          <UButton class="md:hidden" aria-label="Open agent sessions" color="neutral" icon="i-lucide-list" label="Sessions" size="sm" variant="ghost" @click="emit('open-sessions')" />
-          <USelect v-model="window" aria-label="Usage period" class="w-28" size="sm" value-key="value" :items="windowOptions" />
-          <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :disabled="loading" @click="refresh(); loadStatus();" />
+          <UButton class="md:hidden" aria-label="Open agent sessions" icon="i-lucide-list" label="Sessions" variant="ghost" @click="emit('open-sessions')" />
+          <USelect v-model="window" aria-label="Usage period" class="w-28" value-key="value" :items="windowOptions" />
+          <UButton aria-label="Refresh usage" icon="i-lucide-refresh-cw" variant="ghost" :disabled="loading" @click="refresh(); loadStatus();" />
         </template>
       </UDashboardNavbar>
       <ConsolePageToolbar role="search" aria-label="Session history filters" width="6xl">
-        <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-72" size="sm" />
-        <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
-        <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
-        <UButton v-if="filtered" label="Clear" color="neutral" variant="ghost" size="sm" @click="clearFilters" />
+        <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-72" />
+        <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" class="w-40 max-w-full" />
+        <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" class="w-36" />
+        <UButton v-if="filtered" label="Clear" variant="ghost" @click="clearFilters" />
       </ConsolePageToolbar>
     </template>
     <template #body>
@@ -496,7 +496,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           Some usage is unavailable. Recorded totals include only the evidence received.
         </p>
         <template v-if="summary">
-          <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-default bg-(--ui-border)" :class="costSupported ? 'sm:grid-cols-4' : 'sm:grid-cols-2'" aria-label="Session history totals">
+          <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-default bg-(--ui-border)" :class="costSupported ? 'sm:grid-cols-4' : 'sm:grid-cols-2'" aria-label="Session history totals">
             <div v-for="total in totals" :key="total.label" class="bg-default px-4 py-3">
               <dt class="text-xs text-muted">{{ total.label }}</dt>
               <dd class="mt-1 flex items-baseline gap-1.5 tabular-nums">
@@ -543,7 +543,6 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     <UButton
                       v-if="metric === 'cost' && tokenEvidence"
                       label="Show tokens"
-                      color="neutral"
                       variant="outline"
                       size="xs"
                       @click="metric = 'tokens'"
@@ -584,7 +583,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   <h2 class="text-sm font-semibold">Breakdown</h2>
                   <UTabs v-model="breakdown" :items="breakdownOptions" :content="false" aria-label="Usage breakdown" />
                 </div>
-                <div class="overflow-x-auto rounded-md border border-default">
+                <div class="overflow-x-auto rounded-lg border border-default">
                   <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-xl text-xs" data-slot="usage-model-breakdown">
                     <thead class="bg-elevated/30 text-left text-muted">
                       <tr>
@@ -653,7 +652,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     cost evidence. Averages use priced sessions. ~ indicates estimated cost.
                   </p>
                 </div>
-                <div class="overflow-x-auto rounded-md border border-default">
+                <div class="overflow-x-auto rounded-lg border border-default">
                   <table class="w-full min-w-lg text-xs">
                     <thead class="bg-elevated/30 text-left text-muted">
                       <tr>
@@ -680,7 +679,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   <h2 class="text-sm font-semibold">Most expensive sessions</h2>
                   <span class="text-xs text-muted">Top 10 with cost evidence</span>
                 </div>
-                <div class="overflow-x-auto rounded-md border border-default">
+                <div class="overflow-x-auto rounded-lg border border-default">
                   <table class="w-full min-w-xl text-xs">
                     <thead class="bg-elevated/30 text-left text-muted">
                       <tr>
@@ -718,7 +717,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 <h2 id="session-history-heading" ref="historyHeading" class="scroll-mt-4 text-sm font-semibold outline-none" tabindex="-1">Session history</h2>
                 <span class="text-xs text-muted">Newest first</span>
               </div>
-              <div v-if="summary.sessions.length" class="overflow-x-auto rounded-md border border-default">
+              <div v-if="summary.sessions.length" class="overflow-x-auto rounded-lg border border-default">
                 <table class="w-full min-w-[42rem] table-fixed text-xs" data-slot="session-history">
                   <thead class="bg-elevated/30 text-left text-muted">
                     <tr>
@@ -750,8 +749,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               <div v-if="summary.sessions.length || previousCursors.length" class="mt-3 flex items-center justify-between gap-3 text-xs text-muted">
                 <span>{{ summary.sessions.length ? `${previousCursors.length * 50 + 1}–${previousCursors.length * 50 + summary.sessions.length} of ${summary.sessionCount}` : `${summary.sessionCount} sessions` }}{{ summary.totals.invocationsAvailable ? '' : ' recorded' }}</span>
                 <div class="flex gap-1">
-                  <UButton label="Previous" aria-label="Previous history page" color="neutral" variant="ghost" size="xs" :disabled="!previousCursors.length || loading" @click="previousRuns" />
-                  <UButton label="Next" aria-label="Next history page" color="neutral" variant="ghost" size="xs" :disabled="!summary.cursor || loading" @click="nextRuns" />
+                  <UButton label="Previous" aria-label="Previous history page" variant="ghost" size="xs" :disabled="!previousCursors.length || loading" @click="previousRuns" />
+                  <UButton label="Next" aria-label="Next history page" variant="ghost" size="xs" :disabled="!summary.cursor || loading" @click="nextRuns" />
                 </div>
               </div>
             </section>
@@ -769,7 +768,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 <article
                   v-for="status in accounts"
                   :key="status.account?.id || status.agent"
-                  class="space-y-3 rounded-md border border-default p-4"
+                  class="space-y-3 rounded-lg border border-default p-4"
                 >
                   <div class="flex items-center justify-between gap-3">
                     <div>

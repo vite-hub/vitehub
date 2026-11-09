@@ -134,7 +134,7 @@ onBeforeUnmount(() => request?.abort());
       <div v-if="!collapsed" class="vitehub-console__panel-title">
         <span class="min-w-0 flex-1 truncate">MCP client</span>
         <UTooltip text="Connect to a server">
-          <UButton aria-label="Connect to a server" color="neutral" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
+          <UButton aria-label="Connect to a server" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
         </UTooltip>
       </div>
     </template>
@@ -211,7 +211,7 @@ onBeforeUnmount(() => request?.abort());
     <template v-else>
       <ConsolePageHeader title="MCP client">
         <template #right>
-          <UButton color="neutral" icon="i-lucide-plus" label="Connect" size="sm" variant="soft" @click="connect()" />
+          <UButton icon="i-lucide-plus" label="Connect" variant="soft" @click="connect()" />
         </template>
       </ConsolePageHeader>
       <main class="min-h-0 flex-1 overflow-auto">

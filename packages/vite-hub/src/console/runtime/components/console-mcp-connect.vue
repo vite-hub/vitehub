@@ -154,7 +154,7 @@ async function submit(): Promise<void> {
     </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" label="Cancel" variant="ghost" @click="open = false" />
+        <UButton label="Cancel" variant="ghost" @click="open = false" />
         <UButton form="vitehub-mcp-connect" type="submit" :label="method === 'oauth' && !usesSession ? 'Continue' : 'Connect'" :loading="pending" :disabled="!canSubmit" />
       </div>
     </template>

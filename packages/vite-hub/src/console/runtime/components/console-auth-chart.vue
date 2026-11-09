@@ -22,7 +22,7 @@ const dayLabel = (day: string) =>
       </h2>
       <div class="flex gap-3 text-xs text-muted">
         <span class="flex items-center gap-1.5"><span class="size-2 bg-primary" />Sign-ins</span
-        ><span class="flex items-center gap-1.5"><span class="size-2 bg-info" />Sign-ups</span>
+        ><span class="flex items-center gap-1.5"><span class="size-2 bg-(--ui-text-dimmed)" />Sign-ups</span>
       </div>
     </div>
     <svg
@@ -60,7 +60,7 @@ const dayLabel = (day: string) =>
           :y="160 - (day.signUps / maximum) * 150"
           width="7"
           :height="(day.signUps / maximum) * 150"
-          fill="var(--ui-info)"
+          fill="var(--ui-text-dimmed)"
         />
       </g>
     </svg>
@@ -76,7 +76,7 @@ const dayLabel = (day: string) =>
         <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
         Show data table
       </summary>
-      <div class="mt-2 max-h-64 overflow-y-auto rounded-md border border-default">
+      <div class="mt-2 max-h-64 overflow-y-auto rounded-lg border border-default">
         <table class="w-full text-xs">
           <caption class="sr-only">
             Auth events by UTC day

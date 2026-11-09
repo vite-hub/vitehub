@@ -193,12 +193,11 @@ onBeforeUnmount(() => request?.abort());
           v-model="filter"
           class="min-w-0 flex-1"
           icon="i-lucide-search"
-          size="sm"
           :placeholder="`Filter ${nouns[kind]}…`"
           :aria-label="`Filter ${nouns[kind]}`"
         />
         <UTooltip :text="`Reload ${nouns[kind]}`">
-          <UButton :aria-label="`Reload ${nouns[kind]}`" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="load" />
+          <UButton :aria-label="`Reload ${nouns[kind]}`" icon="i-lucide-refresh-cw" variant="ghost" :loading="loading" @click="load" />
         </UTooltip>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-2" :aria-busy="loading">
@@ -247,7 +246,7 @@ onBeforeUnmount(() => request?.abort());
     >
       <div class="mx-auto grid w-full max-w-4xl gap-6 px-4 py-5 sm:px-6">
         <header class="grid gap-2">
-          <UButton class="-ms-2 w-fit lg:hidden" color="neutral" icon="i-lucide-arrow-left" size="xs" variant="ghost" :label="`All ${nouns[kind]}`" @click="selected = undefined" />
+          <UButton class="-ms-2 w-fit lg:hidden" icon="i-lucide-arrow-left" size="xs" variant="ghost" :label="`All ${nouns[kind]}`" @click="selected = undefined" />
           <div class="flex flex-wrap items-center gap-2">
             <h3 class="min-w-0 break-all font-mono text-sm font-semibold text-highlighted">{{ text(current.name) || text(current.uriTemplate) }}</h3>
             <UBadge v-for="hint in consoleMcpToolHints(current)" :key="hint.label" :color="hint.tone" size="sm" :label="hint.label" />
@@ -264,7 +263,7 @@ onBeforeUnmount(() => request?.abort());
           <p v-else class="text-[13px] text-dimmed">This {{ kind === "tools" ? "tool" : "prompt" }} takes no arguments.</p>
         </section>
         <UFormField v-else-if="isTemplate" label="URI" description="Fill in the variables of the template." class="grid gap-1">
-          <UInput v-model="templateUri" class="w-full font-mono" size="sm" spellcheck="false" autocomplete="off" />
+          <UInput v-model="templateUri" class="w-full font-mono" spellcheck="false" autocomplete="off" />
         </UFormField>
 
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">

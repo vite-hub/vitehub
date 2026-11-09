@@ -106,12 +106,11 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 <style>
 /*
  * A ring marker that reads on any image: a white ring with a dark edge, and a dot in the middle. It sits over the image,
- * not the page, so it uses the fixed neutral 50 and 950 shades instead of the page tokens, which flip in dark mode.
- * The theme draws the focus ring around it.
+ * not the page, so it uses the media tokens, which stay the same in dark mode. The theme draws the focus ring around it.
  */
 .vitehub-media-focal__marker {
-  --mark: var(--ui-color-neutral-50);
-  --mark-edge: color-mix(in oklab, var(--ui-color-neutral-950) 35%, transparent);
+  --mark: var(--vh-on-media);
+  --mark-edge: var(--vh-media-scrim);
   border-radius: 999px;
   box-shadow: 0 0 0 1.5px var(--mark), 0 0 0 3px var(--mark-edge), 0 1px 6px var(--mark-edge);
   height: 1.375rem;

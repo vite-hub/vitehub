@@ -124,7 +124,6 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
                   v-model="selectedProfileId"
                   aria-label="Invoker profile"
                   :items="profileItems"
-                  size="xs"
                   variant="ghost"
                 />
               </template>

@@ -122,7 +122,7 @@ function forget(): void {
     </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="ghost" label="Cancel" @click="forgetting = undefined" />
+        <UButton variant="ghost" label="Cancel" @click="forgetting = undefined" />
         <UButton color="error" label="Forget project" @click="forget" />
       </div>
     </template>
@@ -159,7 +159,7 @@ function forget(): void {
 
 .vitehub-project-switcher__host {
   color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;

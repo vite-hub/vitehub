@@ -125,9 +125,7 @@ onBeforeUnmount(() => request?.abort());
           <UTooltip text="Refresh Connections">
             <UButton
               aria-label="Refresh Connections"
-              color="neutral"
               icon="i-lucide-refresh-cw"
-              size="sm"
               variant="ghost"
               :disabled="loading"
               @click="refresh"
@@ -140,7 +138,6 @@ onBeforeUnmount(() => request?.abort());
           v-model="search"
           class="w-full sm:w-64"
           icon="i-lucide-search"
-          size="sm"
           placeholder="Filter Connections…"
           aria-label="Filter Connections"
         />
@@ -172,7 +169,7 @@ onBeforeUnmount(() => request?.abort());
         >
           <pre
             aria-label="Example Connection Definition"
-            class="max-w-full overflow-x-auto rounded-md bg-elevated/50 px-3 py-2.5 text-left font-mono text-[11px] leading-5 text-toned"
+            class="max-w-full overflow-x-auto rounded-lg bg-muted px-3 py-2.5 text-left font-mono text-xs leading-5 text-toned"
           ><code>// server/connections/crm.ts
 import { apiKey, defineConnection } from 'vite-hub/connections'
 
@@ -182,12 +179,12 @@ export default defineConnection({
         </ConsoleState>
         <div v-else class="mx-auto w-full max-w-5xl p-4 sm:p-6">
           <UTable
-            class="rounded-md border border-default"
+            class="rounded-lg border border-default"
             :data="rows"
             :columns="columns"
             :on-select="selectRow"
             empty="No matching Connections."
-            :ui="{ thead: 'bg-elevated/30', tr: 'group cursor-pointer' }"
+            :ui="{ tr: 'group cursor-pointer' }"
           >
             <template #name-cell="{ row }"
               ><span class="font-mono text-xs text-highlighted">{{ row.original.name }}</span
@@ -218,7 +215,6 @@ export default defineConnection({
                 />
                 <UButton
                   v-if="pending.get(row.original.name)"
-                  color="warning"
                   :label="plural(pending.get(row.original.name) ?? 0, 'pending approval')"
                   :aria-label="`Review ${plural(pending.get(row.original.name) ?? 0, 'pending approval')} for ${row.original.name}`"
                   size="xs"
@@ -238,7 +234,6 @@ export default defineConnection({
                     v-if="connectionNextStep(row.original)?.kind === 'cli'"
                     label="Sign in with CLI"
                     :aria-label="`Show sign-in command for ${row.original.name}`"
-                    color="neutral"
                     size="xs"
                     variant="outline"
                     @click.stop="open(row.original.name, 'details')"
@@ -249,7 +244,6 @@ export default defineConnection({
                     :aria-label="`${remote ? 'Connect in the app:' : connectionNextStep(row.original)?.label} ${row.original.name}`"
                     :to="connectionConnectURL(managementBase, row.original.name, returnTo)"
                     external
-                    color="neutral"
                     size="xs"
                     trailing-icon="i-lucide-arrow-up-right"
                     variant="outline"
@@ -259,7 +253,6 @@ export default defineConnection({
                     v-else
                     :label="connectionNextStep(row.original)?.label"
                     :aria-label="`${connectionNextStep(row.original)?.label} for ${row.original.name}`"
-                    color="neutral"
                     icon="i-lucide-key-round"
                     size="xs"
                     variant="outline"

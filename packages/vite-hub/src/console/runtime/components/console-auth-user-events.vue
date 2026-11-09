@@ -47,7 +47,6 @@ onBeforeUnmount(() => controller?.abort());
       <h2 id="auth-user-events" class="font-medium text-highlighted">Recent activity</h2>
       <UButton
         :to="{ name: 'vitehub-console-auth', params: { page: 'activity' }, query: { userId } }"
-        color="neutral"
         variant="ghost"
         size="xs"
         >View all</UButton

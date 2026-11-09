@@ -224,7 +224,7 @@ async function submit() {
         </UFormField>
         <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
         <div class="flex justify-end gap-2">
-          <UButton color="neutral" variant="ghost" :disabled="pending" @click="emit('close')"
+          <UButton variant="ghost" :disabled="pending" @click="emit('close')"
             >Cancel</UButton
           ><UButton
             type="submit"

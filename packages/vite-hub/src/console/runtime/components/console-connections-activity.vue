@@ -37,7 +37,7 @@ onMounted(() => load());
   <div class="space-y-4">
     <div class="flex items-start justify-between gap-3">
       <p class="text-xs text-muted">Persisted operations. Call inputs are not recorded.</p>
-      <UButton label="Refresh" color="neutral" variant="ghost" :loading="busy" @click="load()" />
+      <UButton label="Refresh" variant="ghost" :loading="busy" @click="load()" />
     </div>
     <ConsoleState v-if="error" compact :error="error" title="Could not load activity" />
     <p v-if="!events.length && !busy && !error" class="text-sm text-muted">No activity yet. Calls, writes, and account changes appear here.</p>
@@ -67,7 +67,6 @@ onMounted(() => load());
     <UButton
       v-if="more"
       label="Load older activity"
-      color="neutral"
       variant="outline"
       :loading="busy"
       @click="load(true)"

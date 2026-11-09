@@ -202,7 +202,7 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="console-home" :ui="{ body: 'min-h-0 overflow-y-auto p-0 gap-0' }">
+    <UDashboardPanel id="console-home" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
         <UDashboardNavbar title="Overview" :toggle="false" :ui="{ root: 'border-0' }" />
       </template>
@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
                     <li v-for="session in sessionItems" :key="session.id">
                       <button
                         type="button"
-                        class="vitehub-console__overview-row"
+                        class="vitehub-console__overview-row" data-focus-inset
                         :disabled="!session.agentName"
                         :aria-label="`Open ${session.agentName || 'Agent'} session ${session.context}, status ${session.status}${session.time ? `, ${session.time}` : ''}`"
                         @click="session.agentName && openSession(session.agentName, session.id)"
@@ -339,7 +339,7 @@ onBeforeUnmount(() => {
                     </li>
                   </template>
                   <li>
-                    <button type="button" class="vitehub-console__overview-row text-muted" @click="openSection(consoleSectionDetails.agents.routeName)">
+                    <button type="button" class="vitehub-console__overview-row text-muted" data-focus-inset @click="openSection(consoleSectionDetails.agents.routeName)">
                       <UIcon name="i-lucide-arrow-right" class="vitehub-console__overview-icon" />
                       <span>View all sessions</span>
                     </button>
@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
                 <h2 id="console-home-connect" class="vitehub-console__overview-label">Connect</h2>
                 <ul class="vitehub-console__overview-list">
                   <li>
-                    <button type="button" class="vitehub-console__overview-row" @click="openSection('vitehub-console-connect')">
+                    <button type="button" class="vitehub-console__overview-row" data-focus-inset @click="openSection('vitehub-console-connect')">
                       <UIcon name="i-lucide-bot" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">Connect an agent</span>
                       <span class="vitehub-console__overview-description">Use this Console from Claude Code, Codex, Cursor, or any MCP client.</span>
@@ -408,7 +408,7 @@ onBeforeUnmount(() => {
                 <ul class="vitehub-console__overview-list">
                   <li v-for="entry in notEnabledPrimitives" :key="entry.id">
                     <a
-                      class="vitehub-console__overview-row"
+                      class="vitehub-console__overview-row" data-focus-inset
                       data-optional
                       :href="entry.setup"
                       rel="noreferrer"
@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>
                 <ul class="vitehub-console__overview-list">
                   <li v-for="guide in consoleGuides" :key="guide.href">
-                    <a class="vitehub-console__overview-row" :href="guide.href" rel="noreferrer" target="_blank">
+                    <a class="vitehub-console__overview-row" data-focus-inset :href="guide.href" rel="noreferrer" target="_blank">
                       <UIcon :name="guide.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ guide.label }}</span>
                       <span class="vitehub-console__overview-description" :title="guide.description">{{ guide.description }}</span>

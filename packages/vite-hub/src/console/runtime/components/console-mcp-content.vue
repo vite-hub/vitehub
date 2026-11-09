@@ -91,7 +91,7 @@ function bytes(base64: string): string {
         </template>
         <img v-else-if="block.type === 'image' && mediaSource(block)" :src="mediaSource(block)" alt="Image from the tool result" class="max-h-80 w-fit max-w-full rounded-md outline outline-1 -outline-offset-1 outline-(--ui-border)">
         <audio v-else-if="block.type === 'audio' && mediaSource(block)" :src="mediaSource(block)" controls class="w-full" />
-        <div v-else-if="block.type === 'resource_link'" class="flex min-w-0 items-center gap-2 rounded-md border border-default px-3 py-2">
+        <div v-else-if="block.type === 'resource_link'" class="flex min-w-0 items-center gap-2 rounded-lg border border-default px-3 py-2">
           <UIcon name="i-lucide-link" class="size-4 shrink-0 text-muted" aria-hidden="true" />
           <span class="min-w-0">
             <span class="block truncate font-medium text-highlighted">{{ string(block.title) || string(block.name) }}</span>
@@ -121,7 +121,7 @@ function bytes(base64: string): string {
       </div>
 
       <ol v-if="messages.length" class="grid gap-2">
-        <li v-for="(message, index) in messages" :key="`message-${index}`" class="grid gap-1 rounded-md border border-default px-3 py-2">
+        <li v-for="(message, index) in messages" :key="`message-${index}`" class="grid gap-1 rounded-lg border border-default px-3 py-2">
           <span class="text-xs font-medium capitalize text-muted">{{ string(message.role) }}</span>
           <pre class="vitehub-mcp-text">{{ record(message.content)?.type === "text" ? string(record(message.content)!.text) : JSON.stringify(message.content, null, 2) }}</pre>
         </li>

@@ -43,7 +43,7 @@ onMounted(() => load());
       <p class="text-xs text-muted">
         Persisted operations. Retrieval does not mean a credential was used.
       </p>
-      <UButton label="Refresh" color="neutral" variant="ghost" :loading="busy" @click="load()" />
+      <UButton label="Refresh" variant="ghost" :loading="busy" @click="load()" />
     </div>
     <ConsoleState v-if="error" compact :error="error" title="Could not load activity" />
     <p v-if="!events.length && !busy && !error" class="text-sm text-muted">No recorded activity.</p>
@@ -80,7 +80,6 @@ onMounted(() => load());
     <UButton
       v-if="more"
       label="Load older activity"
-      color="neutral"
       variant="outline"
       :loading="busy"
       @click="load(true)"

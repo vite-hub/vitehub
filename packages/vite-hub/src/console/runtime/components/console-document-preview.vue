@@ -361,8 +361,9 @@ onBeforeUnmount(() => {
           role="status"
         />
       </div>
-      <UTabs v-model="viewTab" :items="viewItems" :content="false" aria-label="Preview" />
-      <UTabs v-model="viewportTab" :items="viewportItems" :content="false" class="hidden sm:flex" aria-label="Viewport">
+      <!-- The tabs rest on the bar's bottom border, so the tab line and the border are one line. -->
+      <UTabs v-model="viewTab" :items="viewItems" :content="false" class="self-end" aria-label="Preview" />
+      <UTabs v-model="viewportTab" :items="viewportItems" :content="false" class="hidden self-end sm:flex" aria-label="Viewport">
         <template #leading="{ item }">
           <UIcon :name="item.icon" class="size-4" aria-hidden="true" />
           <span class="sr-only">{{ item.name }}</span>

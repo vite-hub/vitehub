@@ -187,7 +187,7 @@ function hover(event: PointerEvent): void {
         <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
         Show data table
       </summary>
-      <div class="mt-2 max-h-64 overflow-y-auto rounded-md border border-default">
+      <div class="mt-2 max-h-64 overflow-y-auto rounded-lg border border-default">
         <table class="w-full text-xs">
           <caption class="sr-only">{{ title }}, {{ from }} to {{ to }} UTC</caption>
           <thead class="sticky top-0 bg-default text-left text-muted">

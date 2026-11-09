@@ -312,11 +312,11 @@ onBeforeUnmount(() => {
       <ConsolePageHeader title="Channels" :description="selectedThread ?? selected?.channel" :toggle="false">
         <template #right>
           <template v-if="selectedThread">
-            <UButton label="Markdown" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'markdown'" :disabled="Boolean(downloading)" @click="download('markdown')" />
-            <UButton label="JSON" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
+            <UButton label="Markdown" icon="i-lucide-download" variant="outline" :loading="downloading === 'markdown'" :disabled="Boolean(downloading)" @click="download('markdown')" />
+            <UButton label="JSON" icon="i-lucide-download" variant="outline" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
           </template>
           <UTooltip text="Refresh">
-            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading" @click="loadChannels" />
+            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading" @click="loadChannels" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
@@ -351,7 +351,6 @@ onBeforeUnmount(() => {
               v-model="threadSearch"
               class="mt-1 w-full shrink-0"
               icon="i-lucide-search"
-              size="sm"
               placeholder="Filter threads…"
               aria-label="Filter threads"
             />
@@ -377,7 +376,7 @@ onBeforeUnmount(() => {
                   </span>
                 </span>
               </button>
-              <UButton v-if="threadsCursor" class="mt-1 self-start" label="Load more" size="sm" variant="ghost" :loading="threadsLoading" @click="loadThreads(true)" />
+              <UButton v-if="threadsCursor" class="mt-1 self-start" label="Load more" variant="ghost" :loading="threadsLoading" @click="loadThreads(true)" />
             </template>
             <p v-else class="px-2 py-1.5 text-xs text-muted">No conversations yet. A thread appears here after an Agent answers in it.</p>
           </template>
@@ -425,7 +424,7 @@ onBeforeUnmount(() => {
               </ChatMessage>
             </li>
             <li v-if="messagesCursor" class="self-center">
-              <UButton label="Load more" size="sm" variant="ghost" :loading="messagesLoading" @click="loadMessages(true)" />
+              <UButton label="Load more" variant="ghost" :loading="messagesLoading" @click="loadMessages(true)" />
             </li>
           </ol>
         </section>

@@ -104,7 +104,7 @@ onMounted(load);
       <p class="text-xs text-muted">
         Calls that wait for a person. Approve runs the call once with the stored input.
       </p>
-      <UButton label="Refresh" color="neutral" variant="ghost" :loading="busy" @click="load" />
+      <UButton label="Refresh" variant="ghost" :loading="busy" @click="load" />
     </div>
     <ConsoleState v-if="error" compact :error="error" :title="errorTitle" />
     <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
@@ -119,7 +119,6 @@ onMounted(load);
         <div class="flex gap-2">
           <UButton
             label="Approve"
-            color="neutral"
             variant="outline"
             size="xs"
             :disabled="busy"
@@ -137,9 +136,9 @@ onMounted(load);
       </li>
     </ol>
     <nav v-if="pendingPage > 0 || nextCursor" aria-label="Pending approval pages" class="flex items-center gap-2">
-      <UButton label="Previous" color="neutral" variant="outline" size="xs" :disabled="busy || pendingPage === 0" @click="changePage('previous')" />
+      <UButton label="Previous" variant="outline" size="xs" :disabled="busy || pendingPage === 0" @click="changePage('previous')" />
       <span class="text-xs text-muted">Page {{ pendingPage + 1 }}</span>
-      <UButton label="Next" color="neutral" variant="outline" size="xs" :disabled="busy || !nextCursor" @click="changePage('next')" />
+      <UButton label="Next" variant="outline" size="xs" :disabled="busy || !nextCursor" @click="changePage('next')" />
     </nav>
     <section v-if="decided.length" class="space-y-2">
       <h3 class="text-sm text-muted">Decided</h3>

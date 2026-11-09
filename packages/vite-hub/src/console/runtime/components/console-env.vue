@@ -185,10 +185,8 @@ onBeforeUnmount(() => request?.abort());
       <ConsolePageHeader title="Env" :toggle="false">
         <template #right>
           <UButton
-            color="neutral"
             icon="i-lucide-heart-pulse"
             label="Check status"
-            size="sm"
             variant="ghost"
             :disabled="loading"
             @click="refresh(true)"
@@ -196,9 +194,7 @@ onBeforeUnmount(() => request?.abort());
           <UTooltip text="Refresh declarations">
             <UButton
               aria-label="Refresh declarations"
-              color="neutral"
               icon="i-lucide-refresh-cw"
-              size="sm"
               variant="ghost"
               :disabled="loading"
               @click="refresh()"
@@ -211,7 +207,6 @@ onBeforeUnmount(() => request?.abort());
           v-model="search"
           class="w-full sm:w-64"
           icon="i-lucide-search"
-          size="sm"
           placeholder="Filter variables…"
           aria-label="Filter variables"
         />
@@ -220,7 +215,6 @@ onBeforeUnmount(() => request?.abort());
           v-model="source"
           :items="sourceItems"
           class="w-44"
-          size="sm"
           aria-label="Filter by source"
         />
         <div class="ms-auto flex items-center gap-3 text-xs text-muted tabular-nums" aria-live="polite">
@@ -276,11 +270,12 @@ onBeforeUnmount(() => request?.abort());
               <span v-if="group.name === undefined" class="text-dimmed">Their declarations do not disclose a name.</span>
             </h2>
             <!-- The list does not clip, so the focus ring of a row stays visible. The end rows round their own corners. -->
-            <ul role="list" class="divide-y divide-default rounded-md border border-default">
+            <ul role="list" class="divide-y divide-default rounded-lg border border-default">
               <li v-for="(row, index) in group.rows" :key="row.entry.path ?? `undisclosed-${index}`" class="first:*:rounded-t-md last:*:rounded-b-md">
                 <button
                   type="button"
                   class="group grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2 text-start hover:bg-elevated"
+                  data-focus-inset
                   :aria-current="selected === row.entry ? 'true' : undefined"
                   @click="selected = row.entry"
                 >

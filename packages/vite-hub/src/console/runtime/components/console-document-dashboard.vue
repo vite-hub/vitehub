@@ -207,7 +207,7 @@ async function publishAll(): Promise<void> {
   <ConsolePageHeader :title="label">
     <template #right>
       <UPopover v-if="canPublishAny && publishable.length" v-model:open="publishOpen">
-        <UButton size="sm" label="Publish" :loading="publishing" :aria-label="`Publish ${publishable.length} ${publishable.length === 1 ? 'change' : 'changes'}`">
+        <UButton label="Publish" :loading="publishing" :aria-label="`Publish ${publishable.length} ${publishable.length === 1 ? 'change' : 'changes'}`">
           <template #trailing>
             <span class="tabular-nums opacity-70">{{ publishable.length }}</span>
           </template>
@@ -219,8 +219,8 @@ async function publishAll(): Promise<void> {
               <template v-if="blocked"> {{ blocked === 1 ? "1 draft with field issues stays" : `${blocked} drafts with field issues stay` }} unpublished.</template>
             </p>
             <div class="flex justify-end gap-2">
-              <UButton variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
-              <UButton size="sm" label="Publish all" :loading="publishing" @click="publishAll" />
+              <UButton variant="ghost" label="Cancel" @click="publishOpen = false" />
+              <UButton label="Publish all" :loading="publishing" @click="publishAll" />
             </div>
           </div>
         </template>

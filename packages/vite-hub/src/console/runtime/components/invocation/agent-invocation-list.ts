@@ -116,6 +116,8 @@ function renderItem(
       "aria-current": selectedId === item.id ? "true" : undefined,
       "aria-description": item.description,
       class: "vh-invocation-list__item",
+      // The list clips its overflow, so the focus ring goes inside the row.
+      "data-focus-inset": "",
       "data-invocation-id": item.id,
       "data-relative-time": time?.short,
       "data-status": item.status,

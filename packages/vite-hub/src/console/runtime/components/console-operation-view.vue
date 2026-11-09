@@ -4,7 +4,9 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
 import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
 import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
+import ConsoleCodeText from "./console-code-text.vue";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
@@ -96,33 +98,34 @@ onBeforeUnmount(() => controller?.abort());
 
 <template>
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="definitionsBase" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
-    <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 gap-0 overflow-auto p-0' }">
+    <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 overflow-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
-        <ConsolePageHeader :title="details.label" :description="details.description" :toggle="false">
+        <ConsolePageHeader :title="details.label" :toggle="false">
           <template #right>
             <UTooltip text="Refresh">
-              <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="xs" variant="ghost" color="neutral" :loading="loading" @click="load" />
+              <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="load" />
             </UTooltip>
           </template>
         </ConsolePageHeader>
-        <div class="flex flex-wrap items-center gap-1.5 border-b border-default px-4 py-2">
+        <ConsolePageToolbar>
+          <template v-if="filters.length" #tabs>
+            <UTabs
+              :model-value="activeFilter?.id"
+              :items="filterItems"
+              :content="false"
+              class="w-max"
+              aria-label="Filter"
+              @update:model-value="choose(String($event))"
+            />
+          </template>
           <UInput
             v-model="search"
             class="w-full sm:w-56"
             icon="i-lucide-search"
-            size="sm"
             :placeholder="`Filter ${details.label.toLowerCase()}…`"
             :aria-label="`Filter ${details.label}`"
           />
-          <UTabs
-            v-if="filters.length"
-            :model-value="activeFilter?.id"
-            :items="filterItems"
-            :content="false"
-            aria-label="Filter"
-            @update:model-value="choose(String($event))"
-          />
-        </div>
+        </ConsolePageToolbar>
       </template>
       <template #body>
         <div class="flex flex-1 flex-col p-4">
@@ -140,39 +143,42 @@ onBeforeUnmount(() => controller?.abort());
             :description="`Nothing matches “${search.trim()}”.`"
             :actions="[{ label: 'Clear search', color: 'neutral', variant: 'outline', onClick: () => { search = '' } }]"
           />
-          <table v-else class="w-full text-left text-sm">
-            <thead class="text-xs text-muted">
-              <tr>
-                <th v-for="column in view.columns" :key="column.key" class="px-2 py-1.5 font-medium">{{ column.label }}</th>
-                <th v-if="view.link" class="px-2 py-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in visibleItems"
-                :key="itemId(item)"
-                class="border-t border-default"
-                :class="detail ? 'relative hover:bg-elevated' : undefined"
-              >
-                <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">
-                  <!-- The button overlay makes the whole row open the item. The theme rings the button itself. -->
-                  <button
-                    v-if="detail && column === openColumn"
-                    type="button"
-                    class="rounded-md text-left after:absolute after:inset-0"
-                    @click="selectThread(itemId(item))"
-                  >{{ operationCell(item, column) }}</button>
-                  <template v-else>{{ operationCell(item, column) }}</template>
-                </td>
-                <td v-if="view.link" class="px-2 py-2 text-right">
-                  <!-- Above the row button, so the link still opens the page. -->
-                  <a v-if="operationLink(item, view)" class="relative text-primary hover:underline" :href="operationLink(item, view)">{{ view.link.label ?? "Open" }}</a>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <!-- A phone scrolls the table sideways instead of wrapping every cell to one word per line. -->
+          <div v-else class="-mx-4 overflow-x-auto px-4">
+            <table class="w-full min-w-xl text-left text-sm">
+              <thead class="text-xs text-muted">
+                <tr>
+                  <th v-for="column in view.columns" :key="column.key" class="px-2 py-1.5 font-medium">{{ column.label }}</th>
+                  <th v-if="view.link" class="px-2 py-1.5" />
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="item in visibleItems"
+                  :key="itemId(item)"
+                  class="border-t border-default"
+                  :class="detail ? 'relative hover:bg-elevated' : undefined"
+                >
+                  <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">
+                    <!-- The button overlay makes the whole row open the item. The theme rings the button itself. -->
+                    <button
+                      v-if="detail && column === openColumn"
+                      type="button"
+                      class="rounded-md text-left after:absolute after:inset-0"
+                      @click="selectThread(itemId(item))"
+                    >{{ operationCell(item, column) }}</button>
+                    <template v-else>{{ operationCell(item, column) }}</template>
+                  </td>
+                  <td v-if="view.link" class="px-2 py-2 text-right">
+                    <!-- Above the row button, so the link still opens the page. -->
+                    <a v-if="operationLink(item, view)" class="relative text-primary hover:underline" :href="operationLink(item, view)">{{ view.link.label ?? "Open" }}</a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <!-- The notice sits at the bottom of the pane while the list loads and when it is short, so it does not move. -->
-          <p class="mt-auto pt-4 text-xs text-muted">{{ view.notice }}</p>
+          <p class="mt-auto pt-4 text-xs text-muted"><ConsoleCodeText :text="view.notice" /></p>
         </div>
       </template>
     </UDashboardPanel>

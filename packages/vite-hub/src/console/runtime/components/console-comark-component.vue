@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { NodeViewContent, NodeViewWrapper } from "@tiptap/vue-3";
+import { NodeViewContent, NodeViewWrapper, nodeViewProps } from "@tiptap/vue-3";
 import { computed } from "vue";
 import { consoleComponentProp, consoleComponentWithProp } from "../client/editor";
 import { useConsoleMediaPicker } from "../client/media";
 
-import type { NodeViewProps } from "@tiptap/vue-3";
+import type { PropType } from "vue";
 import type { ConsoleDocumentComponent } from "../definitions";
 
 /**
@@ -13,7 +13,9 @@ import type { ConsoleDocumentComponent } from "../definitions";
  * so the editor shows structure, not the final look. `image` and `file` props pick from the Media picker of the section,
  * as `image()` and `file()` fields do, and store the served URL of the file, or its pathname when the store is not served.
  */
-const props = defineProps<NodeViewProps & { definition: ConsoleDocumentComponent }>();
+// Runtime props: a type-only `NodeViewProps` needs the SFC compiler to read @tiptap/vue-3 from disk, and the Vite+ dev
+// server gives the compiler no file system.
+const props = defineProps({ ...nodeViewProps, definition: { type: Object as PropType<ConsoleDocumentComponent>, required: true } });
 
 const entries = computed(() => Object.entries(props.definition.props).map(([name, prop]) => {
   const value = consoleComponentProp(props.node.attrs.props ?? {}, name, prop.type);
@@ -52,7 +54,7 @@ function update(name: string, type: string, raw: unknown): void {
   <NodeViewWrapper
     v-if="definition.kind === 'inline'"
     as="span"
-    class="vitehub-comark-inline rounded-md bg-elevated px-1 py-px text-[0.9em] ring-1 ring-default ring-inset"
+    class="vitehub-comark-inline rounded-md bg-elevated px-1 py-px text-[max(0.9em,0.75rem)] ring-1 ring-default ring-inset"
     :data-component="definition.name"
   >
     <NodeViewContent as="span" />
@@ -61,7 +63,7 @@ function update(name: string, type: string, raw: unknown): void {
       <button
         type="button"
         contenteditable="false"
-        class="ms-1 inline-flex rounded-md px-1 align-baseline font-mono text-[0.8em] text-muted hover:bg-accented disabled:pointer-events-none"
+        class="ms-1 inline-flex rounded-md px-1 align-baseline font-mono text-[max(0.8em,0.75rem)] text-muted hover:bg-accented disabled:pointer-events-none"
         :disabled="!editable"
         :aria-label="`Edit ${definition.label} props`"
       >

@@ -1950,10 +1950,11 @@ const menuItems = computed(() => [[
           <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" class="underline decoration-dotted underline-offset-4" />
         </UButton>
         <UTooltip v-else-if="headerStatus" :text="creating ? 'Create saves the first draft' : 'Drafts save as you type. ⌘S saves now.'" :content="{ side: 'bottom' }">
+          <!-- On a phone only the dot shows, so the title keeps its place. Screen readers still hear the label. -->
           <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" :pending="headerStatus.pending">
-            {{ headerStatus.label }}<template v-if="headerStatus.savedAt">
+            <span class="max-sm:sr-only">{{ headerStatus.label }}<template v-if="headerStatus.savedAt">
               · <ConsoleRelativeTime :value="headerStatus.savedAt" prefix="Saved" seconds />
-            </template>
+            </template></span>
           </ConsoleStatus>
         </UTooltip>
       </span>
@@ -1988,7 +1989,6 @@ const menuItems = computed(() => [[
       <UTooltip v-else-if="base && !creating && !missing" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
         <UButton
           variant="ghost"
-          class="aria-pressed:bg-accented aria-pressed:text-highlighted"
           icon="i-lucide-app-window"
           aria-label="Preview the page"
           :aria-pressed="previewOpen"
@@ -2006,7 +2006,7 @@ const menuItems = computed(() => [[
           v-model="modeTab"
           :items="modeItems"
           :content="false"
-          class="hidden"
+          class="hidden self-end"
           :class="previewOpen ? '' : 'md:flex'"
           aria-label="Editing mode"
         />
@@ -2034,7 +2034,7 @@ const menuItems = computed(() => [[
       </UFieldGroup>
       <UTooltip v-if="!creating && !missing" text="Outline and history" :content="{ side: 'bottom' }">
         <UButton
-          class="hidden aria-pressed:bg-accented aria-pressed:text-highlighted lg:inline-flex"
+          class="hidden lg:inline-flex"
           variant="ghost"
           icon="i-lucide-panel-right"
           aria-label="Toggle the side panel"

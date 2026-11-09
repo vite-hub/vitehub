@@ -123,18 +123,16 @@ onBeforeUnmount(() => request?.abort());
       <UInput
         v-model="key"
         class="w-full sm:w-72"
-        size="sm"
         placeholder="Key, for example a client IP or user ID"
         aria-label="Key to read"
         autocomplete="off"
         spellcheck="false"
       />
-      <UButton type="submit" icon="i-lucide-gauge" label="Peek" size="sm" variant="outline" :disabled="key === ''" :loading="loading" />
+      <UButton type="submit" icon="i-lucide-gauge" label="Peek" variant="outline" :disabled="key === ''" :loading="loading" />
       <UButton
         v-if="canReset"
         icon="i-lucide-rotate-ccw"
         label="Reset"
-        size="sm"
         color="error"
         variant="ghost"
         @click="resetOpen = true"

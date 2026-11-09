@@ -77,7 +77,7 @@ onMounted(() => {
       <template v-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Link your first project</h1>
-          <p class="vitehub-project-gate__text">This Console opens ViteHub apps that list it in <code class="rounded-md bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>. The project list and tokens stay in this browser.</p>
+          <p class="vitehub-project-gate__text">This Console opens ViteHub apps that list it in <code class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted box-decoration-clone">console.origins</code>. The project list and tokens stay in this browser.</p>
         </div>
         <UButton icon="i-lucide-plus" label="Link project" class="justify-self-start" @click="projects.linkOpen.value = true" />
       </template>
@@ -87,7 +87,7 @@ onMounted(() => {
           <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
           <p class="vitehub-project-gate__text">
             <template v-if="gate.rejected && !tokenError">The saved token no longer works for {{ host }}. Paste the current token.</template>
-            <template v-else>{{ host }} uses <code class="rounded-md bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
+            <template v-else>{{ host }} uses <code class="rounded-md bg-elevated px-1 py-px font-mono text-[max(0.9em,0.75rem)] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
           </p>
         </div>
         <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />
@@ -110,7 +110,7 @@ onMounted(() => {
       <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
-          <UButton color="neutral" variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
+          <UButton variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
         </UDropdownMenu>
       </div>
     </div>

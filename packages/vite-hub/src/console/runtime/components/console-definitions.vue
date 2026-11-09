@@ -335,7 +335,6 @@ onBeforeUnmount(() => request?.abort());
               v-model="search"
               class="mb-1 w-full"
               icon="i-lucide-search"
-              size="sm"
               :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
               :aria-label="`Filter ${sectionDetails.label}`"
             />
@@ -383,14 +382,13 @@ onBeforeUnmount(() => request?.abort());
             v-if="canRunSelected && catalogView"
             icon="i-lucide-play"
             label="Run now"
-            size="sm"
             variant="outline"
             :disabled="Boolean(runningSchedule)"
             :loading="runningSchedule === selectedName"
             @click="runSelectedSchedule"
           />
           <UTooltip v-if="!catalogView" text="Refresh">
-            <UButton aria-label="Refresh records" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="loadDefinitions" />
+            <UButton aria-label="Refresh records" icon="i-lucide-refresh-cw" variant="ghost" :loading="loading" @click="loadDefinitions" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
@@ -402,7 +400,6 @@ onBeforeUnmount(() => request?.abort());
           :disabled="!records.length"
           class="w-full sm:w-64"
           icon="i-lucide-search"
-          size="sm"
           :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
           :aria-label="`Filter ${sectionDetails.label}`"
         />
@@ -411,13 +408,12 @@ onBeforeUnmount(() => request?.abort());
           :key="column.key"
           :model-value="columnFilters[column.key] ?? anyValue"
           class="w-40"
-          size="sm"
           :items="filterItems(column)"
           :aria-label="`Filter by ${column.label.toLowerCase()}`"
           @update:model-value="setColumnFilter(column.key, $event)"
         />
         <span v-if="recordsFiltered" class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ visibleRecords.length }} of {{ records.length }}</span>
-        <UButton v-if="recordsFiltered" label="Clear filters" size="sm" variant="ghost" @click="clearRecordFilters" />
+        <UButton v-if="recordsFiltered" label="Clear filters" variant="ghost" @click="clearRecordFilters" />
       </ConsolePageToolbar>
 
       <!-- Only the load state is announced. A live region around the whole list would read every refreshed row. -->
@@ -449,7 +445,7 @@ onBeforeUnmount(() => request?.abort());
               :description="search.trim() ? `Nothing matches “${search.trim()}”.` : 'Nothing matches this filter.'"
               :actions="[{ label: 'Clear filters', color: 'neutral', variant: 'outline', onClick: clearRecordFilters }]"
             />
-            <section v-else class="overflow-x-auto rounded-md border border-default" :aria-label="sectionDetails.label">
+            <section v-else class="overflow-x-auto rounded-lg border border-default" :aria-label="sectionDetails.label">
               <table class="w-full text-left text-[13px]">
                 <thead>
                   <tr class="border-b border-default bg-elevated/30">
@@ -488,7 +484,6 @@ onBeforeUnmount(() => request?.abort());
                           external
                           target="_blank"
                           rel="noopener"
-                          color="neutral"
                           icon="i-lucide-arrow-up-right"
                           size="xs"
                           variant="ghost"
@@ -561,7 +556,6 @@ onBeforeUnmount(() => request?.abort());
               class="ms-auto"
               icon="i-lucide-play"
               label="Run now"
-              size="sm"
               variant="outline"
               :disabled="Boolean(runningSchedule)"
               :loading="runningSchedule === selectedName"
@@ -577,8 +571,6 @@ onBeforeUnmount(() => request?.abort());
             rel="noopener"
             :label="selectedRecord.link.label"
             trailing-icon="i-lucide-arrow-up-right"
-            color="neutral"
-            size="sm"
             variant="outline"
           />
           <section v-if="selectedRecord.activity?.length" class="grid gap-3" aria-label="Activity">

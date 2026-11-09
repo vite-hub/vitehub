@@ -121,10 +121,10 @@ async function resume(): Promise<void> {
   <div v-if="canStart || canResume || workflowRuns.length" class="grid gap-6">
     <section v-if="canStart" class="grid gap-2" aria-label="Start a run">
       <h3 class="text-xs font-medium text-highlighted">Start a run</h3>
-      <UTextarea v-model="payloadText" :rows="5" :ui="{ base: 'font-mono text-xs' }" aria-label="Payload (JSON)" placeholder="Payload as JSON. Leave empty to start without one." />
+      <UTextarea v-model="payloadText" :rows="5" :ui="{ base: 'font-mono' }" aria-label="Payload (JSON)" placeholder="Payload as JSON. Leave empty to start without one." />
       <p v-if="startError" class="text-xs text-error" role="alert">{{ startError }}</p>
       <div class="flex justify-end">
-        <UButton icon="i-lucide-play" label="Start" size="sm" :loading="starting" @click="start" />
+        <UButton icon="i-lucide-play" label="Start" :loading="starting" @click="start" />
       </div>
     </section>
 
@@ -135,7 +135,7 @@ async function resume(): Promise<void> {
           <div class="flex min-w-0 items-center gap-2">
             <span class="min-w-0 truncate font-mono text-xs text-highlighted" :title="run.id">{{ run.id }}</span>
             <UTooltip text="Copy run ID">
-              <UButton class="-ms-1 me-auto" aria-label="Copy run ID" color="neutral" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.id, 'Run ID')" />
+              <UButton class="-ms-1 me-auto" aria-label="Copy run ID" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.id, 'Run ID')" />
             </UTooltip>
             <ConsoleStatus :label="statusOf(run).label" :tone="statusOf(run).tone" :pending="statusOf(run).pending" />
             <UTooltip text="Refresh">
@@ -149,7 +149,7 @@ async function resume(): Promise<void> {
           <div v-if="run.result" class="relative">
             <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-elevated p-3 pe-10 font-mono text-xs leading-5 text-toned"><code>{{ run.result }}</code></pre>
             <UTooltip text="Copy result">
-              <UButton class="absolute end-1.5 top-1.5" aria-label="Copy result" color="neutral" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.result, 'Result')" />
+              <UButton class="absolute end-1.5 top-1.5" aria-label="Copy result" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.result, 'Result')" />
             </UTooltip>
           </div>
         </li>
@@ -158,11 +158,11 @@ async function resume(): Promise<void> {
 
     <section v-if="canResume" class="grid gap-2" aria-label="Resume a signal">
       <h3 class="text-xs font-medium text-highlighted">Resume a signal</h3>
-      <UInput v-model="signalToken" aria-label="Signal token" placeholder="Opaque signal token" :ui="{ base: 'font-mono text-xs' }" />
-      <UTextarea v-model="signalPayload" :rows="3" :ui="{ base: 'font-mono text-xs' }" aria-label="Signal payload (JSON)" placeholder="Payload as JSON. Optional." />
+      <UInput v-model="signalToken" aria-label="Signal token" placeholder="Opaque signal token" :ui="{ base: 'font-mono' }" />
+      <UTextarea v-model="signalPayload" :rows="3" :ui="{ base: 'font-mono' }" aria-label="Signal payload (JSON)" placeholder="Payload as JSON. Optional." />
       <p v-if="resumeError" class="text-xs text-error" role="alert">{{ resumeError }}</p>
       <div class="flex justify-end">
-        <UButton icon="i-lucide-corner-down-right" label="Resume" size="sm" variant="outline" :disabled="!signalToken.trim()" :loading="resuming" @click="resume" />
+        <UButton icon="i-lucide-corner-down-right" label="Resume" variant="outline" :disabled="!signalToken.trim()" :loading="resuming" @click="resume" />
       </div>
     </section>
 
