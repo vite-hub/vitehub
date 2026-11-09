@@ -133,7 +133,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
-  "@vite-hub/realtime/client",
   "@vite-hub/ui/playground",
   "@vite-hub/ui/playground-container",
   "@vite-hub/ui/playground-render",
@@ -158,6 +157,7 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/mcp/runtime",
   "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/registry",
@@ -213,7 +213,6 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/workflow/runtime/dev-runs",
   "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
-  "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
   "@vite-hub/workflow/runtime/vercel-vite",
 ]);

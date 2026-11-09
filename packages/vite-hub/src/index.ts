@@ -61,6 +61,7 @@ import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
+import type { McpOptions } from "@vite-hub/mcp"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
@@ -120,6 +121,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/gateways": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
+  "@vite-hub/mcp": true,
   "@vite-hub/presets": true,
   "@vite-hub/queue": true,
   "@vite-hub/rate-limit": true,
@@ -198,6 +200,11 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
 // One resolve for the package root. A resolve per export (about 240) took 130 ms of every `vite` start.
 const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
 
+/** A pattern that matches `specifier` and nothing under it. */
+function exactSpecifier(specifier: string): RegExp {
+  return new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
+}
+
 function frameworkExportAliases(include: (importTarget: string) => boolean): [string, string][] {
   return Object.entries(frameworkPackageManifest.exports).flatMap(([subpath, target]): [string, string][] => {
     const importTarget = packageExportImportTarget(target)
@@ -210,8 +217,7 @@ const frameworkProviderImportAliases = Object.fromEntries(
   frameworkExportAliases(importTarget => importTarget.endsWith(".js"))
     .sort(([left], [right]) => right.length - left.length),
 )
-// Exports that are not JavaScript, such as `vite-hub/ui/styles.css`. A Vite alias also matches the subpaths of its
-// specifier, so without its own entry `vite-hub/ui/styles.css` would resolve inside `dist/ui.js`.
+// Exports that are not JavaScript, such as `vite-hub/ui/styles.css`.
 const frameworkAssetImportAliases = Object.fromEntries(frameworkExportAliases(importTarget => !importTarget.endsWith(".js")))
 
 // Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
@@ -263,11 +269,7 @@ function frameworkDependencyResolver(
     },
     enforce: "pre",
     config() {
-      // Longest specifiers first: Vite uses the first alias that matches.
-      const aliases = Object.fromEntries(
-        Object.entries({ ...frameworkProviderImportAliases, ...frameworkAssetImportAliases })
-          .sort(([left], [right]) => right.length - left.length),
-      )
+      const aliases: Record<string, string> = { ...frameworkProviderImportAliases, ...frameworkAssetImportAliases }
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
       // install reaches the optional owner imports plugin, which names the package to install.
@@ -275,9 +277,12 @@ function frameworkDependencyResolver(
         const feature = ownerFacadeFeature(specifier)
         if (feature && !optionalFeaturePackages[feature].every(isPackageInstalled)) delete aliases[specifier]
       }
+      // Each alias matches its specifier alone. A Vite alias given as a string also matches the subpaths under it, so
+      // a subpath the package doesn't export, such as `vite-hub/realtime/nope`, would load `dist/realtime.js/nope`
+      // instead of failing as not exported.
       return {
         resolve: {
-          alias: aliases,
+          alias: Object.entries(aliases).map(([specifier, replacement]) => ({ find: exactSpecifier(specifier), replacement })),
         },
       }
     },
@@ -401,6 +406,11 @@ export interface ViteHubOptions {
   kv?: boolean | KVModuleOptions
   /** Read an existing log source, or inspect a bounded Evlog buffer during development. */
   logs?: boolean | LogsOptions
+  /**
+   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. With `auth`, MCP clients sign in with
+   * `mcpOAuth()` from `vite-hub/auth/mcp`. Needs `@vite-hub/mcp`.
+   */
+  mcp?: boolean | McpOptions
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
@@ -1129,6 +1139,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["kv", options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")],
     ["queue", options.queue && plan.services.queue.supported],
     ["rateLimit", options.rateLimit],
+    ["mcp", options.mcp],
     ["realtime", options.realtime],
     ["sandboxTask", sandboxTaskEnabled],
     ["schedule", options.schedule],
@@ -1371,6 +1382,19 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
   if (options.bundle) plugins.push(hubBundle())
+  if (options.mcp) {
+    const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
+    const { auth: mcpAuth = Boolean(options.auth), ...mcpOptions } = mcpConfig
+    if (mcpAuth && !options.auth) {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] mcp.auth needs Auth. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } for a public MCP server." })
+    }
+    plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
+      ...mcpOptions,
+      auth: mcpAuth,
+      imports: { authMcp: "vite-hub/auth/mcp", runtime: "@vite-hub/mcp/runtime" },
+      ...(options.name ? { name: options.name } : {}),
+    }))
+  }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.

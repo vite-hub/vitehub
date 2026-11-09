@@ -17,7 +17,7 @@ icon: i-lucide-circle-alert
 - `cause`: the provider error
 
 ```ts [server/api/signup.post.ts]
-import { runQueue } from '@vite-hub/queue'
+import { runQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
@@ -48,7 +48,7 @@ Config errors throw instead, such as an unknown queue name or a missing Cloudfla
 
 When a handler throws, ViteHub logs the error and the provider retries, except for Queue errors that a retry cannot fix. Cloudflare acknowledges those. Vercel acknowledges them when `callbackOptions.retry` returns `undefined`. The local provider keeps them as dead jobs. `QUEUE_PROVIDER_FAILED` and `QUEUE_PROVIDER_INVALID_RESPONSE` retry; every other Queue code is acknowledged. On Cloudflare or Vercel, `onError` or `callbackOptions.retry` can pick another action. The local provider does not call them. See [Local delivery](#local-delivery).
 
-Throw `ViteHubError` from `@vite-hub/runtime` to give a failure a stable code. The code does not change the retry policy.
+Throw `ViteHubError` from `vite-hub/runtime` to give a failure a stable code. The code does not change the retry policy.
 
 ```ts fragment
 new ViteHubError('WELCOME_EMAIL_REJECTED', 'Welcome email was rejected.', {

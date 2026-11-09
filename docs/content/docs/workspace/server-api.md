@@ -10,18 +10,18 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineWorkspace` from `@vite-hub/workspace` | Declare a Workspace Definition. |
-| `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Source Bindings. |
-| `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools for a Workspace. |
-| Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
-| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
-| `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | [Add rules and hooks](#add-plugins-to-a-workspace) to a Workspace you do not define. |
-| `workspaceFile` from `@vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
+| `defineWorkspace` from `vite-hub/workspace` | Declare a Workspace Definition. |
+| `useWorkspace` from `vite-hub/workspace` | Read, write, diff, snapshot, sync, or start sessions. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `vite-hub/workspace` | Declare Source Bindings. |
+| `createWorkspaceTools` from `vite-hub/workspace` | Build AI SDK tools for a Workspace. |
+| Source resolution, request, and preparation helpers from `vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
+| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
+| `registerWorkspacePlugin` from `vite-hub/workspace` or `@vite-hub/workspace/runtime` | [Add rules and hooks](#add-plugins-to-a-workspace) to a Workspace you do not define. |
+| `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Add discovery, generated types, assets, and runtime setup. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/test` | Add loaders, or register test Workspaces. |
 
-`@vite-hub/workspace` exports the definition, Source Binding, rule, hook, store, sync, facade, and session types. `@vite-hub/workspace/runtime` exports the Source resolution types.
+`vite-hub/workspace` exports the definition, Source Binding, rule, hook, store, sync, facade, and session types. `vite-hub/workspace/runtime` exports the Source resolution types.
 
 ## Runtime facade
 
@@ -73,7 +73,7 @@ When the model turn is cancelled, AI SDK tool cancellation reaches the Shell pro
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Copies in every Source, or selected Sources or paths, with cancellation and progress. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes Store metadata, if the Store supports it. Workspace reserves keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:`, and `setMeta` rejects them. |
 
-If you wrap a writable facade with your own `fs`, call `forwardWorkspaceFacade(base, wrapped)` from `@vite-hub/workspace/runtime` to keep Source Sync working. It forwards Source guards and saved sync metadata without exposing privileged setters. Send public writes to the original facade.
+If you wrap a writable facade with your own `fs`, call `forwardWorkspaceFacade(base, wrapped)` from `vite-hub/workspace/runtime` to keep Source Sync working. It forwards Source guards and saved sync metadata without exposing privileged setters. Send public writes to the original facade.
 
 Source cleanup at startup and build tracks ownership by Workspace name. When definitions share a Store, removing or refreshing one keeps the files another one wrote last. A shared path holds the latest write.
 
@@ -284,7 +284,7 @@ The `translate` Queue job reads `workspace.stale`, translates each stale file wi
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it in a package that owns paths in a Workspace it does not define, for example to validate documents before each write:
 
 ```ts fragment
-import { registerWorkspacePlugin } from '@vite-hub/workspace'
+import { registerWorkspacePlugin } from 'vite-hub/workspace'
 
 registerWorkspacePlugin('content', {
   id: 'content-schema',
@@ -321,7 +321,7 @@ Source Sync copies selected Source paths into the Workspace Store, if the Source
 Only Sources with `sync: true` or a sync policy take part in `workspace.sync()`.
 
 ```ts [server/tasks/sync-docs.ts]
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export async function syncDocs() {
   const workspace = useWorkspace('docs', { mode: 'write' })
@@ -360,8 +360,8 @@ Use a Workspace Session when a command needs real files on disk and you want a d
 `session.exec()` needs an open Sandbox Session. Workspace copies files in, diffs, commits, and rolls back. Sandbox runs the command and manages its lifecycle.
 
 ```ts [server/tasks/test-docs.ts]
-import { resolveSandbox } from '@vite-hub/sandbox'
-import { useWorkspace } from '@vite-hub/workspace'
+import { resolveSandbox } from 'vite-hub/sandbox'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export async function testDocs() {
   const sandbox = await resolveSandbox({ runtime: 'trusted-host' }, undefined)
@@ -419,7 +419,7 @@ pnpm add mountx@0.0.2
 ```ts [server/tasks/edit-docs.ts]
 import { createWorkspaceDriver } from '@vite-hub/workspace/mountx'
 import { mount } from 'mountx/auto'
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 const session = await useWorkspace('docs', { mode: 'write' }).startSession()
 
