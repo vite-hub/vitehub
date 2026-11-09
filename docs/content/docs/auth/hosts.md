@@ -24,7 +24,7 @@ Provider output is the code Auth generates for the host: the Definition module, 
 Set `route: false` only when a host integration or your own route mounts the Auth handler.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',

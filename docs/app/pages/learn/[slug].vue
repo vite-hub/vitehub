@@ -9,7 +9,8 @@ import type { DocsPageResponse } from "@vite-hub/docs";
 import type { TutorialActions } from "~/utils/tutorial-actions";
 
 // The lesson is the docs page of the tutorial, so the prose has one source. This page adds the live workspace.
-definePageMeta({ layout: "tutorial" });
+// The docs sidebar starts as a narrow strip, so the workspace gets the width, and the reader can open it.
+definePageMeta({ layout: "docs", sidebar: "collapsed" });
 
 const route = useRoute();
 const router = useRouter();

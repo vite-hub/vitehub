@@ -133,7 +133,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
-  "@vite-hub/realtime/client",
   "@vite-hub/docs/primitive-rail",
   // Share links and zips with no UI, and the design system that apps load from nuxt.config and CSS.
   "@vite-hub/ui/playground",
@@ -147,6 +146,7 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/mcp/runtime",
   "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/registry",
@@ -202,7 +202,6 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/workflow/runtime/dev-runs",
   "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
-  "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
   "@vite-hub/workflow/runtime/vercel-vite",
 ]);

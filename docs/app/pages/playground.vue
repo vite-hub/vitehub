@@ -6,7 +6,8 @@ import { playgroundTemplates } from "#build/playground-templates.mjs";
 
 // A free-form app in the browser: the tutorial workspace without a lesson. The page sends the same cross-origin
 // isolation headers as `/learn`, so links to and from it load a new document.
-definePageMeta({ layout: "tutorial" });
+// The docs sidebar starts as a narrow strip, so the workspace gets the width, and the reader can open it.
+definePageMeta({ layout: "docs", sidebar: "collapsed" });
 
 const title = "Playground";
 const description = "Edit and run a ViteHub app in your browser. Start from a template, then share a link or download the files.";

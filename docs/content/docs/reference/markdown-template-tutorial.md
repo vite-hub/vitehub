@@ -28,7 +28,7 @@ The renderer takes a full template string and a `data` object. It escapes scalar
 Create this file. Double braces insert scalar values as escaped text. `:insert` keeps the Markdown list as is, so pass it only a fragment that your app has checked and trusts.
 
 ```ts [server/render-release.ts]
-import { renderMarkdownTemplate } from "@vite-hub/markdown-template";
+import { renderMarkdownTemplate } from "vite-hub/markdown-template";
 
 const markdown = await renderMarkdownTemplate(
   [
