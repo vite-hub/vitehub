@@ -131,7 +131,8 @@ describe("UI documentation", () => {
     const page = readFileSync(resolve(packageApp, "components/DocsPage.vue"), "utf8");
     const article = readFileSync(resolve(packageApp, "components/DocsArticle.vue"), "utf8");
     expect(page).toContain('<DocsArticle :response="response" />');
-    expect(article).toContain('<DocsMarkdown :document="response.document" :components="{ pre: DocsCodePre }" />');
+    // comark-ui draws code blocks, except beside a tutorial's code panel, which reads DocsCodePre's file name bar.
+    expect(article).toContain('<DocsMarkdown :document="response.document" :components="hasCodePanel ? { pre: DocsCodePre } : undefined" />');
     expect(article).toContain("UContentToc");
     expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');

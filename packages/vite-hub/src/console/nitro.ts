@@ -90,7 +90,7 @@ const consoleAssetManifestModule: NitroModule = {
     }
     nitro.hooks.hook("build:config", (_nitro, config) => {
       if (config.rolldown) config.rolldown.plugins = [config.rolldown.plugins, { name: consoleAssetManifestModuleName, transform }]
-      else config.rollup.plugins = [config.rollup.plugins, { name: consoleAssetManifestModuleName, transform }]
+      else if (config.rollup) config.rollup.plugins = [config.rollup.plugins, { name: consoleAssetManifestModuleName, transform }]
     })
   },
 }

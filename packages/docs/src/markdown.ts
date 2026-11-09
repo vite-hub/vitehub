@@ -5,6 +5,7 @@ import components from "comark/plugins/components"
 import shiki from "comark/plugins/shiki"
 import taskList from "comark/plugins/task-list"
 import toc from "comark/plugins/toc"
+import comarkUi from "comark-ui/vue"
 import css from "shiki/dist/langs/css.mjs"
 import diff from "shiki/dist/langs/diff.mjs"
 import html from "shiki/dist/langs/html.mjs"
@@ -13,7 +14,7 @@ import mdc from "shiki/dist/langs/mdc.mjs"
 import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 
-import type { ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
+import type { MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
 
 /** A page parsed on the server. The client renders `nodes` and never parses Markdown itself. */
@@ -24,7 +25,7 @@ export interface DocsDocument {
 
 export interface DocsParserOptions {
   /** More Comark plugins, after the built-in ones. A plugin with a built-in name replaces it. */
-  plugins?: ComarkPlugin[]
+  plugins?: ParserOptions["plugins"]
 }
 
 // Bash, JSON, JavaScript, TypeScript, Vue, and YAML are built in. Other code stays plain text.
@@ -33,17 +34,87 @@ const languages = [css, diff, html, markdownLanguage, mdc]
 const themes = { light: githubLight, dark: githubDark }
 
 /**
- * Parse Markdown with components (`::name`), GitHub alerts, task lists, highlighted code, and a heading outline.
- * The theme renders the nodes with Nuxt UI prose components, so the parser adds no blocks of its own.
+ * The blocks of comark-ui: callouts, tabs, steps, code with its toolbar, zoomable images, charts, and the rest. The
+ * site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web link into a chip
+ * and fetch its favicon. A site turns them on by passing `comark-chips` in `docs.parser`.
+ */
+function docsBlocks() {
+  return comarkUi({ typeset: false, chips: false, badge: { download: false } })
+}
+
+/**
+ * Parse Markdown with components (`::name`), comark-ui's blocks, GitHub alerts, task lists, highlighted code, and a
+ * heading outline. The client renders the nodes with comark-ui's components.
  */
 export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
   const extra = options.plugins ?? []
-  const builtIn = [alert(), taskList(), components(), attributes(), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 })]
-  const parse = createMarkdownParser({ plugins: [...builtIn.filter(plugin => !extra.some(added => added.name === plugin.name)), ...extra] })
+  // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
+  // plugins replace both.
+  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks().plugins, shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), ...extra]
+  const byName = new Map(ordered.map(plugin => [plugin.name, plugin]))
+  const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin)
+  const parse = createMarkdownParser({ plugins })
+
+  async function examplePreviews(nodes: ComarkNode[]): Promise<ComarkNode[]> {
+    const result: ComarkNode[] = []
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null) {
+        result.push(node)
+        continue
+      }
+      const [tag, props, ...children] = node
+      const content = await examplePreviews(children)
+      // A site's plugin can still supply its own preview and source pair.
+      if (tag === "example" && !content.some(child => typeof child !== "string" && child[0] === "example-preview")) {
+        const source = content.find(child => typeof child !== "string" && child[0] === "pre" && /^(md|markdown|mdc|comark)$/.test(String(child[1].language)))
+        if (source && typeof source !== "string") {
+          const preview = await parse(textOf(source.slice(2) as ComarkNode[]))
+          content.unshift(["example-preview", {}, ...await examplePreviews(preview.nodes)])
+        }
+      }
+      result.push([tag, props, ...content])
+    }
+    return result
+  }
+
   return async (markdown) => {
     const document = await parse(markdown)
-    return { nodes: unwrapListParagraphs(document.nodes), toc: tocOf(document) }
+    const nodes = unwrapListParagraphs(await examplePreviews(document.nodes))
+    return { nodes: isolateExampleHeadings(nodes), toc: tocOf(document) }
   }
+}
+
+/** Preview anchors belong to their own document, including links to headings in that preview. */
+function isolateExampleHeadings(nodes: ComarkNode[]): ComarkNode[] {
+  const used = new Set<string>()
+  const walk = (nodes: ComarkNode[], visit: (node: Extract<ComarkNode, unknown[]>) => void, skipPreviews = false) => {
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null || (skipPreviews && node[0] === "example-preview")) continue
+      visit(node)
+      walk(node.slice(2) as ComarkNode[], visit, skipPreviews)
+    }
+  }
+  walk(nodes, node => { if (typeof node[1].id === "string") used.add(node[1].id) })
+  let preview = 0
+  const rewrite = (nodes: ComarkNode[], anchors = new Map<string, string>()): ComarkNode[] => nodes.map((node) => {
+    if (typeof node === "string" || node[0] === null) return node
+    const [tag, props, ...children] = node
+    const scope = tag === "example-preview" ? new Map<string, string>() : anchors
+    if (tag === "example-preview") {
+      const prefix = `docs-example-${++preview}-`
+      walk(children, ([heading, props]) => {
+        if (heading === null || !/^h[1-6]$/.test(heading) || typeof props.id !== "string") return
+        let id = `${prefix}${props.id}`
+        while (used.has(id)) id += "-preview"
+        used.add(id)
+        scope.set(props.id, id)
+      }, true)
+    }
+    const id = /^h[1-6]$/.test(tag) && typeof props.id === "string" ? scope.get(props.id) : undefined
+    const href = tag === "a" && typeof props.href === "string" && props.href.startsWith("#") ? scope.get(props.href.slice(1)) : undefined
+    return [tag, { ...props, ...(id ? { id } : {}), ...(href ? { href: `#${href}` } : {}) }, ...rewrite(children, scope)]
+  })
+  return rewrite(nodes)
 }
 
 /**
@@ -77,7 +148,7 @@ export function docsSearchSections(path: string, title: string, nodes: ComarkNod
       return
     }
     const [tag, props, ...children] = node
-    if (tag === null || agentOnly.has(tag) || tag === "typeset-styles") return
+    if (tag === null || agentOnly.has(tag) || tag === "typeset-styles" || tag === "example-preview") return
     const level = /^h([23])$/.exec(tag)?.[1]
     if (level) {
       const depth = Number(level)

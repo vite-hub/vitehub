@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+    "deployments": [
+      {
+        "id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
+        "created_on": "2026-11-05T18:11:19.117Z",
+        "source": "wrangler",
+        "strategy": "percentage",
+        "versions": [{ "percentage": 100, "version_id": "bcf48806-b317-4351-9ee7-36e7d557d4de" }],
+        "annotations": { "workers/triggered_by": "deployment" },
+        "author_email": "dev@example.com"
+      },
+      {
+        "id": "4d3a7b2c-1f0e-4c8d-9b6a-5e4f3d2c1b0a",
+        "created_on": "2026-11-04T09:00:00.000Z",
+        "source": "dash",
+        "strategy": "percentage",
+        "versions": [{ "percentage": 100, "version_id": "18f97339-c287-4872-9bdd-e2135c07ec12" }],
+        "annotations": { "workers/triggered_by": "deployment" },
+        "author_email": "dev@example.com"
+      }
+    ]
+  }
+}

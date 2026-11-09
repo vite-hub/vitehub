@@ -50,6 +50,7 @@
     "@iconify-json/vscode-icons": "catalog:ui",
     "@takumi-rs/core": "catalog:nuxt",
     "@types/node": "catalog:tooling",
+    "comark-chips": "^0.9.1",
     "playwright-core": "catalog:browser",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

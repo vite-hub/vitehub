@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
-import { findPackageJSON } from "node:module"
+import { createRequire, findPackageJSON } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -301,6 +302,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const contentDirsToWatch = sources?.map(source => source.dir) ?? [contentDir]
     const manifestOptions = { dir: contentDir, base: normalizeDocsBase(options.base ?? "/docs"), sources, sections: options.sections }
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
+    // comark-ui's blocks add their styles when they mount. The page links them too, so the first paint, before the app
+    // hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text. They are one
+    // static file, because Vite's CSS pipeline does not parse some of their newer syntax, such as `interpolate-size`.
+    const stylesDir = join(nuxt.options.buildDir, "docs/styles")
+    const comarkCss = comarkStylesheet()
+    const comarkCssFile = `comark-${createHash("sha256").update(comarkCss).digest("hex").slice(0, 10)}.css`
+    function writeComarkCss() {
+      mkdirSync(stylesDir, { recursive: true })
+      writeFileSync(join(stylesDir, comarkCssFile), comarkCss)
+    }
+    writeComarkCss()
+    // A production build empties the build directory before it starts, so the file is written again after that.
+    nuxt.hook("build:before", writeComarkCss)
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
@@ -403,6 +417,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/manifest"] = manifestFile
     addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
+    nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
+    addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
     // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
     // Without `server/content.ts` the route imports `undefined` and bundles nothing more.
     const contentEntry = await findContentEntry({ projectRoot: nuxt.options.rootDir, serverDirs: [nuxt.options.serverDir] })
@@ -528,6 +544,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
     })
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
+    addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
       // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
@@ -630,7 +647,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Pages are read at runtime, so a host without a file system serves them too.
       nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
-      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }]
+      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }, { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
       nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
@@ -723,6 +740,33 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },
   }
+}
+
+/**
+ * The stylesheets of the comark-* packages that comark-ui renders with, in one file. It names the layer order first,
+ * the same as the app's CSS, so it can load before or after it.
+ */
+function comarkStylesheet(): string {
+  const layers = "@layer theme, base, comark, components, utilities;"
+  let ui: string
+  try {
+    ui = createRequire(import.meta.url).resolve("comark-ui/package.json")
+  }
+  catch {
+    // An app that installs the module without its dependencies, as the module tests do, gets the layer order alone.
+    return layers
+  }
+  const dependencies = Object.keys((JSON.parse(readFileSync(ui, "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {})
+  const fromUi = createRequire(ui)
+  const sheets = dependencies.filter(name => name.startsWith("comark-")).flatMap((name) => {
+    try {
+      return [readFileSync(fromUi.resolve(`${name}/style.css`), "utf8")]
+    }
+    catch {
+      return []
+    }
+  })
+  return [layers, ...sheets].join("\n")
 }
 
 // The header shows the star count next to the GitHub link. One request per build; a failure only drops the count.
