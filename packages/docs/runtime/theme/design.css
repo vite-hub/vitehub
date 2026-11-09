@@ -226,9 +226,12 @@ html.dark .shiki span {
   line-height: 1.6;
 }
 
-/* Inside tabs, the tab panel is the frame. */
+/* Inside tabs, the tab row is the top of the frame, and the block is the rest. comark-ui puts the block's buttons in the
+   tab row, above the block, so the block must not clip them. */
 .docs-content .ct .ck {
   margin-block: 0;
+  overflow: visible;
+  border-radius: 0 0 10px 10px;
 }
 
 .docs-content blockquote {
