@@ -265,14 +265,20 @@ export const CommentLayer = defineComponent({
       });
 
     return () => {
-      // Pins that would cover each other, such as two quotes of one paragraph in its gutter, stack downward, so each
-      // stays visible and takes its own click.
+      // Pins that would cover each other, such as two quotes of one paragraph in its gutter, stack downward, or upward
+      // at the bottom of the screen, so each stays visible and takes its own click.
       const spots = new Map<string, ResolvedAnchor>();
       for (const thread of pinned.value) {
         const position = state.positions.value.get(thread.id);
         if (!position || position.detached || position.clipped || thread.anchor.kind === "page") continue;
+        const taken = (y: number) => [...spots.values()].some((spot) => Math.abs(spot.x - position.x) < pinSpacing && Math.abs(spot.y - y) < pinSpacing);
         let y = position.y;
-        while ([...spots.values()].some((spot) => Math.abs(spot.x - position.x) < pinSpacing && Math.abs(spot.y - y) < pinSpacing)) y += pinSpacing;
+        while (taken(y)) y += pinSpacing;
+        // Without room under the screen's bottom edge, the stack grows upward.
+        if (y !== position.y && y > window.innerHeight - pinSpacing) {
+          y = position.y - pinSpacing;
+          while (taken(y)) y -= pinSpacing;
+        }
         spots.set(thread.id, { ...position, y });
       }
       const items = pinned.value.flatMap((thread) => {
