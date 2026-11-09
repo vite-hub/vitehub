@@ -27,6 +27,8 @@ When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule
 | Deno | `Deno.cron` output loaded by generated Deno Agent server output. |
 | Node or Docker | No host output. The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
 
+When a Definition has no `cron`, the build adds the `vitehub/started-schedules` Schedule with the cron `* * * * *`. Each host wakes it like the other Static Schedules, and it runs the Schedules that code started with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). On Cloudflare it is one more Cron Trigger.
+
 A Node server has no host cron. `vitehub({ preset: 'node', schedule: true })` fails the build with `VITE_HUB_R0137`, because nothing would run its Schedules. Set `schedule: { runtime: { driver: 'process' } }` to run them in the server process. Set `schedule: { providerOutput: false }` when your own code or an external cron starts them, for example through `/_vitehub/schedules/run`. The check runs only for builds, so `vite dev` still works with `schedule: true`.
 
 With the Process Runtime on Node, leave `providerOutput` unset or set it to `'auto'` or `false`. The explicit `'nitro'` and `'standalone'` modes give wake ownership to the provider, so they fail a Node build even when `runtime` is configured.
@@ -49,7 +51,7 @@ pnpm vitehub schedule attempts <runId>
 
 The commands use the same Schedule Run store and registry as the running server. Read [CLI](/docs/development/cli#run-and-inspect-schedules) for every command and option.
 
-The Console Schedules page lists the discovered Schedule Definitions. With the process driver, it shows the cron and time zone of the loaded Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled.
+The Console Schedules page lists the discovered Schedule Definitions. With the process driver, it shows the cron and time zone of the loaded Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled. Each Schedule that code started has its own row, with its id, its time or cron, and its payload. `vitehub schedule list`, `start`, and `cancel` read and change the same Schedules.
 
 Both surfaces redact credentials in URLs, bearer tokens, and secret assignments in error messages.
 
