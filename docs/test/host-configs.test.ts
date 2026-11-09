@@ -15,7 +15,7 @@ const landings = readdirSync(docsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(resolve(docsRoot, entry.name, "index.md")))
   .flatMap((entry) => {
     const source = readFileSync(resolve(docsRoot, entry.name, "index.md"), "utf8");
-    const match = source.match(/^ {2}:::product-files\{feature="(\w+)"\}\n([\s\S]*?)^ {2}:::$/m);
+    const match = source.match(/^ {2}:::code-tree\{feature="(\w+)"\}\n([\s\S]*?)^ {2}:::$/m);
     if (!match) return [];
     const blocks = [...match[2]!.matchAll(/^ {2}```\w+ \[(.+)\]\n([\s\S]*?)^ {2}```$/gm)].map((block) => ({
       code: block[2]!.split("\n").map((line) => line.slice(2)).join("\n").trimEnd(),

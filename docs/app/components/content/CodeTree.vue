@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// `::product-files` shows example code as a project file tree. Each child code block names its file
+// The app override keeps product-specific host selection out of the package tree.
+// `::code-tree` shows example code as a project file tree. Each child code block names its file
 // with a path, such as ```ts [server/workspaces/docs.ts]```. The tree lists folders first, like an
 // editor, and the first code block opens first. In a narrow panel, such as a hero beside its copy, the
 // tree becomes one row of file tabs above the code, so the code keeps the width.
@@ -19,6 +20,8 @@ import type { PickerHost } from "../../utils/host-config";
 const props = defineProps<{
   /** The catalog id of the primitive, such as `kv` or `rateLimit`. It adds the host picker. */
   feature?: FeatureId;
+  /** The path of the file that opens first. */
+  defaultValue?: string;
 }>();
 const slots = defineSlots<{ default?: () => VNode[] }>();
 const id = useId();
@@ -51,6 +54,7 @@ const files = computed(() =>
 );
 
 const rows = computed(() => buildFileTree(files.value.map((file) => file.path)));
+if (props.defaultValue) selected.value = Math.max(0, files.value.findIndex((file) => file.path === props.defaultValue));
 
 // The row of tabs hides the folders, so two files with the same name also show their folder.
 const sharedNames = computed(() => {
@@ -155,14 +159,10 @@ function pathNote(index: number) {
   return shownRewrite.value ? `Changed for ${hostLabel.value}` : "";
 }
 
-// The file rows are tabs. Arrow keys move through them in tree order. A column of tabs takes Up and Down, and a row
-// takes Left and Right, so the other pair still scrolls the page.
-const treeKeys = { horizontal: { ArrowRight: 1, ArrowLeft: -1 }, vertical: { ArrowDown: 1, ArrowUp: -1 } };
-
+// Both arrow pairs move through the files in tree order.
 function onTreeKeydown(event: KeyboardEvent) {
   const order = rows.value.flatMap((row) => (row.kind === "file" ? [row.index] : []));
-  const keys: Record<string, number> = orientation.value ? treeKeys[orientation.value] : { ...treeKeys.horizontal, ...treeKeys.vertical };
-  const step = keys[event.key];
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
   const target = event.key === "Home" ? order[0] : event.key === "End" ? order.at(-1)
     : step ? order[(order.indexOf(selected.value) + step + order.length) % order.length] : undefined;
   if (target === undefined) return;
@@ -196,7 +196,7 @@ function onTreeKeydown(event: KeyboardEvent) {
           :tabindex="selected === row.index ? 0 : -1"
           @click="selected = row.index"
         >
-          <UIcon name="i-lucide-file" class="size-3.5 shrink-0" aria-hidden="true" />
+          <span class="vh-files-icon" aria-hidden="true"><ProseCodeIcon :filename="row.path" /></span>
           <span><span v-if="folderOf(row.path)" class="vh-files-folder">{{ folderOf(row.path) }}</span>{{ row.name }}</span>
           <span v-if="shownRewrite && row.index === config?.index" class="vh-files-changed-dot" aria-hidden="true" />
         </button>
@@ -216,7 +216,7 @@ function onTreeKeydown(event: KeyboardEvent) {
         <span class="vh-files-path-name">{{ file.path }}</span>
         <span v-if="pathNote(index)" class="vh-files-path-note" :class="{ 'is-changed': index === config?.index }">{{ pathNote(index) }}</span>
       </p>
-      <div class="vh-files-body">
+      <div class="vh-files-body" data-code-header>
         <ProsePre
           v-if="shownRewrite && index === config?.index"
           :code="shownRewrite.code"
@@ -617,5 +617,29 @@ function onTreeKeydown(event: KeyboardEvent) {
   .vh-files-row.is-file {
     transition: none;
   }
+}
+.vh-files-icon {
+  display: grid;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  place-items: center;
+}
+
+.vh-files-icon > * {
+  width: 100%;
+  height: 100%;
+}
+
+.vh-files-body :deep(.ck) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.vh-files-body :deep(.ck-bar) {
+  display: none;
 }
 </style>
