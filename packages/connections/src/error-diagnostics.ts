@@ -2,6 +2,16 @@ import { defineErrors, type ErrorCatalog } from "@vite-hub/runtime"
 
 const connect = (connection: string): string => `Run \`vitehub connections connect ${connection}\`.`
 
+/** The Console page of one Connection. It shows the next step and, when the definition has them, its setup notes. */
+const consolePage = (connection: string, tab?: "approvals"): string =>
+  `/_vitehub/connections?connection=${encodeURIComponent(connection)}${tab ? `&tab=${tab}` : ""}`
+
+/** The definition of an instance such as `t3:alice` is `t3`. */
+const definitionOf = (connection: string): string => {
+  const separator = connection.lastIndexOf(":")
+  return separator > 0 ? connection.slice(0, separator) : connection
+}
+
 const docs = "https://vitehub.dev/docs/connections/diagnostics"
 
 // Keep published codes stable. Each code has a heading on the docs page.
@@ -33,13 +43,15 @@ const codes = {
   // Runtime errors. Connection client calls return them as `[error, undefined]`.
   CONNECTIONS_APPROVAL_REQUIRED: {
     why: ({ action, approval, connection }: { action: string, approval: string, connection: string }): string => `Approval is required for ${action} on Connection "${connection}". Request: ${approval}.`,
-    fix: "Approve the request in the Console or with `vitehub connections approve <id>`. ViteHub then runs the call.",
+    fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to approve request ${approval} on its Console page (${consolePage(connection, "approvals")}), or to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
   },
   CONNECTIONS_DENIED: {
     why: ({ action, actor, connection, immediate }: { action: string, actor: string, connection: string, immediate?: boolean }): string => immediate
       ? `Connection "${connection}" requires immediate access for ${action}. Set approve: false on the actor's access rule.`
       : `Actor "${actor}" may not call ${action} on Connection "${connection}".`,
-    fix: "Change the access rules of the Connection Definition to allow this action for this actor.",
+    fix: ({ actor, connection, immediate }: { actor: string, connection: string, immediate?: boolean }): string => immediate
+      ? `In the \`access\` rule of "${actor}" in the Connection Definition "${definitionOf(connection)}", set \`approve: false\` for this action.`
+      : `Allow this action for "${actor}" in the \`access\` rules of the Connection Definition "${definitionOf(connection)}".`,
   },
   CONNECTIONS_INVALID_INPUT: {
     why: ({ method, parameter }: { method?: string, parameter?: string }): string => method && parameter
@@ -54,7 +66,9 @@ const codes = {
       if (problem === "refresh-token") return `Connection "${connection}" has no refresh token. Connect it again.`
       return `Connection "${connection}" must be connected again. ${connect(connection)}`
     },
-    fix: "Reconnect the Connection in the Console or with `vitehub connections connect <name>`.",
+    fix: ({ connection, problem }: { connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => problem === "mutation"
+      ? `Check at the provider if the last token change of Connection "${connection}" completed. Then open its Console page (${consolePage(connection)}) and select Reconnect.`
+      : `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Reconnect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${connection}\`.`,
   },
   CONNECTIONS_NOT_CONNECTED: {
     why: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
@@ -63,7 +77,12 @@ const codes = {
       if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${connection}\` or in the Console.`
       return `Connection "${connection}" is not connected. ${connect(connection)}`
     },
-    fix: "Connect the Connection in the Console or with the CLI command in `why`. An `oauthLogin()` Connection signs in by itself once its `credentials` resolve.",
+    fix: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
+      if (login === "connect") return `Do not connect Connection "${connection}". Call it, and it signs in by itself once its \`credentials\` resolve.`
+      if (login === "credentials") return `Make the \`credentials\` of the \`oauthLogin()\` provider of Connection "${connection}" resolve, for example set the Env keys that it reads.`
+      if (apiKey) return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Set key. Or run \`vitehub connections set-key ${connection}\`.`
+      return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${connection}\`.`
+    },
   },
   CONNECTIONS_ORIGIN_NOT_ALLOWED: {
     why: ({ connection, origin }: { connection: string, origin: string }): string => `Connection "${connection}" does not send its token to ${origin}.`,
@@ -111,17 +130,19 @@ const codes = {
     fix: "Pass `actor` as `user:<id>` or `service:<id>` from server code. Agents get their actor from the Agent runtime.",
   },
   CONNECTIONS_INVALID_CONFIG: {
-    why: ({ name, problem }: { name?: string, problem: "activity-retention" | "path" | "segment" | "slash" | "type" }): string => {
+    why: ({ name, problem }: { name?: string, problem: "activity-retention" | "database" | "path" | "segment" | "slash" | "type" }): string => {
+      if (problem === "database") return `connections.database must be a Database name, such as "users". Got ${JSON.stringify(name)}.`
       if (problem === "activity-retention") return `Connections activityRetention.${name} must be a positive integer, or set activityRetention to false to keep all activity.`
       if (problem === "type") return "Connections basePath must be a string."
       if (problem === "slash") return "Connections basePath must start with `/`."
       if (problem === "path") return "Connections basePath must be a pathname without a query or fragment."
       return "Connections basePath must include a route segment."
     },
-    fix: "Set `basePath` to a pathname such as `/_vitehub/connections`, and each `activityRetention` limit to a positive integer.",
+    fix: "Set `basePath` to a pathname such as `/_vitehub/connections`, each `activityRetention` limit to a positive integer, and `connections.database` to the name of a Database, such as `default`.",
   },
   CONNECTIONS_INVALID_DEFINITION: {
-    why: ({ connection, problem, provider }: { connection?: string, problem: "client-id" | "definition" | "instance" | "registration" | "revocation" | "verify-result", provider?: string }): string => {
+    why: ({ bucket, connection, problem, provider }: { bucket?: string, connection?: string, problem: "client-id" | "definition" | "instance" | "registration" | "request-bucket" | "revocation" | "verify-result", provider?: string }): string => {
+      if (problem === "request-bucket") return `Connections that share request bucket "${bucket}" use different rate intervals.`
       if (problem === "client-id") return `Provider "${provider}" has no client id.`
       if (problem === "instance") return `The Connection Definition of instance "${connection}" is invalid.`
       if (problem === "registration") return `The authorization server of Connection "${connection}" does not register clients. Set the provider \`clientId\`.`
@@ -129,15 +150,19 @@ const codes = {
       if (problem === "verify-result") return `The verify check of provider "${provider}" must return a boolean or { account }.`
       return "The Connection Definition is invalid."
     },
-    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`; `verify` returns `true`, `false`, or `{ account }`.",
+    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`; `verify` returns `true`, `false`, or `{ account }`. Connections with the same `requests.bucket` need the same `requests.rate`.",
   },
   CONNECTIONS_INVALID_NAME: {
-    why: ({ problem }: { problem: "length" | "use-connection" | "whitespace" }): string => {
+    why: ({ file, name, problem }: { file?: string, name?: string, problem: "length" | "use-connection" | "whitespace" }): string => {
+      if (file && problem === "whitespace") return `Connection name "${name}" from "${file}" starts or ends with whitespace.`
+      if (file) return `Connection name "${name}" from "${file}" exceeds 501 characters, so its Env keys do not fit the 512-character limit.`
       if (problem === "whitespace") return "Connection names cannot start or end with whitespace."
       if (problem === "use-connection") return "`useConnection()` requires a Connection name of at most 501 characters."
       return "Connection names must not exceed 501 characters so their Env keys fit the 512-character limit."
     },
-    fix: "Use the file name of the Connection Definition, for example `useConnection('github')`.",
+    fix: ({ file }: { file?: string }): string => file
+      ? `Rename "${file}" to a name of 1 to 501 characters without leading or trailing whitespace.`
+      : "Use the file name of the Connection Definition, for example `useConnection('github')`.",
   },
   CONNECTIONS_INVALID_PROVIDER: {
     why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "chatgpt" | "fallback-key" | "oauth-login" }): string => {
@@ -160,14 +185,15 @@ const codes = {
     fix: "Reconnect the Connection. If the error stays, check that one app version writes the Connections tables.",
   },
   CONNECTIONS_NOT_CONFIGURED: {
-    why: ({ missing }: { missing: "bridge-revision" | "database" | "key" | "leases" | "revisions" }): string => {
+    why: ({ missing }: { missing: "bridge-revision" | "chatgpt-runtime" | "database" | "key" | "leases" | "revisions" }): string => {
+      if (missing === "chatgpt-runtime") return "This Connections runtime does not support ChatGPT plan usage or credential transfer."
       if (missing === "bridge-revision") return "Connection revocation requires the Env Bridge to provide the leased token revision."
       if (missing === "key") return "Connections need VITEHUB_CONNECTIONS_KEY with 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`."
       if (missing === "database") return "Connections need the ViteHub Database. Enable `database` in vitehub(), or call setConnectionsRuntime() with a store."
       if (missing === "leases") return "The Connection store must provide atomic token mutation leases."
       return "The Connection secret store must return token revisions."
     },
-    fix: "Set `VITEHUB_CONNECTIONS_KEY` and enable `database` in `vitehub()`, or pass a complete store to `setConnectionsRuntime()`.",
+    fix: "Set `VITEHUB_CONNECTIONS_KEY` and enable `database` in `vitehub()`, or pass a runtime from `createConnectionsRuntime()` with a complete store to `setConnectionsRuntime()`.",
   },
   CONNECTIONS_NOT_FOUND: {
     why: ({ connection }: { connection: string }): string => `No Connection Definition was discovered for "${connection}".`,
@@ -182,10 +208,14 @@ const codes = {
 
   // Management route errors. The routes return them as `{ error: { code, message, fix, docs } }`.
   CONNECTIONS_AUTH_REQUIRED: {
-    why: ({ problem }: { problem: "actor-policy" | "development" }): string => problem === "actor-policy"
-      ? "createConnectionsHandler() requires an actor policy."
-      : "Connections management requires Auth outside local development. Configure an actor module or Console Auth.",
-    fix: "Protect the management routes with Console Auth, or pass an actor function to createConnectionsHandler().",
+    why: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => {
+      if (problem === "actor-policy") return "createConnectionsHandler() requires an actor policy."
+      if (problem === "management-actor") return "Connections management in a production build requires an actor module."
+      return "Connections management requires Auth outside local development. Configure an actor module or Console Auth."
+    },
+    fix: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => problem === "management-actor"
+      ? "Set `hubConnections({ management: { actor: './server/connections-auth.ts' } })`, With `vite-hub`, the Console sets the actor when it shows Connections."
+      : "Protect the management routes with Console Auth, or pass an actor function to createConnectionsHandler().",
   },
   CONNECTIONS_AUTHORIZATION_EXPIRED: {
     why: "The authorization link expired or was already used. Each link works one time, for 10 minutes.",
@@ -256,8 +286,9 @@ const codes = {
 export const connectionsErrorDiagnostics: ErrorCatalog<typeof codes> = /*#__PURE__*/ defineErrors({ docs, codes })
 
 /** Repair guidance of a code, for HTTP bodies that do not carry the error object. */
-export function connectionsErrorGuidance(code: string): { docs: string, fix: string } | undefined {
+export function connectionsErrorGuidance(code: string): { docs: string, fix?: string } | undefined {
   if (!Object.hasOwn(codes, code)) return undefined
   // SAFETY: `Object.hasOwn` confirms that `code` is a key of the catalog.
-  return { docs: `${docs}/${code.toLowerCase()}`, fix: codes[code as keyof typeof codes].fix }
+  const fix: unknown = codes[code as keyof typeof codes].fix
+  return { docs: `${docs}/${code.toLowerCase()}`, ...(typeof fix === "string" ? { fix } : {}) }
 }

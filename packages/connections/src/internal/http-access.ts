@@ -16,7 +16,7 @@ export type ConnectionsActor = (request: Request, event?: ViteHubContext) => str
  *
  * - A {@link ConnectionsActor} function checks every request.
  * - `"development"` allows every request as `user:local` on a development server
- *   (`NODE_ENV=development`). Any other runtime gets `500` with `CONNECTION_AUTH_REQUIRED`.
+ *   (`NODE_ENV=development`). Any other runtime gets `500` with `CONNECTIONS_AUTH_REQUIRED`.
  */
 export type ConnectionsAccessPolicy = ConnectionsActor | "development"
 
