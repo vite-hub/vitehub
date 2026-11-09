@@ -186,17 +186,62 @@ Two policies decide what an editor can do:
 1. [`console.authorize`](/docs/development/console#limit-a-user-to-some-sections) decides which Console sections a request may use. Return `{ sections: ['content'] }` for editors.
 2. [`authorize` in `defineContent()`](/docs/content/configure#access) decides what a user may do with each collection. The Console calls `content.can()` with the signed-in user before every read, save, delete, restore, and publish.
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-vitehub({
-  preset: 'node',
-  auth: true,
-  database: true,
-  workspace: true,
-  console: { auth: 'app', authorize: './server/console-authorize.ts' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    auth: true,
+    database: true,
+    workspace: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts' },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      auth: true,
+      database: true,
+      workspace: true,
+      console: { auth: 'app', authorize: './server/console-authorize.ts' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      auth: true,
+      database: true,
+      workspace: true,
+      console: { auth: 'app', authorize: './server/console-authorize.ts' },
+    }),
+  ],
+})
+```
+:::
+::
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'

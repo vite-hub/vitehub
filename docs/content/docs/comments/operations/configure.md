@@ -88,10 +88,38 @@ The overlay is the `comments` page tool of [Turn comment mode on and off](/docs/
 
 With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on, and Comments use the default Database. When the app has no Database Definition, that is the implicit `default` Database, as for the Content cms preset. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { comments: { database: 'main' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
-vitehub({ comments: { database: 'main' } })
+export default defineConfig({
+  plugins: [vitehub({ comments: { database: 'main' } }), nitro()],
+})
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ comments: { database: 'main' } })],
+})
+```
+:::
+::
 
 For Postgres set `comments: { dialect: 'postgresql' }`. To wire the tables yourself, import `commentsSchema` from `vite-hub/comments/database` (SQLite, libSQL, D1) or `commentsPostgresSchema` from `vite-hub/comments/database/postgres`, and add it to your Database Definition.
