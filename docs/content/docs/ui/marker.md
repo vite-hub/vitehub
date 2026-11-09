@@ -8,7 +8,7 @@ icon: i-ph-flag-light
 
 `Marker` is a quiet line between turns: a date separator, a branch switch, or a note that the context was compacted. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Marker](https://ui.shadcn.com/docs/components/marker). Use it with [Message](/docs/ui/message) in a conversation.
 
-::component-preview{name="MarkerExample"}
+::example{name="MarkerExample" height=11}
 ::
 
 ## Installation
@@ -54,7 +54,7 @@ Marker
 
 Use `variant` to choose an inline marker, a bordered row, or a labeled separator.
 
-::component-preview{name="MarkerVariantsExample"}
+::example{name="MarkerVariantsExample" height=9}
 ::
 
 | Variant     | Description                                           |
@@ -67,35 +67,35 @@ Use `variant` to choose an inline marker, a bordered row, or a labeled separator
 
 Set `role="status"` on a marker for work in progress, so assistive technology reads the update. ViteHub does not animate status text, so write the state in the text, for example "Running pnpm test".
 
-::component-preview{name="MarkerStatusExample"}
+::example{name="MarkerStatusExample" height=8}
 ::
 
 ## Separator
 
 Use the `separator` variant for labeled dividers, such as dates or section breaks, in a conversation.
 
-::component-preview{name="MarkerSeparatorExample"}
+::example{name="MarkerSeparatorExample" height=8}
 ::
 
 ## Border
 
 Use the `border` variant for status rows that keep the default alignment and separate the next row.
 
-::component-preview{name="MarkerBorderExample"}
+::example{name="MarkerBorderExample" height=8}
 ::
 
 ## With Icon
 
 Use `MarkerIcon` to show an icon next to the content. Add `class="flex-col"` to put the icon above the content.
 
-::component-preview{name="MarkerIconExample"}
+::example{name="MarkerIconExample" height=12}
 ::
 
 ## Links and Buttons
 
 Set `as` on `Marker` to render the whole marker as a link or a button. A link marker gets an underline and a hover color.
 
-::component-preview{name="MarkerLinksExample"}
+::example{name="MarkerLinksExample" height=8}
 ::
 
 ```vue

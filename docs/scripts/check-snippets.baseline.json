@@ -150,14 +150,9 @@
     "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/connections/get-started.md#1f150bc56477",
+    "id": "docs/content/docs/connections/get-started.md#4744d64a62e0",
     "label": "server/connections/google.ts",
-    "error": "TS2322 Type 'false' is not assignable to type 'true | \"approve\" | readonly ConnectionActionPattern<GoogleApis>[] | undefined'.\nTS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#470146cec573",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"google\", options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<GoogleApis, { ...; }, false>', gave the following error.\n    Object literal may only specify known properties, and 'event' does not exist in type 'Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
@@ -328,11 +323,6 @@
     "id": "docs/content/docs/guides/better-auth-cloudflare.md#efe4a2209ad9",
     "label": "server/auth.ts",
     "error": "TS18046 'env.auth' is of type 'unknown'.\nTS18046 'env.auth' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/logs/get-started.md#b7725026293a",
-    "label": "vite.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
   },
   {
     "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
