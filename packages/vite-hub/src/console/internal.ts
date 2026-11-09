@@ -72,6 +72,8 @@ export interface ConsoleDatabaseInspection {
 export interface ConsoleBlobInspection {
   storage: BlobStorage
   stores: readonly string[]
+  /** Loads the media library. Only builds with Blob install it, so other builds ship without it. */
+  media?: () => Promise<typeof import("./runtime/server/media.ts")>
 }
 
 type ConsoleBlobByRoot = ConsoleProjectRegistry<ConsoleBlobInspection>

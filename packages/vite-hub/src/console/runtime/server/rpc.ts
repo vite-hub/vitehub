@@ -9,7 +9,7 @@ import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnosti
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { uploadConsoleMedia } from "./media.ts"
+import { loadConsoleMedia } from "./blob.ts"
 import { consoleRequestError } from "./request.ts"
 
 import type { H3Event } from "h3"
@@ -174,7 +174,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
     if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
-    return uploadConsoleMedia(request, section, context.access)
+    return (await loadConsoleMedia()).uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")

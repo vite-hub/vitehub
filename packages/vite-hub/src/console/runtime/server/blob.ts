@@ -5,6 +5,7 @@ import { installConsoleBlobScope, resolveConsoleBlob } from "../../internal.ts"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { ConsoleBlobInspection } from "../../internal.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleRequestError } from "./request.ts"
 
 export function installConsoleBlob(
   projectRoot: string,
@@ -15,7 +16,14 @@ export function installConsoleBlob(
     .filter(store => store !== "default")
     .sort()
   installedStores.unshift("default")
-  return installConsoleBlobScope(resolve(projectRoot), { storage, stores: installedStores })
+  return installConsoleBlobScope(resolve(projectRoot), { media: () => import("./media.ts"), storage, stores: installedStores })
+}
+
+/** The media library of a build with Blob. Throws a 404 Console error in a build without it. */
+export async function loadConsoleMedia(): Promise<typeof import("./media.ts")> {
+  const media = resolveConsoleBlob()?.media
+  if (!media) throw consoleRequestError(404, "The media library needs Blob. Enable Blob in the ViteHub config.")
+  return await media()
 }
 
 export function getConsoleBlob(): ConsoleBlobInspection {
