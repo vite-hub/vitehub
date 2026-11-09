@@ -7,7 +7,8 @@ export type { ProviderSandboxSession } from "./internal/provider-box.ts"
 
 /**
  * The resolved settings of an Agent Definition, with its `extends` layers applied. The result is a
- * copy: pass it, with changes, to `defineAgent()` to build a second Agent from the first one.
+ * new object, but its nested values, such as `driver` or `channels`, still belong to the Agent.
+ * Replace a field instead of changing it in place, then pass the result to `defineAgent()`.
  * Returns `undefined` for a value that `defineAgent()` did not create.
  */
 export function agentSettings(agent: Omit<AgentDefinition, keyof AgentInterceptOutputCarrier> & AgentInterceptOutputCarrier): AgentSettings | undefined {
