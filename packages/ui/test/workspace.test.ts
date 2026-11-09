@@ -733,13 +733,22 @@ describe("WorkspaceShell", () => {
     expect(again.get("[data-split='main']").attributes("aria-valuenow")).toBe("60");
   });
 
-  it("puts the terminal under the editor in a playground", () => {
+  it("puts the panels under the editor and the preview at the side in a playground", () => {
     const wrapper = mount(WorkspaceShell, {
       props: { layout: "playground", storageKey: false },
       slots: { editor: () => h("p", "editor"), preview: () => h("p", "preview"), terminal: () => h("p", "terminal") },
     });
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview"]);
-    expect(wrapper.get(".vh-ws-pane--terminal").text()).toBe("terminal");
+    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Terminal"]);
+    expect(wrapper.get(".vh-ws-pane--side").text()).toBe("preview");
+  });
+
+  it("shows the tabs of the page, in order, with their badges", () => {
+    const wrapper = mount(WorkspaceShell, {
+      props: { layout: "tutorial", storageKey: false, tabs: [{ label: "Console", value: "terminal" }, { badge: 2, label: "Messages", value: "messages" }] },
+      slots: { editor: () => h("p", "editor"), messages: () => h("p", "messages"), terminal: () => h("p", "terminal") },
+    });
+    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Console", "Messages2"]);
+    expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
   });
 });
 

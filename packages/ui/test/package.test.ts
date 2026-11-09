@@ -70,6 +70,7 @@ const workspaceEntries = [
   "./workspace-boot-status",
   "./connect-panel",
   "./browser-support-notice",
+  "./playground-container",
 ];
 const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
 
@@ -176,8 +177,14 @@ describe("@vite-hub/ui package contract", () => {
     const webContainerImporters = readdirSync(dist)
       .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container"/.test(read(name)));
     expect(webContainerImporters.every((name) => name === "workspace.js" || name.startsWith("use-workspace-"))).toBe(true);
-    expect(read("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
-    expect(read("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+    // An entry that shares a part with PlaygroundContainer re-exports it from a chunk, so read through to the chunk.
+    const withChunks = (name: string) => {
+      const entry = read(name);
+      return [entry, ...[...entry.matchAll(/from\s*"\.\/([^"]+\.js)"/g)].map(([, chunk]) => read(chunk!))].join("\n");
+    };
+    expect(withChunks("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
+    expect(withChunks("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+    expect(withChunks("playground-container.js")).not.toMatch(/from\s*"@(?:codemirror|xterm)\//);
   });
 
   it("keeps Tiptap out of the root barrel and its own dependency", () => {
