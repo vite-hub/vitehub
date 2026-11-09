@@ -23,6 +23,13 @@ import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from ".
 import { booleanSchema, stringSchema } from "./helpers.ts"
 import { cloudflareRequest } from "./cloudflare-request.ts"
 
+function hookHandler<T>(hook: unknown): T {
+  const handler = hook && typeof hook === "object" && "handler" in hook ? hook.handler : hook
+  if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
+  // SAFETY: Each test passes the argument subset that the hook reads.
+  return handler as T
+}
+
 const temporaryDirectories: string[] = []
 
 afterAll(async () => {
@@ -409,7 +416,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/server\").ViteHubContext): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
-    const loadHook = plugin.load as (id: string) => string | undefined
+    const loadHook = hookHandler<(id: string) => string | undefined>(plugin.load)
     const loaded = loadHook("\0#vitehub/env/public")
     expect(loaded).toContain("Quiver")
     expect(loaded).toContain("usePublicEnv")
@@ -426,9 +433,27 @@ describe("Vite plugin", () => {
     expect(serverLoaded).toContain("useServerEnv")
     expect(serverLoaded).toContain("runWithServerEnv")
 
-    const transformHook = plugin.transform as (code: string) => string | undefined
+    const transformHook = hookHandler<(code: string) => string | undefined>(plugin.transform)
     expect(transformHook('const envId = "#vitehub/env/server"; import(\n/* @vite-ignore */ /* @vitehub-env */ envId\n)'))
       .toBe('const envId = "#vitehub/env/server"; import(\n"#vitehub/env/server"\n)')
+  })
+
+  it("filters the resolveId, load, and transform hooks to the ids and code that they handle", () => {
+    const plugin = hubEnv()
+    const filterOf = (hook: unknown) => (hook && typeof hook === "object" && "filter" in hook ? hook.filter : undefined) as { id?: RegExp, code?: string } | undefined
+    const resolveIdFilter = filterOf(plugin.resolveId)?.id
+    const loadFilter = filterOf(plugin.load)?.id
+    for (const id of ["#vitehub/env/description", "#vitehub/env/public", "#vitehub/env/server"]) {
+      expect(resolveIdFilter?.test(id)).toBe(true)
+      expect(loadFilter?.test(`\0${id}`)).toBe(true)
+      expect(resolveIdFilter?.test(`\0${id}`)).toBe(false)
+      expect(loadFilter?.test(id)).toBe(false)
+    }
+    for (const id of ["#vitehub/env/secret", "#vitehub/env/server.mjs", "@vite-hub/env/server", "/app/server/api/env.ts"]) {
+      expect(resolveIdFilter?.test(id)).toBe(false)
+      expect(loadFilter?.test(`\0${id}`)).toBe(false)
+    }
+    expect(filterOf(plugin.transform)?.code).toBe("/* @vitehub-env */")
   })
 
   it("does not read package metadata unless packageJson is declared", async () => {
@@ -575,7 +600,7 @@ describe("Vite plugin", () => {
     expect(serverModule).toContain("shared/token")
     expect(serverModule).not.toContain("gateway-secret")
 
-    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const loadHook = hookHandler<(this: unknown, id: string) => string>(plugin.load)
     const virtualModule = loadHook.call({ environment: { config: { root } } }, "\0#vitehub/env/server")
     expect(virtualModule).toContain(`${root.replace(/\\/g, "/")}/server/env#blue?%/secrets.mjs`)
 
@@ -741,7 +766,7 @@ describe("Vite plugin", () => {
     expect(serverModule).toContain(`from "@example/env-provider"`)
 
     // SAFETY: This test invokes the plugin's Vite load hook with its public string-id contract.
-    const virtualModule = await (plugin.load as (id: string) => string)("\0#vitehub/env/server")
+    const virtualModule = await hookHandler<(id: string) => string>(plugin.load)("\0#vitehub/env/server")
     expect(virtualModule).toContain(`from "/D:/shared/provider.mjs"`)
     expect(virtualModule).toContain(`from "/@fs///server/share/provider.mjs"`)
     expect(virtualModule).toContain(`from ${JSON.stringify(join(root, "server", "env", "provider.mjs").replace(/\\/g, "/"))}`)
@@ -767,7 +792,7 @@ describe("Vite plugin", () => {
       configHook(config(secondRoot), { command: "build", mode: "production" }),
     ])
 
-    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const loadHook = hookHandler<(this: unknown, id: string) => string>(plugin.load)
     const firstModule = loadHook.call({ environment: { config: { root: firstRoot } } }, "\0#vitehub/env/server")
     const secondModule = loadHook.call({ environment: { config: { root: secondRoot } } }, "\0#vitehub/env/server")
     expect(firstModule).toContain(`${firstRoot}/server/provider.mjs`)
@@ -792,7 +817,7 @@ describe("Vite plugin", () => {
     const generated = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
     expect(generated.includes("FIRST_TOKEN")).not.toBe(generated.includes("SECOND_TOKEN"))
 
-    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const loadHook = hookHandler<(this: unknown, id: string) => string>(plugin.load)
     const firstModule = loadHook.call({ environment: { config: first } }, "\0#vitehub/env/server")
     const secondModule = loadHook.call({ environment: { config: second } }, "\0#vitehub/env/server")
     expect(firstModule).toContain("FIRST_TOKEN")
@@ -844,7 +869,7 @@ describe("Vite plugin", () => {
 
     const firstEnvironment = await resolveEnvironment("first")
     const secondEnvironment = await resolveEnvironment("second")
-    const loadHook = plugin.load as (this: unknown, id: string) => string
+    const loadHook = hookHandler<(this: unknown, id: string) => string>(plugin.load)
     const firstModule = loadHook.call({ environment: { config: firstEnvironment } }, "\0#vitehub/env/server")
     const secondModule = loadHook.call({ environment: { config: secondEnvironment } }, "\0#vitehub/env/server")
 
