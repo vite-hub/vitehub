@@ -62,7 +62,7 @@ Several Node processes share keys only through a shared store. Without a `driver
 2. `database` when the app has a Default Database on Postgres (the `@vite-hub/database` plugin with a `dialect: "postgresql"` Definition).
 3. `fs-lite` in `.vitehub/data/kv` otherwise.
 
-`{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key and defaults to `vitehub:kv:<store>`, so a Redis database that other apps use keeps their keys apart. A Redis listing cursor holds its whole state, so another server process can read the next page.
+`{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key and defaults to `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. A Redis listing cursor holds its whole state, so another server process can read the next page.
 
 `{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. It works on Postgres and libSQL, not on D1.
 

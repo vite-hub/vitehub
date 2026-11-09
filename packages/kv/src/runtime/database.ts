@@ -83,6 +83,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   const namespace = options.namespace
   let pending: Promise<KVSqlClient> | undefined
   let sweptAt = 0
+  let sweepWarned = false
 
   async function ready(): Promise<KVSqlClient> {
     pending ??= (async () => {
@@ -125,10 +126,21 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
 
   const live = `(expires_at is null or expires_at > {now})`
 
+  /**
+   * Deletes expired rows at most once a minute. The sweep only frees space: reads already skip expired rows. So a failed
+   * sweep, for example on a lock timeout, does not fail the write that runs it. It warns once and runs again a minute
+   * later.
+   */
   async function sweep(): Promise<void> {
     if (Date.now() - sweptAt < sweepIntervalMs) return
     sweptAt = Date.now()
-    await query(`delete from ${table} where expires_at <= {now}`, [])
+    try {
+      await query(`delete from ${table} where expires_at <= {now}`, [])
+    }
+    catch (error) {
+      if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
+      sweepWarned = true
+    }
   }
 
   /** Matches keys that start with `prefix`. `substr()` counts characters on both dialects, unlike `LIKE` on SQLite, which ignores case. */

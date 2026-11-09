@@ -367,6 +367,42 @@ describe("database sweep", () => {
       : [],
   ]
 
+  it("keeps writes working when the sweep fails, warns once, and tries again a minute later", async () => {
+    const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
+    cleanups.push(async () => client.close())
+    let sweeps = 0
+    // A client whose sweep statement fails, as on a lock timeout. Every other statement runs.
+    const failingSweep = {
+      execute: async (statement: { sql: string, args: (string | number | null)[] }) => {
+        if (statement.sql.startsWith(`delete from ${kvTable} where expires_at <=`)) {
+          sweeps++
+          throw new Error("lock timeout")
+        }
+        return client.execute(statement)
+      },
+    }
+    const storage = track(createHostedKVStorage({ store: store() }, "default", async () => ({ default: { db: { $client: failingSweep } } })))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+    try {
+      expect(await storage.incrementItem!("window:a", 30)).toBe(1)
+      expect(await storage.setIfAbsentItem!("ticket", "first", 30)).toBe(true)
+      await storage.setItem("settings", "dark")
+      expect(sweeps).toBe(1)
+
+      clock.mockReturnValue(now + 61_000)
+      expect(await storage.incrementItem!("window:a", 30)).toBe(2)
+      expect(sweeps).toBe(2)
+      expect(warn).toHaveBeenCalledOnce()
+      expect(warn.mock.calls[0]![0]).toContain("could not delete expired rows")
+    }
+    finally {
+      clock.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
   it.each(rawTargets)("deletes expired counters in an increment-only workload on $name", async (target) => {
     const { rows, storage } = await target.create()
     // One counter per client and window, as Rate Limit writes them.

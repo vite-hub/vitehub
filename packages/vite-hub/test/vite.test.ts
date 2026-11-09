@@ -950,13 +950,13 @@ describe("vitehub", () => {
     expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
-      kvImport: "vite-hub/kv",
+      kvImport: "vite-hub/_internal/kv",
       provider: "memory",
     })
     expect(pluginNames(vitehub({ preset: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
-      kvImport: "vite-hub/kv",
+      kvImport: "vite-hub/_internal/kv",
       provider: "cloudflare",
     })
     expect(pluginNames(vitehub({
@@ -965,7 +965,7 @@ describe("vitehub", () => {
     }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
-      kvImport: "vite-hub/kv",
+      kvImport: "vite-hub/_internal/kv",
       projectRoot: "packages/policies",
       provider: "cloudflare",
       scanDirs: ["rules"],
@@ -2087,7 +2087,7 @@ describe("vitehub", () => {
 
     integrationMocks.hubRateLimit.mockClear()
     vitehub({ kv: true, preset: "node", rateLimit: true })
-    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/_internal/kv", provider: "kv" }))
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

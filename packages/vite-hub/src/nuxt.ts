@@ -27,8 +27,8 @@ import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
-import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
-import { vitehub, type ViteHubOptions } from "./index.ts"
+import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
+import { viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
@@ -1294,7 +1294,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
-  const installedPlugins = flattenPlugins(vitehub(markCmsPresetFeaturesResolved({
+  const installedPlugins = flattenPlugins(viteHubPlugins(markCmsPresetFeaturesResolved({
     ...options,
     ...(effectiveKV !== undefined ? { kv: effectiveKV } : {}),
   } as ViteHubOptions)))
