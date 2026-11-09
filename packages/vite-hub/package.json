@@ -798,6 +798,11 @@
       "import": "./dist/forms/database.js",
       "default": "./dist/forms/database.js"
     },
+    "./forms/operations": {
+      "types": "./dist/forms/operations.d.ts",
+      "import": "./dist/forms/operations.js",
+      "default": "./dist/forms/operations.js"
+    },
     "./forms/runtime": {
       "types": "./dist/forms/runtime.d.ts",
       "import": "./dist/forms/runtime.js",

@@ -5,6 +5,7 @@ import { createBuilder } from "vite"
 import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli } from "./support/content-cms.ts"
 
@@ -34,7 +35,7 @@ describe("Forms in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // No `database` option: `server/forms/` turns it on.
-    const app = () => vitehub({ preset: "node" })
+    const app = () => vitehub({ console: { auth: false }, preset: "node" })
 
     const generate = await runCli(root, app(), ["db", "generate"])
     expect(generate.stderr).toBe("")
@@ -52,6 +53,18 @@ describe("Forms in a built Nitro 3 app", () => {
 
     const server = await startBuiltServer(root, {})
     try {
+      const call = async <T>(operation: string, input: unknown): Promise<T> => {
+        const response = await server.fetch("/_vitehub/rpc/__call", {
+          body: JSON.stringify({ input, operation }),
+          headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+          method: "POST",
+        })
+        const body = await response.json() as { code?: string, message?: string, ok: boolean, value: T }
+        if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
+        return body.value
+      }
+      // The handler installs the inbox when the server starts, so the Console reads it before any submission.
+      expect(await call("forms.list", {})).toEqual([])
       const send = (body: unknown, headers: Record<string, string> = {}) => server.fetch("/api/_vitehub/forms/contact", {
         body: JSON.stringify(body),
         headers: { "content-type": "application/json", referer: "http://localhost/pricing", ...headers },
@@ -71,6 +84,12 @@ describe("Forms in a built Nitro 3 app", () => {
 
       const inbox = await (await server.fetch("/inbox")).json() as Array<{ id: string, data: unknown, page: string | null, status: string }>
       expect(inbox).toEqual([expect.objectContaining({ id, data: { email: "ada@example.com", message: "Hello" }, status: "open" })])
+
+      // The Console lists, reads, and marks the same submissions through the forms operations.
+      expect(await call("forms.get", { id })).toMatchObject({ id, form: "contact" })
+      expect(await call("forms.mark", { id, status: "done" })).toMatchObject({ id, status: "done" })
+      expect(await call("forms.list", { status: "open" })).toEqual([])
+      expect(await call<Array<{ id: string }>>("forms.list", { status: "done" })).toEqual([expect.objectContaining({ id })])
     }
     finally {
       server.close()

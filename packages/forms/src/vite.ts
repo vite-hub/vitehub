@@ -9,6 +9,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { formsDiagnostics } from "./errors.ts"
 import { formsTableNames } from "./database.ts"
 
+import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { Plugin, UserConfig } from "vite"
 
 export const FORMS_VITE_PLUGIN_NAME = "@vite-hub/forms/vite"
@@ -56,6 +57,7 @@ export function usesForms(options: { projectRoot: string, serverDirs?: readonly 
 /** The module specifiers that the generated handler imports. `vite-hub` passes its own subpaths. */
 export interface FormsImports {
   runtime: string
+  operations: string
   database: string
   databases?: string
   email?: string
@@ -75,6 +77,7 @@ export interface HubFormsOptions {
 
 const defaultImports: FormsImports = {
   runtime: "@vite-hub/forms/runtime",
+  operations: "@vite-hub/forms/operations",
   database: "@vite-hub/forms/database",
   databases: "@vite-hub/database/drizzle",
   email: "@vite-hub/email/server",
@@ -118,7 +121,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
  * `POST <base>api/_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
  * default Database.
  */
-export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[] } } {
+export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[], operations: OperationContributions } } {
   const imports: FormsImports = { ...defaultImports, ...options.imports }
   let projectRoot: string | undefined
   let serverDirs: readonly string[] | undefined
@@ -126,6 +129,10 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
     name: FORMS_VITE_PLUGIN_NAME,
     enforce: "pre",
     vitehub: {
+      // The Console, `vitehub forms`, and MCP read the inbox through these operations.
+      operations: () => usesForms({ projectRoot: projectRoot ?? process.cwd(), ...(serverDirs ? { serverDirs } : {}) })
+        ? [{ export: "formsOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).formsOperations, module: imports.operations }]
+        : [],
       databases(context) {
         const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         if (!options.database || !usesForms({ projectRoot: root, ...(serverDirs ? { serverDirs } : {}) })) return []
@@ -155,9 +162,11 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
         await writeFile(handler, renderFormsHandler(forms, { ...options, imports }))
         const { mount } = viteHubPageToolsBase(config)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        kit.addHandler({ handler, lazy: true, route: `${mount}${formsRoute}/**` })
+        // Not lazy: the handler installs the inbox when the server starts, so the Console reads it before any submission.
+        kit.addHandler({ handler, route: `${mount}${formsRoute}/**` })
         Reflect.set(config, "nitro", kit.config)
       },
     },
   }
 }
+export { formsConsoleSection } from "./console.ts"
