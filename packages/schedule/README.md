@@ -165,9 +165,9 @@ The Process Runtime also stores one run per occurrence, so it does not run a rep
 
 Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. They estimate `scheduledAt` as the latest host UTC cron match within the previous day, or the current minute when none matches. A late delivery or retry after another host cron match can get a different key. Time-zone filtering uses that estimate too: a summer Madrid 06:00 wake delivered after the extra 07:00 wake can be skipped. These hosts cannot guarantee occurrence identity or dedupe across that boundary. Use an application business key for side effects that must dedupe across delays and retries.
 
-## Run schedules in one process
+## Run schedules in the server process
 
-The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()`. Configure it only for one long-lived replica:
+The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()`. Use it on long-lived servers, one or more:
 
 ```ts
 import { hubKv } from "@vite-hub/kv/vite";
@@ -187,11 +187,21 @@ export default defineConfig({
 });
 ```
 
-Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, concurrency `1`, and catch-up `catchUpMs` of one hour. The interval cannot exceed one minute. `concurrency` limits runs only inside that process. After a restart, the runtime runs the due minutes that no process checked, within `catchUpMs`, for each Schedule that already has a run. Run ids are deterministic, so a minute that already ran does not run again. The KV run store does not provide distributed leader election or locking, so multiple replicas can execute the same work. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
+Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, concurrency `1`, catch-up `catchUpMs` of one hour, and `leaseTtlMs` of one minute. The interval cannot exceed one minute. `concurrency` limits runs only inside that process. After a restart, the runtime runs the due minutes that no process checked, within `catchUpMs`, for each Schedule that already has a run. Run ids are deterministic, so a minute that already ran does not run again. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
+
+### Run on more than one server
+
+Every server checks every Schedule. Before a server runs an occurrence, it takes a lease on the key `schedule/<run id>`, such as `schedule/srun_static_daily_2026-11-09T08:00:00.000Z`. One server gets the lease and runs the occurrence. The others skip it and try again at their next scan. Started Schedules use the same lease for each occurrence. Manual runs have their own run id, so the server that gets the request runs them once.
+
+- The server that holds the lease renews it every third of `leaseTtlMs` while the run works. When the run ends, it writes a done marker (`schedule/<run id>/done`) and frees the lease. The marker lasts for `catchUpMs` plus `leaseTtlMs` plus two minutes, so a server that starts later does not run the occurrence again.
+- A failed run is final, as on one server. It is not retried.
+- When a server stops during a run, for example after a crash, its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless it has a done marker. With shared run history, the run gets a new attempt, and the stopped attempt is marked as failed.
+
+The generated runtime keeps the leases in the `vitehub_leases` table of the Default Database, through `createSqlLeaseStore()` from `@vite-hub/runtime`. That works on Postgres and libSQL. Without a Database, the leases stay in memory and the build prints a warning: each server then runs every occurrence, so run one server only. The run history stays in KV. Use a KV store that all servers share, such as Upstash, so catch-up and the Console see the runs of every server.
 
 With the Process Runtime, the default `providerOutput: "auto"` emits no host Provider Output, so the process owns Static Schedule wakes. Set `providerOutput: "standalone"` or `"nitro"` to move Static Schedule wakes to that Provider Output. `providerOutput: false` records the same wake ownership as `"auto"` in this configuration.
 
-A custom long-running host can call `installProcessScheduleRuntime({ registry, scheduleRunStore })` from `@vite-hub/schedule/runtime/process`. Call and await `controller.close()` during shutdown. It waits for active runs and their `waitUntil()` work, then stops the timer. It does not delete Schedule Definitions or run history. The generated Nitro Process Runtime registers the same close operation with ViteHub shutdown. See [graceful shutdown](../runtime/README.md).
+A custom long-running host can call `installProcessScheduleRuntime({ registry, scheduleRunStore, leases })` from `@vite-hub/schedule/runtime/process`. Pass the same shared `LeaseStore` to every process. Without `leases`, it uses `createMemoryLeaseStore()`, which is for one process only. Call and await `controller.close()` during shutdown. It waits for active runs and their `waitUntil()` work, then stops the timer. It does not delete Schedule Definitions or run history. The generated Nitro Process Runtime registers the same close operation with ViteHub shutdown. See [graceful shutdown](../runtime/README.md).
 
 ## Choose storage
 

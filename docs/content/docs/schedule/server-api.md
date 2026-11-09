@@ -131,11 +131,15 @@ The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it y
 
 ```ts [server/schedule-runtime.ts]
 import registry from '#vitehub/schedule/registry'
+import { createSqlLeaseStore } from '@vite-hub/runtime'
 import { createKVScheduleRunStore } from '@vite-hub/schedule/runtime'
 import { scheduleKVStorage } from '@vite-hub/schedule/runtime/kv'
 import { installProcessScheduleRuntime } from '@vite-hub/schedule/runtime/process'
+import postgres from 'postgres'
 
+const sql = postgres(process.env.DATABASE_URL!)
 const controller = await installProcessScheduleRuntime({
+  leases: createSqlLeaseStore({ dialect: 'postgresql', query: (text, params) => sql.unsafe(text, params) }),
   onError: error => console.error(error),
   registry,
   scheduleRunStore: createKVScheduleRunStore({ kvStore: scheduleKVStorage }),
@@ -152,6 +156,8 @@ process.once('SIGTERM', () => void controller.close())
 | `intervalMs` | `number` | `60_000` | Milliseconds between two checks, from 1 to 60000. |
 | `concurrency` | `number` | `1` | Maximum number of runs at the same time. |
 | `catchUpMs` | `number` | One hour | How far back the runtime runs minutes that no process checked. `0` disables catch-up. |
+| `leases` | `LeaseStore` | `createMemoryLeaseStore()` | Where processes claim each occurrence, so one process runs it. Give every process the same shared store. The memory store works for one process only. |
+| `leaseTtlMs` | `number` | `60_000` | Milliseconds that a process holds an occurrence after it stops renewing it, for example after a crash. Then another process runs it, unless a process finished it. |
 
 Call `controller.close()` during shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.
 

@@ -876,6 +876,7 @@ describe("vitehub", () => {
       providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
+      databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/_internal/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),

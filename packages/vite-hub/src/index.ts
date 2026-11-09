@@ -1428,6 +1428,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
+      databaseImport: "vite-hub/database/drizzle",
       importBase: `${generatedImportBase}/schedule`,
       providerImportAliases,
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,

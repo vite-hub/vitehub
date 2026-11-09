@@ -29,15 +29,32 @@ export default defineConfig({
 | `cron` | `Record<string, string>` | Each Schedule's own cron | Cron per Schedule name for this build's host. See [Run a Schedule on another cron on one host](#run-a-schedule-on-another-cron-on-one-host). |
 | `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output for the build's host. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
-| `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), and `concurrency` (default `1`). |
+| `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), `concurrency` (default `1`), `catchUpMs` (default one hour), and `leaseTtlMs` (default `60_000`). |
 
 Use `createScheduleNitroConfig()` when a Nitro integration owns config merging and needs Schedule to return Nitro-ready provider output.
 
 The Process Runtime imports the discovered registry and runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()` under the Schedule prefix, reports errors through Nitro, and stops during Nitro shutdown. It scans once per minute with one concurrent run unless configured otherwise, and `intervalMs` cannot exceed the one-minute cron resolution. Each scan checks every minute since the previous scan, so a late timer does not skip a minute. After a restart, the runtime runs the due minutes that no process checked, such as a minute during a deploy, for each Schedule that already has a run. It looks back at most one hour (`installProcessScheduleRuntime({ catchUpMs })`, `0` disables it). Run ids are deterministic, so a minute that already ran does not run again. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
 
 ::warning
-The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
+Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
 ::
+
+### Run on more than one server
+
+Every server checks every Schedule, and one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `schedule/<run id>` in the `vitehub_leases` table of the Default Database. The other servers skip the occurrence and try again at their next scan. This works on Postgres and libSQL.
+
+| Case | What happens |
+| --- | --- |
+| The run works for a long time | The server renews its lease every third of `leaseTtlMs`. |
+| The run ends | The server writes a done marker, `schedule/<run id>/done`, and frees the lease. The marker lasts for `catchUpMs` plus `leaseTtlMs` plus two minutes, so catch-up on another server does not run the occurrence again. |
+| The handler fails | The run is final, as on one server. No server retries it. |
+| The server stops during the run | Its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless a done marker exists. The run gets a new attempt, and the stopped attempt is marked as failed. |
+| A started Schedule is due | Each occurrence takes the same lease, so one server runs it. |
+| A manual run | The server that gets the request runs it once. Each manual run has its own run id. |
+
+Without a Database, the leases stay in the memory of each server, and the build prints a warning. Then each server runs every occurrence, so run one server only. The Schedule Runs stay in KV. Use a KV store that all servers share, such as Upstash, so catch-up, `vitehub schedule runs`, and the Console see the runs of every server.
+
+Inspect the leases with SQL, for example `select "key", owner, expires_at from vitehub_leases where "key" like 'schedule/%'`. `owner` is the host name and process ID of the server.
 
 ## Run a Schedule on another cron on one host
 

@@ -19,6 +19,8 @@ export interface ProcessWakeContext {
   /** Newest cron-triggered run time, `undefined` when none exists, or `"unknown"` to check the full catch-up window when legacy history is inconclusive. */
   latestScheduledAt?(scheduleId: string): Promise<Date | "unknown" | undefined>
   reportError(error: unknown): void
+  /** Occurrences to wake again at each scan, such as ones that another process held. */
+  retries?(): readonly ProcessScheduleWake[]
   wake(input: ProcessScheduleWake): Promise<void>
 }
 
@@ -260,8 +262,11 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
     return due.sort((left, right) => left.scheduledAt.getTime() - right.scheduledAt.getTime())
   })
 
-  /** Queues occurrences that are not queued or running yet. The current minute dispatches each Schedule once. */
-  const queueOccurrences = (due: readonly ProcessScheduleWake[], currentMinute: number) =>
+  /**
+   * Queues occurrences that are not queued or running yet. The current minute dispatches each Schedule once, except
+   * `retries`, which a previous dispatch asked for.
+   */
+  const queueOccurrences = (due: readonly ProcessScheduleWake[], currentMinute: number, retries: readonly ProcessScheduleWake[] = []) =>
     Ref.modify(state, (current) => {
       if (current.closed || current.closing) return [[] as ProcessScheduleWake[], current] as const
       // A wall-clock correction can move the process into an earlier minute. Do not
@@ -276,6 +281,13 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
           : new Set<string>()
       const queued = new Map(current.queued)
       const occurrences: ProcessScheduleWake[] = []
+      for (const input of retries) {
+        const key = occurrenceKey(input)
+        if (queued.has(key) || current.active.has(key)) continue
+        if (input.scheduledAt.getTime() === currentMinute) dispatched.add(input.scheduleId)
+        queued.set(key, input)
+        occurrences.push(input)
+      }
       for (const input of due) {
         const key = occurrenceKey(input)
         if (queued.has(key) || current.active.has(key)) continue
@@ -305,7 +317,8 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
       ? currentMinute
       : Math.min(currentMinute, Math.max(snapshot.scannedThrough + minuteMs, currentMinute - options.catchUpMs))
     const due = yield* dueOccurrences(snapshot.schedules.values(), first, currentMinute)
-    return yield* queueOccurrences(due, currentMinute)
+    const retries = yield* wrapBoundary(() => options.context.retries?.() ?? [])
+    return yield* queueOccurrences(due, currentMinute, retries)
   })
 
   // After a restart, dispatch the minutes that no process checked: those after each Schedule's
@@ -438,7 +451,7 @@ export interface ProcessWakeDriver {
 
 const DEFAULT_INTERVAL_MS = 60_000
 const DEFAULT_CONCURRENCY = 1
-const DEFAULT_CATCH_UP_MS = 60 * 60_000
+export const DEFAULT_CATCH_UP_MS = 60 * 60_000
 
 function validateDriverOptions(options: ProcessWakeDriverOptions): { catchUpMs: number, concurrency: number, intervalMs: number } {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
