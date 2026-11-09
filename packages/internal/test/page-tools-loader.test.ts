@@ -237,6 +237,27 @@ describe("loadViteHubPageTools", () => {
     menu.remove()
   })
 
+  it("stays folded when the person drops the folded mark somewhere else", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    document.body.append(menu)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    vi.spyOn(document, "elementsFromPoint").mockReturnValue([menu, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    // What a drop of the mark stores, then the pointerup that ends the drag.
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "right", at: 40 }))
+    document.dispatchEvent(new PointerEvent("pointerup"))
+    vi.advanceTimersByTime(250)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    vi.useRealTimers()
+    menu.remove()
+  })
+
   it("keeps the place where the person docked the pill, even over the page's floating control", async () => {
     page("/?vitehub")
     localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "bottom", at: 50 }))

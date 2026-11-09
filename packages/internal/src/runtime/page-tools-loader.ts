@@ -151,7 +151,13 @@ function asideOf(dock: ViteHubPageToolsDock): ViteHubPageToolsDock {
 function watchPageAsk(change: () => void, signal: AbortSignal): void {
   let asked = pageAsksForMark()
   const check = () => {
+    const was = crowded
     crowded = pageControlAtPillPlace()
+    // A drop of the folded mark ends the avoidance: the pill stays as the person sees it, folded, instead of opening.
+    if (was && !crowded && storedViteHubPageDock(dockKey) && document.querySelector("vitehub-pill")?.hasAttribute("collapsed")) {
+      try { localStorage.setItem(collapsedKey, "1") }
+      catch {}
+    }
     if (pageAsksForMark() === asked) return
     asked = !asked
     change()
