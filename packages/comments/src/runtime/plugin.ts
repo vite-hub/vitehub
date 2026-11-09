@@ -2,9 +2,8 @@ import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 
 import { installComments } from "../index.ts"
-import { normalizeCommentPage } from "../page.ts"
 import { commentsMcpTools } from "./mcp.ts"
-import { resolveCommentsIdentity } from "./session.ts"
+import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { H3Event } from "h3"
 import type { Comments, InstallCommentsOptions } from "../index.ts"
@@ -89,7 +88,8 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         if (identity === false) return false
         const { user, gate } = identity
         const page = new URL(request.url).searchParams.get("page")
-        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+        // SAFETY: as above, the H3 event of the page tools session route.
+        const subject = page ? (await resolveCommentsPage(options.comments, event as H3Event, request, page)).subject : undefined
         return await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)
           || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
       },

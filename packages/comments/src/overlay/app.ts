@@ -167,8 +167,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   shadow.replaceChildren(style(shadowCss(overlayStyles)), root)
 
   const page = ref(normalizeCommentPage(location.pathname))
-  /** The server decides the subject of a page. Until it answers, it is the page itself. */
+  /** The server decides the subject of a page. Without its answer, it is the page itself. */
   const subject = shallowRef<CommentSubject>(session?.subject ?? { kind: "page", id: page.value })
+  /**
+   * After a navigation, until the server names the subject of the new page. The overlay then shows no threads and
+   * starts no comment, so a draft is not lost when the subject changes.
+   */
+  const resolving = ref(false)
+  /** Whether comment mode was on when the navigation started, so it comes back once the subject is known. */
+  let paused = false
   const search = ref(location.search)
   const toast = shallowRef<Toast>()
   const panelOpen = ref(false)
@@ -269,6 +276,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   let state!: ReturnType<typeof useComments>
 
   function setMode(next: Mode) {
+    if (resolving.value && next !== "edit") {
+      paused = next === "comment" && canComment
+      return
+    }
     if (next === "comment") {
       if (!canComment) return
       if (needsName.value) {
@@ -385,7 +396,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** The text that the reader selected on the page, when they may comment on it. */
   function pageSelection(): Selection | undefined {
     const selection = getSelection()
-    if (!canComment || editing.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
+    if (!canComment || editing.value || resolving.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
     const container = selection.getRangeAt(0).commonAncestorContainer
     const element = container instanceof Element ? container : container.parentElement
     if (!element?.isConnected || ignored(element) || element.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return
@@ -512,7 +523,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
       return () => {
         const nodes: Array<VNode | null> = []
-        if (session?.can.read) {
+        if (session?.can.read && !resolving.value) {
           nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors" }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
@@ -530,7 +541,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               onMousedown: (event: MouseEvent) => event.preventDefault(),
             }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: commentOnSelection }, [commentIcon(), "Comment"])))
           }
-          if (panelTarget.value) {
+          if (panelTarget.value && !resolving.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
               key: page.value,
               comments: state,
@@ -678,12 +689,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
       if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
       page.value = next
-      subject.value = { kind: "page", id: next }
       search.value = location.search
       panelThread.value = null
+      // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
+      paused = paused || state.active.value
+      state.active.value = false
+      resolving.value = true
       void api.session(next).then(([error, answer]) => {
-        const mapped = answer?.subject
-        if (!error && mapped && page.value === next && (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id)) subject.value = mapped
+        if (page.value !== next) return
+        const mapped = !error && answer.subject ? answer.subject : { kind: "page", id: next }
+        if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
+        resolving.value = false
+        state.active.value = paused
+        paused = false
       })
       // The state lists the threads of the new page. The page then joins its room.
       leaveRoom()

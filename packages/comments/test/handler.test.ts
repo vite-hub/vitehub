@@ -473,12 +473,14 @@ describe("Comments API", () => {
       { subject: { kind: "page", id: "/d/abc" }, anchor, context, body: "Page" },
       { page: "/d/abc", anchor, context, body: "Page" },
       { subject: { kind: "drop", id: "xyz" }, anchor, context, body: "Other drop" },
-      { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Old revision", revision: 2 },
     ]) {
       const refused = await call("/threads", { method: "POST", json })
       expect([refused.response.status, refused.body.error?.code]).toEqual([400, "COMMENTS_INVALID_INPUT"])
     }
-    expect((await call("/threads?subjectKind=drop&subjectId=abc")).body.data).toHaveLength(1)
+    // The revision of the page subject wins over one that the overlay sent.
+    const old = await call("/threads", { method: "POST", json: { subject: { kind: "drop", id: "abc" }, anchor, context, body: "Old revision", revision: 2 } })
+    expect(old.body.data).toMatchObject({ subject: { kind: "drop", id: "abc" }, revision: 3 })
+    expect((await call("/threads?subjectKind=drop&subjectId=abc")).body.data).toHaveLength(2)
 
     // Field edits check the policy on the subject of the page.
     expect((await call(`/fields?page=/d/abc&field=${encodeURIComponent("about#hero.title")}`)).response.status).toBe(200)

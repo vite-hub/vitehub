@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineCommentSubject } from "../src/operations-core/define.ts"
-import { readGuest, saveGuest } from "../src/overlay/api.ts"
+import { api, readGuest, saveGuest } from "../src/overlay/api.ts"
 import { clickPage, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 import type { CommentsUser, ElementAnchor } from "../src/types.ts"
@@ -381,6 +381,39 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=drop&subjectId=abc"))).toBe(true))
     history.pushState(null, "", "/plain")
     await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=page&subjectId=%2Fplain"))).toBe(true))
+  })
+
+  it("starts no comment and lists no threads until the server names the subject of the new page", async () => {
+    let answer!: () => void
+    const answered = new Promise<void>((resolve) => { answer = resolve })
+    const session = api.session
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      if (page === "/d/abc") await answered
+      return await session(page)
+    })
+    const { shadow, comments, requests } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+    })
+    press(document.body, "c")
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull())
+    press(document.querySelector("h1")!, "Enter")
+    press(document.body, "c")
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(composer(shadow, "Comment")).toBeNull()
+    answer()
+    // Comment mode comes back on the drop, and a comment typed now stays.
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "On abc")
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(composer(shadow, "Comment")!.value).toBe("On abc")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.subject).toEqual({ kind: "drop", id: "abc" })
+    expect(requests.some(request => request.path.includes("subjectId=%2Fd%2Fabc"))).toBe(false)
   })
 
   it("lists the page's threads in the pill's window with Open and Resolved", async () => {
