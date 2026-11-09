@@ -54,7 +54,7 @@ Both functions throw a [definition error](#errors) when `SKILL.md`, its `name`, 
 
 ## Serve Agent Skills Discovery
 
-`serveSkills(request, skills)` answers a request below `/.well-known/agent-skills/` or `/.well-known/skills/`, and returns `undefined` for every other path. In Nitro or Nuxt with H3 v2, a middleware passes other requests on:
+`serveSkills(request, skills)` answers a request below `/.well-known/agent-skills/` or `/.well-known/skills/`, and returns `undefined` for every other path. In Nitro or Nuxt, a middleware passes other requests on:
 
 ```ts [server/middleware/skills.ts]
 import { defineHandler } from 'h3'
@@ -63,8 +63,6 @@ import { skills } from '../skills'
 
 export default defineHandler(event => serveSkills(event.req, skills))
 ```
-
-With H3 v1, such as Nuxt 4, pass `toWebRequest(event)` instead of `event.req`.
 
 Then an agent installs a skill from the site URL:
 

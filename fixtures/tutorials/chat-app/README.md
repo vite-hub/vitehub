@@ -22,7 +22,7 @@ Open `http://127.0.0.1:4318`. Read `CHAT_PASSWORD` from `.env` and sign in. Sele
 
 `setup` creates random local credentials with file mode `0600`. It refuses to replace an existing `.env`. Nuxt loads `.env` in development. The production start command uses Node's `--env-file` option. Keep `.env` out of source control.
 
-The Nuxt config sets `buildDir: ".nuxt"` so Nitro transforms the generated TypeScript. The pinned Nitro version skips TypeScript under `node_modules`, which contains Nuxt's default build directory.
+The Nuxt config sets `buildDir: ".nuxt"` to keep the generated TypeScript inside the project.
 
 ## Check the app
 

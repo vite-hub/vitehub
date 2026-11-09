@@ -58,8 +58,7 @@ Both surfaces redact credentials in URLs, bearer tokens, and secret assignments 
 | Host | `vitehub schedule` | Console Schedules page |
 | --- | --- | --- |
 | Vite + Nitro | Supported. The commands call the Console RPC of the dev server, which runs in the Nitro dev environment. | Definitions and a run action. |
-| Nuxt with Nitro 3 | Supported. Nitro runs in the Vite process, so the commands work as on Vite + Nitro. Use `--url http://localhost:3000` when the dev server file is not found. | Definitions and a run action. |
-| Nuxt with Nitro 2 | Not supported. Nitro does not run in the Vite process. | Definitions. |
+| Nuxt | Supported. Nitro runs in the Vite process, so the commands work as on Vite + Nitro. Use `--url http://localhost:3000` when the dev server file is not found. | Definitions and a run action. |
 | Plain Vite without Nitro | Not supported. There is no Console RPC to call. | Not available. |
 | Deployed runtime | `vitehub schedule runs` and `attempts` call the Console with `--url` and Console credentials. `schedule run --url` needs `console.invoke`, and signs with `VITEHUB_DISPATCH_KEY` when it is set. | Definitions, when the Console is enabled. |
 

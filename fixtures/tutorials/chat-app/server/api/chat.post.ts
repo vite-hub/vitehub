@@ -35,14 +35,11 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 503, statusMessage: "Set AI_GATEWAY_API_KEY on the server." });
   }
 
-  const response = event.node?.res;
-  if (!response) throw createError({ statusCode: 500, statusMessage: "This route requires a Node response." });
-
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
   const controller = new AbortController();
-  const abort = () => { if (!response.writableEnded) controller.abort(); };
-  response.once("close", abort);
+  const abort = () => controller.abort();
+  event.req.signal.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
   activeChats.add(id);
@@ -75,7 +72,7 @@ export default defineEventHandler(async (event) => {
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
         clearTimeout(timeout);
-        response.off("close", abort);
+        event.req.signal.removeEventListener("abort", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }

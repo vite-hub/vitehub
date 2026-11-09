@@ -32,7 +32,7 @@ export const SandboxLanding = {
     const dependencies = {
       vite: { "@vite-hub/sandbox": "latest", "@vercel/sandbox": "latest", "vite-hub": "latest", vite: "latest", nitro: "latest" },
       nitro: { "@vite-hub/sandbox": "latest", "@vercel/sandbox": "latest", "vite-hub": "latest", vite: "latest", nitro: "latest" },
-      nuxt: { "@vite-hub/sandbox": "latest", "@vercel/sandbox": "latest", nuxt: "latest", "vite-hub": "latest" },
+      nuxt: { "@vite-hub/sandbox": "latest", "@vercel/sandbox": "latest", nuxt: "npm:nuxt-nightly@5x", "vite-hub": "latest" },
     }[variant.framework];
     const packageFile: PrimitiveProjectFile = {
       path: "package.json",

@@ -51,7 +51,7 @@ export const SourceLanding = {
       framework: "nuxt",
       label: "Nuxt",
       files: [
-        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "dev": "nuxt dev"\n  },\n  "dependencies": {\n    "nuxt": "^4.0.0",\n    "h3": "^1.15.4",\n    "vite-hub": "latest"\n  }\n}' },
+        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "dev": "nuxt dev"\n  },\n  "dependencies": {\n    "nuxt": "npm:nuxt-nightly@5x",\n    "h3": "2.0.8",\n    "vite-hub": "latest"\n  }\n}' },
         {
           path: "nuxt.config.ts",
           language: "typescript",

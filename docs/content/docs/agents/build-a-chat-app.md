@@ -76,7 +76,7 @@ The checkout already contains the finished files. Read and edit them as you foll
 
 The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
-Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project. The pinned Nitro version skips TypeScript transforms under `node_modules`, where this Nuxt version puts its default build directory.
+Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project.
 
 ```ts [nuxt.config.ts]
 import viteHub from "vite-hub/nuxt";
@@ -465,7 +465,7 @@ The streaming route accepts only a chat ID, the last saved revision, and one new
 
 The app calls `streamAgent`, which returns typed Agent events by default. It forwards text through an AI SDK UI message stream, waits for the Agent to finish, then saves the completed pair before sending the final transport event. The UI can therefore reload saved history when it receives completion. If saving fails, the stream reports an error.
 
-`getRuntimeContext` adapts the Nuxt request and its background lifetime. The wrapper consumes the full event stream and drains remaining work before finishing. This Node route also aborts the Invocation on a premature response close or after 60 seconds. It removes its listener and active-chat lock in `finally`.
+`getRuntimeContext` adapts the Nuxt request and its background lifetime. The wrapper consumes the full event stream and drains remaining work before finishing. The route also aborts the Invocation when the client disconnects or after 60 seconds. It removes its abort listener and active-chat lock in `finally`.
 
 ```ts [server/api/chat.post.ts]
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
@@ -505,14 +505,11 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 503, statusMessage: "Set AI_GATEWAY_API_KEY on the server." });
   }
 
-  const response = event.node?.res;
-  if (!response) throw createError({ statusCode: 500, statusMessage: "This route requires a Node response." });
-
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
   const controller = new AbortController();
-  const abort = () => { if (!response.writableEnded) controller.abort(); };
-  response.once("close", abort);
+  const abort = () => controller.abort();
+  event.req.signal.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
   activeChats.add(id);
@@ -545,7 +542,7 @@ export default defineEventHandler(async (event) => {
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
         clearTimeout(timeout);
-        response.off("close", abort);
+        event.req.signal.removeEventListener("abort", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }
