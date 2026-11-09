@@ -48,7 +48,7 @@ describe("Comments in a built Nitro 3 app", () => {
     const generate = await runCli(root, app(), ["db", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrations = join(root, "server/databases/migrations")
+    const migrations = join(root, "server/databases/default/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `vitehub_comment_counters`", "CREATE TABLE `vitehub_comment_forge`", "CREATE TABLE `vitehub_comment_messages`", "CREATE TABLE `vitehub_comment_threads`"])
     const migrate = await runCli(root, app(), ["db", "migrate"])

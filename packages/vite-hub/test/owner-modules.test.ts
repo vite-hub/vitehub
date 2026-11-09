@@ -19,8 +19,8 @@ it.each(["cts", "cjs"])("checks Content and all implicit CMS owners through a re
   const root = await mkdtemp(join(tmpdir(), "vitehub-optional-cms-"))
   try {
     await mkdir(join(root, "server"))
-    await writeFile(join(root, `server/content.${extension}`), 'export { content } from "./definition"\n')
-    await writeFile(join(root, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport const content = { extends: cms }\n')
+    await writeFile(join(root, `server/content.${extension}`), 'export { default } from "./definition"\n')
+    await writeFile(join(root, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport default { extends: cms }\n')
     await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin()] }, "build")
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["content", "cms", "database", "workspace"])
   }

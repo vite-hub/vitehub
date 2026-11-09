@@ -36,7 +36,7 @@ const blob = {
 const database = drizzle(createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }), { schema: workspaceHistorySchema })
 registerWorkspace("site", { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "site" }) })
 
-export const content = defineContent({
+export default defineContent({
   workspace: "site",
   collections: { posts: documents({ path: "posts/**/*.md", fields: { title: v.string() } }) },
   logger: false,
@@ -49,7 +49,7 @@ export const content = defineContent({
  */
 export function contentRoutes(contentImport: string, handler = (code: string) => code): Array<[string, string]> {
   const page = (delay: number) => `
-import { content } from ${JSON.stringify(contentImport)}
+import content from ${JSON.stringify(contentImport)}
 
 let renders = 0
 export default ${handler(`async () => {
@@ -62,7 +62,7 @@ export default ${handler(`async () => {
     ["routes/page.ts", page(0)],
     ["routes/slow.ts", page(300)],
     ["routes/seed.post.ts", `
-import { content } from ${JSON.stringify(contentImport)}
+import content from ${JSON.stringify(contentImport)}
 
 export default ${handler(`async () => {
   const posts = content.collection("posts")
@@ -75,7 +75,7 @@ export default ${handler(`async () => {
 }`)}
 `],
     ["routes/preview.post.ts", `
-import { content } from ${JSON.stringify(contentImport)}
+import content from ${JSON.stringify(contentImport)}
 
 export default ${handler(`async event => await content.preview.enable(event)`)}
 `],
@@ -200,7 +200,7 @@ export async function expectPreviewBypassesCache(server: BuiltServer, expect: ty
  * redirect hop answers with, so a browser run sees what every hop read and which cookies it got.
  */
 const framePage = `
-import { content } from "./content.ts"
+import content from "./content.ts"
 
 const escape = value => String(value ?? "").replace(/[&<>"]/g, character => "&#" + character.charCodeAt(0) + ";")
 
@@ -280,7 +280,7 @@ export function nitro3FrameRoutes(contentImport: string): Array<[string, string]
   const redirect = (location: string) => `export default () => new Response(null, { status: 302, headers: { location: ${JSON.stringify(location)} } })\n`
   return [
     ["frame-page.ts", framePage],
-    ["routes/sign.post.ts", `import { content } from ${JSON.stringify(contentImport)}\n\nexport default async () => await content.preview.sign({ collection: "posts", id: "hello" })\n`],
+    ["routes/sign.post.ts", `import content from ${JSON.stringify(contentImport)}\n\nexport default async () => await content.preview.sign({ collection: "posts", id: "hello" })\n`],
     ["routes/frame-page.ts", `import { page } from "../frame-page.ts"\n\nexport default async event => ${html(`await page(event.req.headers.get("cookie"))`)}\n`],
     ["routes/account.ts", `import { page } from "../frame-page.ts"\n\nexport default async (event) => {\n  const cookie = event.req.headers.get("cookie") ?? ""\n  if (!cookie.includes("session=")) return new Response("Sign in first", { status: 401 })\n  return ${html("await page(cookie)")}\n}\n`],
     ["routes/go.ts", redirect("/frame-page?from=go#intro")],
@@ -299,7 +299,7 @@ export function nitro2FrameRoutes(contentImport: string): Array<[string, string]
   const html = `setResponseHeader(event, "content-type", "text/html; charset=utf-8")`
   return [
     ["frame-page.ts", framePage],
-    ["routes/sign.post.ts", `import { content } from ${JSON.stringify(contentImport)}\n\nexport default defineEventHandler(async () => await content.preview.sign({ collection: "posts", id: "hello" }))\n`],
+    ["routes/sign.post.ts", `import content from ${JSON.stringify(contentImport)}\n\nexport default defineEventHandler(async () => await content.preview.sign({ collection: "posts", id: "hello" }))\n`],
     ["routes/frame-page.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  ${html}\n  return await page(getHeader(event, "cookie"))\n})\n`],
     ["routes/account.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  if (!getCookie(event, "session")) throw createError({ statusCode: 401, statusMessage: "Sign in first" })\n  ${html}\n  return await page(getHeader(event, "cookie"))\n})\n`],
     ["routes/go.ts", redirect("/frame-page?from=go#intro")],

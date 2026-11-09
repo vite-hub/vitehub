@@ -35,7 +35,7 @@ export const contentDefinition = [
   "import cms from 'vite-hub/cms'",
   "import * as v from 'valibot'",
   "",
-  "export const content = defineContent({",
+  "export default defineContent({",
   "  extends: cms,",
   "  collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: v.string() } }) },",
   "  logger: false,",
@@ -44,7 +44,7 @@ export const contentDefinition = [
 ].join("\n")
 
 export const server = [
-  "import { content } from '../server/content'",
+  "import content from '../server/content'",
   "",
   "export async function run(id: string) {",
   "  const posts = content.collection('posts')",

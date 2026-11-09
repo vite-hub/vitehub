@@ -672,7 +672,7 @@ export default defineWorkflow(async ({ payload, steps }) => {
 
 **Use a valid portable cron expression.** Rule `vitehub/valid-schedule-cron`.
 
-`defineSchedule()` checks only that the cron has five fields. The rule checks a literal cron in `defineSchedule({ cron })` or `defineSchedule(cron, handler)`:
+`defineSchedule()` checks only that the cron has five fields. The rule checks a literal cron in `defineSchedule({ cron })`:
 
 - each value is in its range: minute 0-59, hour 0-23, day of month 1-31, month 1-12, day of week 0-7
 - ranges do not run backwards, and steps are positive numbers

@@ -45,7 +45,7 @@ async function createLayeredApp() {
   }
   return {
     appDir,
-    layerDefinition: (name: string) => join(layerDir(name), "server/databases/config.ts"),
+    layerDefinition: (name: string) => join(layerDir(name), "server/databases/default.ts"),
     options,
     serverDirs: resolveNuxtServerDirs(options)!,
   }
@@ -90,12 +90,12 @@ describe("Database Definitions in Nuxt layers", () => {
 
     expect((await inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs }))[0]?.fields).toContainEqual({
       label: "Schema sources",
-      value: "../layers/blog/server/databases/config.ts, ../layers/accounts/server/databases/config.ts",
+      value: "../layers/blog/server/databases/default.ts, ../layers/accounts/server/databases/default.ts",
     })
 
     const { config, files, sql } = await generateMigration(app.appDir, app.serverDirs)
 
-    expect(config.databases.default!.migrationsDir).toBe("server/databases/migrations")
+    expect(config.databases.default!.migrationsDir).toBe("server/databases/default/migrations")
     expect(files).toHaveLength(1)
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `posts`", "CREATE TABLE `users`"])
     const schema = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
@@ -147,7 +147,7 @@ describe("Database Definitions in Nuxt layers", () => {
       ])
     }
     // postgres.js connects on the first query, so the client exists without a server.
-    await writeModule(join(app.appDir, "server/databases/config.ts"), [
+    await writeModule(join(app.appDir, "server/databases/default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({ dialect: 'postgresql', connection: { url: 'postgres://user:password@127.0.0.1:1/app' }, schema: {} })",
     ])
@@ -182,7 +182,7 @@ describe("Database Definitions in Nuxt layers", () => {
         `export default defineDatabase({ dialect: 'postgresql', schema: { ${table} } })`,
       ])
     }
-    await writeModule(join(app.appDir, "server/databases/config.ts"), [
+    await writeModule(join(app.appDir, "server/databases/default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({ dialect: 'postgresql', connection: { url: 'postgres://user:password@127.0.0.1:1/app' }, schema: {} })",
     ])
@@ -246,7 +246,7 @@ describe("Database Definitions in Nuxt layers", () => {
 
   it("lets the application set options and replace a layer table", async () => {
     const app = await createLayeredApp()
-    const appDefinition = join(app.appDir, "server/databases/config.ts")
+    const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
@@ -275,15 +275,16 @@ describe("Database Definitions in Nuxt layers", () => {
 
   it("generates the tables of a layer that spreads an imported schema", async () => {
     const app = await createLayeredApp()
-    const blogDir = dirname(app.layerDefinition("blog"))
-    await writeModule(join(blogDir, "tables.ts"), [
+    // A Definition imports its tables from outside `server/databases/`, where every file is a Database.
+    const blogDir = dirname(dirname(app.layerDefinition("blog")))
+    await writeModule(join(blogDir, "utils", "tables.ts"), [
       "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "export const posts = sqliteTable('posts', { id: integer('id').primaryKey(), title: text('title').notNull() })",
       "export const comments = sqliteTable('comments', { id: integer('id').primaryKey(), postId: integer('post_id') })",
     ])
     await writeModule(app.layerDefinition("blog"), [
       "import { defineDatabase } from '@vite-hub/database'",
-      "import * as tables from './tables.ts'",
+      "import * as tables from '../utils/tables.ts'",
       "export default defineDatabase({ schema: { ...tables } })",
     ])
 
@@ -309,7 +310,7 @@ describe("Database Definitions in Nuxt layers", () => {
       "const posts = sqliteTable('posts', { id: integer('id').primaryKey() })",
       "export default defineDatabase({ connection: { url: 'file:.data/blog.db' }, schema: { posts } })",
     ])
-    const appDefinition = join(app.appDir, "server/databases/config.ts")
+    const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({ drizzle: { casing: 'snake_case' }, schema: {} })",
@@ -337,7 +338,7 @@ describe("Database Definitions in Nuxt layers", () => {
       "const options = { connection: { url: 'file:.data/blog.db' }, schema: { posts } }",
       "export default defineDatabase(options)",
     ])
-    const appDefinition = join(app.appDir, "server/databases/config.ts")
+    const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({ drizzle: { casing: 'snake_case' }, schema: {} })",
@@ -356,7 +357,7 @@ describe("Database Definitions in Nuxt layers", () => {
       "const posts = sqliteTable('posts', { id: integer('id').primaryKey() })",
       "export default defineDatabase({ connection: { url: 'file:.data/blog.db' }, schema: { posts } })",
     ])
-    const appDefinition = join(app.appDir, "server/databases/config.ts")
+    const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
       "const options = { drizzle: { casing: 'snake_case' as const }, schema: {} }",
@@ -381,7 +382,7 @@ describe("Database Definitions in Nuxt layers", () => {
       `More than one Nuxt layer declares the table "users" in the database "default":\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
     )
 
-    await writeModule(join(app.appDir, "server/databases/config.ts"), [
+    await writeModule(join(app.appDir, "server/databases/default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'",
       "const users = sqliteTable('users', { id: integer('id').primaryKey() })",
@@ -401,7 +402,7 @@ describe("Database Definitions in Nuxt layers", () => {
       `More than one Nuxt layer sets options for the database "default".\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
     )
 
-    const appDefinition = join(app.appDir, "server/databases/config.ts")
+    const appDefinition = join(app.appDir, "server/databases/default.ts")
     await writeModule(appDefinition, [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({ connection: { url: 'file:.data/app.db' }, schema: {} })",

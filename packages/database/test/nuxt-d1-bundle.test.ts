@@ -23,7 +23,7 @@ describe("Nuxt D1 HTTP bundles", () => {
     const hooks: Array<(config: Record<string, unknown>) => void | Promise<void>> = []
     try {
       await symlink(join(packageRoot, "node_modules"), join(root, "node_modules"), "dir")
-      const definition = join(root, "server/databases/config.ts")
+      const definition = join(root, "server/databases/default.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, [
         `import { defineDatabase } from ${JSON.stringify(join(packageRoot, "src/index.ts"))}`,
@@ -72,7 +72,7 @@ describe("D1-only runtime classification", () => {
   ])("keeps libSQL for a definition that can override HTTP: %s", async (properties) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-d1-dynamic-"))
     try {
-      const file = join(root, "server/databases/config.ts")
+      const file = join(root, "server/databases/default.ts")
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, `export default defineDatabase({ ${properties}, schema: {} })`)
       const config = resolveDBViteConfig(undefined, root)!

@@ -21,7 +21,7 @@ database with its own migration history.
 Set `preset: 'cloudflare'` and `database: true` in the existing ViteHub config.
 Add this literal `cloudflare` block to the tutorial's Database Definition:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 

@@ -77,6 +77,6 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0014` | Invalid [`vitehub content`](/docs/content/cli) arguments, such as a missing collection, `--id` without `--collection`, `schedule` without `--at`, or `edit` without `--file` and without an interactive terminal. | Run the command with `--help`. |
 | `CONTENT_R0016` | `schedule()` ran on a Workspace on the GitHub store, which keeps no schedules. | Use `content.publish()`, or the Blob + Database store. See [GitHub store](/docs/cms/configure#github-store). |
 | `CONTENT_R0017` | `publish()` on the GitHub store with `publish: 'pr'` named a document that an open publish pull request already covers. | Merge or close the pull request that the message names, then publish again. See [Pull request mode](/docs/cms/configure#pull-request-mode). |
-| `CONTENT_UNDEFINED` | `vitehub content` reached a Content file that does not export a `defineContent()` runtime named `content`. | Export `content` from `server/content.ts`. |
+| `CONTENT_UNDEFINED` | `vitehub content` reached a Content file that does not default-export a `defineContent()` runtime. | Write `export default defineContent({ ... })` in `server/content.ts`. |
 | `CONTENT_PUBLISH_UNCONFIRMED` | `vitehub content publish` or `schedule` ran without an interactive terminal and without `--yes`. | Pass `--yes`, or `--dry-run` to only list the changes. |
 | `CONTENT_DEV_RUNTIME_UNAVAILABLE` | The Development Server does not run Nitro in the Vite process, as with Nuxt or plain Vite. | Run the commands against a Vite + Nitro app. |

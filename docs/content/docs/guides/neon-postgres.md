@@ -26,10 +26,10 @@ for the first check.
 
 ## Define a Postgres table
 
-Create `server/databases/config.ts`. If you already have a default Definition,
+Create `server/databases/default.ts`. If you already have a default Definition,
 change that file instead of adding a second one.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { pgTable, serial, text } from 'drizzle-orm/pg-core'
 

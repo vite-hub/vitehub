@@ -24,7 +24,7 @@ Set `url` on a collection or singleton to say where its documents are published.
 import { defineContent, documents, seo, singleton } from 'vite-hub/content'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
@@ -48,7 +48,7 @@ A read-only Source has no `url` until you give it one with `contentSource(input,
 import { contentSource, defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source/glob'
 
-export const content = defineContent({
+export default defineContent({
   source: contentSource(glob({ cwd: 'content', include: 'guides/*.md' }), { url: '/:id' }),
   seo: { sitemap: true },
 })
@@ -140,7 +140,7 @@ contentHead(await docs.get('guide', { locale: 'es' }), { site: { url: 'https://v
 Turn on the routes in `defineContent()`:
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: { posts, home },
   seo: { site: 'https://vitehub.dev', sitemap: true, robots: { disallow: ['/_vitehub'] } },

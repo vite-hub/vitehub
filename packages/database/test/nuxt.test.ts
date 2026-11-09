@@ -270,7 +270,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), [
+      await writeFile(join(rootDir, "server/databases/default.ts"), [
         "import { defineDatabase } from '@vite-hub/database'",
         "import { pgTable, text } from 'drizzle-orm/pg-core'",
         "export default defineDatabase({",
@@ -406,8 +406,8 @@ describe("Database Nuxt integration", () => {
     ["binding only", "cloudflare: { binding: 'DB' },"],
   ])("materializes discovered migrations with %s Cloudflare settings in Nitro's output", async (_label, cloudflare) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-migrations-"))
-    const definition = join(rootDir, "server/databases/config.ts")
-    const migrationsDir = join(rootDir, "server/databases/migrations")
+    const definition = join(rootDir, "server/databases/default.ts")
+    const migrationsDir = join(rootDir, "server/databases/default/migrations")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -464,7 +464,7 @@ describe("Database Nuxt integration", () => {
     /** Runs the Database module, then Nitro 2's real Cloudflare preset, which merges the project file into its output. */
     async function writeWrangler(project: Record<string, unknown>, wrangler: Record<string, unknown> = {}, database: Record<string, unknown> = {}) {
       const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-wrangler-"))
-      const definition = join(rootDir, "server/databases/config.ts")
+      const definition = join(rootDir, "server/databases/default.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, 'import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ schema: {} })\n')
       await writeFile(join(rootDir, "wrangler.json"), JSON.stringify(project))
@@ -616,15 +616,17 @@ describe("Database Nuxt integration", () => {
 
   it.each([
     ["src/database.ts", "default"],
-    ["server/databases/config.ts", "default"],
-    ["server/databases/orders/config.ts", "orders"],
+    ["server/databases/default.ts", "default"],
+    ["server/databases/orders/index.ts", "orders"],
   ])("projects the D1 Definition at %s before Vite builds and stages its SQL", async (path, name) => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-d1-definition-"))
     const definition = join(rootDir, path)
-    const migrationsDir = join(dirname(definition), "migrations")
+    // `server/databases/<name>.ts` keeps its migrations in `server/databases/<name>/migrations/`.
+    const migrationsDir = path.startsWith("server/") ? join(rootDir, "server/databases", name, "migrations") : join(dirname(definition), "migrations")
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(migrationsDir, { recursive: true })
+      await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({
         name: ${JSON.stringify(name)},
         cloudflare: { binding: 'APP_DB', databaseId: 'app-id', databaseName: 'app-db', migrationsTable: 'app_migrations', previewDatabaseId: 'preview-id' },
@@ -683,7 +685,7 @@ describe("Database Nuxt integration", () => {
       for (const name of names) {
         const directory = join(projectRoot, `server/databases/${name}`)
         await mkdir(join(directory, "migrations"), { recursive: true })
-        await writeFile(join(directory, "config.ts"), `export default defineDatabase({ name: '${name}', cloudflare: { databaseName: '${name}-db' }, schema: {} })\n`)
+        await writeFile(join(directory, "index.ts"), `export default defineDatabase({ name: '${name}', cloudflare: { databaseName: '${name}-db' }, schema: {} })\n`)
         await writeFile(join(directory, "migrations/0001_initial.sql"), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
@@ -732,7 +734,7 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
       await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
-      const directory = join(rootDir, "server/databases")
+      const directory = join(rootDir, "server/databases/default")
       await mkdir(join(directory, "migrations"), { recursive: true })
       const definition = join(rootDir, "contributed.ts")
       await writeFile(definition, "export default defineDatabase({ schema: {} })")
@@ -756,13 +758,13 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  it.each(["absolute", "../../server/databases/migrations", ".", "nested/../../outside"])("rejects unsafe inherited migration target %s before copying", async (target) => {
+  it.each(["absolute", "../../server/databases/default/migrations", ".", "nested/../../outside"])("rejects unsafe inherited migration target %s before copying", async (target) => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unsafe-d1-"))
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
-      const source = join(rootDir, "server/databases/migrations")
+      const source = join(rootDir, "server/databases/default/migrations")
       await mkdir(source, { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })")
       await writeFile(join(source, "0001.sql"), "SELECT 1;")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
       await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
@@ -781,7 +783,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ dialect: 'postgresql', schema: {} })")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ dialect: 'postgresql', schema: {} })")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, modules: ["@nuxt/content"], vite: {} })
       await hubDb()(undefined, nuxt)
       // Content's Cloudflare preset turns its default SQLite store into the DB binding.
@@ -805,7 +807,7 @@ describe("Database Nuxt integration", () => {
         const directory = join(rootDir, `server/databases/${name}`)
         await mkdir(join(directory, "migrations"), { recursive: true })
         const cloudflare = name === "default" ? "" : "cloudflare: { binding: 'DB_ANALYTICS', databaseId: 'analytics-id', databaseName: 'analytics-db' },"
-        await writeFile(join(directory, "config.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
+        await writeFile(join(directory, "index.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
         await writeFile(join(directory, `migrations/0001_${name}.sql`), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
@@ -848,7 +850,7 @@ describe("Database Nuxt integration", () => {
         const directory = join(rootDir, `server/databases/${name}`)
         await mkdir(join(directory, "migrations"), { recursive: true })
         const cloudflare = name === "default" ? "" : "cloudflare: { binding: 'DB_ANALYTICS', databaseId: 'analytics-id', databaseName: 'analytics-db' },"
-        await writeFile(join(directory, "config.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
+        await writeFile(join(directory, "index.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
         await writeFile(join(directory, `migrations/0001_${name}.sql`), `SELECT '${name}';\n`)
       }
       const { hooks, nuxt } = createNuxt({
@@ -877,7 +879,7 @@ describe("Database Nuxt integration", () => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-incomplete-d1-"))
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
-      const definition = join(rootDir, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+      const definition = join(rootDir, "server/databases", name, "index.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({ name: '${name}', cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
@@ -897,7 +899,7 @@ describe("Database Nuxt integration", () => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unnamed-d1-"))
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
-      const definition = join(rootDir, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+      const definition = join(rootDir, "server/databases", name, "index.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({ name: '${name}', schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
@@ -945,7 +947,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
       await hubDb({ driver: "d1" })(undefined, nuxt)
       const config = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs" }, preset: "cloudflare_module" }
@@ -960,7 +962,7 @@ describe("Database Nuxt integration", () => {
 
   it.each([true, false])("handles a separate opaque D1 resource with HTTP available: %s", async (http) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-separate-migrations-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -1008,7 +1010,7 @@ describe("Database Nuxt integration", () => {
 
   it.each(["missing-id", "missing-name", "provisioned-id", "http", "libsql", "vercel", "inherited"] as const)("validates owned native D1 projection before Nuxt output for %s access", async (access) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-owned-projection-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const originalId = process.env.VITEHUB_TEST_NATIVE_APP_ID
     const originalName = process.env.VITEHUB_TEST_NATIVE_APP_NAME
     delete process.env.VITEHUB_TEST_NATIVE_APP_ID
@@ -1059,7 +1061,7 @@ describe("Database Nuxt integration", () => {
     try {
       await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), `export default defineDatabase({ ${options}, schema: {} })\n`)
+      await writeFile(join(rootDir, "server/databases/default.ts"), `export default defineDatabase({ ${options}, schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
       await hubDb({ driver: "d1" })(undefined, nuxt)
       const config = { preset: "cloudflare_module" }
@@ -1081,7 +1083,7 @@ describe("Database Nuxt integration", () => {
     const buildDir = join(rootDir, ".nuxt")
     try {
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
       const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
       await hubDb()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
@@ -1098,7 +1100,7 @@ describe("Database Nuxt integration", () => {
   it("keeps prototype-named Definitions addressable in Nitro development", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-proto-"))
     const buildDir = join(rootDir, ".nuxt")
-    const definition = join(rootDir, "server/databases/__proto__/config.ts")
+    const definition = join(rootDir, "server/databases/__proto__/index.ts")
     try {
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, 'export default defineDatabase({ name: "__proto__", schema: {} })\n')
@@ -1125,7 +1127,7 @@ describe("Database Nuxt integration", () => {
   it("adds contributed tables to the Nitro development runtime", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-contributed-"))
     const buildDir = join(rootDir, ".nuxt")
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }] } }
     const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
     try {
@@ -1181,7 +1183,7 @@ describe("Database Nuxt integration", () => {
   it("reads tables that a later Nuxt module contributes through nuxt.options.vite.plugins", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-module-contributed-"))
     const buildDir = join(rootDir, ".nuxt")
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, srcDir: join(rootDir, "app"), vite: {} })
     try {
       await mkdir(dirname(definition), { recursive: true })
@@ -1216,7 +1218,7 @@ describe("Database Nuxt integration", () => {
 
   it("adds contributed tables to the hosted Nitro schema", async () => {
     const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-contributed-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const tables = join(rootDir, "vendor/history.ts")
     const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
     try {
@@ -1245,7 +1247,7 @@ describe("Database Nuxt integration", () => {
     const serverDir = join(rootDir, "app/server")
     const runtimeFile = dev ? join(buildDir, "vitehub/database/local-runtime.mjs") : join(rootDir, ".vitehub/database/local-runtime.mjs")
     const writeDefinition = async (name: string) => {
-      const file = join(serverDir, `databases/${name}/config.ts`)
+      const file = join(serverDir, `databases/${name}/index.ts`)
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, [
         'import { defineDatabase } from "@vite-hub/database"',
@@ -1269,15 +1271,15 @@ describe("Database Nuxt integration", () => {
         await expect(readFile(join(dirname(runtimeFile), "definition-defaults.mjs"), "utf8")).resolves.toContain('"dev":true')
       }
       await expect(readFile(runtimeFile, "utf8")).resolves.toMatch(
-        /databases\/analytics\/config\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
+        /databases\/analytics\/index\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
       )
 
       await rm(join(serverDir, "databases/analytics"), { force: true, recursive: true })
       await writeDefinition("reports")
       await callHook(hooks, "nitro:config", nitroConfig)
       const updatedRuntime = await readFile(runtimeFile, "utf8")
-      expect(updatedRuntime).toContain("databases/reports/config.ts")
-      expect(updatedRuntime).not.toContain("databases/analytics/config.ts")
+      expect(updatedRuntime).toContain("databases/reports/index.ts")
+      expect(updatedRuntime).not.toContain("databases/analytics/index.ts")
 
       const customAlias = { alias: { "@vite-hub/database/drizzle": "#custom-database" } }
       await callHook(hooks, "nitro:config", customAlias)
@@ -1303,7 +1305,7 @@ describe("Database Nuxt integration", () => {
     const projectRoot = location === "default" ? rootDir : join(rootDir, "packages/database")
     const buildDir = join(rootDir, ".nuxt")
     const srcDir = join(rootDir, "app")
-    const definition = join(projectRoot, location === "nested-src" ? "src/database.ts" : "server/databases/config.ts")
+    const definition = join(projectRoot, location === "nested-src" ? "src/database.ts" : "server/databases/default.ts")
     const runtimeFile = join(buildDir, "vitehub/database/local-runtime.mjs")
     await mkdir(dirname(definition), { recursive: true })
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
@@ -1527,7 +1529,7 @@ describe("Database Nuxt integration", () => {
 
   it("uses provisioned D1 ids in Nuxt Cloudflare output", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provisioned-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -1573,7 +1575,7 @@ describe("Database Nuxt integration", () => {
 
   it.each(["absent", "unset environment"] as const)("uses provisioned D1 ids with an %s id in the hosted Vercel runtime", async (idSource) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-vercel-provisioned-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, [
       'import { defineDatabase } from "@vite-hub/database"',
@@ -1629,7 +1631,7 @@ describe("Database Nuxt integration", () => {
 
   it("preserves Nuxt D1 HTTP defaults in the development runtime", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-d1-dev-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
 
@@ -1758,7 +1760,7 @@ describe("Database Nuxt integration", () => {
     [false, "vercel", "vercel"],
   ] as const)("exports chunkParameters through the generated %s/%s runtime alias", async (dev, preset, provider) => {
     const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-chunk-parameters-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const consumer = join(rootDir, "consumer.ts")
     const output = join(rootDir, "consumer.mjs")
     const { hooks, nuxt } = createNuxt({ buildDir: join(rootDir, ".nuxt"), dev, nitro: { preset }, rootDir, vite: {} })
@@ -1816,7 +1818,7 @@ describe("Database Nuxt integration", () => {
 
   it.each([undefined, "DB", "APP_DB"])("keeps Nuxt host and owned Definition resources separate with binding %s", async (binding) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-owned-binding-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, `export default defineDatabase({ cloudflare: { ${binding ? `binding: ${JSON.stringify(binding)},` : ""} databaseId: 'application-id', databaseName: 'application-db' }, schema: {} })\n`)
     try {
@@ -1844,7 +1846,7 @@ describe("Database Nuxt integration", () => {
 
   it.each(["integration", "nitro"] as const)("allows the owned Definition to share an identical Nuxt host resource from %s", async (source) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-shared-binding-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, "export default defineDatabase({ cloudflare: { databaseId: 'content-id', databaseName: 'content-db' }, schema: {} })\n")
     try {
@@ -1864,7 +1866,7 @@ describe("Database Nuxt integration", () => {
 
   it.each(["env-id", "env-name", "provisioned-id", "separate-env"] as const)("shares the Nuxt host binding only for static identity with %s", async (identity) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-static-identity-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     const originalId = process.env.VITEHUB_TEST_NATIVE_APP_ID
     const originalName = process.env.VITEHUB_TEST_NATIVE_APP_NAME
     delete process.env.VITEHUB_TEST_NATIVE_APP_ID
@@ -1903,7 +1905,7 @@ describe("Database Nuxt integration", () => {
 
   it("rejects an owned native binding collision during Nuxt dev refresh and recovers after a distinct binding", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-dev-binding-"))
-    const definition = join(rootDir, "server/databases/config.ts")
+    const definition = join(rootDir, "server/databases/default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
     try {
@@ -1973,7 +1975,7 @@ describe("Database Nuxt integration", () => {
   it.each(["inherited", "configured"])("keeps Database generation rooted at Nuxt projectRoot for a %s resource when Vite uses another root", async (resource) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-project-root-"))
     const projectRoot = join(rootDir, "packages", "db")
-    const definition = join(projectRoot, "server", "databases", "config.ts")
+    const definition = join(projectRoot, "server", "databases", "default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await writeFile(definition, `export default defineDatabase({ ${resource === "configured" ? "cloudflare: { binding: 'APP_DB', databaseName: 'application-db' }," : ""} schema: {} })\n`)
     if (resource === "configured") {

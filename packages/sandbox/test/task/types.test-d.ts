@@ -40,7 +40,7 @@ describe("types", () => {
   it("types sandbox definitions and run results", async () => {
     const definition = defineSandboxTask({
       project: false,
-      run: async (payload?: { value: string }) => ({ value: payload?.value || "" }),
+      handler: async (payload?: { value: string }) => ({ value: payload?.value || "" }),
     })
 
     expectTypeOf(definition).toMatchTypeOf<SandboxTaskDefinition<{ value: string } | undefined, { value: string }>>()

@@ -61,9 +61,9 @@ export default defineAuth({
 })
 ```
 
-`authDatabase()` is the Better Auth adapter for the `default` Database. It uses the D1 binding of each request. ViteHub also adds the Better Auth tables to that Database: `user`, `session`, `account`, and `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [Console MCP OAuth](/docs/development/mcp#set-up-oauth). You do not write them. Without a Database Definition, ViteHub uses the implicit `default` Database, and its D1 binding is `DB`. To name the D1 database, add `server/databases/config.ts`. The Auth tables move into it:
+`authDatabase()` is the Better Auth adapter for the `default` Database. It uses the D1 binding of each request. ViteHub also adds the Better Auth tables to that Database: `user`, `session`, `account`, and `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [Console MCP OAuth](/docs/development/mcp#set-up-oauth). You do not write them. Without a Database Definition, ViteHub uses the implicit `default` Database, and its D1 binding is `DB`. To name the D1 database, add `server/databases/default.ts`. The Auth tables move into it:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({
@@ -81,7 +81,7 @@ pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
 
-`generate` writes the SQL of the Better Auth tables to `server/databases/migrations/`. `migrate` applies it to the local SQLite file that development uses. `pnpm vitehub inspect definitions --kind database` lists the tables with `@vite-hub/auth/vite` as their plugin.
+`generate` writes the SQL of the Better Auth tables to `server/databases/default/migrations/`. `migrate` applies it to the local SQLite file that development uses. `pnpm vitehub inspect definitions --kind database` lists the tables with `@vite-hub/auth/vite` as their plugin.
 
 ## How to run Better Auth locally
 

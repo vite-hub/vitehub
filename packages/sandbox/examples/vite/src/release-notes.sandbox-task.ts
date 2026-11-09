@@ -10,7 +10,7 @@ export type ReleaseNotesResult = {
 }
 
 export default defineSandboxTask({
-  async run(payload: ReleaseNotesPayload = {}): Promise<ReleaseNotesResult> {
+  async handler(payload: ReleaseNotesPayload = {}): Promise<ReleaseNotesResult> {
     const items = (payload.notes || "")
       .split("\n")
       .map(note => note.replace(/^[-*]\s*/, "").trim())

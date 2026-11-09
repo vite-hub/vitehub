@@ -14,7 +14,7 @@ Several people and Agents can open the same document. Content keeps a session pe
 
 Sessions live in the Database that already holds the Workspace history, so they work on every host with the Blob + Database Store: libSQL, Turso, and Cloudflare D1. Add `contentSessionsSchema` next to `workspaceHistorySchema`:
 
-```ts [server/databases/content/config.ts]
+```ts [server/databases/content/index.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { contentSessionsSchema } from 'vite-hub/content/database'
 import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
@@ -35,7 +35,7 @@ A session is a token you generate per tab or client, such as `crypto.randomUUID(
 
 ```ts [server/api/editor/session.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { content } from '../../content'
+import content from '../../content'
 
 export default defineEventHandler(async (event) => {
   const { id, session, kind, input } = await readBody(event)

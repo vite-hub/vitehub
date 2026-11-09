@@ -109,7 +109,7 @@ refresh, so overlapping loads keep separate revisions:
 ```ts fragment
 import { defineContent } from "@vite-hub/content"
 
-export const content = defineContent({ source: docs })
+export default defineContent({ source: docs })
 ```
 
 Workspace binds the same definition to a persistent file tree:

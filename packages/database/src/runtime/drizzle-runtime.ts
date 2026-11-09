@@ -64,7 +64,7 @@ function withTestDatabase<TSchema extends Record<string, unknown>>(
     const test = getViteHubTestMode()
     if (!test) return database
     return test.backend(`database:${name}`, () => {
-      const directory = migrationsDir ?? (name === "default" ? "server/databases/migrations" : `server/databases/${name}/migrations`)
+      const directory = migrationsDir ?? `server/databases/${name}/migrations`
       const client = createTestDatabaseClient(test.root, directory)
       // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
       return localLibsql.drizzle(client, { schema }) as RuntimeDrizzleDatabase<TSchema>

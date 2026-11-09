@@ -180,7 +180,7 @@ describe("D1 read replication", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-replication-"))
     try {
       await mkdir(join(rootDir, "server", "databases"), { recursive: true })
-      await writeFile(join(rootDir, "server", "databases", "config.ts"), [
+      await writeFile(join(rootDir, "server", "databases", "default.ts"), [
         "import { defineDatabase } from '@vite-hub/database'",
         "export default defineDatabase({ cloudflare: { readReplication: true }, schema: {} })",
         "",
@@ -188,7 +188,7 @@ describe("D1 read replication", () => {
       const [definition] = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
       expect(definition?.fields).toContainEqual(expect.objectContaining({ label: "Read replication" }))
 
-      await writeFile(join(rootDir, "server", "databases", "config.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ schema: {} })\n", "utf8")
+      await writeFile(join(rootDir, "server", "databases", "default.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ schema: {} })\n", "utf8")
       const [inherited] = await inspectDatabaseDefinitions({ projectRoot: rootDir, readReplication: true, rootDir })
       expect(inherited?.fields).toContainEqual(expect.objectContaining({ label: "Read replication" }))
       const [plain] = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })

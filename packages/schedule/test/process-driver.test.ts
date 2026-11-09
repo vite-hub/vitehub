@@ -119,7 +119,7 @@ describe("Process Schedule Runtime", () => {
     await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
     setScheduleRunStore(scheduleRunStore)
     const handler = vi.fn()
-    const registry = { reconcile: async () => defineSchedule("*/10 * * * *", handler, { manual: true }) }
+    const registry = { reconcile: async () => defineSchedule({ cron: "*/10 * * * *", manual: true, handler }) }
     const manual = await runSchedule("reconcile", { registry, scheduledAt })
     handler.mockClear()
 
@@ -147,7 +147,7 @@ describe("Process Schedule Runtime", () => {
     await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
     setScheduleRunStore(scheduleRunStore)
     const handler = vi.fn()
-    const registry = { reconcile: async () => defineSchedule("*/10 * * * *", handler, { manual: true }) }
+    const registry = { reconcile: async () => defineSchedule({ cron: "*/10 * * * *", manual: true, handler }) }
     for (let index = 0; index < manualCount; index++) {
       await runSchedule("reconcile", { registry, scheduledAt: "2026-10-17T15:00:00Z" })
     }

@@ -18,7 +18,7 @@ Define collections and an `authorize` policy in `server/content.ts`:
 import { defineContent, documents, singleton } from 'vite-hub/content'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     posts: documents({
@@ -43,7 +43,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub passes the `content` export of `server/content.ts` to the Capability as the `content` primitive. Generated Agent routes and Schedules import it when the file exists. With Auth configured, they also pass the `auth` primitive (`agentAuth` from `vite-hub/auth/agent`), which reads the Auth user behind an Actor. A custom route that calls `runAgent()` passes both in the runtime context as `capabilities: { content, auth: agentAuth }`.
+ViteHub passes the default export of `server/content.ts` to the Capability as the `content` primitive. Generated Agent routes and Schedules import it when the file exists. With Auth configured, they also pass the `auth` primitive (`agentAuth` from `vite-hub/auth/agent`), which reads the Auth user behind an Actor. A custom route that calls `runAgent()` passes both in the runtime context as `capabilities: { content, auth: agentAuth }`.
 
 ## Tools
 

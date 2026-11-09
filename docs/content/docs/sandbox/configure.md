@@ -47,7 +47,7 @@ import { defineSandboxTask } from '@vite-hub/sandbox/task'
 
 export default defineSandboxTask({
   timeout: 60000,
-  run: async (payload: { width: number }) => ({ width: payload.width }),
+  handler: async (payload: { width: number }) => ({ width: payload.width }),
 })
 ```
 
@@ -56,7 +56,7 @@ export default defineSandboxTask({
 | Option | Where | Type | Description |
 | --- | --- | --- | --- |
 | `vitehub.sandboxTask.timeout` | `package.json` | `number` | Timeout for one execution attempt in milliseconds. This is the only supported manifest key. |
-| `run` | `defineSandboxTask()` | `function` | Required handler. Called with `(payload, context)`. |
+| `handler` | `defineSandboxTask()` | `function` | Required. Called with `(payload, context)`. |
 | `timeout` | `defineSandboxTask()` | `number` | Timeout for one execution attempt in milliseconds. |
 | `env` | `defineSandboxTask()` | `Record<string, string>` | Environment variables for the run. |
 | `project` | `defineSandboxTask()` | `boolean` | Force package-project packaging on or off. Omit it to detect project use. |

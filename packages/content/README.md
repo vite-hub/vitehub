@@ -13,7 +13,7 @@ Pass ViteHub Source definitions, registered names, readers, reader factories, or
 import { defineContent } from "@vite-hub/content"
 import { glob } from "@vite-hub/source/glob"
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob({ cwd: "docs", include: "**/*.md" }),
     blog: glob({ cwd: "blog", include: "**/*.md" }),
@@ -31,7 +31,7 @@ or recreating that runtime.
 ```ts
 import knap from "comark-knap"
 
-export const content = defineContent({
+export default defineContent({
   markdown: {
     plugins: [
       knap({
@@ -102,7 +102,7 @@ import { documents } from "@vite-hub/content/collections"
 import cms from "@vite-hub/cms"
 import { z } from "zod"
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({
@@ -136,7 +136,7 @@ import { z } from "zod"
 import { defineContent } from "@vite-hub/content"
 import { documents, singleton } from "@vite-hub/content/collections"
 
-export const content = defineContent({
+export default defineContent({
   workspace: "site",
   collections: {
     settings: singleton({ path: "settings.json", fields: { title: z.string(), social: z.array(z.url()).default([]) } }),

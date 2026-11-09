@@ -57,7 +57,7 @@ Public Workspace paths reserve `.git` at any depth and `.vitehub` at the root, r
 
 Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration.
 
-```ts [server/databases/history/config.ts]
+```ts [server/databases/history/index.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { workspaceHistorySchema } from '@vite-hub/workspace/blob-database'
 
@@ -68,7 +68,7 @@ export default defineDatabase({ name: 'history', schema: workspaceHistorySchema 
 import { blob } from '@vite-hub/blob'
 import { defineWorkspace } from '@vite-hub/workspace'
 import { createBlobDatabaseWorkspaceStore } from '@vite-hub/workspace/blob-database'
-import historyDatabase from '../databases/history/config'
+import historyDatabase from '../databases/history/index'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),

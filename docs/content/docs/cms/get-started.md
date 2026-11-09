@@ -42,7 +42,7 @@ import { defineContent, documents } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string(), date: z.coerce.date() } }),
@@ -66,7 +66,7 @@ pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
 
-`db generate` writes a migration with the five `workspace_history_*` tables and the editor sessions table to `server/databases/migrations/`. `db migrate` applies it to the local Database, `.vitehub/data/database/sqlite.db` by default.
+`db generate` writes a migration with the five `workspace_history_*` tables and the editor sessions table to `server/databases/default/migrations/`. `db migrate` applies it to the local Database, `.vitehub/data/database/sqlite.db` by default.
 
 The app has no Database Definition, so the tables go to the implicit `default` Database. To configure it yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).
 

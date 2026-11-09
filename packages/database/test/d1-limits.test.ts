@@ -129,7 +129,7 @@ describe("the Vite databases module", () => {
     const root = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/d1-limits-"))
     roots.push(root)
     await mkdir(join(root, "server/databases"), { recursive: true })
-    await writeFile(join(root, "server/databases/config.ts"), [
+    await writeFile(join(root, "server/databases/default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "export default defineDatabase({ schema: { notes: sqliteTable('notes', { title: text('title') }) } })",

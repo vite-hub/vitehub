@@ -80,17 +80,17 @@ export interface SandboxTaskDefinitionInput<TPayload = unknown, TResult = unknow
   extends SandboxTaskDefinitionOptions {
   /** Force project packaging on or off. Omit to detect project use automatically. */
   project?: boolean
-  run: SandboxTaskDefinitionHandler<TPayload, TResult>
+  handler: SandboxTaskDefinitionHandler<TPayload, TResult>
 }
 
 export interface SandboxTaskDefinition<TPayload = unknown, TResult = unknown> {
-  run: SandboxTaskDefinitionHandler<TPayload, TResult>
+  handler: SandboxTaskDefinitionHandler<TPayload, TResult>
   options?: SandboxTaskDefinitionOptions
 }
 
 export type SandboxTaskDefinitionFromHandler<THandler extends (...args: any[]) => any>
   = SandboxTaskDefinition<SandboxTaskDefinitionPayload<THandler>, SandboxTaskDefinitionResult<THandler>> & {
-    run: THandler
+    handler: THandler
   }
 
 /** The result of a sandbox invocation. HTTP semantics are used for both

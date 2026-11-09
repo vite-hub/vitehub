@@ -178,7 +178,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_INVALID_CONTRIBUTION_TARGET: {
       why: (problem: ContributionTargetProblem) => describeContributionTarget(problem),
-      fix: "Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution to a Database Definition with the same dialect.",
+      fix: "Add `server/databases/default.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution to a Database Definition with the same dialect.",
     },
     DATABASE_INVALID_SCHEMA_EXPORT: {
       why: ({ handler }: { handler: string }) => `The Database Definition "${handler}" must default export \`defineDatabase({ schema })\` with a schema object.`,
@@ -192,13 +192,19 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, files, table }: { database: string, files: readonly string[], table: string }) => `More than one Nuxt layer declares the table "${table}" in the database "${database}":${fileList(files)}`,
       fix: "Rename one table, or declare the table in the application definition to replace both.",
     },
+    DATABASE_LEGACY_CONFIG_FILE: {
+      why: ({ file, name }: { file: string, name: string }) => name === "default"
+        ? `"${file}" uses the former Database file layout. The \`default\` Database is now \`server/databases/default.ts\` or \`server/databases/default/index.ts\`, with its migrations in \`server/databases/default/migrations/\`.`
+        : `"${file}" uses the former Database file layout. The Database "${name}" is now \`server/databases/${name}.ts\` or \`server/databases/${name}/index.ts\`.`,
+      fix: "Run `npx @vite-hub/codemods define-forms`. It moves `config.ts` to `<name>/index.ts`, moves the migrations of the default Database, and updates the imports.",
+    },
     DATABASE_MISSING_D1_RESOURCE: {
       why: ({ databases, missing }: { databases: readonly string[], missing: string }) => `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
       fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --provider cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
     },
     DATABASE_MIXED_DEFINITIONS: {
-      why: ({ files }: { files: readonly string[] }) => `Database Definitions must use one default database or only named databases, not both.${fileList(files)}`,
-      fix: "Rename the default definition to a named one, or merge the named definitions into the default one.",
+      why: ({ files }: { files: readonly string[] }) => `\`src/database.ts\` defines the default Database, so other Databases cannot use the Vite form beside it.${fileList(files)}`,
+      fix: "Move the Databases to `server/databases/<name>.ts`, including `server/databases/default.ts` for the default one.",
     },
     DATABASE_NAME_MISMATCH: {
       why: ({ file, name }: { file: string, name: string }) => `The Database Definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its file name.`,

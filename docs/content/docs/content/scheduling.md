@@ -26,7 +26,7 @@ Add one Schedule Definition that calls `content.publishDue()`, and enable Schedu
 
 ```ts [server/schedules/content-publish.ts] fragment
 import { defineSchedule } from 'vite-hub/schedule'
-import { content } from '../content'
+import content from '../content'
 
 export default defineSchedule({
   cron: '* * * * *',

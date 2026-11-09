@@ -612,7 +612,7 @@ describe("Agent invocation console", () => {
     try {
       await mkdir(join(inheritedRoot, "server/databases"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(join(inheritedRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(inheritedRoot, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "node",
@@ -633,7 +633,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       // Without its own Database Definition, the app gets only the implicit default Database.
       expect(generated).toContain('"name":"default","source":"implicit-default"')
-      expect(generated).not.toContain("inherited/server/databases/config.ts")
+      expect(generated).not.toContain("inherited/server/databases/default.ts")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1129,7 +1129,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "server/databases"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(
-        join(root, "server/databases/config.ts"),
+        join(root, "server/databases/default.ts"),
         `export default defineDatabase({ schema: { notes, users } })\nthrow new Error("The Console must not evaluate Database Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
@@ -1166,7 +1166,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`import("vite-hub/database/drizzle")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"])`)
-      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/config.ts","name":"default","source":"server-database-default"}],"kind":"definition-catalog"}}, `)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1376,7 +1376,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "packages/rate-limit/policies"), { recursive: true })
       await mkdir(join(root, "packages/workspace/server/workspaces/docs/workspace"), { recursive: true })
       await mkdir(join(root, "packages/schedule/server/schedules"), { recursive: true })
-      await writeFile(join(root, "packages/database/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(root, "packages/database/server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       await writeFile(join(root, "packages/rate-limit/policies/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
       await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
       await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
@@ -1397,7 +1397,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger({ root })])
 
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain('"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/config.ts"')
+      expect(generated).toContain('"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/default.ts"')
       expect(generated).toContain('"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"100"},{"label":"Window","value":"1m"}')
       expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
       expect(generated).toContain('"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
@@ -1417,8 +1417,8 @@ describe("Agent invocation console", () => {
       await mkdir(join(projectRoot, "packages/api/server/databases"), { recursive: true })
       await mkdir(join(viteRoot, "server/databases"), { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
-      await writeFile(join(projectRoot, "packages/api/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
-      await writeFile(join(viteRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(projectRoot, "packages/api/server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(viteRoot, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         databaseDiscoveryRoot: "packages/api",
@@ -1433,8 +1433,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain('"file":"app/server/databases/config.ts"')
-      expect(generated).not.toContain('"file":"packages/api/server/databases/config.ts"')
+      expect(generated).toContain('"file":"app/server/databases/default.ts"')
+      expect(generated).not.toContain('"file":"packages/api/server/databases/default.ts"')
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
@@ -1552,8 +1552,8 @@ describe("Agent invocation console", () => {
       await mkdir(join(viteRoot, "src"), { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
       await writeFile(join(projectRoot, "src/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
-      await writeFile(join(projectRoot, "src/unrelated.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
-      await writeFile(join(viteRoot, "src/preview.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
+      await writeFile(join(projectRoot, "src/unrelated.sandbox-task.ts"), "export default defineSandboxTask({ handler: async () => undefined })\n")
+      await writeFile(join(viteRoot, "src/preview.sandbox-task.ts"), "export default defineSandboxTask({ handler: async () => undefined })\n")
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
@@ -1586,7 +1586,7 @@ describe("Agent invocation console", () => {
     try {
       await mkdir(join(root, "src"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ run: async () => { throw new Error("must not run") } })\n`)
+      await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ handler: async () => { throw new Error("must not run") } })\n`)
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",

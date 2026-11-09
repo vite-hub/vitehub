@@ -57,7 +57,7 @@ export default defineConnection({
 
 Connections keeps the grant in the app Database. When the app has only named Databases, choose one with `connections: { database: 'users' }`. Otherwise add a Database Definition if the app has none:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({ schema: {} })

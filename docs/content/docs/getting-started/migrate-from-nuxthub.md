@@ -154,7 +154,7 @@ route of your own, set `blob: { serve: true }`.
 ViteHub uses Drizzle, so your table definitions do not change. Move the schema
 file from `server/db/schema.ts` (or `schema.sqlite.ts`) to
 `server/databases/schema.ts`, and pass it to a Database Definition at
-`server/databases/config.ts`.
+`server/databases/default.ts`.
 
 ```ts [server/databases/schema.ts]
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
@@ -165,7 +165,7 @@ export const users = sqliteTable("users", {
 })
 ```
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from "vite-hub/database"
 import * as schema from "./schema"
 
@@ -206,7 +206,7 @@ as types in `shared/`, imports the tables from the schema file instead of
 
 NuxtHub generates SQL files in `server/db/migrations/<dialect>/` and records them in the
 `_hub_migrations` table. ViteHub generates migrations next to the Database
-Definition, in `server/databases/migrations/`. It applies them with drizzle-kit
+Definition, in `server/databases/default/migrations/`. It applies them with drizzle-kit
 for SQLite and libSQL, and with Wrangler for Cloudflare D1. These runners use
 different history tables by default. Do not set Wrangler's history table to
 `_hub_migrations` to skip the baseline. NuxtHub's runner records normalized
@@ -245,7 +245,7 @@ all database connections are closed, or set `connection.url` in the Definition
 to keep the existing location. Preserve SQLite's sidecar files when needed.
 
 Keep the Definition's schema identical to the existing database. Finish pending
-NuxtHub migrations first. Start with a new `server/databases/migrations/`
+NuxtHub migrations first. Start with a new `server/databases/default/migrations/`
 directory and generate a baseline:
 
 ```bash [Terminal]
@@ -257,7 +257,7 @@ constraints. Once they match, add `IF NOT EXISTS` to each `CREATE` statement in
 the baseline `.sql` file. Keep its filename and the generated `meta/` files
 unchanged.
 
-```diff [server/databases/migrations/0000_baseline.sql]
+```diff [server/databases/default/migrations/0000_baseline.sql]
 -CREATE TABLE `users` (
 +CREATE TABLE IF NOT EXISTS `users` (
  	`id` integer PRIMARY KEY NOT NULL,
@@ -297,7 +297,7 @@ any new migration to an existing D1 database:
    in the Definition identify that database.
 2. Keep the Definition's schema identical to the deployed schema. Finish any
    pending NuxtHub migrations before the switch. Do not add schema changes yet.
-3. Start with a new `server/databases/migrations/` directory, without copied
+3. Start with a new `server/databases/default/migrations/` directory, without copied
    NuxtHub SQL files. Run `pnpm vitehub db generate --name baseline` to capture
    the current schema in Drizzle's snapshot and journal.
 4. Compare the generated SQL with the existing database. Once every table,

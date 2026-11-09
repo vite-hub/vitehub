@@ -16,7 +16,7 @@ async function project(options: string): Promise<string> {
   await mkdir(join(root, "server"), { recursive: true })
   await writeFile(join(root, "server/content.ts"), [
     "import { defineContent, documents } from \"vite-hub/content\"",
-    `export const content = defineContent(${options})`,
+    `export default defineContent(${options})`,
     "",
   ].join("\n"))
   return root

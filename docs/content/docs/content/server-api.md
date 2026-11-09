@@ -73,7 +73,7 @@ Comark Content owns parsed document cache entries. ViteHub routes each cache cal
 
 ```ts [server/api/posts/[id].put.ts]
 import { defineEventHandler, getRouterParam, readBody } from 'h3'
-import { content } from '../../content'
+import content from '../../content'
 
 export default defineEventHandler(async (event) => {
   const { data, body, digest } = await readBody(event)

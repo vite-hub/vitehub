@@ -54,7 +54,7 @@ import { defineContent, documents } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }) },
 })
@@ -72,7 +72,7 @@ import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({
@@ -169,7 +169,7 @@ A catch-all page serves every locale with the calls a page already makes. `conte
 
 ```ts [server/api/page.get.ts] fragment
 import { defineEventHandler, getQuery, HTTPError } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async (event) => {
   const page = await content.resolve(String(getQuery(event).path))
@@ -216,7 +216,7 @@ Some content is one document, not a list: site settings, a home page, a footer. 
 import { defineContent, documents, image, optional, singleton } from 'vite-hub/content'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: {
     settings: singleton({
@@ -351,7 +351,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 `authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Auth user behind the Invocation's Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
   authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
@@ -395,7 +395,7 @@ import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search
 import { defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source/glob'
 
-export const content = defineContent({
+export default defineContent({
 	plugins: [sqliteFullTextSearch({ database: sqlite() })],
 	sources: {
 		docs: glob({ cwd: 'docs', include: '**/*.md' }),
@@ -443,7 +443,7 @@ A server route without Vue renders a document with `renderContentHtml()` from `v
 ```ts [server/routes/guides/[slug].get.ts]
 import { defineHandler, getRouterParam } from 'h3'
 import { renderContentHtml } from 'vite-hub/content'
-import { content } from '../../content'
+import content from '../../content'
 
 export default defineHandler(async (event) => {
   const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)

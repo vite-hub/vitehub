@@ -12,9 +12,9 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     : [
         `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,
         `    const definition = mod?.default`,
-        `    if (!definition || typeof definition.run !== 'function')`,
-        `      throw new Error('Sandbox Task Definition must default-export defineSandboxTask({ run }).')`,
-        `    const result = await definition.run(input.payload, input.context)`,
+        `    if (!definition || typeof definition.handler !== 'function')`,
+        `      throw new Error('Sandbox Task Definition must default-export defineSandboxTask({ handler }).')`,
+        `    const result = await definition.handler(input.payload, input.context)`,
       ]
   return [
     `import { mkdir, readFile, writeFile } from 'node:fs/promises'`,

@@ -189,7 +189,7 @@ A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins cont
 
 ### DATABASE_INVALID_CONTRIBUTION_TARGET
 
-Contributed tables or data have no Database to go to. The app has several Database Definitions and none is named `default`, the contribution names a missing database or uses another dialect, or the contributions for the implicit default Database need different dialects. Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution.
+Contributed tables or data have no Database to go to. The app has several Database Definitions and none is named `default`, the contribution names a missing database or uses another dialect, or the contributions for the implicit default Database need different dialects. Add `server/databases/default.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution.
 
 ### DATABASE_INVALID_SCHEMA_EXPORT
 
@@ -203,13 +203,17 @@ The options of one database come from more than one Nuxt layer, or the applicati
 
 Two Nuxt layers declare the same table in one database. Rename one, or declare the table in the application definition to replace both.
 
+### DATABASE_LEGACY_CONFIG_FILE
+
+A Database Definition still uses `config.ts`. The Database `<name>` is now `server/databases/<name>.ts` or `server/databases/<name>/index.ts`, and its migrations are in `server/databases/<name>/migrations/`. The former `server/databases/config.ts` is the `default` Database: move it to `server/databases/default/index.ts` with the files beside it, and move `server/databases/migrations/` to `server/databases/default/migrations/`. Run `npx @vite-hub/codemods define-forms` to do these moves and update the imports.
+
 ### DATABASE_MISSING_D1_RESOURCE
 
 Cloudflare D1 output needs the D1 database id and name at build time. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_MIXED_DEFINITIONS
 
-The app has a default Database Definition and named ones. Use one default database, or only named databases.
+`src/database.ts` defines the default Database beside named Databases. Move the Databases to `server/databases/<name>.ts`, with `server/databases/default.ts` for the default one.
 
 ### DATABASE_NAME_MISMATCH
 

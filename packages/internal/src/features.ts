@@ -271,17 +271,19 @@ export default defineAgent({
   }),
   database: feature({
     definition: {
-      // A Default Definition also comes from `src/database.ts`, and the owner rejects Default and Named Definitions together.
-      conflicts: name => name === "default"
-        ? [...sourceFiles("server/databases/config").slice(1), "src/database.ts"]
-        : [...sourceFiles(`server/databases/${name}/config`).slice(1), ...sourceFiles(`src/${name}.database`), ...sourceFiles("server/databases/config"), "src/database.ts"],
+      // `src/database.ts` is also the Default Definition, and the owner rejects it beside Named Definitions.
+      conflicts: name => [
+        ...sourceFiles(`server/databases/${name}`).slice(1),
+        ...sourceFiles(`server/databases/${name}/index`),
+        ...(name === "default" ? ["src/database.ts"] : [...sourceFiles(`src/${name}.database`), "src/database.ts"]),
+      ],
       dir: "server/databases",
-      file: name => name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`,
-      template: () => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+      file: name => `server/databases/${name}.ts`,
+      template: name => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { defineDatabase } from "vite-hub/database"
 
 export default defineDatabase({
-  schema: {
+${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     notes: sqliteTable("notes", {
       id: integer("id").primaryKey(),
       title: text("title").notNull(),

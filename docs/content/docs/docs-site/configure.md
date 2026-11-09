@@ -484,7 +484,7 @@ import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
 import { docsCollection } from '@vite-hub/docs'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
   collections: { docs: docsCollection() },
 })

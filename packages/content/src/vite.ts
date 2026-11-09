@@ -180,7 +180,7 @@ async function findContentCollectionsEntry(options: ContentConsoleOptions): Prom
 }
 
 /**
- * Console section for Content. It edits the document collections of the `content` export of `server/content.ts`.
+ * Console section for Content. It edits the document collections of the default export of `server/content.ts`.
  * Every action checks `content.can()` with the signed-in Console user. The Console shows the section only when
  * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
  */
@@ -239,7 +239,7 @@ export async function contributeContentRealtime(options: ContentRealtimeContribu
   await mkdir(options.directory, { recursive: true })
   await Promise.all([
     writeFile(definition, [
-      `import { content } from ${JSON.stringify(pathToFileURL(file).href)}`,
+      `import content from ${JSON.stringify(pathToFileURL(file).href)}`,
       `import { contentRealtime } from ${JSON.stringify(options.contentImport)}`,
       ...(options.console
         ? [

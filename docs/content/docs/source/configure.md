@@ -45,7 +45,7 @@ Point `glob()` at the project's files and deploy anywhere:
 import { defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source/glob'
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob('content/docs/**/*.md'),
   },

@@ -16,7 +16,7 @@ icon: i-lucide-file-text
   import { defineContent } from 'vite-hub/content'
   import { glob } from 'vite-hub/source/glob'
 
-  export const content = defineContent({
+  export default defineContent({
     // Keep a search index in SQLite
     plugins: [
       sqliteFullTextSearch({ database: sqlite() }),
@@ -37,7 +37,7 @@ icon: i-lucide-file-text
 
   ```ts [server/api/intro.get.ts]
   import { defineEventHandler } from 'h3'
-  import { content } from '../content'
+  import content from '../content'
 
   // One page, and a menu of every page
   export default defineEventHandler(async () => {
@@ -56,7 +56,7 @@ icon: i-lucide-file-text
 
   ```ts [server/api/search.get.ts]
   import { defineEventHandler, getQuery } from 'h3'
-  import { content } from '../content'
+  import content from '../content'
 
   // Search every page: /api/search?q=hello
   export default defineEventHandler(async (event) => {

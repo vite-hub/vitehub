@@ -22,7 +22,7 @@ import { defineContent, documents } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { workspace: 'site' }],
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
@@ -45,7 +45,7 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 - pass that binding directly to `extends`, not a value built at runtime;
 - write each option as a string literal.
 
-The build follows a re-export of `content` from a relative file, such as `export { content } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
+The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
 
 The preset fills `workspace` in `defineContent()`, so `extends` cannot be combined with `workspace`. With `access: 'roles'` and no `authorize` in `defineContent()`, the preset also fills it with the CMS role policy. Without either, every action stays denied. With the GitHub store and `publish: 'pr'`, it also selects pull request publishing for `content.publish()`.
 

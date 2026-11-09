@@ -62,7 +62,7 @@ async function runDb(root: string, plugins: PluginOption[], args: string[]) {
 describe("vitehub() without database", () => {
   it.each(["vite-hub/database/drizzle", "@vite-hub/database/drizzle"])("fails the build when server code imports %s", async (specifier) => {
     const root = await createProject({
-      "server/databases/config.ts": databaseDefinition,
+      "server/databases/default.ts": databaseDefinition,
       "src/server.ts": `import { useDatabase } from ${JSON.stringify(specifier)}\nexport const notes = useDatabase("default")\n`,
     })
 
@@ -72,7 +72,7 @@ describe("vitehub() without database", () => {
 
   it("builds the same import when Database is enabled", async () => {
     const root = await createProject({
-      "server/databases/config.ts": databaseDefinition,
+      "server/databases/default.ts": databaseDefinition,
       "src/server.ts": `import { useDatabase } from "vite-hub/database/drizzle"\nexport const notes = useDatabase("default")\n`,
     })
 
@@ -80,7 +80,7 @@ describe("vitehub() without database", () => {
   }, 30_000)
 
   it("lets an explicitly composed Database integration provide the runtime", async () => {
-    const root = await createProject({ "server/databases/config.ts": databaseDefinition })
+    const root = await createProject({ "server/databases/default.ts": databaseDefinition })
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
     const databasePlugin = hubDb() as unknown as Plugin
     const plugins = [vitehub({ preset: "node", env: false }), databasePlugin]
@@ -121,7 +121,7 @@ describe("vitehub() without database", () => {
   })
 
   it("explains the db commands when Database Definitions exist", async () => {
-    const root = await createProject({ "server/databases/config.ts": databaseDefinition })
+    const root = await createProject({ "server/databases/default.ts": databaseDefinition })
     const plugins = vitehub({ preset: "node", env: false })
 
     const help = await runDb(root, plugins, ["db", "--help"])

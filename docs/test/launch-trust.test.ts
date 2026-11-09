@@ -188,7 +188,7 @@ describe("launch documentation trust boundaries", () => {
       "Email accepts `true` with the Cloudflare preset, where it selects the Cloudflare Email driver; other presets reject that boolean default and require explicit provider options.",
     );
     expect(config).toContain("Netlify does not infer a provider");
-    expect(conventions).toContain("`server/databases/<name>/config.ts`");
+    expect(conventions).toContain("`server/databases/<name>/index.ts`");
     expect(conventions).toContain("`<path>.agent.ts`");
     expect(conventions).toContain("`server/workspaces/<name>/config.ts`");
   });

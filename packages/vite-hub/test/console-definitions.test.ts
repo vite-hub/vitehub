@@ -41,7 +41,7 @@ function definitionSummaries(name: string): Record<string, ConsoleDefinitionSumm
       ],
       file: `server/databases/${name}.ts`,
       name,
-      source: "server-database-default",
+      source: "server-databases",
     }],
     queues: [{
       fields: [],
@@ -125,7 +125,7 @@ describe("Console definition inspection", () => {
         ],
         file: "server/databases/release.ts",
         name: "release",
-        source: "server-database-default",
+        source: "server-databases",
       }],
       kind: "definition-catalog",
       section: "databases",

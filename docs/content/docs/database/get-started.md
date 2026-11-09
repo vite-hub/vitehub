@@ -41,9 +41,9 @@ If you chose Nuxt in Installation, add `database: true` to the options of the ex
 ::tutorial-step{title="Create and migrate the table"}
 ## Create and migrate the table
 
-Create `server/databases/config.ts`. ViteHub discovers this file as the `default` Database Definition. The schema has an auto-incrementing integer ID and a required title.
+Create `server/databases/default.ts`. ViteHub discovers this file as the `default` Database Definition. The schema has an auto-incrementing integer ID and a required title.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -66,7 +66,7 @@ pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
 
-`generate` writes SQL and migration metadata to `server/databases/migrations/`. `migrate` applies pending SQL to the local SQLite file. Neither command needs a running server or a previous build. Check that both commands finish successfully before querying the table.
+`generate` writes SQL and migration metadata to `server/databases/default/migrations/`. `migrate` applies pending SQL to the local SQLite file. Neither command needs a running server or a previous build. Check that both commands finish successfully before querying the table.
 
 ::
 

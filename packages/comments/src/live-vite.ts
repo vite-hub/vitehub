@@ -387,7 +387,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     "  comments,",
     `  ${session.option}: ${session.value},`,
     ...(githubLogin ? [`  githubLogin: createCommentsGitHubLogin(${JSON.stringify({ ...(input.build?.repository ? { repository: input.build.repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })}),`] : []),
-    ...(input.content ? ["  content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined,"] : []),
+    ...(input.content ? ["  content: contentModule.default ? { runtime: contentModule.default, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
     `  build: ${JSON.stringify(input.build ?? {})},`,
     "  components,",

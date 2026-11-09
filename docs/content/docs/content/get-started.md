@@ -45,7 +45,7 @@ The `docs` Source reads Markdown under the project's `docs` directory.
 import { defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source/glob'
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob({ cwd: 'docs', include: '**/*.md' }),
   },
@@ -64,7 +64,7 @@ This page came from a local Source.
 
 ```ts [server/api/guide.get.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   return await content.get('/intro')

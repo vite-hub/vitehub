@@ -13,7 +13,7 @@ A preview cookie makes one browser read the `draft` ref through your real pages.
 `content.preview.enable(event)` signs a token and sets it as a cookie on the response. `content.preview.disable(event)` clears it.
 
 ```ts [server/api/preview.post.ts] fragment
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async (event) => {
   const user = await getUser(event) // your Auth session
@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/preview.delete.ts]
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(event => content.preview.disable(event))
 ```

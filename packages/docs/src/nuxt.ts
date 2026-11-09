@@ -393,7 +393,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const contentFile = addTemplate({
       filename: "docs/content.mjs",
       write: true,
-      getContents: () => contentEntry ? `export { content } from ${JSON.stringify(contentEntry)}\n` : "export const content = undefined\n",
+      getContents: () => contentEntry ? `export { default as content } from ${JSON.stringify(contentEntry)}\n` : "export const content = undefined\n",
     }).dst
 
     // The page route and search import the parser options. Without `parser` they parse with the built-in plugins only.
