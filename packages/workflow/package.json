@@ -100,6 +100,7 @@
     "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
