@@ -1684,7 +1684,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     persistRoom(room)
   }
 
+  /**
+   * For a shared room, the whole refresh holds the room lock: a load from before another instance's reseed or save
+   * would otherwise replace the newer record with stale state.
+   */
   async function refreshRoom(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
+    return await underRoomLock(room, () => refreshRoomNow(room))
+  }
+
+  async function refreshRoomNow(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
     // A save on another instance changed the stored digest inside the room.
     if (room.bus && !(await adoptSharedRecord(room, room.bus))) return { digest: room.digest, reseeded: true }
     const revision = room.revision

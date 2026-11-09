@@ -346,6 +346,8 @@ export interface MemoryBus extends RealtimeBus {
  */
 export function createMemoryBusNetwork() {
   const records = new Map<string, RealtimeRoomRecord>()
+  /** Every record write, in order. */
+  const writes: Array<{ room: string, epoch: string, digest: string | null }> = []
   const locks = new Map<string, Promise<void>>()
   const members = new Map<string, (message: RealtimeBusMessage) => void>()
 
@@ -380,6 +382,7 @@ export function createMemoryBusNetwork() {
       async writeRoom(room, record, ifEpoch) {
         if ((records.get(room)?.epoch ?? null) !== ifEpoch) return false
         records.set(room, { ...record, state: Uint8Array.from(record.state) })
+        writes.push({ room, epoch: record.epoch, digest: record.digest })
         return true
       },
       async withRoomLock(room, task) {
@@ -411,7 +414,7 @@ export function createMemoryBusNetwork() {
     return self
   }
 
-  return { bus, records }
+  return { bus, records, writes }
 }
 
 /** One y-websocket style awareness for a test client, which sends its own state changes to the server. */

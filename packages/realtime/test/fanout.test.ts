@@ -327,6 +327,41 @@ describe("saves across instances", () => {
   })
 })
 
+describe("refresh across instances", () => {
+  it("does not replace a newer shared record with a load from before another instance's reseed and save", async () => {
+    const network = createMemoryBusNetwork()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const [controlA, controlB] = [controllable(memory.adapter), controllable(memory.adapter)]
+    const a = createTestServer(definition(controlA.adapter), { handler: { bus: () => network.bus() } })
+    const b = createTestServer(definition(controlB.adapter), { handler: { bus: () => network.bus() } })
+    await a.connect("page")
+    await b.connect("page")
+    await flush()
+
+    memory.write("page", "Written by an Agent")
+    // B's refresh loads the outside version, and waits before it uses it.
+    const releaseLoad = controlB.holdLoad()
+    const refreshingB = b.post("page", "refresh")
+    await flush()
+    // Meanwhile A re-seeds from that version, and a client saves a new edit on A.
+    const refreshingA = a.post("page", "refresh")
+    await flush()
+    const writer = await a.connect("page")
+    await flush()
+    appendParagraph(writer.doc, "Saved on A")
+    await flush(3_000)
+
+    releaseLoad()
+    await Promise.all([refreshingA, refreshingB])
+    await flush(5_000)
+
+    // The shared record never went back to an older stored version, and it describes what the adapter stored.
+    const digests = network.writes.map(write => write.digest).filter((digest, index, all) => digest !== all[index - 1])
+    expect(digests).toEqual([...new Set(digests)])
+    expect(network.records.get(realtimeRoomKey("docs", "page"))!.digest).toBe(memory.store.get("page")!.digest)
+  })
+})
+
 describe("awareness clocks", () => {
   it("does not throw on a client's first awareness update, or when that client leaves", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
