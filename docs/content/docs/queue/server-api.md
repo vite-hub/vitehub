@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or with the local provider of `preset: 'node'`, which runs jobs in the server process. Complete [Get started](/docs/queue/get-started) to configure the host and discover the `welcome-email` Definition used below.
+Queue runs on Cloudflare, on Vercel, or on `preset: 'node'`, where the server processes run the jobs from Postgres or from local files. Complete [Get started](/docs/queue/get-started) to configure the host and discover the `welcome-email` Definition used below.
 
 ## Public imports
 
@@ -47,7 +47,7 @@ Providers can retry failed delivery, so a handler must tolerate another run afte
 | Provider | Default | Override |
 | --- | --- | --- |
 | Cloudflare | A successful handler acknowledges the message. A failed handler retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }` from `onError`. Return `void` to keep the default. |
-| Local | A successful handler removes the job. A failed handler runs again after 1, 2, and 4 seconds. After 4 attempts, or after a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), the job stays as a dead job. | None. The local provider does not call `onError` or `callbackOptions.retry`. |
+| Local and postgres | A successful handler removes the job. A failed handler runs again after 1, 2, and 4 seconds. After 4 attempts, or after a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), the job stays as a dead job. | None. These providers do not call `onError` or `callbackOptions.retry`. |
 | Vercel | Provider behavior. ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler) when the callback returns `undefined`; other `undefined` results keep Vercel's retry behavior. | Return a directive from `callbackOptions.retry`. Return `void` to keep the default. |
 
 In `vite dev`, a Cloudflare or Vercel app runs its jobs with the local provider and the retry rules of its provider. It does not call `onError` or `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).

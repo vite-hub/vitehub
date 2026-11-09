@@ -8,6 +8,7 @@
     "h3",
     "job-queue",
     "nuxt",
+    "postgres",
     "queue",
     "typescript",
     "vercel",
@@ -50,6 +51,11 @@
       "types": "./dist/internal/runtime/local-client.d.ts",
       "import": "./dist/internal/runtime/local-client.js",
       "default": "./dist/internal/runtime/local-client.js"
+    },
+    "./internal/runtime/postgres-client": {
+      "types": "./dist/internal/runtime/postgres-client.d.ts",
+      "import": "./dist/internal/runtime/postgres-client.js",
+      "default": "./dist/internal/runtime/postgres-client.js"
     },
     "./internal/runtime/state": {
       "types": "./dist/internal/runtime/state.d.ts",
@@ -99,7 +105,9 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
@@ -108,9 +116,17 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vite-hub/database": "workspace:*",
+    "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vite-hub/database": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

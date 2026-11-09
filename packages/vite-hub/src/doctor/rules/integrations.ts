@@ -364,10 +364,10 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | 
         fix: "Set `sandboxTask: true`.",
       }
     }
-    else if (name === "queue" && isObject) {
+    else if (name === "queue" && isObject && !isNodeQueueOptions(value)) {
       report = {
-        why: "`queue` takes only `true` or `false`. ViteHub ignores the fields of this object, because the preset selects the Queue provider.",
-        fix: "Set `queue: true`, and choose the provider with `preset`.",
+        why: "`queue` takes `true`, `false`, or `{ provider: \"local\" }` or `{ provider: \"postgres\" }` for the `node` preset. The preset selects the Cloudflare and Vercel Queue providers, so ViteHub ignores other fields.",
+        fix: "Set `queue: true`, and choose the provider with `preset`. On Node, set `queue: { provider: \"postgres\" }` to share the jobs between instances.",
       }
     }
     else if (name === "env" && host === "vite" && isObject) {
@@ -699,3 +699,10 @@ export const rules: DoctorRule[] = [
   markdownFilePath,
   commentsEntry,
 ]
+
+/** `{ provider: "local" }` or `{ provider: "postgres" }`, the only Queue options that `vitehub()` reads. */
+function isNodeQueueOptions(value: unknown): boolean {
+  const properties = objectProperties(value)
+  const provider = stringValue(objectValue(value, "provider"))
+  return properties.length === 1 && propertyName(properties[0]!) === "provider" && (provider === "local" || provider === "postgres")
+}

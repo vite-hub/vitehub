@@ -1,0 +1,274 @@
+import { spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { resolve } from "node:path"
+
+import postgres from "postgres"
+import { afterAll, afterEach, describe, expect, it } from "vitest"
+
+import { createPostgresQueueClient, createPostgresQueueEngine } from "../src/providers/postgres.ts"
+
+import type { ChildProcess } from "node:child_process"
+import type { PostgresQueueEngine, PostgresQueueEngineOptions } from "../src/providers/postgres.ts"
+import type { QueueDefinition, QueueJob } from "../src/types.ts"
+
+// Opt-in: `docker run --rm -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres:17`, then
+// `VITEHUB_TEST_POSTGRES_URL=postgres://postgres:pw@127.0.0.1:5432/postgres vp test test/postgres.test.ts`.
+const url = process.env.VITEHUB_TEST_POSTGRES_URL
+const workerFile = resolve(import.meta.dirname, "fixtures/postgres-queue-worker.ts")
+
+const sql = url ? postgres(url, { max: 4, onnotice: () => {} }) : undefined
+const engines: PostgresQueueEngine[] = []
+const children: ChildProcess[] = []
+const tables: string[] = []
+
+function table(): string {
+  const name = `q_${randomUUID().replaceAll("-", "").slice(0, 12)}`
+  tables.push(name)
+  return name
+}
+
+function engine(options: Partial<PostgresQueueEngineOptions> & { handler?: (job: QueueJob) => unknown, table: string }): PostgresQueueEngine {
+  const definition: QueueDefinition = { handler: options.handler ?? (() => undefined) }
+  const created = createPostgresQueueEngine({
+    load: async () => definition,
+    missing: queue => new Error(`No Queue Definition ${queue}`),
+    pollIntervalMs: 100,
+    queues: () => options.handler ? ["jobs"] : [],
+    url: url!,
+    ...options,
+  })
+  engines.push(created)
+  return created
+}
+
+async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs = 30_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const value = await read()
+    if (done(value)) return value
+    if (Date.now() > deadline) throw new Error(`Timed out. Last value: ${JSON.stringify(value)}`)
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+}
+
+function startWorker(name: string, queueTable: string, lockSeconds = 30): Promise<ChildProcess> {
+  const child = spawn(process.execPath, [workerFile], {
+    env: { ...process.env, LOCK_SECONDS: String(lockSeconds), QUEUE_TABLE: queueTable, VITEHUB_TEST_POSTGRES_URL: url, WORKER_NAME: name },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  children.push(child)
+  let output = ""
+  return new Promise((resolve, reject) => {
+    child.stderr!.on("data", (chunk: Buffer) => { output += chunk })
+    child.stdout!.on("data", (chunk: Buffer) => {
+      output += chunk
+      if (output.includes("ready")) resolve(child)
+    })
+    child.once("exit", code => reject(new Error(`Worker ${name} exited with ${code}: ${output}`)))
+  })
+}
+
+function exitCode(child: ChildProcess): Promise<number | null> {
+  return child.exitCode !== null ? Promise.resolve(child.exitCode) : new Promise(resolve => child.once("exit", code => resolve(code)))
+}
+
+async function createRuns(queueTable: string) {
+  await sql!`create table ${sql!(`${queueTable}_runs`)} (key text not null, worker text not null, attempts int not null, phase text not null)`
+  tables.push(`${queueTable}_runs`)
+}
+
+afterEach(async () => {
+  for (const child of children.splice(0)) if (child.exitCode === null) child.kill("SIGKILL")
+  await Promise.all(engines.splice(0).map(created => created.close()))
+})
+
+afterAll(async () => {
+  if (!sql) return
+  for (const name of tables) await sql`drop table if exists ${sql(name)}`
+  await sql.end()
+})
+
+describe.skipIf(!url)("postgres Queue provider", () => {
+  it("creates the table once when several instances start at the same time", async () => {
+    const name = table()
+    const starts = Array.from({ length: 5 }, () => engine({ table: name }))
+    await expect(Promise.all(starts.map(created => created.status()))).resolves.toHaveLength(5)
+    const [{ count }] = await sql!<{ count: number }[]>`select count(*)::int as count from pg_tables where tablename = ${name}`
+    expect(count).toBe(1)
+  })
+
+  it("runs a job once with its payload, then deletes it", async () => {
+    const name = table()
+    const ran: QueueJob[] = []
+    const consumer = engine({ handler: job => void ran.push(job), table: name })
+    await consumer.start()
+    const client = createPostgresQueueClient(consumer, "jobs")
+    const [error, sent] = await client.send({ hello: "world" }, { id: "msg-1" })
+    expect(error).toBeUndefined()
+    expect(sent).toEqual({ messageId: "msg-1", status: "queued" })
+    const [, nullSent] = await client.send(null)
+    const [, emptySent] = await client.send(undefined)
+    await until(async () => ran.length, count => count === 3)
+    expect(ran.find(job => job.id === "msg-1")).toEqual({ attempts: 1, id: "msg-1", payload: { hello: "world" } })
+    expect(ran.find(job => job.id === nullSent!.messageId)?.payload).toBeNull()
+    expect(ran.find(job => job.id === emptySent!.messageId)?.payload).toBeUndefined()
+    await until(() => consumer.jobs(), jobs => jobs.length === 0)
+  })
+
+  it("rejects the enqueue options that the local provider rejects", async () => {
+    const client = createPostgresQueueClient(engine({ table: table() }), "jobs")
+    const [error] = await client.send({}, { contentType: "json" })
+    expect(error?.code).toBe("QUEUE_UNSUPPORTED_OPTION")
+  })
+
+  it("honors delaySeconds", async () => {
+    const name = table()
+    const ranAt: number[] = []
+    const consumer = engine({ handler: () => void ranAt.push(Date.now()), table: name })
+    await consumer.start()
+    const sentAt = Date.now()
+    await createPostgresQueueClient(consumer, "jobs").send({}, { delaySeconds: 2 })
+    expect((await consumer.jobs())[0]).toMatchObject({ state: "pending" })
+    await until(async () => ranAt.length, count => count === 1, 10_000)
+    expect(ranAt[0]! - sentAt).toBeGreaterThanOrEqual(1900)
+    expect(ranAt[0]! - sentAt).toBeLessThan(4000)
+  })
+
+  it("dedupes jobs with the same idempotencyKey while the first one is live", async () => {
+    const name = table()
+    const producer = engine({ table: name })
+    const client = createPostgresQueueClient(producer, "jobs")
+    const [, first] = await client.send({ n: 1 }, { delaySeconds: 60, idempotencyKey: "order-1" })
+    const [, second] = await client.send({ n: 2 }, { delaySeconds: 60, idempotencyKey: "order-1" })
+    const [, batch] = await client.sendBatch([{ body: { n: 3 }, idempotencyKey: "order-2" }, { body: { n: 4 }, idempotencyKey: "order-2" }, { body: { n: 5 }, idempotencyKey: "order-1" }], { delaySeconds: 60 })
+    expect(second?.messageId).toBe(first?.messageId)
+    expect(batch![1]!.messageId).toBe(batch![0]!.messageId)
+    expect(batch![2]!.messageId).toBe(first?.messageId)
+    expect(await producer.jobs()).toHaveLength(2)
+    expect((await producer.job(first!.messageId!))?.payload).toEqual({ n: 1 })
+    // Another Queue Definition has its own keys.
+    const [, other] = await createPostgresQueueClient(producer, "other").send({}, { delaySeconds: 60, idempotencyKey: "order-1" })
+    expect(other?.messageId).not.toBe(first?.messageId)
+  })
+
+  it("stores no job of a batch that breaks a rule", async () => {
+    const producer = engine({ table: table() })
+    const [error] = await createPostgresQueueClient(producer, "jobs").sendBatch([{ body: 1 }, { body: 2, delaySeconds: -1 }])
+    expect(error?.code).toBe("QUEUE_PROVIDER_FAILED")
+    expect(await producer.jobs()).toEqual([])
+  })
+
+  it("retries with backoff, keeps a dead job after 4 attempts, and retries it on request", async () => {
+    const name = table()
+    const attempts: number[] = []
+    let fail = true
+    const consumer = engine({
+      handler: (job) => {
+        attempts.push(job.attempts)
+        if (fail) throw new Error("boom")
+      },
+      retryDelayMs: () => 100,
+      table: name,
+    })
+    await consumer.start()
+    const [, sent] = await createPostgresQueueClient(consumer, "jobs").send({ key: 1 })
+    const id = sent!.messageId!
+    await until(() => consumer.jobs({ state: "dead" }), jobs => jobs.length === 1)
+    expect(attempts).toEqual([1, 2, 3, 4])
+    const dead = await consumer.job(id)
+    expect(dead).toMatchObject({ attempts: 4, error: { message: "[vitehub] Queue Delivery failed." }, payload: { key: 1 }, state: "dead" })
+    expect(dead?.failedAt).toEqual(expect.any(String))
+    expect(await consumer.status()).toMatchObject({ durability: "shared", queues: { jobs: { dead: 1, pending: 0, running: 0 } } })
+
+    fail = false
+    expect(await consumer.retry(id)).toMatchObject({ attempts: 0, state: "pending" })
+    await until(() => consumer.jobs(), jobs => jobs.length === 0)
+    expect(attempts.at(-1)).toBe(1)
+    expect(await consumer.retry(id)).toBe("missing")
+  })
+
+  it("clears pending and dead jobs, and keeps running jobs", async () => {
+    const name = table()
+    const producer = engine({ table: name })
+    const client = createPostgresQueueClient(producer, "jobs")
+    await client.sendBatch([{ body: 1 }, { body: 2 }], { delaySeconds: 60 })
+    await createPostgresQueueClient(producer, "other").send(3, { delaySeconds: 60 })
+    expect(await producer.clear({ queue: "other" })).toBe(1)
+    expect(await producer.clear({ state: "dead" })).toBe(0)
+    expect(await producer.clear()).toBe(2)
+  })
+
+  it("drains a running job when it closes", async () => {
+    const name = table()
+    let started = false
+    let finished = false
+    const consumer = engine({
+      async handler() {
+        started = true
+        await new Promise(resolve => setTimeout(resolve, 500))
+        finished = true
+      },
+      table: name,
+    })
+    await consumer.start()
+    await createPostgresQueueClient(consumer, "jobs").send({})
+    await until(async () => started, value => value)
+    expect(await consumer.jobs({ state: "running" })).toHaveLength(1)
+    await consumer.close()
+    expect(finished).toBe(true)
+    const [{ count }] = await sql!<{ count: number }[]>`select count(*)::int as count from ${sql!(name)}`
+    expect(count).toBe(0)
+  })
+
+  it("runs 1,000 jobs exactly once over 3 processes", async () => {
+    const name = table()
+    const producer = engine({ table: name })
+    await producer.status()
+    await createRuns(name)
+    const workers = await Promise.all(["a", "b", "c"].map(worker => startWorker(worker, name)))
+    const client = createPostgresQueueClient(producer, "jobs")
+    const keys = Array.from({ length: 1000 }, (_, index) => `job-${index}`)
+    for (let start = 0; start < keys.length; start += 100) {
+      const [error] = await client.sendBatch(keys.slice(start, start + 100).map(key => ({ body: { key } })))
+      expect(error).toBeUndefined()
+    }
+    const read = async () => (await sql!<{ distinct: number, total: number }[]>`select count(*)::int as total, count(distinct key)::int as distinct
+      from ${sql!(`${name}_runs`)} where phase = 'done'`)[0]!
+    await until(read, value => value.distinct === 1000, 60_000)
+    // Wait for a late second run, if any.
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    expect(await read()).toEqual({ distinct: 1000, total: 1000 })
+    const [{ starts }] = await sql!<{ starts: number }[]>`select count(*)::int as starts from ${sql!(`${name}_runs`)} where phase = 'start'`
+    expect(starts).toBe(1000)
+    const byWorker = await sql!<{ count: number, worker: string }[]>`select worker, count(*)::int as count from ${sql!(`${name}_runs`)}
+      where phase = 'done' group by worker order by worker`
+    expect(byWorker.map(row => row.worker)).toEqual(["a", "b", "c"])
+    for (const row of byWorker) expect(row.count).toBeGreaterThan(0)
+    // SIGTERM drains and exits cleanly.
+    for (const worker of workers) worker.kill("SIGTERM")
+    expect(await Promise.all(workers.map(exitCode))).toEqual([0, 0, 0])
+  }, 120_000)
+
+  it("runs the job of a killed worker on another worker after its claim ends", async () => {
+    const name = table()
+    const producer = engine({ table: name })
+    await producer.status()
+    await createRuns(name)
+    const first = await startWorker("first", name, 2)
+    await createPostgresQueueClient(producer, "jobs").send({ hold: true, key: "held" })
+    const runs = () => sql!<{ attempts: number, phase: string, worker: string }[]>`select worker, attempts, phase from ${sql!(`${name}_runs`)} order by attempts, phase desc`
+    await until(runs, rows => rows.length === 1)
+    first.kill("SIGKILL")
+    await exitCode(first)
+    const killedAt = Date.now()
+    await startWorker("second", name, 2)
+    await until(runs, rows => rows.some(row => row.phase === "done"), 20_000)
+    // The claim of the killed worker lasts 2 seconds from its last renewal.
+    expect(Date.now() - killedAt).toBeLessThan(10_000)
+    expect(await runs()).toEqual([
+      { attempts: 1, phase: "start", worker: "first" },
+      { attempts: 2, phase: "start", worker: "second" },
+      { attempts: 2, phase: "done", worker: "second" },
+    ])
+  }, 60_000)
+})

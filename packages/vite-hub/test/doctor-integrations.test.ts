@@ -238,7 +238,7 @@ describe("vitehub/valid-vitehub-options", () => {
         "import { vitehub } from \"vite-hub\"",
         "export default defineConfig({ env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandboxTask: true, queue: true, connections: true, env: { prefix: \"APP_\" } })] })",
       ),
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", env: { server: {} }, connections: false } })\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", env: { server: {} }, connections: false, queue: { provider: \"postgres\" } } })\n",
     }, "nuxt")).toEqual([])
   })
 })

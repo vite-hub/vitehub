@@ -2600,9 +2600,15 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      postgres:
+        specifier: catalog:database
+        version: 3.4.9
       publint:
         specifier: catalog:tooling
         version: 0.3.25

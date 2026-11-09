@@ -65,6 +65,14 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ expected, provider }: { expected: QueueProvider, provider: QueueProvider }) => `The ${expected} Queue runtime received the ${provider} provider.`,
       fix: "Set `queue.provider` to the provider of the deployment preset, and build again.",
     },
+    QUEUE_POSTGRES_INVALID_URL: {
+      why: ({ variable }: { variable: string }) => `The postgres queue provider needs a Postgres URL in ${variable}, and the value is not a \`postgres://\` or \`postgresql://\` URL.`,
+      fix: "Set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs. It takes precedence over `DATABASE_URL`.",
+    },
+    QUEUE_POSTGRES_MISSING_URL: {
+      why: "The postgres queue provider reads its connection URL from `QUEUE_POSTGRES_URL` or `DATABASE_URL`, and neither is set.",
+      fix: "Set `DATABASE_URL` or `QUEUE_POSTGRES_URL` on the server to a `postgres://` URL. ViteHub reads it when the server starts, not at build time.",
+    },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
       fix: "Add `hubQueue()` to the Vite config, build the app, and run the built server.",
@@ -105,7 +113,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_INVALID_PROVIDER: {
       why: ({ provider }: { provider: string }) => `\`queue.provider\` "${provider}" is not a Queue provider.`,
-      fix: "Set `queue.provider` to \"cloudflare\", \"vercel\", or \"local\".",
+      fix: "Set `queue.provider` to \"cloudflare\", \"vercel\", \"local\", or \"postgres\".",
     },
     QUEUE_MISSING_PROVIDER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue provider for ${hosting} hosting.`,

@@ -60,6 +60,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import type { NodeQueueProvider } from "@vite-hub/queue"
 import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
@@ -403,7 +404,11 @@ export interface ViteHubOptions {
   logs?: boolean | LogsOptions
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
-  queue?: boolean
+  /**
+   * Background jobs in `server/queues/`. The preset picks the provider: Cloudflare Queues, Vercel Queues, or on Node
+   * `postgres` when the app has a Postgres Default Database, else `local`. On Node, `{ provider }` picks it yourself.
+   */
+  queue?: boolean | ViteHubQueueOptions
   /**
    * Comments on the app's pages. `true`, or an object with the Database, the SQL dialect, or `overlay: false` (no page
    * tool), turns it on, with `server/comments.ts` or else the default `defineComments()`, and turns the Database on
@@ -418,6 +423,24 @@ export interface ViteHubOptions {
   schedule?: boolean | ScheduleVitePluginOptions
   workflow?: boolean | WorkflowModuleOptions
   workspace?: boolean | WorkspaceModuleOptions
+}
+
+/** Queue options of `vitehub()`. Cloudflare and Vercel use their own Queues, so only the `node` preset reads them. */
+export interface ViteHubQueueOptions {
+  /**
+   * `postgres` keeps the jobs in a Postgres table that every instance shares. It reads `QUEUE_POSTGRES_URL`, else
+   * `DATABASE_URL`, when the server starts. `local` keeps them in files of one server process.
+   */
+  provider?: NodeQueueProvider
+}
+
+/** The Queue provider that the app sets for the `node` preset, if any. Other presets fail with a provider. */
+function configuredNodeQueueProvider(queue: ViteHubOptions["queue"], preset: DeploymentPreset): NodeQueueProvider | undefined {
+  const provider = queue && queue !== true ? queue.provider : undefined
+  if (provider !== undefined && preset !== "node") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: `[vitehub] queue.provider "${provider}" works with the "node" preset only. The "${preset}" preset uses its own Queue. Remove queue.provider, or use the "node" preset.` })
+  }
+  return provider
 }
 
 export type DeploymentPreset = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
@@ -765,9 +788,11 @@ function deploymentPlugins(
           )
           const name = identity.name
           if (requestedServices.includes("queue") && plan.services.queue.supported) {
+            // On Node, Queue infers `postgres` or `local` from the Database unless the app sets the provider.
+            const provider = plan.preset === "node" ? configuredNodeQueueProvider(options.queue, plan.preset) : plan.services.queue.adapter
             ;(config as { queue?: unknown }).queue = {
               ...cloneRecord((config as { queue?: unknown }).queue),
-              provider: plan.services.queue.adapter,
+              ...(provider ? { provider } : {}),
               ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: `${name}-` } : {}),
             }
           }
@@ -1368,7 +1393,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
+    const nodeProvider = configuredNodeQueueProvider(options.queue, plan.preset)
+    const queueOptions = plan.preset === "node" ? (nodeProvider ? { provider: nodeProvider } : {}) : { provider: plan.services.queue.adapter }
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue(queueOptions, { importBase: "vite-hub/queue" })))
   }
   if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {

@@ -61,6 +61,7 @@ function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting
 function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): false | QueueRuntimeOptions {
   if (!development || queueConfig === false) return queueConfig
   if (queueConfig.provider === "local") return { ...queueConfig, development }
+  // A postgres build runs its jobs with the local provider too, so `vite dev` needs no Postgres database.
   return {
     base: resolve(rootDir, defaultLocalQueueBase),
     ...(queueConfig.cache === undefined ? {} : { cache: queueConfig.cache }),
@@ -102,6 +103,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
   const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
   const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
   const localRuntime = queueConfig !== false && queueConfig.provider === "local"
+  const postgresRuntime = queueConfig !== false && queueConfig.provider === "postgres"
   const cloudflare = cloudflareQueues && cloudflareRuntime
   const cloudflareGlobals = cloudflareRuntime && !development
   const runtimeClientFactory = cloudflareRuntime
@@ -110,7 +112,9 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
       ? "createVercelQueueRuntimeClient"
       : localRuntime
         ? "createLocalQueueRuntimeClient"
-        : undefined
+        : postgresRuntime
+          ? "createPostgresQueueRuntimeClient"
+          : undefined
   return [
     "import { definePlugin } from 'nitro'",
     ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolvePackageDependency("@vercel/queue")))}`] : []),
@@ -118,6 +122,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     ...(cloudflare ? [`import { createQueueCloudflareWorker } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-vite")))}`] : []),
     ...(cloudflareRuntime ? [`import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-client")))}`] : []),
     ...(localRuntime ? [`import { closeLocalQueues, createLocalQueueRuntimeClient, startLocalQueue } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/local-client")))}`] : []),
+    ...(postgresRuntime ? [`import { closePostgresQueues, createPostgresQueueRuntimeClient, startPostgresQueue } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/postgres-client")))}`] : []),
     ...(vercelRuntime ? [`import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/vercel-client")))}`] : []),
     `import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
@@ -127,12 +132,14 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     ...(cloudflare ? [`const queueDefinitions = ${JSON.stringify(queueDefinitions, null, 2)}`, "const queueWorker = createQueueCloudflareWorker({ definitions: queueDefinitions, queue: queueConfig, registry: queueRegistry })"] : []),
     "",
-    `export default definePlugin((${cloudflare || localRuntime ? "nitro" : ""}) => {`,
+    `export default definePlugin((${cloudflare || localRuntime || postgresRuntime ? "nitro" : ""}) => {`,
     `  setQueueRuntimeConfig(queueConfig${runtimeClientFactory ? `, ${runtimeClientFactory}` : ""})`,
     "  setQueueRuntimeRegistry(queueRegistry)",
     ...(cloudflareGlobals ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
     ...(localRuntime ? ["  startLocalQueue(queueConfig)", "  nitro.hooks.hook('close', closeLocalQueues)"] : []),
+    // The workers start after the registry is set, and drain their running jobs when Nitro closes.
+    ...(postgresRuntime ? ["  startPostgresQueue(queueConfig)", "  nitro.hooks.hook('close', closePostgresQueues)"] : []),
     "})",
     "",
   ].join("\n")

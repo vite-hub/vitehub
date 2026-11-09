@@ -103,9 +103,17 @@ The installed `@vercel/queue` needs a region. ViteHub reads `queue.region`, then
 
 A direct Vercel client from `createQueueClient()` needs a `topic`. `getQueue()` sets the topic for discovered Queue Definitions.
 
+### QUEUE_POSTGRES_INVALID_URL
+
+`QUEUE_POSTGRES_URL` or `DATABASE_URL` holds a URL that is not a `postgres://` or `postgresql://` URL. When `DATABASE_URL` points to libSQL, set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs.
+
+### QUEUE_POSTGRES_MISSING_URL
+
+The postgres provider reads `QUEUE_POSTGRES_URL`, else `DATABASE_URL`, when the server starts, and neither is set. Set one of them on the server. The build does not keep the URL.
+
 ### QUEUE_PROVIDER_MISMATCH
 
-The generated Cloudflare, Vercel, or local runtime received another provider. Set `queue.provider` to the provider of the deployment preset, and build again.
+The generated Cloudflare, Vercel, local, or postgres runtime received another provider. Set `queue.provider` to the provider of the deployment preset, and build again.
 
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
@@ -167,7 +175,7 @@ The `hubQueue()` plugin in the Vite config does not expose the Queue Nitro confi
 
 ## Local delivery
 
-The local provider is the Queue Provider of the Node preset. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. In `vite dev`, a Cloudflare or Vercel app uses it too, with the rules of [Dev delivery](#dev-delivery).
+The local provider is the Queue Provider of the Node preset when the app has no Postgres Database. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. In `vite dev`, a Cloudflare, Vercel, or postgres app uses it too, with the rules of [Dev delivery](#dev-delivery).
 
 - `runQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server process then runs the Queue Definition.
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, the job becomes a dead job. A dead job stays in its file with the last error, and `vitehub queue list` counts it. The provider keeps the 100 newest dead jobs of each Queue Definition and deletes older ones. `vitehub queue list` shows this limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes the dead jobs.
@@ -176,13 +184,25 @@ The local provider is the Queue Provider of the Node preset. It runs in the serv
 - `delaySeconds` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key, also for two sends at the same time. A dead job does not hold its key, so a new send with that key runs.
 - `sendBatch()` stores all jobs or none. When one file cannot be written, it returns `QUEUE_PROVIDER_FAILED` and removes the other files of the batch, so a retry does not store the jobs two times.
 - `concurrency` limits the jobs of one Queue Definition that run at the same time. The default is 1. `onError` and `callbackOptions` are Cloudflare and Vercel options, and the local provider does not call them.
-- The jobs survive a restart on the same host and the same disk. They are lost with an ephemeral container filesystem, and another host does not see them. Mount `.vitehub/data` as a volume in Docker. Run one server process per directory. The provider has no lock between processes, so two processes on one directory can run the same job at the same time. Use Cloudflare or Vercel for more than one server.
+- The jobs survive a restart on the same host and the same disk. They are lost with an ephemeral container filesystem, and another host does not see them. Mount `.vitehub/data` as a volume in Docker. Run one server process per directory. The provider has no lock between processes, so two processes on one directory can run the same job at the same time. Use the [postgres provider](#postgres-delivery), Cloudflare, or Vercel for more than one server.
+
+## Postgres delivery
+
+The postgres provider keeps the jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It reads the URL from `QUEUE_POSTGRES_URL`, else `DATABASE_URL`, when the server starts. It follows the rules of [Local delivery](#local-delivery) for retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency`, with these differences:
+
+- The first server that starts creates the table and its indexes under a transaction lock, so servers that start at the same time do not race.
+- A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so two instances do not take the same job. A send wakes all workers at once with `NOTIFY`. Without a notification, a worker checks for due jobs every second.
+- A claim holds a job for 30 seconds, and a running handler renews it. When a process stops during a handler, another instance runs the job again with the next attempt number when the claim ends.
+- `concurrency` limits the running jobs of one Queue Definition in each process. With three instances and the default of 1, three jobs of a Queue Definition can run at the same time.
+- When Nitro closes, for example on `SIGTERM`, the workers stop taking jobs and wait up to 10 seconds for the running jobs. A job that does not end in time runs again on another instance when its claim ends.
+- Completed jobs are deleted. Dead jobs stay in the table, up to 100 per Queue Definition. `vitehub queue jobs list` shows at most 1,000 jobs.
+- Delivery is at least once, as with the local provider. Make handler side effects idempotent.
 
 ## Dev delivery
 
 In `vite dev` and `nuxt dev`, every app runs its Queue jobs in the dev server with the local provider, whatever the provider of the build. The dev server stores the jobs in `.vitehub/data/queue` of the project and follows the documented defaults of the provider of the build. The build output does not change.
 
-| Rule | Cloudflare | Vercel | Local |
+| Rule | Cloudflare | Vercel | Local and postgres |
 | --- | --- | --- | --- |
 | Attempts | 4 (`max_retries` 3) | No limit until the job expires | 4 |
 | Retry delay | None | 60 seconds (`retryAfterSeconds`) | 1, 2, then 4 seconds |

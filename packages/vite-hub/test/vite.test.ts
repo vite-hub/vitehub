@@ -942,6 +942,12 @@ describe("vitehub", () => {
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "vercel" }, { importBase: "vite-hub/queue" })
     expect(pluginNames(vitehub({ preset: "cloudflare", queue: true }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" }, { importBase: "vite-hub/queue" })
+    // Node leaves the provider to Queue, which picks `postgres` with a Postgres Default Database, else `local`.
+    expect(pluginNames(vitehub({ preset: "node", queue: true }))).toContain("@vite-hub/queue/vite")
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({}, { importBase: "vite-hub/queue" })
+    vitehub({ preset: "node", queue: { provider: "postgres" } })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "postgres" }, { importBase: "vite-hub/queue" })
+    expect(() => vitehub({ preset: "vercel", queue: { provider: "postgres" } })).toThrow("works with the \"node\" preset only")
 
     integrationMocks.hubRateLimit.mockClear()
     expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
@@ -2265,7 +2271,12 @@ describe("vitehub", () => {
     const nodeQueue = vitehub({ preset: "node", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const nodeQueueConfig: Record<string, unknown> = {}
     callHook(nodeQueue.config, [nodeQueueConfig, { command: "build", mode: "production" }])
-    expect(nodeQueueConfig.queue).toEqual({ provider: "local" })
+    expect(nodeQueueConfig.queue).toEqual({})
+    // SAFETY: The explicit Node preset installs the named deployment plugin.
+    const postgresQueue = vitehub({ preset: "node", queue: { provider: "postgres" } }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const postgresQueueConfig: Record<string, unknown> = {}
+    callHook(postgresQueue.config, [postgresQueueConfig, { command: "build", mode: "production" }])
+    expect(postgresQueueConfig.queue).toEqual({ provider: "postgres" })
 
     const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
       // SAFETY: The explicit Node preset installs the named deployment plugin.

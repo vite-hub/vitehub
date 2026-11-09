@@ -106,7 +106,7 @@ native binaries.
 | Blob | `fs` under `.vitehub/data/blob` | Local files on one host. |
 | KV | `fs-lite` | Local files on one host. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. |
 | Rate Limit | `memory` | One process. Counters reset on restart. |
-| Queue | None | `queue: true` fails the build. |
+| Queue | `postgres` with a Postgres Default Database, else `local` | Postgres: every instance shares the jobs. `local`: files on one host. |
 | Sandbox | None | `sandboxTask: true` fails the build. |
 
 Set `dataDir` in `vitehub()` to put local state in one persistent directory, for

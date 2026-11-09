@@ -502,6 +502,63 @@ describe("hubQueue", () => {
     expect(nitroPlugin).not.toContain("cloudflare:")
   })
 
+  async function writePostgresDatabase(root: string) {
+    await mkdir(join(root, "server", "databases"), { recursive: true })
+    await writeFile(join(root, "server", "databases", "config.ts"), "import { defineDatabase } from \"@vite-hub/database\"\nexport default defineDatabase({ dialect: \"postgresql\", schema: {} })\n")
+  }
+
+  const databasePlugin = { name: "@vite-hub/database/vite" }
+
+  it("runs Queue on Postgres on a Node preset with a Postgres Default Database", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-node-postgres-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    await writePostgresDatabase(root)
+    const plugin = hubQueue()
+    const config = { nitro: { preset: "node-server" }, plugins: [[databasePlugin]], root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"provider": "postgres"')
+    expect(nitroPlugin).toContain("internal/runtime/postgres-client")
+    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createPostgresQueueRuntimeClient)")
+    expect(nitroPlugin).toContain("startPostgresQueue(queueConfig)")
+    expect(nitroPlugin).toContain("nitro.hooks.hook('close', closePostgresQueues)")
+    expect(nitroPlugin).not.toContain("local-client")
+    // The URL is read when the server starts, so the build output has none.
+    expect(nitroPlugin).not.toContain("DATABASE_URL")
+  })
+
+  it("keeps the local provider without the Database plugin or with an explicit local provider", async () => {
+    for (const [options, plugins] of [[undefined, []], [{ provider: "local" as const }, [databasePlugin]]] as const) {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-node-local-"))
+      roots.push(root)
+      await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+      await writePostgresDatabase(root)
+      const plugin = hubQueue(options)
+      const config = { nitro: { preset: "node-server" }, plugins, root }
+      ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
+      const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+      expect(nitroPlugin).toContain('"provider": "local"')
+      expect(nitroPlugin).not.toContain("postgres-client")
+    }
+  })
+
+  it("runs the jobs of a postgres app with the local engine in `vite dev`", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-node-postgres-dev-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "postgres" })
+    const config = { nitro: { preset: "node-server" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"provider": "local"')
+    expect(nitroPlugin).toContain('"rules": "postgres"')
+    expect(nitroPlugin).not.toContain("postgres-client")
+  })
+
   it.each(["node-server", "cloudflare", "vercel"])("keeps development disclosure disabled for %s in `vite preview`", async (preset) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-preview-"))
     roots.push(root)

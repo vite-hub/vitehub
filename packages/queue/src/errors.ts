@@ -9,10 +9,12 @@ export type { QueueProviderOperation }
 
 export const cloudflareUnsupportedEnqueueOptions = ["idempotencyKey", "region", "retentionSeconds"] as const
 export const localUnsupportedEnqueueOptions = ["contentType", "region", "retentionSeconds"] as const
+export const postgresUnsupportedEnqueueOptions = localUnsupportedEnqueueOptions
 
 const unsupportedEnqueueOptions = {
   cloudflare: cloudflareUnsupportedEnqueueOptions,
   local: localUnsupportedEnqueueOptions,
+  postgres: postgresUnsupportedEnqueueOptions,
   vercel: ["contentType"],
 } as const
 

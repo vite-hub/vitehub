@@ -15,7 +15,7 @@ import type { DiscoveredQueueDefinition, QueueModuleOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
-import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverQueueDefinitions } from "./discovery.ts"
@@ -54,6 +54,24 @@ export interface QueueVitePluginInternalOptions {
 }
 
 const mergeNoExternal = createNoExternalAddition(queuePackageName)
+const databaseVitePluginName = "@vite-hub/database/vite"
+
+function hasPlugin(plugins: readonly PluginOption[] | undefined, name: string): boolean {
+  return (plugins ?? []).some(plugin => Array.isArray(plugin)
+    ? hasPlugin(plugin, name)
+    : Boolean(plugin && typeof plugin === "object" && "name" in plugin && plugin.name === name))
+}
+
+/**
+ * Whether the app has a Default Database on Postgres. It needs the Database plugin, and reads the Database Definitions
+ * without running them. A Node server then infers the postgres provider.
+ */
+async function findPostgresDefaultDatabase(plugins: readonly PluginOption[] | undefined, root: string, serverDirs?: string[]): Promise<boolean> {
+  if (!hasPlugin(plugins, databaseVitePluginName)) return false
+  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = await import("@vite-hub/database/config")
+  const definition = discoverDatabaseDefinitions(root, serverDirs ? { serverDirs } : {}).find(found => found.name === "default")
+  return definition ? readDatabaseDefinitionDialect(definition.handler) === "postgresql" : false
+}
 
 export async function createQueueNitroConfig(plugin: QueueVitePlugin, options: QueueNitroConfigOptions): Promise<Record<string, unknown>> {
   const createNitroConfig = plugin.vitehub?.queue?.createNitroConfig
@@ -94,12 +112,13 @@ function normalizeQueueForHosting(queue: QueueModuleOptions | undefined, hosting
   return normalizeQueueOptions(queue, { hosting })
 }
 
-function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
+function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>, postgresDatabase = false): string {
   const host = resolveHost({ nitro })
   const hosting = getHostingProvider(host)
   if (hosting) return hosting
-  // A Node server has no hosted Queue. Without an explicit provider, Queue runs in the server process.
-  if (host === "node") return normalizeQueueOptions(queue, { hosting: "node-server" })?.provider ?? "local"
+  // A Node server has no hosted Queue. Without an explicit provider, Queue runs in the server processes: on the
+  // Postgres Default Database when the app has one, else in local files.
+  if (host === "node") return normalizeQueueOptions(queue, { hosting: "node-server", postgresDatabase })?.provider ?? "local"
   return normalizeQueueForHosting(queue, hosting)?.provider || "vercel"
 }
 
@@ -280,7 +299,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
           const definitions = resolveNuxtDefinitions()
           nuxtConfiguredDefinitions = definitions
           const configuredNitro = mergeNitroConfig(config, nitro, projectQueue, projectRoot, definitions)
-          hosting = resolveQueueHosting(projectQueue, configuredNitro)
+          const postgresDatabase = resolveHost({ nitro: configuredNitro }) === "node" && await findPostgresDefaultDatabase(viteConfig?.plugins, projectRoot, serverDirs)
+          hosting = resolveQueueHosting(projectQueue, configuredNitro, postgresDatabase)
           const nitroHosting = getHostingProvider(resolveHost({ nitro: configuredNitro }))
           const resolvedQueue = normalizeQueueOptions(projectQueue, { hosting: nitroHosting })
           nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : projectQueue
@@ -324,7 +344,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       configuredDefinitions = discoverQueueDefinitions({ rootDir: config.root })
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root, configuredDefinitions)
       ;(config as { nitro?: unknown }).nitro = nitro
-      hosting = resolveQueueHosting(queue, nitro)
+      const postgresDatabase = resolveHost({ nitro }) === "node" && await findPostgresDefaultDatabase(config.plugins, resolveViteHubProjectRoot(config.root), serverDirs)
+      hosting = resolveQueueHosting(queue, nitro, postgresDatabase)
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = getHostingProvider(resolveHost({ nitro }))
       const resolvedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
