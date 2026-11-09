@@ -1,14 +1,10 @@
 import { defineErrors, type ErrorCatalog } from "@vite-hub/runtime"
 
-/** A CLI command for one Connection. Names may contain spaces, so quote any name that is not a plain word. */
-const cli = (command: "connect" | "set-key", connection: string): string =>
-  `vitehub connections ${command} ${/^[\w.:@/-]+$/.test(connection) ? connection : `'${connection.replaceAll("'", "'\\''")}'`}`
+/** A Connection name as one shell argument. Names may contain spaces, so quote any name that is not a plain word. */
+const arg = (connection: string): string => /^[\w.:@/-]+$/.test(connection) ? connection : `'${connection.replaceAll("'", "'\\''")}'`
 
-const connect = (connection: string): string => `Run \`${cli("connect", connection)}\`.`
-
-/** The Console page of one Connection. It shows the next step and, when the definition has them, its setup notes. */
-const consolePage = (connection: string, tab?: "approvals"): string =>
-  `/_vitehub/connections?connection=${encodeURIComponent(connection)}${tab ? `&tab=${tab}` : ""}`
+// Write the route and command prefixes literally, so the docs page of each code shows them.
+const connect = (connection: string): string => `Run \`vitehub connections connect ${arg(connection)}\`.`
 
 /** The definition of an instance such as `t3:alice` is `t3`. */
 const definitionOf = (connection: string): string => {
@@ -47,14 +43,14 @@ const codes = {
   // Runtime errors. Connection client calls return them as `[error, undefined]`.
   CONNECTIONS_APPROVAL_REQUIRED: {
     why: ({ action, approval, connection }: { action: string, approval: string, connection: string }): string => `Approval is required for ${action} on Connection "${connection}". Request: ${approval}.`,
-    fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to approve request ${approval} on its Console page (${consolePage(connection, "approvals")}), or to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
+    fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to approve request ${approval} on its Console page (/_vitehub/connections?connection=${encodeURIComponent(connection)}&tab=approvals), or to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
   },
   CONNECTIONS_DENIED: {
     why: ({ action, actor, connection, immediate }: { action: string, actor: string, connection: string, immediate?: boolean }): string => immediate
       ? `Connection "${connection}" requires immediate access for ${action}. Set approve: false on the actor's access rule.`
       : `Actor "${actor}" may not call ${action} on Connection "${connection}".`,
     fix: ({ actor, connection, immediate }: { actor: string, connection: string, immediate?: boolean }): string => immediate
-      ? `In the \`access\` rule of "${actor}" in the Connection Definition "${definitionOf(connection)}", set \`approve: false\` for this action.`
+      ? `In the \`access\` rule of "${actor}" in the Connection Definition "${definitionOf(connection)}", set \`approve: false\`. If the rule has \`write: "approve"\`, also change it to \`write: true\` or a list of allowed actions.`
       : `Allow this action for "${actor}" in the \`access\` rules of the Connection Definition "${definitionOf(connection)}".`,
   },
   CONNECTIONS_INVALID_INPUT: {
@@ -64,28 +60,31 @@ const codes = {
     fix: "Pass the required parameters, and send a `fetch()` body as a string, for example `JSON.stringify(body)`.",
   },
   CONNECTIONS_NEEDS_RECONNECT: {
-    why: ({ connection, problem }: { connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => {
+    why: ({ apiKey, connection, problem }: { apiKey?: boolean, connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => {
+      if (apiKey) return `The API key of Connection "${connection}" must be set again.`
       if (problem === "approval") return `Connection "${connection}" must be connected again before requesting approval.`
       if (problem === "mutation") return `Connection "${connection}" has an unconfirmed token mutation. Confirm the provider outcome and repair its mutation lease before connecting again.`
       if (problem === "refresh-token") return `Connection "${connection}" has no refresh token. Connect it again.`
       return `Connection "${connection}" must be connected again. ${connect(connection)}`
     },
-    fix: ({ connection, problem }: { connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => problem === "mutation"
-      ? `Check at the provider if the last token change of Connection "${connection}" completed. Then open its Console page (${consolePage(connection)}) and select Reconnect.`
-      : `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Reconnect. Follow the setup notes on that page, if it has them. Or run \`${cli("connect", connection)}\`.`,
+    fix: ({ apiKey, connection, problem }: { apiKey?: boolean, connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => {
+      if (problem === "mutation") return `Check at the provider if the last token change of Connection "${connection}" completed. Then remove the mutation lease of "${connection}" from the Connections store, for example its row in \`vitehub_connection_refresh_leases\`. Then open its Console page (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Reconnect.`
+      if (apiKey) return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Replace key. Or run \`vitehub connections set-key ${arg(connection)}\`.`
+      return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Reconnect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${arg(connection)}\`.`
+    },
   },
   CONNECTIONS_NOT_CONNECTED: {
     why: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
       if (login === "connect") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no connect flow.`
       if (login === "credentials") return `Connection "${connection}" has no login credentials.`
-      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`${cli("set-key", connection)}\` or in the Console.`
+      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${arg(connection)}\` or in the Console.`
       return `Connection "${connection}" is not connected. ${connect(connection)}`
     },
     fix: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
       if (login === "connect") return `Do not connect Connection "${connection}". Call it, and it signs in by itself once its \`credentials\` resolve.`
       if (login === "credentials") return `Make the \`credentials\` of the \`oauthLogin()\` provider of Connection "${connection}" resolve, for example set the Env keys that it reads.`
-      if (apiKey) return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Set key. Or run \`${cli("set-key", connection)}\`.`
-      return `Open the Console page of Connection "${connection}" (${consolePage(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`${cli("connect", connection)}\`.`
+      if (apiKey) return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Set key. Or run \`vitehub connections set-key ${arg(connection)}\`.`
+      return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${arg(connection)}\`.`
     },
   },
   CONNECTIONS_ORIGIN_NOT_ALLOWED: {
@@ -218,7 +217,7 @@ const codes = {
       return "Connections management requires Auth outside local development. Configure an actor module or Console Auth."
     },
     fix: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => problem === "management-actor"
-      ? "Set `hubConnections({ management: { actor: './server/connections-auth.ts' } })`, With `vite-hub`, the Console sets the actor when it shows Connections."
+      ? "Set `hubConnections({ management: { actor: './server/connections-auth.ts' } })`. With `vite-hub`, the Console sets the actor when it shows Connections."
       : "Protect the management routes with Console Auth, or pass an actor function to createConnectionsHandler().",
   },
   CONNECTIONS_AUTHORIZATION_EXPIRED: {
@@ -245,7 +244,7 @@ const codes = {
       if (problem === "instances") return `Connection "${connection}" has instances. Use ${(instances ?? []).map(instance => `"${connection}:${instance}"`).join(", ")}.`
       if (problem === "login-key") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no key.`
       if (problem === "not-pending") return `Approval "${approval}" is not pending.`
-      if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`${cli("connect", connection)}\`.`
+      if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`vitehub connections connect ${arg(connection ?? "")}\`.`
       if (problem === "redirect-uri") return "The redirect URI must use HTTPS or a loopback address."
       if (problem === "name") return "The Connection name is invalid."
       if (problem === "start") return "Start the connection from this application."
