@@ -19,10 +19,10 @@ const submitLabels: Record<ChatStatus, string> = {
 };
 
 const submitIcons: Record<ChatStatus, string> = {
-  error: "i-ph-arrow-clockwise",
-  ready: "i-ph-arrow-up",
-  streaming: "i-ph-stop-fill",
-  submitted: "i-ph-stop-fill",
+  error: "i-lucide-refresh-cw",
+  ready: "i-lucide-arrow-up",
+  streaming: "i-lucide-square",
+  submitted: "i-lucide-square",
 };
 
 /** Whether the device has only coarse pointers, such as a phone. A tablet with a trackpad or a mouse is not touch only. */
@@ -125,11 +125,11 @@ export const PromptInput = defineComponent({
           const image = file.mediaType.startsWith("image/");
           return h(Attachment, { key: `${file.filename}-${index}`, size: "xs" }, () => [
             h(AttachmentMedia, { variant: image ? "image" : "icon" }, () =>
-              image ? h(ImagePreview, { alt: label, compact: true, src: file.url }) : h(UIcon, { name: "i-ph-file-light" }),
+              image ? h(ImagePreview, { alt: label, compact: true, src: file.url }) : h(UIcon, { name: "i-lucide-file" }),
             ),
             h(AttachmentContent, () => h(AttachmentTitle, () => label)),
             h(AttachmentActions, () =>
-              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: "i-ph-x-light", onClick: () => remove(index) }),
+              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: "i-lucide-x", onClick: () => remove(index) }),
             ),
           ]);
         }),
@@ -182,7 +182,7 @@ export const PromptInput = defineComponent({
                 class: "rounded-full",
                 color: "neutral",
                 disabled: props.filesDisabled,
-                icon: "i-ph-plus",
+                icon: "i-lucide-plus",
                 onClick: () => input.value?.click(),
                 size: "sm",
                 square: true,

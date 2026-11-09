@@ -140,7 +140,7 @@ The demo page in `test/browser/page` shows every part in the tutorial layout. `p
 Add the package and its runtime peers to an existing Nuxt application:
 
 ```bash
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Register the module:
@@ -152,7 +152,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed.
+The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide collection must be installed in the application. No separate Vue plugin registration is needed.
 
 ## Vue with Vite
 

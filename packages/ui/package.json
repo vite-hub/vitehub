@@ -298,7 +298,7 @@
     "@xterm/xterm": "6.0.0"
   },
   "devDependencies": {
-    "@iconify-json/ph": "catalog:ui",
+    "@iconify-json/lucide": "catalog:ui",
     "@nuxt/schema": "4.6.3",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
@@ -334,7 +334,7 @@
     "@vite-hub/blob": "workspace:*"
   },
   "peerDependencies": {
-    "@iconify-json/ph": "catalog:ui",
+    "@iconify-json/lucide": "catalog:ui",
     "@nuxt/ui": "^4.11.0",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
@@ -348,7 +348,7 @@
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
-    "@iconify-json/ph": {
+    "@iconify-json/lucide": {
       "optional": true
     },
     "@nuxt/ui": {

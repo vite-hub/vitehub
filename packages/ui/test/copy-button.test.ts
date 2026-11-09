@@ -46,6 +46,15 @@ describe("CopyButton", () => {
     expect(wrapper.get("button").attributes("icon")).toBe("i-ph-copy");
   });
 
+  it("shows its own resting icon, and the theme check after a copy", async () => {
+    useClipboard(() => Promise.resolve());
+    const wrapper = mountButton({ value: "https://vitehub.dev", icon: "i-lucide-link", label: "Copy link" });
+    expect(wrapper.get("button").attributes("icon")).toBe("i-lucide-link");
+    await wrapper.get("button").trigger("click");
+    await flushPromises();
+    expect(wrapper.get("button").attributes("icon")).toBe("i-lucide-check");
+  });
+
   it("copies a string, shows the check for 2 seconds, and announces it", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const writeText = vi.fn(() => Promise.resolve());
@@ -107,6 +116,38 @@ describe("CopyButton", () => {
     useClipboard(() => Promise.resolve());
     await expect(copy(() => { throw new Error("No text"); })).resolves.toBe(false);
     await expect(copy(() => Promise.reject(new Error("No text")))).resolves.toBe(false);
+  });
+
+  it("falls back to the copy command when the clipboard API is missing or refuses", async () => {
+    const copied: string[] = [];
+    const execCommand = vi.fn((command: string) => {
+      const area = document.activeElement;
+      if (command === "copy" && area instanceof HTMLTextAreaElement) copied.push(area.value.slice(area.selectionStart, area.selectionEnd));
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
+    const trigger = document.body.appendChild(document.createElement("button"));
+    trigger.focus();
+    try {
+      const { copy } = useCopy();
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+      await expect(copy("without a clipboard")).resolves.toBe(true);
+      useClipboard(() => Promise.reject(new DOMException("Insecure context", "NotAllowedError")));
+      await expect(copy(() => Promise.resolve("after a refusal"))).resolves.toBe(true);
+      expect(execCommand).toHaveBeenCalledWith("copy");
+      expect(copied).toEqual(["without a clipboard", "after a refusal"]);
+      // The hidden text area is gone, and focus is back where it was.
+      expect(document.querySelector("textarea")).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+
+      execCommand.mockReturnValue(false);
+      await expect(copy("refused")).resolves.toBe(false);
+      await expect(copy(() => Promise.reject(new Error("No text")))).resolves.toBe(false);
+      expect(execCommand).toHaveBeenCalledTimes(3);
+    }
+    finally {
+      Reflect.deleteProperty(document, "execCommand");
+    }
   });
 
   it("announces inside the dialog that holds the button", async () => {

@@ -255,6 +255,20 @@ a {
   outline: none;
 }
 
+/*
+ * A page card links through an empty `a` laid over the card. The card draws the ring, so the ring has the card's shape,
+ * and its frame keeps its color.
+ */
+:where([class*="has-[>a:focus-visible]:outline"]):has(> a:focus-visible) {
+  outline: 2px solid var(--vh-focus);
+  outline-offset: 2px;
+  --tw-ring-color: var(--ui-border);
+}
+
+:where([class*="has-[>a:focus-visible]:outline"]) > a:focus-visible {
+  outline: none;
+}
+
 :where([class*="has-focus-visible:ring"]):has(:focus-visible) {
   --tw-ring-color: var(--ui-border-accented);
 }

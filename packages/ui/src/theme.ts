@@ -57,6 +57,19 @@ export const vitehubTheme = {
     upload: "i-lucide-upload",
     warning: "i-lucide-triangle-alert",
   },
+  // A compact notice inside a page or a panel: 13px title, 12px text, and full contrast instead of Nuxt UI's 90%.
+  alert: {
+    defaultVariants: {
+      color: "neutral",
+      variant: "subtle",
+    },
+    slots: {
+      root: "rounded-lg p-3 gap-2",
+      title: "text-[13px] font-medium",
+      description: "text-xs leading-5 opacity-100",
+      icon: "size-4 mt-0.5",
+    },
+  },
   // Geist's smallest text is 12px, so small badges and key caps use it too.
   badge: {
     defaultVariants: {
@@ -195,7 +208,7 @@ export const vitehubTheme = {
       },
       fullscreen: {
         false: {
-          content: "rounded-xl ring-0 shadow-(--vh-shadow-dialog)",
+          content: "max-w-md rounded-xl ring-0 shadow-(--vh-shadow-dialog)",
         },
       },
     },
@@ -203,8 +216,8 @@ export const vitehubTheme = {
   pageCard: {
     slots: {
       root: "rounded-lg",
-      container: "gap-0 p-4",
-      leading: "mb-3 size-8 rounded-md bg-elevated/60",
+      container: "gap-0 p-4 sm:p-4",
+      leading: "mb-3 size-8 justify-center rounded-md bg-elevated/60",
       leadingIcon: "size-4 text-muted opacity-80",
       title: "text-sm font-medium",
       description: "mt-1 text-xs/5 text-muted",

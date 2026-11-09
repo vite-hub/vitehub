@@ -724,9 +724,6 @@ importers:
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.139
-      '@iconify-json/ph':
-        specifier: catalog:ui
-        version: 1.2.2
       '@iconify-json/simple-icons':
         specifier: catalog:ui
         version: 1.2.98
@@ -3127,9 +3124,9 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
     devDependencies:
-      '@iconify-json/ph':
+      '@iconify-json/lucide':
         specifier: catalog:ui
-        version: 1.2.2
+        version: 1.2.139
       '@nuxt/schema':
         specifier: 4.6.3
         version: 4.6.3

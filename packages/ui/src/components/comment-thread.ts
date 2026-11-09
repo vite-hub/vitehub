@@ -9,7 +9,7 @@ import {
 } from "../internal/comment-outside.ts";
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, toPerson } from "../internal/comment-person.ts";
-import { timeAgo } from "../internal/comment-time.ts";
+import { timeAgo } from "../internal/format.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
@@ -103,7 +103,7 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
       ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
           files.map((item) =>
             h(Attachment, { key: item.key, size: "xs" }, () => [
-              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: "i-ph-file-light" })),
+              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: "i-lucide-file" })),
               h(AttachmentContent, () =>
                 h(AttachmentTitle, () => (item.href ? h("a", { href: item.href, rel: "noreferrer", target: "_blank" }, item.name) : item.name)),
               ),
@@ -267,11 +267,11 @@ export const CommentReply = defineComponent({
           ]),
           (canEdit() || canDelete()) && !editing.value && !confirming.value && !props.compact
             ? h("div", { "data-slot": "comment-reply-actions" }, [
-                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
+                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-lucide-pencil", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
                 canDelete() ? h(UButton, {
                   "aria-label": "Delete",
                   color: "neutral",
-                  icon: "i-ph-trash-light",
+                  icon: "i-lucide-trash-2",
                   onClick: () => (props.confirmDelete ? (confirming.value = true) : void remove()),
                   size: "xs",
                   variant: "ghost",
@@ -438,19 +438,19 @@ export const CommentThread = defineComponent({
         { "aria-label": `Comment ${thread.n}`, "data-slot": "comment-thread", "data-status": thread.status, ref: root, role: "dialog", tabindex: -1 },
         [
           h("header", { "data-slot": "comment-thread-header" }, [
-            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: "i-ph-arrow-left", onClick: close, size: "xs", variant: "ghost" }) : null,
+            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: "i-lucide-arrow-left", onClick: close, size: "xs", variant: "ghost" }) : null,
             h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             !allowed("resolve") ? null : h(UButton, {
               "aria-label": resolved ? "Reopen" : "Resolve",
               color: "neutral",
-              icon: resolved ? "i-ph-arrow-counter-clockwise" : "i-ph-check",
+              icon: resolved ? "i-lucide-rotate-ccw" : "i-lucide-check",
               onClick: () => void act(resolved ? props.onReopen : props.onResolve),
               size: "xs",
               variant: "ghost",
             }),
-            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: close, size: "xs", variant: "ghost" }),
+            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-lucide-x", onClick: close, size: "xs", variant: "ghost" }),
           ]),
           h("div", { "data-slot": "comment-thread-messages" }, [
             anchor,

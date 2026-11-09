@@ -23,15 +23,51 @@ export interface UseCopyReturn {
 }
 
 async function writeClipboard(value: CopyValue): Promise<void> {
+  const text = typeof value === "function" ? value() : value;
+  try {
+    await writeClipboardApi(text);
+  }
+  catch (error) {
+    // Outside a secure context, such as a dev server on a LAN address, the clipboard API is missing or refuses.
+    // The older copy command still works there. When the text failed to load, this rethrows that failure.
+    if (!copyWithCommand(await text)) throw error;
+  }
+}
+
+async function writeClipboardApi(text: string | Promise<string>): Promise<void> {
   const clipboard = globalThis.navigator?.clipboard;
   if (typeof clipboard?.writeText !== "function") throw new Error("The clipboard is not available.");
-  const text = typeof value === "function" ? value() : value;
   if (typeof text === "string") return clipboard.writeText(text);
   // Safari allows a write only during the click. A ClipboardItem takes the pending text, so the write starts now.
   if (typeof ClipboardItem === "function" && typeof clipboard.write === "function") {
     return clipboard.write([new ClipboardItem({ "text/plain": text.then((resolved) => new Blob([resolved], { type: "text/plain" })) })]);
   }
   return clipboard.writeText(await text);
+}
+
+/** Copies through a hidden text area and `document.execCommand("copy")`. Returns `false` when the browser refuses. */
+function copyWithCommand(text: string): boolean {
+  const doc = globalThis.document;
+  if (typeof doc?.execCommand !== "function" || !doc.body) return false;
+  const focused = doc.activeElement;
+  const area = doc.createElement("textarea");
+  area.value = text;
+  area.readOnly = true;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  doc.body.append(area);
+  area.focus({ preventScroll: true });
+  area.select();
+  try {
+    return doc.execCommand("copy");
+  }
+  catch {
+    return false;
+  }
+  finally {
+    area.remove();
+    if (focused instanceof HTMLElement) focused.focus({ preventScroll: true });
+  }
 }
 
 /**
@@ -67,8 +103,9 @@ export function useCopy(options: UseCopyOptions = {}): UseCopyReturn {
 }
 
 /**
- * A button that copies text. It shows the theme's `copyCheck` icon for 2 seconds after a copy and announces "Copied",
- * or "Copy failed" when the browser refuses. Without a label it is an icon-only button named "Copy".
+ * A button that copies text. It shows `icon`, or the theme's `copy` icon, and swaps to the theme's `copyCheck` icon for
+ * 2 seconds after a copy. It announces "Copied", or "Copy failed" when the browser refuses. Without a label it is an
+ * icon-only button named "Copy".
  */
 export const CopyButton = defineComponent({
   name: "CopyButton",
@@ -77,6 +114,8 @@ export const CopyButton = defineComponent({
     // SAFETY: Vue's runtime constructors cannot express the function's return type.
     value: { required: true, type: [String, Function] as PropType<CopyValue> },
     label: { default: undefined, type: String },
+    /** The icon before a copy, such as `i-lucide-link` for a link. Defaults to the theme's `copy` icon. */
+    icon: { default: undefined, type: String },
     ariaLabel: { default: undefined, type: String },
     // SAFETY: Vue's runtime constructor cannot express these string literal unions.
     size: { default: undefined, type: String as PropType<CopyButtonSize> },
@@ -125,7 +164,7 @@ export const CopyButton = defineComponent({
         "aria-label": props.ariaLabel ?? (props.label || slots.default ? undefined : "Copy"),
         "data-copied": copied.value ? "" : undefined,
         "data-slot": attrs["data-slot"] ?? "copy-button",
-        icon: copied.value ? icons.value.copyCheck : icons.value.copy,
+        icon: copied.value ? icons.value.copyCheck : props.icon ?? icons.value.copy,
         label: props.label,
         loading: loading.value,
         size: props.size,

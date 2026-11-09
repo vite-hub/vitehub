@@ -88,12 +88,7 @@ export default defineConfig({
             if (entry && typeof entry === "object") delete entry.require;
           }
         }
-        const remapped = Object.fromEntries(
-          Object.entries(normalized).map(([key, value]) =>
-            key.startsWith("./components/agent-") ? [key.replace("./components/", "./"), value] : [key, value],
-          ),
-        );
-        return { ...remapped, "./styles.css": "./dist/styles.css", "./theme.css": "./dist/theme.css" };
+        return { ...normalized, "./styles.css": "./dist/styles.css", "./theme.css": "./dist/theme.css" };
       },
       inlinedDependencies: false,
     },
