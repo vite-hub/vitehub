@@ -13,7 +13,7 @@ const baselineFile = join(import.meta.dirname, "fixtures/diagnostics-ratchet.jso
 const update = process.env.VITEHUB_UPDATE_DIAGNOSTICS_BASELINE === "1"
 
 /** A plain error that the reader of an app sees has no code, fix, or docs link. */
-const rawError = /\bthrow\s+new\s+(?:Error|TypeError|RangeError|SyntaxError)\s*\(|\bclass\s+\w+\s+extends\s+(?:Error|TypeError|RangeError|SyntaxError)\b/
+const rawErrors = /\bthrow\s+new\s+(?:Error|TypeError|RangeError|SyntaxError)\s*\(|\bclass\s+\w+\s+extends\s+(?:Error|TypeError|RangeError|SyntaxError)\b/g
 /** The comment that marks a plain error as an internal invariant. It must say why. */
 const internalMarker = /\/\/ Internal invariant: \S/
 
@@ -36,7 +36,10 @@ function countRawErrors(): Record<string, number> {
   for (const pkg of readdirSync(join(repoRoot, "packages"))) {
     for (const file of sourceFiles(join(repoRoot, "packages", pkg, "src"))) {
       const lines = readFileSync(file, "utf8").split("\n")
-      const count = lines.filter((line, index) => rawError.test(line) && !internalMarker.test(line) && !internalMarker.test(lines[index - 1] ?? "")).length
+      // Count each match, so a second throw on a line that already has one still counts.
+      const count = lines.reduce((sum, line, index) => internalMarker.test(line) || internalMarker.test(lines[index - 1] ?? "")
+        ? sum
+        : sum + (line.match(rawErrors)?.length ?? 0), 0)
       if (count) counts[relative(repoRoot, file)] = count
     }
   }
