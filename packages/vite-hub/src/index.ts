@@ -35,6 +35,7 @@ import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
@@ -1182,6 +1183,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
+  if (plan.preset === "cloudflare") plugins.push(cloudflareShSyntaxPlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
 
   const logsOwnsEvlog = options.logs === true || (options.logs && !("source" in options.logs) && options.logs.evlog?.enabled !== false)
@@ -1347,7 +1349,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
   // The cache can enable KV through Vite's top-level config after plugin construction.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
-    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(presetKVOptions || undefined))
+    // hubKv() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, options.kv ? { hosting: plan.nitroPreset } : {}))
   }
   else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
@@ -1452,7 +1455,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent())
+  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: options.contentImportBase ?? "vite-hub/content" }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
@@ -1483,7 +1486,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   return plugins as PluginOption[]
 }
 
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
   return withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved))
 }
 

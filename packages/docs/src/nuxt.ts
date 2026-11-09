@@ -112,12 +112,13 @@ export interface DocsModuleOptions {
    */
   linkChecker?: false | Pick<DocsLinkCheckOptions, "excludeLinks" | "excludePages" | "ignoreFragments" | "redirect">
   /**
-   * Checks every prerendered page as a site audit does and fails the build on a problem: a sitemap URL that is not a
-   * prerendered page, a missing or duplicate title or description, a title outside 10 to 60 characters or a
-   * description outside 70 to 160, not exactly one `h1`, a skipped heading level, fewer than 150 words, or a page that
-   * no other page links to. Pages with `noindex` or a canonical link to another page are left out. Off by default.
+   * Checks every prerendered page as a site audit does: a sitemap URL that is not a prerendered page, a missing or
+   * duplicate title or description, a title outside 10 to 60 characters or a description outside 70 to 160, not exactly
+   * one `h1`, a skipped heading level, fewer than 150 words, or a page that no other page links to. Pages with `noindex`
+   * or a canonical link to another page are left out. `"warn"`, the default, logs the problems. `"error"` or `true` stops the
+   * build with `DocsSeoError`. `false` turns the check off.
    */
-  seoAudit?: boolean
+  seoAudit?: "warn" | "error" | boolean
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
   assistant?: boolean | { agent?: string }
   /**
@@ -591,7 +592,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           useLogger("@vite-hub/docs").info?.(`Checked links and fragments of ${result.pages} pages`)
         })
       }
-      if (options.seoAudit && building) {
+      const seoAudit = options.seoAudit ?? "warn"
+      if (seoAudit && building) {
         // Only what the check needs stays in memory, not the HTML of every page.
         const origin = `${config.site.url || "http://docs.invalid"}${config.appBase.replace(/\/+$/, "")}`
         const pages: DocsSeoPage[] = []
@@ -603,7 +605,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         })
         nitro.hooks?.hook("prerender:done", () => {
           const problems = docsSeoProblems(pages, sitemap)
-          if (problems.length) throw new DocsSeoError(problems)
+          if (!problems.length) return
+          const error = new DocsSeoError(problems)
+          if (seoAudit === "error" || seoAudit === true) throw error
+          useLogger("@vite-hub/docs").warn(`${error.message}\nSet \`docs.seoAudit\` to "error" to stop the build on these, or to false to turn the check off.`)
         })
       }
     }])

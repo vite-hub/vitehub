@@ -1666,7 +1666,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/email/templates/welcome.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
-        readFile(join(appDir, ".vitehub/workflow/registry.mjs"), "utf8"),
+        readFile(join(appDir, ".vitehub/workflow/registry-runtime.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/workspace/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/workflow/vercel-native", nativeWorkflowFile), "utf8"),
         readFile(join(appDir, ".vercel/output/functions/api/vitehub/schedules/vercel/heartbeat.func/index.mjs"), "utf8"),
