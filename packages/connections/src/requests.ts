@@ -1,3 +1,4 @@
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ConnectionRequestPolicy } from "./types.ts"
 
 const DEFAULT_ATTEMPTS = 3
@@ -82,7 +83,7 @@ export function createRequestScheduler() {
     const intervalMs = !requests.rate ? 0 : "intervalMs" in requests.rate ? requests.rate.intervalMs : requests.rate.perMs / requests.rate.limit
     if (bucket.intervalMs === undefined) bucket.intervalMs = intervalMs
     else if (Math.abs(bucket.intervalMs - intervalMs) > Number.EPSILON * Math.max(1, Math.abs(bucket.intervalMs), Math.abs(intervalMs)) * 8) {
-      throw new Error(`Connections sharing request bucket "${key}" must use the same rate interval.`)
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ bucket: key, problem: "request-bucket" })
     }
     const retry = requests.retry
     return {

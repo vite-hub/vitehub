@@ -1,6 +1,6 @@
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { DeploymentPreset } from "./index.ts"
+import type { DeploymentPreset } from "./plugins.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** Storage for Nitro's `cache` mount, used by `defineCachedFunction()` and `defineCachedEventHandler()`. */

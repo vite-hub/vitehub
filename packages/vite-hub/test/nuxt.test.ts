@@ -120,7 +120,7 @@ const mocks = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
+vi.mock("../src/plugins.ts", async importOriginal => ({ ...await importOriginal<typeof import("../src/plugins.ts")>(), viteHubPlugins: mocks.vitehub }))
 
 import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
@@ -1175,7 +1175,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("gives Nuxt Connections the implicit default Database when the app has no Database Definition", async () => {
-    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
       plugin => isTestRecord(plugin) && plugin.name === "@vite-hub/connections/vite",
     ))
@@ -1359,7 +1359,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("keeps the effective Nuxt D1 binding when the Vite build runs the Agent journal plugin again", async () => {
-    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
       plugin => isTestRecord(plugin) && plugin.name === "vite-hub/agent-invocations",
     ))
@@ -1588,7 +1588,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("keeps resolved Nuxt features when applying the effective KV configuration", async () => {
-    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
       plugin => isTestRecord(plugin) && plugin.name === "vite-hub/agent-invocations",
     ))
@@ -1599,7 +1599,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each([false, true])("uses the effective Vite KV configuration for Nitro cache (dev: %s)", async (dev) => {
-    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
       plugin => isTestRecord(plugin) && ["vite-hub/deployment-preset", "@vite-hub/kv/vite"].includes(String(plugin.name)),
     ))
@@ -2766,7 +2766,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each(["node", "cloudflare"] as const)("generates Connections production Nitro output for %s", async (preset) => {
-    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
       plugin => isTestRecord(plugin) && ["vite-hub/deployment-preset", "@vite-hub/connections/vite"].includes(String(plugin.name)),
     ))
