@@ -184,6 +184,67 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
   })
 
+  it.each([
+    "rm README.md <<EOF | cat README.md\nhi\nEOF",
+    "rm README.md <<EOF && cat README.md\nhi\nEOF",
+    "cat () { rm README.md; }; cat README.md",
+    "cat README.md # note \\\nrm README.md",
+    "cat <<EOF\nit's\nEOF\ncat README.md # note \\\nrm README.md",
+    "cat <<'E\"'\nE\"\ncat README.md # note \\\nrm README.md",
+  ])("checks every statement in %j before a provider runs it", async (command) => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+    const exec = vi.fn(async (command: string) => ({ command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }))
+
+    const fs = createReadonlyWorkspaceFs(workspace)
+
+    await expect(runWorkspaceInspectionCommand(workspace, command, {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+      provider: { ...createJustBashProvider({ fs }), exec },
+    })).resolves.toMatchObject({ event: "policy_denied" })
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    `! cd ${workspaceMountPoint} || rg needle .`,
+    `! cat README.md | cd ${workspaceMountPoint} || rg needle .`,
+  ])("keeps negation in conditional branch checks for %j", async (command) => {
+    const workspace = new MemoryWorkspace({ "README.md": "needle\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, command, {
+      commands: ["cat", "rg"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ event: "policy_denied" })
+  })
+
+  it("reads heredoc bodies as data, not comments", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat <<'EOF'\n# note \\\nhi\nEOF", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ exitCode: 0, stdout: "# note \\\nhi\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat <<'E\"'\nE\"\ncat README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+  })
+
+  it("removes backslash escapes from unquoted words before path checks", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat READ\\ME.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+  })
+
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
       ".secret": "hidden\n",
@@ -192,6 +253,40 @@ describe("@vite-hub/shell workspace inspection", () => {
       "models/orders.sql": "select * from orders\n",
     })
     const fs = createReadonlyWorkspaceFs(workspace)
+
+    await expect(runWorkspaceInspectionCommand(workspace, "# note \\\nrm README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "echo ok\nrm README.md\nif", {
+      commands: ["echo"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "# note\ncat README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "if true; then rm README.md; fi", {
+      commands: ["rm"],
+      cwd: workspaceMountPoint,
+      fs,
+      provider: createJustBashProvider({ fs }),
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+    })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md && pwd", {
       commands: ["cat", "pwd"],
