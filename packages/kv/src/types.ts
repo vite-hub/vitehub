@@ -55,8 +55,9 @@ export interface RedisKVStoreConfig {
    */
   url?: string
   /**
-   * Prefix of every key in Redis, so the store shares a Redis database with other apps safely. Default
-   * `vitehub:kv:<store>`. An empty value uses the default.
+   * Prefix of every key in Redis. Default `vitehub:kv:<store>`, which keeps keys that are not ViteHub's apart.
+   * Two ViteHub apps on one Redis database share this default, so give each app its own database or `base`.
+   * An empty value uses the default.
    */
   base?: string
   /** A Redis store uses the server that `url` points to, in `vite dev` too. */
