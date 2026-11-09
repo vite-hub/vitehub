@@ -31,17 +31,6 @@ export function checkAbility(rules: object, user: object | null, name: string, a
   return toRefusal(rule(user, ...args), name)
 }
 
-/**
- * The arguments that `<Can :with>` stands for: none for a rule without arguments, `[value]` for one, and the array
- * itself for more.
- */
-export function abilityArguments(rules: object, name: string, value: unknown): unknown[] {
-  const count = findAbilityRule(rules, name).length - 1
-  if (count <= 0) return []
-  if (count === 1) return [value]
-  return Array.isArray(value) ? value : [undefined]
-}
-
 function toRefusal(verdict: unknown, name: string): AbilityCheckRefusal | null {
   if (verdict === true) return null
   if (typeof verdict === "string") return { status: 403, code: verdict }

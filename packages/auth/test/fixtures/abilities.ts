@@ -15,4 +15,8 @@ export default defineAbilities({
   "posts.move": (user, from: string, to: string) => from !== to,
   "billing.upgrade": () => deny("plan-limit", { status: 402, details: { limit: 3 } }),
   "admin.open": user => user.name === "Admin",
+  // A default, a rest, and an optional parameter: `Function.length` counts none of them.
+  "posts.review": (user, post: Post, mode: "edit" | "read" = "edit") => mode === "read" || user.id === post.authorId || "not-author",
+  "posts.tag": (_user, ...tags: string[]) => tags.length > 0 && tags.length <= 2 || deny("tags", { status: 422 }),
+  "posts.draft": (user, post?: Post) => !post || user.id === post.authorId,
 })

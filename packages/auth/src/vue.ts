@@ -1,7 +1,7 @@
 import abilities from "#vitehub/auth/abilities"
 import { computed, defineComponent, getCurrentInstance, getCurrentScope, shallowRef, watch } from "vue"
 
-import { abilityArguments, checkAbility } from "./ability-check.ts"
+import { checkAbility } from "./ability-check.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
 
 import type { BetterAuthClientOptions, SessionQueryParams } from "better-auth"
@@ -186,23 +186,20 @@ export function useSignUp(): typeof authClient.signUp {
   return authClient.signUp
 }
 
-/** Arguments that can still be loading: `undefined` until they arrive. */
-type LoadingArgs<Args> = Args extends unknown[] ? { [Index in keyof Args]: Args[Index] | undefined } : never
-
 /** What `useAbility()` returns. */
 export interface Ability {
   /**
-   * Whether a rule from `shared/abilities.ts` allows the visitor: `undefined` until the session is known, or while an
-   * argument is `undefined`.
+   * Whether a rule from `shared/abilities.ts` allows the visitor: `undefined` until the session is known. The arguments
+   * are passed as they are, so load the data before you ask.
    */
-  can: <const Name extends AbilityName>(name: Name, ...args: LoadingArgs<AbilityArgs<Name>>) => boolean | undefined
+  can: <const Name extends AbilityName>(name: Name, ...args: AbilityArgs<Name>) => boolean | undefined
   /** `true` once the session is known. */
   ready: ComputedRef<boolean>
 }
 
-/** The refusal of a rule for the visitor: `undefined` while unknown, `null` when the rule allows. */
+/** The refusal of a rule for the visitor: `undefined` while the session is unknown, `null` when the rule allows. */
 function abilityRefusal(state: { isPending: boolean, data: { user: object } | null }, name: string, args: unknown[]): AbilityCheckRefusal | null | undefined {
-  if (state.isPending || args.includes(undefined)) return undefined
+  if (state.isPending) return undefined
   return checkAbility(abilities, state.data?.user ?? null, name, args)
 }
 
@@ -212,7 +209,7 @@ function abilityRefusal(state: { isPending: boolean, data: { user: object } | nu
  *
  * @example
  * const { can } = useAbility()
- * const editable = computed(() => can("posts.edit", post.value))
+ * const editable = computed(() => post.value && can("posts.edit", post.value))
  */
 export function useAbility(): Ability {
   const state = useSession()
@@ -225,13 +222,22 @@ export function useAbility(): Ability {
   }
 }
 
-/** `with` of `<Can>`: nothing for a rule without arguments, the value for one, the array for more. */
-type CanWith<Name extends string> = AbilityArgs<Name> extends [] ? { with?: undefined }
-  : AbilityArgs<Name> extends [infer Only] ? { with: Only | undefined }
-    : { with: LoadingArgs<AbilityArgs<Name>> | undefined }
+/**
+ * How `<Can>` passes the arguments of a rule: no prop for a rule without arguments, `with` for a rule with one
+ * (required or optional), and `args` with the list for every other rule, such as two arguments, a default after the
+ * first, or a rest parameter.
+ */
+type CanArguments<Args extends unknown[]> = Args extends [] ? { with?: never, args?: never }
+  : number extends Args["length"] ? { with?: never, args: Args }
+    : Exclude<Args["length"], 0> extends 1
+      ? (0 extends Args["length"] ? { with?: Args[0], args?: never } : { with: Args[0], args?: never })
+      : { with?: never, args: Args }
 
-/** The props of `<Can>`: a rule name in `do`, and its arguments in `with`. */
-export type CanProps<Name extends AbilityName> = { do: Name } & CanWith<Name>
+/**
+ * The props of `<Can>`: a rule name in `do`, its arguments in `with` or `args`, and `pending` to show nothing while
+ * the data for the arguments loads.
+ */
+export type CanProps<Name extends AbilityName> = { do: Name, pending?: boolean } & CanArguments<AbilityArgs<Name>>
 
 /** The slots of `<Can>`: the default slot when the rule allows, `#denied` with the refusal when it refuses. */
 export interface CanSlots<Name extends AbilityName> {
@@ -239,20 +245,21 @@ export interface CanSlots<Name extends AbilityName> {
   denied?: (refusal: AbilityRefusal<Name>) => VNode[]
 }
 
-/** The type that vue-tsc reads for a generic component, so `do` checks the name and `with` and `#denied` follow it. */
+/** The type that vue-tsc reads for a generic component, so `do` checks the name and `with`, `args` and `#denied` follow it. */
 export type CanComponent = <const Name extends AbilityName>(props: CanProps<Name>) => VNode & {
   __ctx?: { props: CanProps<Name>, slots: CanSlots<Name> }
 }
 
 /**
  * Shows its content when a rule from `shared/abilities.ts` allows the visitor, the `#denied` slot with the refusal when
- * it refuses, and nothing while the session is unknown.
+ * it refuses, and nothing while the session is unknown or `pending` is `true`.
  *
  * @example
  * <Can do="posts.edit" :with="post">
  *   <button>Edit</button>
  *   <template #denied="{ code }">{{ code }}</template>
  * </Can>
+ * <Can do="posts.move" :args="[from, to]">Move</Can>
  */
 // SAFETY: the runtime component takes the props of `CanComponent`. The cast gives templates its generic types.
 export const Can: CanComponent = defineComponent({
@@ -260,10 +267,17 @@ export const Can: CanComponent = defineComponent({
   props: {
     do: { type: String, required: true },
     with: { type: null, default: undefined },
+    args: { type: Array, default: undefined },
+    pending: { type: Boolean, default: false },
   },
   setup(props, { slots }) {
     const state = useSession()
-    const refusal = computed(() => abilityRefusal(state.value, props.do, abilityArguments(abilities, props.do, props.with)))
+    const refusal = computed(() => {
+      if (props.pending) return undefined
+      // `with` is the one argument of the rule. Without it, an optional argument stays absent, as in `can(name)`.
+      const args: unknown[] = props.args ?? (props.with === undefined ? [] : [props.with])
+      return abilityRefusal(state.value, props.do, args)
+    })
     return () => {
       const value = refusal.value
       if (value === undefined) return null

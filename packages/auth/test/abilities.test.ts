@@ -81,8 +81,10 @@ describe("ability rules", () => {
     expect(checkAbility(abilities, null, "posts.read", [{ authorId: "u2", published: false }])).toEqual({ status: 403 })
   })
 
-  it("keeps the number of arguments of a guest rule", () => {
-    expect(guest((_user, _post: unknown) => true).length).toBe(2)
+  it("marks a guest rule without changing what it answers", () => {
+    const rule = guest((_user, post: { published: boolean }) => post.published)
+    expect(rule.guest).toBe(true)
+    expect(rule(null, { published: true })).toBe(true)
   })
 
   it("fails on an unknown name and on a rule that returns a Promise", () => {
@@ -140,6 +142,17 @@ describe("can()", () => {
     expect(await can(signedIn(), "posts.move", "a", "b")).toBe(true)
     expect(await can(signedIn(), "posts.create")).toBe(false)
     expect(await can(signedOut(), "posts.create")).toBe(false)
+  })
+
+  it("passes default, rest, and optional arguments as the caller gives them", async () => {
+    const other = { authorId: "someone-else", published: false }
+    expect(await can(signedIn(), "posts.review", other)).toBe(false)
+    expect(await can(signedIn(), "posts.review", other, "read")).toBe(true)
+    expect(await can(signedIn(), "posts.tag")).toBe(false)
+    expect(await can(signedIn(), "posts.tag", "a", "b")).toBe(true)
+    expect(await can(signedIn(), "posts.tag", "a", "b", "c")).toBe(false)
+    expect(await can(signedIn(), "posts.draft")).toBe(true)
+    expect(await can(signedIn(), "posts.draft", other)).toBe(false)
   })
 })
 

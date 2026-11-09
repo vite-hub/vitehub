@@ -81,14 +81,17 @@ describe("<Can> in the browser", () => {
     const post = ref<typeof ownPost | undefined>(undefined)
     const root = document.createElement("div")
     const watched = betterAuth.watched
-    createApp(defineComponent(() => () => canEdit(post.value))).mount(root as never)
+    createApp(defineComponent(() => () => h(Can as never, { do: "posts.edit", with: post.value, pending: !post.value }, {
+      default: () => h("button", "Edit"),
+      denied: ({ code }: { code: string }) => h("span", `denied: ${code}`),
+    }))).mount(root as never)
 
     expect(root.innerHTML).toBe("<!---->")
     // Better Auth loads in the background, then answers.
     await untilLoaded(watched)
     session.value = { ...session.value, isPending: false, data: author }
     await nextTick()
-    // The argument is still loading.
+    // `pending` hides the content while the post loads.
     expect(root.innerHTML).toBe("<!---->")
     post.value = ownPost
     await nextTick()
@@ -102,13 +105,29 @@ describe("<Can> in the browser", () => {
     await nextTick()
     expect(root.innerHTML).toBe("<span>denied: signed-out</span>")
   })
+})
 
-  it("passes an array to a rule with more than one argument", async () => {
+describe("<Can> arguments", () => {
+  const can = (props: Record<string, unknown>) => render(h(Can as never, props, { default: () => "yes", denied: () => "no" }))
+
+  it("passes `args` as the list, also for default and rest parameters", async () => {
     setSessionSeedResolver(() => author)
     betterAuth.session = pendingSession()
-    const move = (from: string, to: string) => render(h(Can as never, { do: "posts.move", with: [from, to] }, { default: () => "move" }))
-    expect(await move("a", "b")).toBe("move")
-    expect(await move("a", "a")).toBe("<!---->")
+    expect(await can({ do: "posts.move", args: ["a", "b"] })).toBe("yes")
+    expect(await can({ do: "posts.move", args: ["a", "a"] })).toBe("no")
+    expect(await can({ do: "posts.review", args: [otherPost] })).toBe("no")
+    expect(await can({ do: "posts.review", args: [otherPost, "read"] })).toBe("yes")
+    expect(await can({ do: "posts.tag", args: [] })).toBe("no")
+    expect(await can({ do: "posts.tag", args: ["a", "b"] })).toBe("yes")
+    expect(await can({ do: "posts.tag", args: ["a", "b", "c"] })).toBe("no")
+  })
+
+  it("answers a rule with an optional argument with or without `with`", async () => {
+    setSessionSeedResolver(() => author)
+    betterAuth.session = pendingSession()
+    expect(await can({ do: "posts.draft" })).toBe("yes")
+    expect(await can({ do: "posts.draft", with: ownPost })).toBe("yes")
+    expect(await can({ do: "posts.draft", with: otherPost })).toBe("no")
   })
 })
 
@@ -131,7 +150,10 @@ describe("useAbility()", () => {
     expect(ability!.ready.value).toBe(true)
     expect(ability!.can("posts.edit", ownPost)).toBe(true)
     expect(ability!.can("posts.edit", otherPost)).toBe(false)
-    expect(ability!.can("posts.edit", undefined)).toBeUndefined()
+    // An optional argument does not make the answer unknown.
+    expect(ability!.can("posts.draft")).toBe(true)
+    expect(ability!.can("posts.review", otherPost, "read")).toBe(true)
+    expect(ability!.can("posts.tag", "a", "b", "c")).toBe(false)
     expect(ability!.can("posts.create")).toBe(true)
     expect(ability!.can("admin.open")).toBe(false)
   })

@@ -74,8 +74,7 @@ export function guest<Args extends unknown[], Verdict extends AbilityVerdict>(
   rule: (user: AbilityUser | null, ...args: Args) => Verdict,
 ): GuestAbilityRule<Args, Verdict> {
   const open = (user: AbilityUser | null, ...args: Args): Verdict => rule(user, ...args)
-  // `<Can :with>` reads the number of arguments from `length`, so the wrapper keeps the rule's.
-  Object.defineProperties(open, { guest: { value: true }, length: { value: rule.length } })
+  Object.defineProperty(open, "guest", { value: true })
   // SAFETY: `guest` was defined on the function above.
   return open as GuestAbilityRule<Args, Verdict>
 }

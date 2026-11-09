@@ -90,7 +90,7 @@ const { can } = useAbility()
 </template>
 ```
 
-Pass one argument in `with`. For a rule with two or more arguments, pass an array: `:with="[from, to]"`. While `with` or an argument is `undefined`, such as data that is still loading, `<Can>` shows nothing.
+For a rule with one argument, required or optional, pass it in `with`. For every other rule, such as two arguments, a default parameter, or a rest parameter, pass the list in `args`: `:args="[from, to]"`. The types pick the prop, so the wrong one fails to compile. `<Can>` and `can()` pass the arguments as they are, the same as the server. Only the session makes the answer unknown, so render `<Can>` after the data loads (`v-if`), or set `:pending="!post"` to show nothing until then.
 
 In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, `<Can>` shows nothing until Better Auth answers.
 

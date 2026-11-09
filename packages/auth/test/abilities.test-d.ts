@@ -22,7 +22,7 @@ declare const post: Post
 
 describe("ability types", () => {
   it("infers the names from the rules", () => {
-    expectTypeOf<AbilityName>().toEqualTypeOf<"posts.create" | "posts.edit" | "posts.delete" | "posts.read" | "posts.move" | "billing.upgrade" | "admin.open">()
+    expectTypeOf<AbilityName>().toEqualTypeOf<"posts.create" | "posts.edit" | "posts.delete" | "posts.read" | "posts.move" | "billing.upgrade" | "admin.open" | "posts.review" | "posts.tag" | "posts.draft">()
   })
 
   it("types the user of a rule from the Auth Definition", () => {
@@ -54,11 +54,18 @@ describe("ability types", () => {
     await can(request, "posts.edit")
     // @ts-expect-error The rule takes two strings.
     await can(request, "posts.move", "a")
+    await can(request, "posts.review", post)
+    await can(request, "posts.review", post, "read")
+    await can(request, "posts.tag", "a", "b", "c")
+    await can(request, "posts.draft")
   })
 
-  it("checks the name and the arguments in the app, which can still be loading", () => {
+  it("checks the name and the arguments in the app", () => {
     const { can } = useAbility()
     expectTypeOf(can("posts.edit", post)).toEqualTypeOf<boolean | undefined>()
+    can("posts.draft")
+    can("posts.tag", "a", "b")
+    // @ts-expect-error Load the post before you ask.
     can("posts.edit", undefined)
     // @ts-expect-error There is no such ability.
     can("posts.publish", post)
@@ -67,8 +74,19 @@ describe("ability types", () => {
   })
 
   it("types the props of <Can> and the refusals of #denied", () => {
-    expectTypeOf<CanProps<"posts.edit">>().toEqualTypeOf<{ do: "posts.edit" } & { with: Post | undefined }>()
-    expectTypeOf<CanProps<"posts.move">["with"]>().toEqualTypeOf<[string | undefined, string | undefined] | undefined>()
+    expectTypeOf<CanProps<"posts.edit">>().toEqualTypeOf<{ do: "posts.edit", pending?: boolean } & { with: Post, args?: never }>()
+    expectTypeOf<CanProps<"posts.draft">>().toEqualTypeOf<{ do: "posts.draft", pending?: boolean } & { with?: Post, args?: never }>()
+    expectTypeOf<CanProps<"posts.create">>().toEqualTypeOf<{ do: "posts.create", pending?: boolean } & { with?: never, args?: never }>()
+    expectTypeOf<CanProps<"posts.move">>().toEqualTypeOf<{ do: "posts.move", pending?: boolean } & { with?: never, args: [from: string, to: string] }>()
+    expectTypeOf<CanProps<"posts.review">["args"]>().toEqualTypeOf<[post: Post, mode?: "edit" | "read"]>()
+    expectTypeOf<CanProps<"posts.tag">["args"]>().toEqualTypeOf<string[]>()
+    // @ts-expect-error A rule with two arguments takes `args`, not `with`.
+    const twoWith: CanProps<"posts.move"> = { do: "posts.move", with: ["a", "b"] }
+    // @ts-expect-error A rule with one argument takes `with`, not `args`.
+    const oneArgs: CanProps<"posts.edit"> = { do: "posts.edit", args: [post] }
+    // @ts-expect-error A default parameter puts the rule in `args`.
+    const defaultWith: CanProps<"posts.review"> = { do: "posts.review", with: post }
+    void [twoWith, oneArgs, defaultWith]
     expectTypeOf<AbilityRefusal<"posts.edit">>().toEqualTypeOf<{ code: "not-author", details: undefined } | { code: "signed-out", details: undefined }>()
     expectTypeOf<AbilityRefusal<"billing.upgrade">>().toEqualTypeOf<{ code: "plan-limit", details: { readonly limit: 3 } } | { code: "signed-out", details: undefined }>()
     expectTypeOf(deny("x", { status: 429 }).status).toEqualTypeOf<400 | 401 | 402 | 403 | 404 | 405 | 409 | 410 | 422 | 423 | 429 | 451>()
