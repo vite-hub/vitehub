@@ -7,21 +7,19 @@ navigation.order: 262
 icon: i-lucide-plug
 ---
 
-`https://vitehub.dev/mcp` is a remote MCP server for the ViteHub documentation.
-It uses the Streamable HTTP transport and does not need an API key.
-
-The server has two read-only tools:
+`https://vitehub.dev/mcp` is a remote MCP server for the ViteHub docs. It uses
+the Streamable HTTP transport and needs no API key. It has two read-only tools:
 
 | Tool | Result |
 | --- | --- |
 | `list-pages` | The title, path, description, and URL of every documentation page. |
 | `get-page` | The title, description, URL, and Markdown content of one page. Use a path from `list-pages`, for example `/docs/kv`. |
 
-The server reads the documentation only. It does not connect to your application and does not run ViteHub operations.
+The server only reads the docs. It does not connect to your app or run ViteHub operations.
 
 ## Add the server to your client
 
-Use `vitehub` as the server name, so that prompts such as "use the vitehub MCP server" match.
+Name the server `vitehub` so prompts such as "use the vitehub MCP server" match.
 
 ::tabs
   :::tabs-item{label="Claude Code" icon="i-simple-icons-claude"}
@@ -29,8 +27,8 @@ Use `vitehub` as the server name, so that prompts such as "use the vitehub MCP s
     claude mcp add --transport http vitehub https://vitehub.dev/mcp
     ```
 
-    The server is available to you in the current project.
-    Add `--scope project` to share it with the team through `.mcp.json`, or `--scope user` to use it in all your projects.
+    This adds the server for you in the current project.
+    Add `--scope project` to share it with the team through `.mcp.json`, or `--scope user` for all your projects.
   :::
 
   :::tabs-item{label="Cursor" icon="i-simple-icons-cursor"}
@@ -44,8 +42,8 @@ Use `vitehub` as the server name, so that prompts such as "use the vitehub MCP s
     }
     ```
 
-    Use `~/.cursor/mcp.json` to make the server available in all projects.
-    You can also select **Add MCP server to Cursor** in the page actions menu next to the title of any docs page.
+    Use `~/.cursor/mcp.json` for all projects.
+    You can also select **Add MCP server to Cursor** in the page actions menu next to any docs page title.
   :::
 
   :::tabs-item{label="VS Code" icon="i-simple-icons-visualstudiocode"}
@@ -61,7 +59,7 @@ Use `vitehub` as the server name, so that prompts such as "use the vitehub MCP s
     ```
 
     GitHub Copilot uses the server in agent mode.
-    To add the server to your user profile instead of the workspace, run:
+    To add it to your user profile instead of the workspace, run:
 
     ```bash [Terminal]
     code --add-mcp '{"name":"vitehub","type":"http","url":"https://vitehub.dev/mcp"}'
@@ -81,8 +79,8 @@ Use `vitehub` as the server name, so that prompts such as "use the vitehub MCP s
     }
     ```
 
-    Windsurf is now Devin Desktop. Open the raw MCP configuration from the Cascade MCP settings, or edit the file directly.
-    Current Devin Desktop installations use `~/.config/devin/mcp_config.json` on macOS and Linux and `%APPDATA%\devin\mcp_config.json` on Windows. Earlier Windsurf installations use `~/.codeium/windsurf/mcp_config.json`.
+    Windsurf is now Devin Desktop. Open the raw MCP configuration from the Cascade MCP settings, or edit the file.
+    Devin Desktop uses `~/.config/devin/mcp_config.json` on macOS and Linux and `%APPDATA%\devin\mcp_config.json` on Windows. Older Windsurf installs use `~/.codeium/windsurf/mcp_config.json`.
   :::
 
   :::tabs-item{label="Codex" icon="i-simple-icons-openai"}
@@ -90,7 +88,7 @@ Use `vitehub` as the server name, so that prompts such as "use the vitehub MCP s
     codex mcp add vitehub --url https://vitehub.dev/mcp
     ```
 
-    The command writes this entry to `~/.codex/config.toml`. You can also add it by hand:
+    The command writes this entry to `~/.codex/config.toml`. You can also add it yourself:
 
     ```toml [~/.codex/config.toml]
     [mcp_servers.vitehub]
@@ -109,7 +107,7 @@ Use the vitehub MCP server to list the pages about Queue, then read the Queue pa
 
 The agent calls `list-pages`, selects `/docs/queue`, and calls `get-page` with that path.
 
-To check the endpoint without an MCP client, request the tool list:
+To check the endpoint without an MCP client, ask for the tool list:
 
 ```bash [Terminal]
 curl -s https://vitehub.dev/mcp \
@@ -122,6 +120,5 @@ The response lists `get-page` and `list-pages`.
 
 ## Use the server with the skill
 
-The MCP server and the [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills) do different jobs.
-The skill tells the agent how to work in a ViteHub project and how to prove the result. The MCP server lets the agent find and read the current documentation during the task.
-Install both when the agent builds ViteHub applications. Use the MCP server alone when you only ask questions about the documentation.
+The [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills) tells the agent how to work in a ViteHub project and prove the result. The MCP server lets it read the current docs during the task.
+Install both when the agent builds ViteHub apps. Use the MCP server alone when you only ask questions about the docs.
