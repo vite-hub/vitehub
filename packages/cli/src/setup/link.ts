@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 
+import { abortable } from "@vite-hub/internal/abort"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
-import { describeHostCredentials, resolveHostCredentials } from "@vite-hub/internal/host-credentials"
+import { resolveHostCredentials, runHostCli } from "@vite-hub/internal/host-credentials"
 import {
   createCloudflareApiClient,
   createCloudflareProvisionClient,
@@ -17,7 +18,7 @@ import { SetupFailure, setupExitCodes } from "./envelope.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
-import type { CredentialHost, CredentialSource, HostCredentialsContext, HostCredentialsDescription } from "@vite-hub/internal/host-credentials"
+import type { CredentialHost, CredentialSource, HostCredentials, HostCredentialsContext, HostCredentialsDescription } from "@vite-hub/internal/host-credentials"
 import type { SetupProject } from "./project.ts"
 
 /** The link file, relative to the project root. It is gitignored and never holds a secret. */
@@ -418,16 +419,57 @@ export interface SetupLinkStatus {
   credentials: HostCredentialsDescription | null
 }
 
-/** The link and the credential status for `vitehub status`. The credentials never include the token. */
-export async function readSetupLinkStatus(project: SetupProject, host: string, context: ViteHubCliContext): Promise<SetupLinkStatus> {
+/** The link file and the credentials that `vitehub status` reads. `credentials` holds the token and never goes in output. */
+export interface SetupLinkState {
+  status: SetupLinkStatus
+  link: SetupLink | undefined
+  credentials: HostCredentials | undefined
+}
+
+/** Reads the link and credentials, skipping CLI discovery offline and sharing the online host deadline. */
+export async function readSetupLinkState(project: SetupProject, host: string, context: ViteHubCliContext, options: { offline?: boolean, signal?: AbortSignal } = {}): Promise<SetupLinkState> {
   const [link, pending] = await Promise.all([readSetupLink(project.root), readSetupConsoleLink(project.root)])
   const credentialHost = link?.host ?? (isLinkHost(host) ? host : undefined)
-  const credentials = credentialHost
-    ? await describeHostCredentials(credentialHost, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
-    : null
+  const credentials = credentialHost ? await readStatusCredentials(credentialHost, project.root, context, options) : undefined
   return {
-    console: pending ? { pendingId: pending.pendingId } : null,
     credentials,
-    link: link ? { host: link.host, ...(link.account ? { account: link.account } : {}), project: link.project, verified: link.verified } : null,
+    link,
+    status: {
+      console: pending ? { pendingId: pending.pendingId } : null,
+      credentials: credentials ? describeCredentials(credentials) : null,
+      link: link ? { host: link.host, ...(link.account ? { account: link.account } : {}), project: link.project, verified: link.verified } : null,
+    },
   }
+}
+
+async function readStatusCredentials(host: CredentialHost, cwd: string, context: ViteHubCliContext, options: { offline?: boolean, signal?: AbortSignal }): Promise<HostCredentials> {
+  const envOnly = () => resolveHostCredentials(host, { cwd, env: context.env, run: async () => ({ exitCode: 1, stdout: "" }) })
+  if (options.offline) return await envOnly()
+  const signal = options.signal
+  try {
+    return await abortable(signal, "Host credential discovery timed out", () => resolveHostCredentials(host, {
+      cwd,
+      env: context.env,
+      run: (command, args, runOptions) => {
+        signal?.throwIfAborted()
+        return (context.runHostCli ?? runHostCli)(command, args, { ...runOptions, ...(signal ? { signal } : {}) })
+      },
+    }))
+  }
+  catch (error: unknown) {
+    if (!signal?.aborted) throw error
+    // Preserve the credential output contract using only local environment data after a timeout.
+    return await envOnly()
+  }
+}
+
+function describeCredentials(credentials: HostCredentials): HostCredentialsDescription {
+  if (!credentials.ok) return credentials
+  const { token: _token, ...description } = credentials
+  return description
+}
+
+/** The link and the credential status for `vitehub status`. The credentials never include the token. */
+export async function readSetupLinkStatus(project: SetupProject, host: string, context: ViteHubCliContext): Promise<SetupLinkStatus> {
+  return (await readSetupLinkState(project, host, context)).status
 }

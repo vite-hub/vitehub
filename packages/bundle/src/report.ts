@@ -1,4 +1,5 @@
 import { allocateBytes } from "./bytes.ts"
+import { checkBundle } from "./checks.ts"
 import { moduleGroup } from "./groups.ts"
 
 import type { BundleChainStep, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleSide } from "./types.ts"
@@ -102,7 +103,9 @@ export function createBundleReport(reports: readonly BundleEnvironmentReport[]):
   if (!current.length) return undefined
   const client = sideOf("client", current)
   const server = sideOf("server", current)
-  return { schemaVersion: 1, build: current[0]!.build, ...(client ? { client } : {}), ...(server ? { server } : {}) }
+  const host = current.find(report => report.host)?.host
+  const findings = checkBundle(current, server, host, target => explainBundle(current, target))
+  return { schemaVersion: 1, build: current[0]!.build, ...(host ? { host } : {}), ...(client ? { client } : {}), ...(server ? { server } : {}), findings }
 }
 
 function matches(id: string, target: string): boolean {
