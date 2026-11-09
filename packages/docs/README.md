@@ -197,7 +197,7 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 
 Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
 
-A replacement docs layout or sidebar keeps the site header. Render `<DocsSidebars panel head />` to supply the sidebar controls and hide the desktop header. A replacement `DocsSidebars` can opt in with `data-docs-sidebar-head` on its root after it supplies the brand, badge tooltip, search, `DocsHeaderActions`, and footer controls.
+A replacement docs layout or sidebar keeps the site header. Render `<DocsSidebars panel head />` to supply the sidebar controls and hide the desktop header. A replacement `DocsSidebars` can opt in with `data-docs-sidebar-head` on its root after it supplies the brand, badge tooltip, search, and `<DocsAsideFooter />`. The header owns one `DocsHeaderActions` instance and moves it into the mounted footer on wide screens.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 

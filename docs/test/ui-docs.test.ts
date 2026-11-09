@@ -180,7 +180,10 @@ describe("UI documentation", () => {
     expect(sidebars).toContain('<DocsAsideFooter v-if="head" />');
     expect(top).toContain("<UContentSearchButton");
     expect(top).toContain(':text="site.badge?.tooltip ?? undefined"');
-    expect(footer).toContain("<DocsHeaderActions />");
+    expect(footer).toContain('<div :id="id" class="contents" />');
+    expect(footer).not.toContain("<DocsHeaderActions");
+    expect(header).toContain('<Teleport :to="actionsTarget || \'#teleports\'" :disabled="!actionsTarget">');
+    expect(header).toContain("<DocsHeaderActions />");
     expect(footer).toContain("<UColorModeButton");
     expect(footer).toContain('v-for="link in socials"');
     expect(footer).toContain("github.stars");

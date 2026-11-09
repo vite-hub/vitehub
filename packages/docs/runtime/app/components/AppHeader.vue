@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { useMediaQuery } from "@vueuse/core"
 import { docsHomePath, isDocsPath } from "#docs/navigation"
+import { useDocsHeaderActionsTarget } from "../composables/headerActions"
 
 const route = useRoute()
 const { base, github, site, socials, start } = useDocsConfig()
@@ -11,6 +13,9 @@ const shell = useDocsShell()
 const error = useError()
 const isDocsRoute = computed(() => shell.value && !error.value)
 const menuOpen = ref(false)
+const wide = useMediaQuery("(min-width: 64rem)", { ssrWidth: 0 })
+const actionsTargetId = useDocsHeaderActionsTarget()
+const actionsTarget = computed(() => wide.value && actionsTargetId.value ? document.getElementById(actionsTargetId.value) : null)
 // Nuxt turns a `null` in runtime config into "", so only a number counts.
 const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
 
@@ -92,7 +97,10 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 
       <template #right>
         <!-- Empty here: an app adds its own items with a `DocsHeaderActions` component, such as the package a page documents. -->
-        <DocsHeaderActions />
+        <!-- Move one instance between shells so app state, IDs, and subscriptions stay unique. -->
+        <Teleport :to="actionsTarget || '#teleports'" :disabled="!actionsTarget">
+          <DocsHeaderActions />
+        </Teleport>
         <UContentSearchButton
           collapsed
           :kbds="[]"

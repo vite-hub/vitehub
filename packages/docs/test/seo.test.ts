@@ -84,13 +84,15 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     expect(home).not.toMatch(/class="[^"]*vh-docs-rail/)
     expect(home).toMatch(/class="vh-docs-header sticky top-0 z-50"/)
     expect(home).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
+    expect(home.match(/data-custom-docs-action/g)).toHaveLength(1)
+    // The action renders once on the server; after hydration it moves into the active shell.
     expect(install).toMatch(/<div[^>]*data-docs-sidebar-head/)
     expect(install).toContain("vh-docs-aside-footer")
-    // The app action remains in the visible sidebar when the desktop header hides.
-    expect(install).toMatch(/class="vh-docs-aside-footer"[^>]*>[\s\S]*?data-custom-docs-action/)
+    expect(install.match(/data-custom-docs-action/g)).toHaveLength(1)
     const noSidebar = await page("docs/guide/no-sidebar")
     expect(noSidebar).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
     expect(noSidebar).toMatch(/class="vh-docs-header sticky top-0 z-50"/)
+    expect(noSidebar.match(/data-custom-docs-action/g)).toHaveLength(1)
     expect.soft(await page("docs/guide/embedded")).toContain("<title>Lumenate · Lumen</title>")
     expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 
