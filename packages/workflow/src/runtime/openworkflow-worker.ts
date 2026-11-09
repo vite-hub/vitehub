@@ -1,10 +1,13 @@
-import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition } from "./openworkflow.ts"
+import { onShutdown } from "@vite-hub/runtime/shutdown"
+
+import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition, resetOpenWorkflowRuntime, setOpenWorkflowImporter, watchOpenWorkflowDefinitions } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
 
+import type { ShutdownApp } from "@vite-hub/runtime/shutdown"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -65,7 +68,8 @@ function mergeInlineDefinitions(definitions: Map<string, WorkflowDefinition>) {
   }
 }
 
-export async function createOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions = {}): Promise<OpenWorkflowWorker> {
+/** Registers every Workflow Definition of the registry on the OpenWorkflow client, before a worker copies them. */
+async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions) {
   const config = options.config ?? getWorkflowRuntimeConfig()
   if (!config || config.provider !== "openworkflow") {
     throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.provider \"openworkflow\"." })
@@ -83,9 +87,15 @@ export async function createOpenWorkflowWorker(options: CreateOpenWorkflowWorker
     await registerOpenWorkflowDefinition(runtime, name, definition)
   }
 
-  return runtime.client.newWorker({
-    concurrency: options.concurrency ?? config.worker?.concurrency,
-  })
+  return {
+    concurrency: options.concurrency ?? (config.worker ? config.worker.concurrency : undefined),
+    runtime,
+  }
+}
+
+export async function createOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions = {}): Promise<OpenWorkflowWorker> {
+  const { concurrency, runtime } = await prepareOpenWorkflowWorker(options)
+  return runtime.client.newWorker({ concurrency })
 }
 
 export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOptions = {}): Promise<OpenWorkflowWorker> {
@@ -213,4 +223,135 @@ export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOp
   if (options.signal?.aborted) requestStop()
 
   return worker
+}
+
+/** The part of a Nitro app that `installOpenWorkflow()` uses. */
+export interface OpenWorkflowWorkerApp extends ShutdownApp {
+  captureError?: (error: Error, context: { tags: string[] }) => void
+}
+
+// Literal specifiers let the server bundler include OpenWorkflow. `.output` has no `node_modules`, so the variable
+// import of the default importer cannot load it there.
+const bundledOpenWorkflowModules: Readonly<Record<string, () => Promise<unknown>>> = {
+  "openworkflow": () => import("openworkflow"),
+  "openworkflow/postgres": () => import("openworkflow/postgres"),
+  "openworkflow/sqlite": () => import("openworkflow/sqlite"),
+}
+
+/**
+ * Installs OpenWorkflow in a long-lived Nitro server. The generated Workflow startup plugin calls it after it installs
+ * the runtime config and registry. It loads OpenWorkflow from the server bundle, then starts the worker unless
+ * `workflow.worker` is `false`. The worker stops when the server stops.
+ *
+ * A worker copies the Workflow Definitions when it is created. When this process registers a new definition later,
+ * such as an inline `createWorkflow()` or an Agent Workflow, a new worker replaces the current one. Several servers
+ * can run a worker on the same storage: OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED` on Postgres.
+ */
+interface ActiveOpenWorkflowInstall {
+  /** Stops claiming runs and releases the hooks of this install. It does not wait for runs that are executing. */
+  release(): Promise<void>
+}
+
+// `vite dev` runs the startup plugin again after a server file changes, in the same process. The install is kept on
+// `globalThis` so the next install finds it even when the module is evaluated again.
+const activeInstallKey = Symbol.for("vitehub.workflow.openworkflow.install")
+
+function replaceActiveInstall(next: ActiveOpenWorkflowInstall): ActiveOpenWorkflowInstall | undefined {
+  // SAFETY: Only this module writes the value at this registered symbol.
+  const scope = globalThis as { [activeInstallKey]?: ActiveOpenWorkflowInstall }
+  const previous = scope[activeInstallKey]
+  scope[activeInstallKey] = next
+  return previous
+}
+
+function useBundledOpenWorkflow(): void {
+  setOpenWorkflowImporter(async (specifier) => {
+    const load = bundledOpenWorkflowModules[specifier]
+    // SAFETY: Each caller names the module type of the specifier that it imports.
+    return await (load ? load() : import(/* @vite-ignore */ specifier)) as never
+  })
+}
+
+/**
+ * Installs OpenWorkflow in a long-lived Nitro server. The generated Workflow startup plugin calls it after it installs
+ * the runtime config and registry. It loads OpenWorkflow from the server bundle, then starts the worker unless
+ * `workflow.worker` is `false`. The worker stops when the server stops.
+ *
+ * A worker copies the Workflow Definitions when it is created. When this process registers a new definition later,
+ * such as an inline `createWorkflow()` or an Agent Workflow, a new worker replaces the current one. When the plugin
+ * runs again in the same process, as `vite dev` does after a file changes, the previous worker stops and the new one
+ * uses the changed definitions. Several servers can run a worker on the same storage: OpenWorkflow claims each run
+ * with `FOR UPDATE SKIP LOCKED` on Postgres.
+ */
+export function installOpenWorkflow(app: OpenWorkflowWorkerApp): void {
+  const config = getWorkflowRuntimeConfig()
+  if (!config || config.provider !== "openworkflow") return
+  useBundledOpenWorkflow()
+
+  const retired = new Set<Promise<void>>()
+  let closed = false
+  let unwatch: (() => void) | undefined
+  let worker: OpenWorkflowWorker | undefined
+
+  const report = (error: unknown): void => {
+    const reported = error instanceof ViteHubError
+      ? error
+      : createWorkflowError({ cause: error, code: "OPENWORKFLOW_WORKER_FAILED", details: { provider: "openworkflow" } })
+    try {
+      console.error("[vitehub:workflow]", reported)
+      app.captureError?.(reported, { tags: ["vitehub-workflow"] })
+    }
+    catch {}
+  }
+
+  // `stop()` stops claiming runs at once, then waits for the runs that the worker executes.
+  const retire = (previous: OpenWorkflowWorker): void => {
+    const task: Promise<void> = Promise.resolve()
+      .then(() => previous.stop())
+      .catch(report)
+      .finally(() => retired.delete(task))
+    retired.add(task)
+  }
+
+  let started: Promise<void> = Promise.resolve()
+  const release = async (): Promise<void> => {
+    closed = true
+    await started
+    unwatch?.()
+    if (worker) retire(worker)
+    worker = undefined
+  }
+  const previous = replaceActiveInstall({ release })
+
+  started = (async () => {
+    if (previous) {
+      // The OpenWorkflow client keeps the definitions that it registered, so a fresh runtime takes the changed ones.
+      await previous.release()
+      await resetOpenWorkflowRuntime()
+      useBundledOpenWorkflow()
+    }
+    if (closed || config.worker === false) return
+    const { concurrency, runtime } = await prepareOpenWorkflowWorker({ config })
+    if (closed) return
+    const start = () => {
+      const next = runtime.client.newWorker({ concurrency })
+      if (worker) retire(worker)
+      worker = next
+      return Promise.resolve().then(() => next.start()).catch(report)
+    }
+    unwatch = watchOpenWorkflowDefinitions(runtime, () => {
+      if (!closed) void start()
+    })
+    await start()
+  })().catch(report)
+
+  onShutdown(app, "workflow.openworkflow-worker", async ({ signal }) => {
+    await release()
+    // A run that does not finish before the drain budget ends keeps its lease. Another worker takes it when the
+    // lease ends.
+    await Promise.race([
+      Promise.all(retired),
+      new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true })),
+    ])
+  })
 }

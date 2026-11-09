@@ -265,7 +265,7 @@ for libraries, focused integrations, and advanced composition.
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 | `@vite-hub/workflow` | Workflow Package | Workflow Definition and run helpers. |
 | `@vite-hub/source` | Source Package | Source Definitions, loaders, and registry APIs. |
-| `@vite-hub/workflow/runtime/openworkflow-worker` | Workflow Package | OpenWorkflow-specific worker lifecycle helpers; install `openworkflow` explicitly. |
+| `@vite-hub/workflow/runtime/openworkflow-worker` | Workflow Package | OpenWorkflow worker lifecycle helpers for a separate worker process. A Node server starts its worker without them. |
 | `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, history contracts, Workspace facade access, and authoring types. |
 | `@vite-hub/workspace/files` | Workspace Package | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `@vite-hub/workspace/checkout` | Workspace Package | `vitehub pull` and `vitehub push` as functions, and `localCheckoutStatus()`, which `vitehub status` shows. Node only. |

@@ -28,6 +28,8 @@ const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
   client: OpenWorkflowClient
+  /** Called after a new Workflow Definition is registered on the client. */
+  definitionListeners: Set<() => void>
   workflows: Map<string, OpenWorkflowRunnable>
 }
 
@@ -168,6 +170,7 @@ async function createOpenWorkflowRuntime(
   return {
     backend,
     client,
+    definitionListeners: new Set(),
     workflows: new Map(),
   }
 }
@@ -243,7 +246,18 @@ export async function registerOpenWorkflowDefinition(
     }, openWorkflowDefinition)
   })
   runtime.workflows.set(name, workflow)
+  for (const listener of runtime.definitionListeners) listener()
   return workflow
+}
+
+/**
+ * Calls `listener` each time a new Workflow Definition is registered on this runtime. An OpenWorkflow worker copies
+ * the definitions when it is created, so a worker must be replaced to run a definition registered later, such as an
+ * inline `createWorkflow()` or an Agent Workflow. Returns a function that removes the listener.
+ */
+export function watchOpenWorkflowDefinitions(runtime: OpenWorkflowRuntime, listener: () => void): () => void {
+  runtime.definitionListeners.add(listener)
+  return () => runtime.definitionListeners.delete(listener)
 }
 
 function normalizeOpenWorkflowStatus(status: unknown): WorkflowRunStatus {

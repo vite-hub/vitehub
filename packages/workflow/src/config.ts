@@ -109,25 +109,16 @@ function normalizeOpenWorkflowSqliteOptions(value: unknown): OpenWorkflowSqliteO
   }
 }
 
-function normalizeOpenWorkflowWorkerOptions(value: unknown): OpenWorkflowWorkerOptions | undefined {
-  if (typeof value === "undefined") {
-    return undefined
+function normalizeOpenWorkflowWorkerOptions(value: unknown): false | OpenWorkflowWorkerOptions | undefined {
+  if (typeof value === "undefined" || value === false) {
+    return value
   }
   if (!isPlainObject(value)) {
-    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be a plain object." })
+    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be `false` or a plain object." })
   }
 
   const concurrency = readPositiveInteger(value.concurrency, "workflow.worker.concurrency")
   return typeof concurrency === "number" ? { concurrency } : {}
-}
-
-function hasOpenWorkflowStorageConfig(options: Record<string, unknown>): boolean {
-  return isPlainObject(options.postgres) && isDefinedRuntimeConfigValue(options.postgres.url)
-    || isPlainObject(options.sqlite) && isDefinedRuntimeConfigValue(options.sqlite.path)
-}
-
-function isDefinedRuntimeConfigValue(value: unknown): boolean {
-  return typeof value === "string" && !!value.trim() || isRuntimeEnvDeclaration(value)
 }
 
 function inferProvider(provider: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
@@ -140,14 +131,12 @@ function inferProvider(provider: unknown, hosting: string): "cloudflare" | "open
   if (hosting.includes("cloudflare")) {
     return "cloudflare"
   }
-  return "vercel"
-}
-
-function inferProviderFromOptions(options: Record<string, unknown>, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
-  if (typeof options.provider === "undefined" && (hosting.includes("node") || hosting.includes("docker")) && hasOpenWorkflowStorageConfig(options)) {
+  // A long-lived Node server runs the OpenWorkflow worker itself. Storage is read at runtime: Postgres when
+  // `OPENWORKFLOW_POSTGRES_URL` or `DATABASE_URL` is set, else a local SQLite file.
+  if (hosting.includes("node") || hosting.includes("docker")) {
     return "openworkflow"
   }
-  return inferProvider(options.provider, hosting)
+  return "vercel"
 }
 
 function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedWorkflowOptions {
@@ -161,7 +150,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".` })
   }
 
-  const resolved = inferProviderFromOptions(options, hosting)
+  const resolved = inferProvider(options.provider, hosting)
 
   if (resolved === "cloudflare") {
     return defu(shared, { provider: "cloudflare" as const })
@@ -180,7 +169,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
       {
         ...(postgres ? { postgres } : {}),
         ...(sqlite ? { sqlite } : {}),
-        ...(worker ? { worker } : {}),
+        ...(worker !== undefined ? { worker } : {}),
       },
       shared,
       { provider: "openworkflow" as const },

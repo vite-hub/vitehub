@@ -5,6 +5,7 @@ import type { ViteHubErrorOptions } from "@vite-hub/runtime"
 const workflowErrorMessages = {
   OPENWORKFLOW_BACKEND_CLOSE_FAILED: "OpenWorkflow backend cleanup failed.",
   OPENWORKFLOW_RUNTIME_RESET: "OpenWorkflow runtime was reset while it was being acquired.",
+  OPENWORKFLOW_WORKER_FAILED: "OpenWorkflow worker failed to start or run.",
   OPENWORKFLOW_WORKER_STOP_FAILED: "OpenWorkflow worker stop failed.",
   VERCEL_WORKFLOW_SDK_LOAD_FAILED: "Vercel Workflow DevKit load failed. Install the optional workflow peer dependency.",
   WORKFLOW_DEFINITION_NOT_FOUND: "Workflow definition was not found.",
@@ -43,7 +44,7 @@ type WorkflowOperationDetails = { operation: WorkflowOperationName, provider: Wo
 type WorkflowProviderOperationDetails = WorkflowOperationDetails & { status?: number }
 
 export type WorkflowErrorDetails<TCode extends WorkflowErrorCode = WorkflowErrorCode> =
-  TCode extends "OPENWORKFLOW_BACKEND_CLOSE_FAILED" | "OPENWORKFLOW_RUNTIME_RESET" | "OPENWORKFLOW_WORKER_STOP_FAILED" ? { provider: "openworkflow" }
+  TCode extends "OPENWORKFLOW_BACKEND_CLOSE_FAILED" | "OPENWORKFLOW_RUNTIME_RESET" | "OPENWORKFLOW_WORKER_FAILED" | "OPENWORKFLOW_WORKER_STOP_FAILED" ? { provider: "openworkflow" }
     : TCode extends "VERCEL_WORKFLOW_SDK_LOAD_FAILED" ? { provider: "vercel" }
       : TCode extends "WORKFLOW_DEFINITION_NOT_FOUND" ? WorkflowNameDetails
         : TCode extends "WORKFLOW_DISABLED" ? Record<string, never>

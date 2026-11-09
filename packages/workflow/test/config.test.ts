@@ -45,10 +45,38 @@ describe("workflow config", () => {
     expect(normalizeWorkflowOptions({ provider: "vercel" }, { hosting: "netlify" })).toEqual({ provider: "vercel" })
   })
 
-  it("does not infer openworkflow from node hosting without Postgres config", () => {
-    expect(normalizeWorkflowOptions(undefined, { hosting: "node-server" })).toEqual({
-      provider: "vercel",
+  it.each(["node-server", "node-cluster", "node"])("infers openworkflow from %s hosting without storage config", (hosting) => {
+    expect(normalizeWorkflowOptions(undefined, { hosting })).toEqual({
+      provider: "openworkflow",
     })
+    expect(normalizeWorkflowOptions({}, { hosting })).toEqual({
+      provider: "openworkflow",
+    })
+  })
+
+  it.each([
+    ["vercel", "vercel"],
+    ["cloudflare-module", "cloudflare"],
+    ["deno-deploy", "vercel"],
+    [undefined, "vercel"],
+  ] as const)("keeps the %s hosting inference", (hosting, provider) => {
+    expect(normalizeWorkflowOptions({}, { hosting })).toEqual({ provider })
+  })
+
+  it.each(["cloudflare", "vercel"] as const)("keeps an explicit %s provider on node hosting", (provider) => {
+    expect(normalizeWorkflowOptions({ provider }, { hosting: "node-server" })).toEqual({ provider })
+  })
+
+  it("keeps an explicit openworkflow provider on Vercel hosting", () => {
+    expect(normalizeWorkflowOptions({ provider: "openworkflow" }, { hosting: "vercel" })).toEqual({ provider: "openworkflow" })
+  })
+
+  it("accepts worker: false to keep the server from starting the worker", () => {
+    expect(normalizeWorkflowOptions({ worker: false }, { hosting: "node-server" })).toEqual({
+      provider: "openworkflow",
+      worker: false,
+    })
+    expect(() => normalizeWorkflowOptions({ worker: true } as never, { hosting: "node-server" })).toThrow(/`workflow.worker` must be `false` or a plain object/)
   })
 
   it("infers openworkflow from node hosting with Postgres config", () => {
@@ -116,9 +144,9 @@ describe("workflow config", () => {
     expect(normalizeWorkflowOptions(options as never)).toEqual({ provider: "cloudflare" })
   })
 
-  it("does not infer openworkflow from docker hosting without Postgres config", () => {
+  it("infers openworkflow from docker hosting without storage config", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
-      provider: "vercel",
+      provider: "openworkflow",
     })
   })
 

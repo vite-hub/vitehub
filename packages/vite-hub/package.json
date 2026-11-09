@@ -298,6 +298,11 @@
       "import": "./dist/_internal/workflow/runtime/execute.js",
       "default": "./dist/_internal/workflow/runtime/execute.js"
     },
+    "./_internal/workflow/runtime/openworkflow-worker": {
+      "types": "./dist/_internal/workflow/runtime/openworkflow-worker.d.ts",
+      "import": "./dist/_internal/workflow/runtime/openworkflow-worker.js",
+      "default": "./dist/_internal/workflow/runtime/openworkflow-worker.js"
+    },
     "./_internal/workflow/runtime/state": {
       "types": "./dist/_internal/workflow/runtime/state.d.ts",
       "import": "./dist/_internal/workflow/runtime/state.js",

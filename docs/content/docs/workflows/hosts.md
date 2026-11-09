@@ -12,7 +12,7 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- | --- |
 | Cloudflare | `workflow: { provider: 'cloudflare' }` | Cloudflare Workflow class, binding, and runtime entry output. | Runs through Cloudflare Workflow bindings. Use `binding` and `name` when the generated names must match existing infrastructure. |
 | Vercel | `workflow: { provider: 'vercel' }` | Vercel workflow runtime output under the build output, when the host is Vercel. Other hosts get no Vercel output. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and does not survive a function restart. |
-| OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker/runtime output. | Choose Postgres or SQLite explicitly for deployment. Configured `postgres.url` and `sqlite.path` are mutually exclusive. |
+| OpenWorkflow | Inferred on Node and Docker, or `workflow: { provider: 'openworkflow' }` | A Nitro plugin that loads OpenWorkflow from the server bundle and starts its worker. | Uses Postgres when `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` is set at runtime, else a SQLite file. Configured `postgres.url` and `sqlite.path` are mutually exclusive. |
 
 ### Upgrade the Vercel Workflow SDK
 
@@ -36,3 +36,37 @@ OpenWorkflow resolves storage at runtime in this order:
 The local SQLite default requires a writable filesystem. Its state survives only while that file remains available; a replacement container or ephemeral function filesystem can lose it. Configure persistent storage before serving production work. Keep staging and production storage or namespaces separate.
 
 `workflow.database` is unsupported and now rejects configuration. It previously accepted a Named Database without connecting OpenWorkflow to that database. Replace it with `workflow.postgres.url` or `workflow.sqlite.path`, and check the old runtime's actual storage before moving existing runs.
+
+## Run Workflows on Node
+
+With the `node` preset, ViteHub selects OpenWorkflow. You do not configure a provider:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workflow: true })],
+})
+```
+
+- `runWorkflow()` puts the run in storage and returns it with the status `queued`. A worker then executes it.
+- Each server starts the OpenWorkflow worker when it starts. On `SIGTERM`, the worker stops taking runs. A run that does not finish in the [drain budget](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) keeps its lease for 30 seconds. Then another worker takes it.
+- Set `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` on the server to keep runs in Postgres, in the `openworkflow` schema. Without one of them, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only.
+- Several servers can use the same Postgres database. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
+- `vite dev` also starts the worker, so runs complete on your computer. When you change a Workflow file, the dev server starts a new worker with the new code.
+
+### Run the worker in its own process
+
+Set `worker: false` when a separate process runs the Workflows. The web servers then only put runs in storage.
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workflow: { worker: false } })],
+})
+```
+
+The [Workflow package README](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) shows the worker process. Give it the same storage as the servers.

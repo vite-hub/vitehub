@@ -885,8 +885,8 @@ describe("vitehub add", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it.each(["node", "deno"])("says that the default Workflow runs inline on %s, and not when a provider is set", async (host) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
+  it("says that the default Workflow runs inline on deno, and not when a provider is set", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "deno" }`) })
 
     const inline = await add(["workflow", "--dry-run"], root)
     expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
@@ -894,33 +894,22 @@ describe("vitehub add", () => {
 
     const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
     expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
-    expect(durable.json.install.packages).toEqual(["@vite-hub/workflow", "openworkflow"])
+    // `@vite-hub/workflow` depends on OpenWorkflow, so the provider adds no package.
+    expect(durable.json.install.packages).toEqual(["@vite-hub/workflow"])
   })
 
   it.each([
-    "workflow.sqlite.runMigrations=true",
-    "workflow.postgres.schema=custom",
-    "workflow.sqlite.path=   ",
-    "workflow.postgres.url=",
-  ])("keeps the inline Workflow default with partial storage options (%s)", async (option) => {
+    [],
+    ["workflow.sqlite.path=.data/workflows.db"],
+    ["workflow.postgres.url=postgres://localhost/workflows"],
+    ["workflow.worker.concurrency=4"],
+  ])("uses OpenWorkflow on node without an inline warning (%s)", async (...options) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
-    const { exitCode, json } = await add(["workflow", "--option", option, "--dry-run"], root)
+
+    const { exitCode, json } = await add(["workflow", ...options.flatMap(option => ["--option", option]), "--dry-run"], root)
 
     expect(exitCode).toBe(0)
     expect(json.install.packages).toEqual(["@vite-hub/workflow"])
-    expect(json.nextSteps.join("\n")).toContain("inline in the request process")
-  })
-
-  it.each([
-    ["workflow.sqlite.path=.data/workflows.db"],
-    ["workflow.postgres.url=postgres://localhost/workflows"],
-    ["workflow.postgres.url.kind=env-variable", "workflow.postgres.url.source.kind=env", "workflow.postgres.url.source.name=DATABASE_URL"],
-  ])("installs OpenWorkflow when Node storage selects it (%s)", async (...options) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
-
-    const { json } = await add(["workflow", ...options.flatMap(option => ["--option", option]), "--dry-run"], root)
-
-    expect(json.install.packages).toEqual(["@vite-hub/workflow", "openworkflow"])
     expect(json.nextSteps.join("\n")).not.toContain("inline")
   })
 

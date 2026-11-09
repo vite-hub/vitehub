@@ -19,15 +19,15 @@ pnpm add @vite-hub/workflow
 
 Then install the dependency required by the selected provider:
 
-| Provider             | Additional dependency                                              | Durable state                                                            |
-| -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Cloudflare Workflows | None in application code                                           | Cloudflare owns run state.                                               |
-| Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
-| OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Uses local SQLite by default. Configure durable storage for deployment. |
+| Provider             | Additional dependency                                               | Durable state                                                            |
+| -------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Cloudflare Workflows | None in application code                                            | Cloudflare owns run state.                                               |
+| Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions  | Native definitions survive function restarts; plain handlers run inline. |
+| OpenWorkflow         | None. `@vite-hub/workflow` depends on `openworkflow` and `postgres` | Postgres when `DATABASE_URL` is set, else a local SQLite file.           |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`.
 
-Set `workflow.sqlite.path` or `workflow.postgres.url` to select OpenWorkflow storage. An explicit value takes precedence over ambient storage environment variables. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`.
+On Node and Docker, ViteHub selects OpenWorkflow when `provider` is not set, also in `vite dev` with the `node` preset. OpenWorkflow reads its storage at runtime. Set `workflow.sqlite.path` or `workflow.postgres.url` to select the storage yourself. An explicit value takes precedence over ambient storage environment variables. Without it, `OPENWORKFLOW_SQLITE_PATH` selects SQLite, then `OPENWORKFLOW_POSTGRES_URL` or `DATABASE_URL` selects Postgres. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`.
 
 The former `workflow.database` option was never connected to Named Databases. It now rejects instead of silently selecting fallback storage. Replace it with `workflow.sqlite.path` or `workflow.postgres.url`.
 
@@ -100,13 +100,17 @@ export default defineConfig({
 });
 ```
 
-The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
+The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting, OpenWorkflow on Node and Docker, and Vercel on other supported hosts. Netlify cannot infer a provider.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 
 ### Run an OpenWorkflow worker
 
-`runWorkflow()` only enqueues an OpenWorkflow run. Start one worker in a long-lived Node or Docker process:
+`runWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. It loads OpenWorkflow from the server bundle and starts one worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database: OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it.
+
+A worker copies the Workflow Definitions when it starts. When the server registers a new definition later, such as an inline `createWorkflow()` or an Agent Workflow, it replaces its worker. In `vite dev`, a changed Workflow file also replaces the worker.
+
+Set `workflow: { worker: false }` to keep the servers from starting a worker. Then start one worker in a separate long-lived process:
 
 ```ts fragment
 // worker.ts
@@ -117,7 +121,7 @@ installWorkflowRuntime();
 const worker = await startOpenWorkflowWorker();
 ```
 
-Keep this process running while it should consume queued runs, and do not start a worker per request. `startOpenWorkflowWorker()` installs `SIGINT` and `SIGTERM` handlers. If the host owns shutdown, await `worker.stop()` from its shutdown hook.
+Keep this process running while it should consume queued runs, and do not start a worker per request. A separate worker executes only the definitions that it loads, so a run of an inline definition that only the web server registers waits there. `startOpenWorkflowWorker()` installs `SIGINT` and `SIGTERM` handlers. If the host owns shutdown, await `worker.stop()` from its shutdown hook.
 
 ## Start and inspect a run
 

@@ -106,13 +106,14 @@
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
+    "openworkflow": "catalog:workflow",
     "pathe": "catalog:unjs",
+    "postgres": "catalog:database",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -122,7 +123,6 @@
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
     "@workflow/builders": "catalog:workflow",
-    "openworkflow": "catalog:workflow",
     "vite": "catalog:vite-compat",
     "workflow": "catalog:workflow"
   },
@@ -131,9 +131,6 @@
       "optional": true
     },
     "@workflow/builders": {
-      "optional": true
-    },
-    "openworkflow": {
       "optional": true
     },
     "vite": {

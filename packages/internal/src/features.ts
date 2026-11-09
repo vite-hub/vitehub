@@ -1,5 +1,4 @@
 import type { DeploymentPreset, DeploymentService } from "./deployment.ts"
-import { isPlainObject } from "./object.ts"
 
 /**
  * The feature keys of `vitehub({...})`. `vitehub add <feature>` and `vitehub status` read this list before the owner
@@ -479,14 +478,19 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
       deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.provider` to \"openworkflow\" for durable runs.", "process-local"),
-      dev: native("vercel", "Vercel Workflow", "The default Node preset selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
+      dev: native("openworkflow", "OpenWorkflow", "The Node preset runs OpenWorkflow and its worker in the dev server. Runs use Postgres when DATABASE_URL or OPENWORKFLOW_POSTGRES_URL is set, else .vitehub/data/openworkflow.sqlite.db."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
-      node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.sqlite.path` or `workflow.postgres.url` to select durable OpenWorkflow.", "process-local"),
+      node: {
+        ...native("openworkflow", "OpenWorkflow", "OpenWorkflow is the default, and each server runs its worker. Without DATABASE_URL or OPENWORKFLOW_POSTGRES_URL at runtime, runs use a SQLite file on one host.", "single-host"),
+        envOverrides: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"].map(env => ({
+          env,
+          support: native("openworkflow", "OpenWorkflow (Postgres)", `${env} selects Postgres. Several servers can run the worker on the same database, and each run executes once.`),
+        })),
+      },
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
     packages: ["@vite-hub/workflow"],
-    providerPackages: { provider: { openworkflow: ["openworkflow"] } },
     summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
     title: "Workflow",
   }),
@@ -514,22 +518,8 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
   }),
 }
 
-/** Match the storage values that select OpenWorkflow during Workflow normalization. */
-function hasOpenWorkflowStorageConfig(options: Record<string, unknown>): boolean {
-  const path = isPlainObject(options.sqlite) ? options.sqlite.path : undefined
-  const url = isPlainObject(options.postgres) ? options.postgres.url : undefined
-  return [path, url].some(value => {
-    if (typeof value === "string") return !!value.trim()
-    if (!isPlainObject(value) || value.kind !== "env-variable") return false
-    if (!("source" in value)) return true
-    const source = value.source
-    return isPlainObject(source) && source.kind === "env" && typeof source.name === "string"
-      && (!("names" in source) || Array.isArray(source.names) && source.names.every(name => typeof name === "string"))
-  })
-}
-
 /** Packages needed by a feature and its statically selected provider. */
-export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown"): string[] {
+export function featurePackages(id: FeatureId, value: unknown): string[] {
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores
@@ -540,8 +530,6 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
     const choice: unknown = value && typeof value === "object" && !Array.isArray(value) ? Reflect.get(value, key) : undefined
     return typeof choice === "string" ? choices[choice] ?? [] : []
   }))
-  // Node selects OpenWorkflow when its storage is set and no provider is.
-  if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
   return [...new Set([...definition.packages, ...selected])]
 }

@@ -57,9 +57,16 @@ export default defineConfig({
 | `sqlite.path` | `WorkflowRuntimeConfigValue` | none | OpenWorkflow SQLite path. |
 | `sqlite.namespaceId` | `string` | provider default | OpenWorkflow SQLite namespace id. |
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
-| `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
+| `worker` | `false` or `{ concurrency }` | started | The OpenWorkflow worker that each Nitro server starts. `false` keeps the server from starting it. |
+| `worker.concurrency` | `number` | `1` | The number of runs that one worker executes at the same time. |
 
-When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Netlify cannot infer a Workflow Provider, so set `provider` explicitly or disable Workflow there. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `postgres.url` or `sqlite.path`.
+When no provider is configured, ViteHub selects:
+
+- Cloudflare on Cloudflare hosting.
+- OpenWorkflow on Node or Docker hosting, also in `vite dev` with the `node` preset. Each server starts the OpenWorkflow worker. [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) tells how it selects storage.
+- Vercel on the other supported hosts.
+
+Netlify cannot infer a Workflow Provider, so set `provider` explicitly or disable Workflow there. An explicit `provider` always wins.
 
 ## Define a workflow
 

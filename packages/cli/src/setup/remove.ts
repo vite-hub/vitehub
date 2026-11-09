@@ -226,7 +226,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   }
   const packagesOf = (id: FeatureId, value: JsonValue | undefined, state = status) => {
     const active = new Set(state.features.filter(item => item.enabled !== "off").map(item => item.id))
-    return [...featurePackages(id, value, host), ...(id === "console" ? setupConsolePackages(value, active) : [])]
+    return [...featurePackages(id, value), ...(id === "console" ? setupConsolePackages(value, active) : [])]
   }
   const stillNeeded = new Set(remaining.flatMap(id => [...packagesOf(id, valueOf(afterKeys, id), after.status), ...features[id].devPackages]))
 

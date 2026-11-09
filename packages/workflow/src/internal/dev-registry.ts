@@ -31,21 +31,29 @@ function createWorkflowDevRegistryModule(registryFile: string, definitions: Disc
   return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
 }
 
-/** `dev` turns on the run history of `vite dev`. A build that installs the registry at startup passes `false`. */
+/**
+ * `dev` turns on the run history of `vite dev`. A build that installs the registry at startup passes `false`.
+ * With OpenWorkflow, the plugin also loads OpenWorkflow from the server bundle and starts its worker in this server
+ * unless `workflow.worker` is `false`.
+ */
 export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName, dev = false): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
+  const openWorkflow = workflow !== false && workflow.provider === "openworkflow"
   return [
     "import { definePlugin } from \"nitro\"",
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
     // Only this import brings the run history into the app, so a build never includes it.
     ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(`${importBase}/runtime/dev-runs`)}`] : []),
+    ...(openWorkflow ? [`import { installOpenWorkflow } from ${JSON.stringify(`${importBase}/runtime/openworkflow-worker`)}`] : []),
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
-    "export default definePlugin(() => {",
+    `export default definePlugin((${openWorkflow ? "nitroApp" : ""}) => {`,
     `  setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`,
     "  setWorkflowRuntimeRegistry(registry)",
     ...(dev ? ["  enableWorkflowDevRuns()"] : []),
+    // OpenWorkflow reads the runtime config and registry, so it is installed after them.
+    ...(openWorkflow ? ["  installOpenWorkflow(nitroApp)"] : []),
     "})",
     "",
   ].join("\n")
