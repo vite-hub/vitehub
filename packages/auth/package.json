@@ -126,7 +126,6 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "better-auth": "catalog:auth",
-    "bun-types": "^1.4.3",
     "drizzle-orm": "catalog:database",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
@@ -139,6 +138,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "bun-types": "^1.4.3",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
