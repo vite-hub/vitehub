@@ -199,12 +199,12 @@ describe("agent test runner", () => {
 
   it("preserves finish hook delivery effects while capturing test results", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { createAgentTestRunner } = await import("../src/test.ts")
     const reply = vi.fn()
     const runner = createAgentTestRunner(defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply },
           messages: false,
         }),
@@ -226,14 +226,14 @@ describe("agent test runner", () => {
 
   it("preserves error hook delivery effects while capturing failed test runs", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { createAgentTestRunner } = await import("../src/test.ts")
     const failure = new Error("failed")
     const agentError = vi.fn(event => event.reply(event.errorMessage))
     const reply = vi.fn()
     const runner = createAgentTestRunner(defineAgent({
       channels: {
-        portal: defineChannel("portal", {
+        portal: channelAdapter("portal", {
           [channelDeliveryHandlers]: { reply },
           messages: false,
         }),

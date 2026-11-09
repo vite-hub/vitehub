@@ -40,19 +40,9 @@
     "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'env'."
   },
   {
-    "id": "docs/content/docs/agents/channels.md#862ca09365cf",
-    "label": "server/utils/prefect-channel.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/agents/channels.md#95eb70e7d232",
     "label": "server/agents/support.ts",
     "error": "TS2304 Cannot find name 'defineAgent'.\nTS2304 Cannot find name 'telegram'.\nTS2304 Cannot find name 'telegram'."
-  },
-  {
-    "id": "docs/content/docs/agents/channels.md#ad4e6fcc3ebb",
-    "label": "server/agents/labeller.ts",
-    "error": "TS18046 'message' is of type 'unknown'.\nTS18046 'message' is of type 'unknown'.\nTS2307 Cannot find module '../lib/mailbox' or its corresponding type declarations."
   },
   {
     "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",

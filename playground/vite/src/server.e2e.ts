@@ -184,9 +184,7 @@ app.get("/api/blob/serve", async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
   }
 
-  const [error, stream] = await blob.serve(event, pathname)
-  if (error) throw error
-  return stream
+  return blob.serve(event.req, pathname)
 })
 
 app.get("/api/database", async () => {
