@@ -149,6 +149,28 @@ describe("/link fragment", () => {
   })
 })
 
+describe("creating a pending link", () => {
+  it.each([
+    [false, true, "Allow this Console to use browser storage"],
+    [true, false, "Open the link in a current browser"],
+  ] as const)("requires persistent storage (%s) and Web Locks (%s)", async (storagePersistent, locksAvailable, message) => {
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const storage = memoryProjectStorage()
+    module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage, storagePersistent, pendingLinkLocks: locksAvailable ? linkLocks() : undefined })
+
+    await expect(module.createConsolePendingLink()).rejects.toThrow(message)
+    expect(storage.getItem(consolePendingLinksStorageKey)).toBeNull()
+  })
+
+  it("reports blocked writes as a browser storage problem", async () => {
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const storage = { getItem: () => null, setItem: () => { throw new Error("Quota exceeded") } }
+    module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage, storagePersistent: true, pendingLinkLocks: linkLocks() })
+
+    await expect(module.createConsolePendingLink()).rejects.toThrow("Allow this Console to use browser storage")
+  })
+})
+
 describe("linking from a pending link", () => {
   async function session(fetch: (url: string, init: RequestInit) => Promise<Response>, storage: ConsoleProjectStorage = browserStorage()) {
     const fetchMock = vi.fn(fetch)
@@ -156,7 +178,7 @@ describe("linking from a pending link", () => {
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
     const pendingLinkLocks = linkLocks()
-    const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: "https://console.example.com", storage, pendingLinkLocks })
+    const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: "https://console.example.com", storage, storagePersistent: true, pendingLinkLocks })
     const ticket = await module.createConsolePendingLink()
     return { fetch: fetchMock, module, navigate, state, storage, ticket, pendingLinkLocks }
   }

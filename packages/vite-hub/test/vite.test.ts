@@ -776,6 +776,7 @@ describe("vitehub", () => {
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
       "vite-hub/unavailable-services",
+      "vite-hub/cloudflare-sh-syntax",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -865,7 +866,8 @@ describe("vitehub", () => {
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
+    // hubKv() infers the driver itself, so `vite dev` can keep the store local.
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
