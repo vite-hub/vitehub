@@ -68,9 +68,10 @@ function statementWords(stmt: Stmt, command: string, toIndex: SourceIndex): stri
   }
 
   return [
+    ...(stmt.negated ? ["!"] : []),
     ...call.assigns.map(assign => command.slice(toIndex(assign.start), toIndex(assign.end))),
     ...call.args.map(arg => wordText(arg, command, toIndex)),
-    ...stmt.redirs.map(redir => command.slice(toIndex(redir.start), toIndex(redir.end))),
+    ...stmt.redirs.map(redir => command.slice(toIndex(redir.start), toIndex((redir.hdoc ? redir.word : redir)?.end ?? redir.end))),
   ]
 }
 
@@ -96,6 +97,10 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   catch {
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
+  // sh-syntax joins the next line to a comment that ends in a backslash. Bash does not.
+  if (stripLineContinuations(command).commentContinuation) {
+    return [{ command, followsPipe: false, invalid: true, words: [] }]
+  }
 
   const toIndex = createSourceIndex(command)
   const leaves: Array<{ stmt: Stmt, separator?: StatementSeparator }> = []
@@ -109,7 +114,7 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   for (const { stmt, separator } of leaves) {
     const trailingComment = stmt.comments.find(comment => comment.start >= stmt.end)
     const rawEnd = separator?.offset ?? (trailingComment ? toIndex(trailingComment.start) : toIndex(stmt.end))
-    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd)))
+    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd))).text
     segments.push({
       command: raw,
       followsPipe,
@@ -187,8 +192,9 @@ function utf8Length(codePoint: number): number {
   return 4
 }
 
-function stripLineContinuations(command: string): string {
+function stripLineContinuations(command: string) {
   let result = ""
+  let commentContinuation = false
   let quote: "'" | "\"" | undefined
   let ansiCQuoted = false
   let escaped = false
@@ -197,7 +203,10 @@ function stripLineContinuations(command: string): string {
     const char = command[index]!
     if (comment) {
       result += char
-      if (char === "\n") comment = false
+      if (char === "\n") {
+        comment = false
+        if (command[index - 1] === "\\") commentContinuation = true
+      }
       continue
     }
     if (escaped) {
@@ -240,5 +249,5 @@ function stripLineContinuations(command: string): string {
     }
     result += char
   }
-  return result
+  return { commentContinuation, text: result }
 }

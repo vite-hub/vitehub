@@ -94,4 +94,11 @@ describe("ANSI-C quoted command segments", () => {
       workspaceGuardrail: { kind: "broad_search" },
     })
   })
+
+  it("reads segment words from the statement that owns a heredoc", () => {
+    expect(splitShellCommandSegments("cat <<EOF | rg needle\nhi\nEOF")).toEqual([
+      { command: "cat <<EOF ", followsPipe: false, separatorAfter: "|", words: ["cat", "<<EOF"] },
+      { command: " rg needle", followsPipe: true, words: ["rg", "needle"] },
+    ])
+  })
 })

@@ -188,6 +188,7 @@ describe("@vite-hub/shell workspace inspection", () => {
     "rm README.md <<EOF | cat README.md\nhi\nEOF",
     "rm README.md <<EOF && cat README.md\nhi\nEOF",
     "cat () { rm README.md; }; cat README.md",
+    "cat README.md # note \\\nrm README.md",
   ])("checks every statement in %j before a provider runs it", async (command) => {
     const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
     const exec = vi.fn(async (command: string) => ({ command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }))
@@ -201,6 +202,16 @@ describe("@vite-hub/shell workspace inspection", () => {
       provider: { ...createJustBashProvider({ fs }), exec },
     })).resolves.toMatchObject({ event: "policy_denied" })
     expect(exec).not.toHaveBeenCalled()
+  })
+
+  it("keeps negated statements in conditional branch checks", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "needle\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, `! cd ${workspaceMountPoint} || rg needle .`, {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ event: "policy_denied" })
   })
 
   it("removes backslash escapes from unquoted words before path checks", async () => {
