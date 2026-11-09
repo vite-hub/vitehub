@@ -352,10 +352,13 @@ export const AgentSession = defineComponent({
               const surface = surfaceById.get(id);
               if (!surface) return null;
               const selected = id === active.value;
+              // A lone tab has nothing to close into: the panel toggle hides the panel.
+              const closable = visibleTabs.value.length > 1;
               return h("div", {
                 key: id,
                 class: "vh-agent-session__tab",
                 "data-active": selected ? "" : undefined,
+                "data-closable": closable ? "" : undefined,
               }, [
                 h("button", {
                   type: "button",
@@ -365,12 +368,14 @@ export const AgentSession = defineComponent({
                   onClick: () => (active.value = id),
                   onAuxclick: (event: MouseEvent) => event.button === 1 && closeSurface(id),
                 }, [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
-                h("button", {
-                  type: "button",
-                  class: "vh-agent-session__tab-close",
-                  "aria-label": `Close ${surface.label}`,
-                  onClick: () => closeSurface(id),
-                }, [icon("i-lucide-x")]),
+                closable
+                  ? h("button", {
+                      type: "button",
+                      class: "vh-agent-session__tab-close",
+                      "aria-label": `Close ${surface.label}`,
+                      onClick: () => closeSurface(id),
+                    }, [icon("i-lucide-x")])
+                  : null,
               ]);
             }),
             h("button", {
@@ -571,7 +576,7 @@ export const AgentSessionWorkGroup = defineComponent({
           h("span", summary),
           props.label ? h("span", { class: "vh-agent-session__work-count" }, `${props.entries.length} ${props.entries.length === 1 ? "step" : "steps"}`) : null,
           failed ? h("span", { class: "vh-agent-session__work-failed" }, `${failed} failed`) : null,
-          icon("i-lucide-chevron-right", { class: "vh-agent-session__work-chevron" }),
+          icon("i-lucide-chevron-down", { class: "vh-agent-session__work-chevron" }),
         ]),
         open.value
           ? h("div", { class: "vh-agent-session__work-list" }, props.entries.map((entry) =>

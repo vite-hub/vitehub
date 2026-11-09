@@ -48,6 +48,17 @@ it("holds a controlled surface and maximization until the parent accepts them", 
   wrapper.unmount();
 });
 
+it("offers a close button only when the panel has more than one tab", async () => {
+  const wrapper = session({ panelOpen: true, surface: "workspace" });
+  expect(wrapper.findAll("[role='tab']")).toHaveLength(1);
+  expect(wrapper.find("[aria-label='Close Workspace']").exists()).toBe(false);
+  await wrapper.setProps({ surface: "trace" });
+  expect(wrapper.findAll("[role='tab']")).toHaveLength(2);
+  expect(wrapper.find("[aria-label='Close Workspace']").exists()).toBe(true);
+  expect(wrapper.find("[aria-label='Close Trace']").exists()).toBe(true);
+  wrapper.unmount();
+});
+
 it("keeps uncontrolled user changes in stored layout", async () => {
   let wrapper = session({ storageKey: "session-layout", defaultSurface: "workspace" });
   await wrapper.get("[data-slot='agent-session-panel-toggle']").trigger("click");
