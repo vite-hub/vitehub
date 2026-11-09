@@ -48,6 +48,52 @@ describe("renamed-apis", () => {
     expect(run.result.followUps.map(entry => entry.message)).toEqual([expect.stringContaining("`hubKv` is also declared in this file")])
   })
 
+  it("rewrites imported calls without changing shadowed local APIs", async () => {
+    const source = [
+      "import { deriveSecret } from '@vite-hub/env/server'",
+      "import { kv } from 'vite-hub/kv'",
+      "import { blob as files } from 'vite-hub/blob'",
+      "deriveSecret('app', event)",
+      "kv.del('a')",
+      "kv.store('cache').del('a')",
+      "files.store('media').del('a')",
+      "function local(deriveSecret, kv, files) {",
+      "  deriveSecret('local', event)",
+      "  kv.del('a')",
+      "  kv.store('cache').del('a')",
+      "  files.store('media').del('a')",
+      "}",
+      "function hoisted() { kv.store('cache').del('a'); var kv }",
+      "try {} catch (deriveSecret) { deriveSecret('local', event) }",
+      "",
+    ].join("\n")
+    const { after } = await migrate({ "server/utils/apis.js": source })
+    expect(after["server/utils/apis.js"]).toBe(source
+      .replace("deriveSecret('app', event)", "deriveSecret('app', { event })")
+      .replace("\nkv.del", "\nkv.delete")
+      .replace("\nkv.store('cache').del", "\nkv.store('cache').delete")
+      .replace("\nfiles.store('media').del", "\nfiles.store('media').delete"))
+  })
+
+  it.each([
+    "import { console } from 'vite-hub/console/server'; console.log('a')",
+    "import { console as panel } from 'vite-hub/console/server'; panel.log('a')",
+    "export { console } from 'vite-hub/console/server'",
+    "const { console } = await import('vite-hub/console/server'); console.log('a')",
+    "const [{ console }] = await Promise.all([import('vite-hub/console/server')]); console.log('a')",
+    "import { kv } from 'vite-hub/kv'; kv.store('cache').del('a')",
+    "import { blob as files } from 'vite-hub/blob'; files.store('media').del('a')",
+    "export const operation = 'kv.del'",
+    "export const operation = 'blob.del'",
+    "export const tool = 'kv_del'",
+    "export const tool = 'blob_del'",
+  ])("detects supported migration forms and stops after rewriting: %s", async (source) => {
+    const { cwd, after } = await migrate({ "server/utils/apis.ts": source })
+    expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("renamed-apis")
+    const migrated = await migrate(after)
+    expect((await detectCodemods(migrated.cwd)).map(entry => entry.codemod.name)).not.toContain("renamed-apis")
+  })
+
   it("renames an aliased import, a re-export, and a shorthand property", async () => {
     const { after } = await migrate({
       "plugins.ts": [

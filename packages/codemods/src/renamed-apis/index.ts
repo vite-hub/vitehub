@@ -6,7 +6,9 @@ import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import type { CallExpression, File, ImportDeclaration, MemberExpression, ObjectPattern } from "@babel/types"
+import { bindingResolver } from "../resend/bindings.ts"
+
+import type { CallExpression, File, Identifier, ImportDeclaration, MemberExpression, ObjectPattern } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
@@ -75,6 +77,7 @@ interface FileContext {
   followUps: FollowUp[]
   output: MagicString
   program: File
+  resolveBinding: ReturnType<typeof bindingResolver>
   counts: Counts
 }
 
@@ -227,25 +230,28 @@ function rewritePattern(context: FileContext, pattern: ObjectPattern, renames: R
   }
 }
 
-/** Local names of `kv` and `blob` imports in the block. */
-function storageBindings(program: File): Set<string> {
-  const names = new Set<string>()
+/** Declarations of `kv` and `blob` imports in the block. */
+function storageBindings(program: File): Set<Identifier> {
+  const names = new Set<Identifier>()
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration") continue
     const exported = storageModules.get(statement.source.value)
     if (!exported) continue
     for (const specifier of statement.specifiers) {
-      if (importedName(specifier) === exported) names.add(specifier.local.name)
+      if (importedName(specifier) === exported) names.add(specifier.local)
     }
   }
   return names
 }
 
 /** True for `kv`, `blob`, or a `kv.store(...)` handle of an imported binding. */
-function isStorage(node: Node, names: ReadonlySet<string>): boolean {
-  if (node.type === "Identifier") return names.has(node.name)
+function isStorage(node: Node, names: ReadonlySet<Identifier>, resolveBinding: FileContext["resolveBinding"]): boolean {
+  if (node.type === "Identifier") {
+    const binding = resolveBinding(node)
+    return binding !== undefined && names.has(binding)
+  }
   if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed
-    && node.callee.property.type === "Identifier" && node.callee.property.name === "store") return isStorage(node.callee.object, names)
+    && node.callee.property.type === "Identifier" && node.callee.property.name === "store") return isStorage(node.callee.object, names, resolveBinding)
   return false
 }
 
@@ -258,12 +264,9 @@ function isDelMember(node: Node): node is MemberExpression {
 function rewriteDeletes(context: FileContext) {
   const names = storageBindings(context.program)
   if (!names.size) return
-  const shadowed = localDeclarations(context.program)
   walk(context.program, (node) => {
     if (!isDelMember(node)) return
-    const object = node.object
-    const root = object.type === "Identifier" ? object.name : undefined
-    if (isStorage(object, names) && !(root && shadowed.has(root))) {
+    if (isStorage(node.object, names, context.resolveBinding)) {
       overwrite(context, node.property, "delete")
       context.counts.deletes++
       return
@@ -274,16 +277,18 @@ function rewriteDeletes(context: FileContext) {
 
 /** Turns `deriveSecret(purpose, event)` into `deriveSecret(purpose, { event })`. */
 function rewriteSecrets(context: FileContext) {
-  const names = new Set<string>()
+  const names = new Set<Identifier>()
   for (const statement of context.program.program.body) {
     if (statement.type !== "ImportDeclaration" || !secretModules.has(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (importedName(specifier) === "deriveSecret") names.add(specifier.local.name)
+      if (importedName(specifier) === "deriveSecret") names.add(specifier.local)
     }
   }
   if (!names.size) return
   walk(context.program, (node) => {
-    if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || !names.has(node.callee.name)) return
+    if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
+    const binding = context.resolveBinding(node.callee)
+    if (!binding || !names.has(binding)) return
     rewriteSecretCall(context, node)
   })
 }
@@ -363,7 +368,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Rename its ViteHub APIs by hand.` })
         continue
       }
-      const context: FileContext = { block, counts, file, followUps, output, program }
+      const context: FileContext = { block, counts, file, followUps, output, program, resolveBinding: bindingResolver(program) }
       rewriteExports(context)
       rewriteDeletes(context)
       rewriteSecrets(context)
@@ -401,14 +406,15 @@ export const renamedApis: Codemod = {
   description: "Rename hubDb, hubKv, createWorkspaceDriver, kv.del(), blob.del(), and the positional deriveSecret() event",
   usage: "[dir]",
   async detect({ cwd }) {
-    const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
-    for (const file of files) {
-      const source = await readFile(join(cwd, file), "utf8")
-      const match = detections.find(([pattern]) => pattern.test(source))
-      if (match) return { reason: `${file} uses ${match[1]}` }
+    // Reuse the edit planner so detection covers every supported migration form.
+    const result = await migrate({ cwd })
+    const [edit] = result.edits
+    if (edit) {
+      const match = detections.find(([pattern]) => pattern.test(edit.before ?? ""))
+      return { reason: `${edit.path} uses ${match?.[1] ?? "renamed ViteHub APIs"}` }
     }
-    const [appSecret] = await appSecretFollowUps(cwd)
-    if (appSecret) return { reason: `${appSecret.file} sets NUXT_APP_SECRET` }
+    const [followUp] = result.followUps
+    if (followUp) return { reason: `${followUp.file} needs a ViteHub API migration` }
     return undefined
   },
   run: migrate,
