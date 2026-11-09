@@ -8,15 +8,18 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Build a filter box. A person types "nord parts except vak supply". Your page shows one chip to include and one chip to exclude.
+Decisions turns what a person types into choices from a list that you give. You give the options. A model reads the text and picks from them. ViteHub checks that the model picked only your options.
 
-You write the options and the route. ViteHub asks the model and checks the answer. You apply the selection to your own state.
+In this tutorial, you build a filter box. A person types "nord parts except vak supply". Your page shows one supplier to include and one to exclude.
 
-This tutorial uses a small offline gateway. It needs no API key and no network. The last step swaps it for a real model.
+> [!NOTE] Before you start
+> Use the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer and pnpm.
+>
+> Until the last step, you need no API key and no network. A small offline stand-in answers in place of the model. The last step uses a real model, which needs an API key and can cost money.
 
-You need Node.js 22.22 or newer, pnpm, and the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Install the Decisions and Gateways packages. This app has a Vue page, so also install Vue and its Vite plugin:
+Install the Decisions and Gateways packages. This app has a Vue page, so also install Vue and its Vite plugin:
 
-```bash [commands/install-vue]
+```bash pm [commands/install-vue]
 pnpm add @vite-hub/decisions @vite-hub/gateways vue
 pnpm add -D @vitejs/plugin-vue
 ```
@@ -27,7 +30,7 @@ pnpm add -D @vitejs/plugin-vue
 ::tutorial-step{title="Declare your options"}
 ## Declare your options
 
-Create `server/utils/word-gateway.ts`. A gateway is the object that asks the model. This one answers by word match, so you can see the flow without a model. Read it once, then leave it alone.
+Create `server/utils/word-gateway.ts`. A gateway is the object that asks the model. This one asks no model. It looks for words in the text, so you can see the flow with no API key. Read it once, then leave it alone.
 
 ```ts [server/utils/word-gateway.ts]
 import type { AiGatewayAsk } from "vite-hub/gateways"
@@ -74,7 +77,7 @@ export const wordGateway: { ask: AiGatewayAsk } = {
 }
 ```
 
-Now the part that is yours. Create `server/utils/forecast-choices.ts`. A **group** is one decision, such as "which supplier". An **option** is one thing the person can pick. `toOptions()` turns your data into options. This is the first bridge.
+Now write your own part. Create `server/utils/forecast-choices.ts`. It lists what the person can choose:
 
 ```ts [server/utils/forecast-choices.ts]
 import { defineChoices, toOptions } from "vite-hub/decisions"
@@ -104,14 +107,16 @@ export const forecast = defineChoices({
 })
 ```
 
-The `supplier` group takes any number of options. The `chart` group takes at most one.
+- A **group** is one decision, such as "which supplier". An **option** is one thing that the person can pick.
+- `toOptions()` turns your data into options. This is the first of two bridges: code that connects your app to Decisions.
+- The `supplier` group takes any number of options. The `chart` group takes at most one.
 
 ::
 
 ::tutorial-step{title="Write the route"}
 ## Write the route
 
-Create `server/api/choices.post.ts`. Call `resolve()` here. It returns `[error, selection]` and never throws.
+Create `server/api/choices.post.ts`. It calls `resolve()` with the text that the person typed:
 
 ```ts [server/api/choices.post.ts]
 import { createError, defineEventHandler, readBody } from "h3"
@@ -125,7 +130,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The route is yours. Add your auth and your rate limit here. The model call happens in this route, on the server. The browser never sees the gateway or its key.
+- `resolve()` returns `[error, selection]`. It never throws.
+- The model call happens in this route, on the server. The browser never sees the gateway or its key.
+- The route is yours. Add your sign-in check and your rate limit here.
 
 Start the app and send a sentence:
 
@@ -168,14 +175,16 @@ You get a selection. Each group has its own shape:
 }
 ```
 
-`supplier` lists the values to include and the values to exclude. `chart` has the best value, how sure the model is, and every option ranked. Every value is one of your option values.
+- `supplier` lists the values to include and the values to exclude.
+- `chart` has the best value, how sure the model is, and every option from most to least likely.
+- Every value is one of your option values.
 
 ::
 
 ::tutorial-step{title="Call it from the browser"}
 ## Call it from the browser
 
-The browser sends text to your route and gets a selection back. `useChoices()` handles the typing, the waiting, and the cancel of old requests. You write the second bridge: the `onSelect` function puts the selection into your own state.
+The browser sends the text to your route and gets a selection back. `useChoices()` handles the typing and the waiting, and it cancels old requests. You write the second bridge: `onSelect` puts the selection into your own state.
 
 Add the Vue plugin to `vite.config.ts`:
 
@@ -212,7 +221,7 @@ import App from "./App.vue"
 createApp(App).mount("#app")
 ```
 
-Create `src/App.vue`. The `import type` line brings in only the type of your choices. No server code reaches the browser.
+Create `src/App.vue`:
 
 ```vue [src/App.vue]
 <script setup lang="ts">
@@ -258,7 +267,11 @@ const ai = useChoices<typeof forecast>({
 </template>
 ```
 
-Stop `pnpm dev` and start it again. Nitro looks for `index.html` only when the dev server starts, so a running server still answers `/` with 404.
+- `import type` brings in only the type of your choices. No server code goes to the browser.
+- `resolve` sends the text to your route.
+- `onSelect` copies the selection into `included`, `excluded`, and `chart`. These are your own Vue refs.
+
+Stop `pnpm dev` and start it again. Nitro looks for `index.html` only when the dev server starts. Without a restart, `/` still answers 404.
 
 Open `http://localhost:3000`, type `nord parts except vak supply, as bar`, and press Enter. The page shows:
 
@@ -268,14 +281,14 @@ Not supplier: vak
 Chart: bar
 ```
 
-The chips are plain Vue state. Replace the list with your own filter bar and the same `onSelect` fills it.
+The list shows plain Vue state. Replace it with your own filter bar, and the same `onSelect` fills it.
 
 ::
 
 ::tutorial-step{title="Swap in a real model"}
 ## Swap in a real model
 
-The word gateway only knows exact names. A real decision model also reads codes, short names, and typos. Replace the gateway in `server/utils/forecast-choices.ts` with `typesafe()`. Nothing else changes.
+The word gateway knows only exact names. A real decision model also reads codes, short names, and typos. In `server/utils/forecast-choices.ts`, replace the word gateway with `typesafe()`. Nothing else changes.
 
 ```diff
 -import { wordGateway } from "./word-gateway"
@@ -287,21 +300,33 @@ The word gateway only knows exact names. A real decision model also reads codes,
 +  gateway: typesafe(), // reads TYPESAFE_API_KEY on the server
 ```
 
-Set the key in your server environment and restart. Keep it out of client code and version control. Each request can incur provider charges.
+Set the API key in your server environment, and restart the dev server. Keep the key out of browser code and out of Git. Each request can cost money.
 
 ```bash [commands/typesafe-key]
 export TYPESAFE_API_KEY=your-key
 pnpm dev
 ```
 
-You can now delete `server/utils/word-gateway.ts`. The route and the page stay the same, because both only use `resolve()` and the selection.
+You can now delete `server/utils/word-gateway.ts`. The route and the page do not change, because they use only `resolve()` and the selection.
 
 ::
 
 ## What you built
 
-You wrote two bridges and one route. Your data became options. The selection became your state. ViteHub did the part in the middle.
+You wrote two bridges and one route. Your data became options. The selection became your state. ViteHub did the part in the middle: it asked the model and checked the answer.
 
-- Read [Concepts](/docs/decisions/concepts) to see why the model cannot invent a value.
-- Read [Recipes](/docs/decisions/recipes) for search facets, a command palette, and dashboard knobs.
-- Read [Limits and errors](/docs/decisions/limits-and-errors) before you ship.
+## Next steps
+
+::card-group
+:::card{title="Concepts" icon="i-lucide-lightbulb" to="/docs/decisions/concepts"}
+See why the model cannot invent a value.
+:::
+
+:::card{title="Recipes" icon="i-lucide-chef-hat" to="/docs/decisions/recipes"}
+Build search facets, a command palette, and dashboard controls.
+:::
+
+:::card{title="Limits and errors" icon="i-lucide-triangle-alert" to="/docs/decisions/limits-and-errors"}
+Read this before you ship.
+:::
+::

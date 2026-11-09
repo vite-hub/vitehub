@@ -778,6 +778,7 @@ describe("vitehub", () => {
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
       "vite-hub/unavailable-services",
+      "vite-hub/cloudflare-sh-syntax",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",

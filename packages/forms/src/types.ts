@@ -31,7 +31,7 @@ export interface FormSubmission<TData = unknown> {
   id: string
   /** The form name, such as `contact`. */
   form: string
-  /** The validated output of the form schema. */
+  /** The validated output of the form schema, in its JSON representation. */
   data: TData
   /** The app path that the form was on, such as `/pricing`. */
   page: string | null
@@ -75,7 +75,7 @@ export interface FormSubmitContext {
 }
 
 export interface DefineFormOptions<TSchema extends StandardSchemaV1> {
-  /** Any Standard Schema: Valibot, Zod, ArkType. The server validates every submission with it. */
+  /** Any Standard Schema with JSON output: plain objects, arrays, strings, finite numbers, booleans, or null. */
   schema: TSchema
   /** Who may send. Default: anyone. */
   authorize?: (context: FormAuthorizeContext) => boolean | Promise<boolean>
@@ -93,7 +93,7 @@ export interface DefineFormOptions<TSchema extends StandardSchemaV1> {
    * route sends no CORS headers, so `submitForm()` and other `fetch` calls work only from the app's own origin.
    */
   origins?: readonly string[]
-  /** Keep submissions in the Database, for the Console inbox. Default `true`. */
+  /** Keep submissions in the Database, for the Console inbox. Default `true`; requires a store service. */
   store?: boolean
   notify?: FormNotify<StandardSchemaV1.InferOutput<TSchema>>
   /**

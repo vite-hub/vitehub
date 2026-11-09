@@ -1,28 +1,31 @@
 ---
 
 title: Read your first Content document
-description: Parse a local Markdown file and read its Content document from a route.
+description: Turn a local Markdown file into a Content document and read it from an API route.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Turn `docs/intro.md` into a parsed Content document and read it through an API route. A Source finds the Markdown file; Content parses it so the app can use its headings and body.
+Content turns your Markdown files into documents that your app can read. A document has the headings and the body of the file, ready to show on a page.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root.
+In this tutorial, you write `docs/intro.md`. Then you read it as a document from an API route.
+
+> [!NOTE] Before you start
+> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands in the root folder of the app. You need no account and no API key.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install ViteHub, the Content package, and the server dependencies. Content includes its Comark runtime and the Comark UI parser preset.
+Add ViteHub, Content, and the server packages to your app:
 
-```bash [commands/install]
+```bash pm [commands/install]
 pnpm add vite-hub @vite-hub/content nitro h3
 pnpm add -D vite
 ```
 
-Add ViteHub and Nitro to your existing Vite config. ViteHub discovers the `server/content.ts` file in the next step. Nitro serves the app's API routes.
+Add `vitehub()` and `nitro()` to `vite.config.ts`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -34,12 +37,15 @@ export default defineConfig({
 })
 ```
 
+- `vitehub()` finds the `server/content.ts` file that you write in the next step.
+- `nitro()` gives your app a server for its API routes.
+
 ::
 
 ::tutorial-step{title="Define and read Content"}
 ## Define and read Content
 
-The `docs` Source reads Markdown under the project's `docs` directory.
+Create `server/content.ts`. It tells Content where your Markdown files are:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
@@ -52,7 +58,9 @@ export const content = defineContent({
 })
 ```
 
-Add the document that the route will read:
+`docs` is a Source. A Source is a place that Content reads documents from. This one reads every `.md` file in the `docs` folder of your project.
+
+Create the Markdown file:
 
 ```md [docs/intro.md]
 # Hello from Content
@@ -60,7 +68,7 @@ Add the document that the route will read:
 This page came from a local Source.
 ```
 
-`content.get('/intro')` resolves `docs/intro.md`. This route lets you check the server API without building a page first.
+Create an API route that reads it:
 
 ```ts [server/api/guide.get.ts]
 import { defineEventHandler } from 'h3'
@@ -71,7 +79,9 @@ export default defineEventHandler(async () => {
 })
 ```
 
-This optional client module reads the same document through the generated Content routes:
+`content.get('/intro')` finds `docs/intro.md` and returns it as a document. With this route, you can test Content before you build a page.
+
+You can also read the same document in browser code. This file is optional:
 
 ```ts [app/utils/content.ts]
 import { createContentClient } from 'vite-hub/content/client'
@@ -81,28 +91,41 @@ export const content = createContentClient()
 await content.get('/intro')
 ```
 
+`createContentClient()` calls the routes that Content adds to your server. It has the same `get()` method.
+
 ::
 
 ::tutorial-step{title="Read one document"}
 ## Read one document
 
-Start Vite, then read the `guide` route you just created:
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
+Keep the server running. Open a second terminal, and call your route:
 
 ```bash [commands/request]
 curl http://localhost:5173/api/guide
 ```
 
-The response contains the parsed `Hello from Content` document. Read
-[Server API](/docs/content/server-api) for every Content method.
+The response is the `Hello from Content` document, as JSON.
 
-Render the document with [ViteHub UI Markdown](/docs/ui/markdown#content-pages), or add [full-text search](/docs/content/configure#providers).
+To show the document on a page, use [ViteHub UI Markdown](/docs/ui/markdown#content-pages). To search your documents, add [full-text search](/docs/content/configure#providers).
 
-The `docs` Source is read-only: you change it by editing files in the repository. To let people or Agents edit documents at runtime, with drafts and publishing, add a [document collection](/docs/content/configure#document-collections).
+You can change the `docs` Source only when you edit the files in your repository. Do you want people or Agents to edit documents while the app runs, with drafts and publishing? Add a [document collection](/docs/content/configure#document-collections).
 
+::
+
+## Next steps
+
+::card-group
+:::card{title="Server API" icon="i-lucide-code" to="/docs/content/server-api"}
+See every Content method, such as list, save, and publish.
+:::
+
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/content/configure"}
+Add Sources, document collections, search, and access rules.
+:::
 ::
