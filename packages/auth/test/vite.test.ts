@@ -48,19 +48,19 @@ async function resolvePluginConfig(plugin: ReturnType<typeof hubAuth>, root: str
 }
 
 function resolveAuthDefinition(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.resolveId as (id: string) => string | undefined)(AUTH_DEFINITION_ID)
+  return (plugin.resolveId as { handler: (id: string) => string | undefined }).handler(AUTH_DEFINITION_ID)
 }
 
 function resolveAuthServer(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.resolveId as (id: string) => string | undefined)(AUTH_SERVER_ID)
+  return (plugin.resolveId as { handler: (id: string) => string | undefined }).handler(AUTH_SERVER_ID)
 }
 
 function loadAuthDefinition(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.load as (id: string) => string | undefined)(`\0${AUTH_DEFINITION_ID}`)
+  return (plugin.load as { handler: (id: string) => string | undefined }).handler(`\0${AUTH_DEFINITION_ID}`)
 }
 
 function loadAuthServer(plugin: ReturnType<typeof hubAuth>): string | undefined {
-  return (plugin.load as (id: string) => string | undefined)(`\0${AUTH_SERVER_ID}`)
+  return (plugin.load as { handler: (id: string) => string | undefined }).handler(`\0${AUTH_SERVER_ID}`)
 }
 
 afterEach(async () => {
@@ -68,6 +68,15 @@ afterEach(async () => {
 })
 
 describe("hubAuth", () => {
+  it("filters resolveId and load to the Auth virtual modules", () => {
+    const plugin = hubAuth()
+    const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id
+    const loadFilter = (plugin.load as { filter: { id: RegExp } }).filter.id
+
+    expect([AUTH_DEFINITION_ID, AUTH_SERVER_ID, "#vitehub/auth/other", "/app/server/auth.ts"].map(id => resolveFilter.test(id))).toEqual([true, true, false, false])
+    expect([`\0${AUTH_DEFINITION_ID}`, `\0${AUTH_SERVER_ID}`, AUTH_SERVER_ID, "/app/server/auth.ts"].map(id => loadFilter.test(id))).toEqual([true, true, false, false])
+  })
+
   it("serves a stable virtual Auth Definition module", async () => {
     const root = await createTempProject()
     const definition = await writeAuth(root)
