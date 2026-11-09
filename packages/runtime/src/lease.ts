@@ -178,11 +178,40 @@ export function createMemoryLeaseStore(): LeaseStore {
  * resolves its rows as objects keyed by column name.
  *
  * - `postgresql`: the SQL text uses `$1`, `$2`, and so on, like postgres.js `sql.unsafe(text, params)`.
- * - `sqlite`: the SQL text uses `?`, like libSQL `client.execute({ sql, args })`.
+ * - `sqlite`: the SQL text uses `?`, like libSQL `client.execute({ sql, args })`. The store runs a statement that fails
+ *   with `SQLITE_BUSY` again. Create a libSQL client with `timeout`, such as `createClient({ url, timeout: 30_000 })`,
+ *   because libSQL can lose writes when it runs again after `SQLITE_BUSY`.
  */
 export interface LeaseSqlClient {
   dialect: "postgresql" | "sqlite"
   query(sql: string, params: LeaseSqlParam[]): Promise<readonly Record<string, unknown>[]>
+}
+
+/** How long a SQLite statement retries while another connection holds the write lock. */
+const busyRetryMs = 5_000
+
+/**
+ * Runs a SQLite statement again while it fails with `SQLITE_BUSY`, which SQLite allows for a statement outside a
+ * transaction. It waits without blocking the event loop, unlike `PRAGMA busy_timeout` on a synchronous client.
+ */
+async function retryBusy<T>(run: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + busyRetryMs
+  for (let delay = 2; ; delay = Math.min(delay * 2, 50)) {
+    try {
+      return await run()
+    }
+    catch (error) {
+      if (!isBusy(error) || Date.now() + delay > deadline) throw error
+      await new Promise(resolve => setTimeout(resolve, delay * (0.5 + Math.random())))
+    }
+  }
+}
+
+/** libSQL and better-sqlite3 set `code` to `SQLITE_BUSY`. Other drivers only say so in the message. */
+function isBusy(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code: unknown = Reflect.get(error, "code")
+  return (typeof code === "string" && code.startsWith("SQLITE_BUSY")) || /SQLITE_BUSY|database is locked/i.test(error.message)
 }
 
 /** The parameter values that the lease statements pass. */
@@ -202,8 +231,9 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
     : "cast((julianday('now') - 2440587.5) * 86400000 as integer)"
   /** Runs SQL written with `?` placeholders, which become `$1`, `$2`, ... on Postgres. */
   const query = (sql: string, params: LeaseSqlParam[]) => {
+    if (client.dialect === "sqlite") return retryBusy(() => client.query(sql, params))
     let index = 0
-    return client.query(client.dialect === "postgresql" ? sql.replace(/\?/g, () => `$${++index}`) : sql, params)
+    return client.query(sql.replace(/\?/g, () => `$${++index}`), params)
   }
   const table = leaseTable
   const columns = `("key" text primary key, id text not null, owner text, expires_at bigint not null)`
@@ -240,11 +270,12 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
         sweptAt = Date.now()
         await query(`delete from ${table} where expires_at <= ${now}`, [])
       }
-      // One statement: a free key inserts, an expired lease is replaced, and a live lease returns no row.
+      // One statement: a free key inserts, an expired lease is replaced, and a live lease returns no row. A run again
+      // after SQLITE_BUSY finds its own ID when the first run committed, and gets its lease back.
       const [row] = await query(
         `insert into ${table} ("key", id, owner, expires_at) values (?, ?, ?, ${now} + cast(? as bigint))
          on conflict ("key") do update set id = excluded.id, owner = excluded.owner, expires_at = excluded.expires_at
-         where ${table}.expires_at <= ${now}
+         where ${table}.expires_at <= ${now} or ${table}.id = excluded.id
          returning id, expires_at`,
         [key, id, owner ?? null, ttlMs],
       )

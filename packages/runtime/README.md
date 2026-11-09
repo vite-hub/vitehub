@@ -403,7 +403,7 @@ if (lease) {
 }
 ```
 
-On SQLite or libSQL, pass `{ dialect: 'sqlite', query: async (sql, args) => (await client.execute({ sql, args })).rows }`.
+On SQLite or libSQL, pass `{ dialect: 'sqlite', query: async (sql, args) => (await client.execute({ sql, args })).rows }`. When several processes share one libSQL file, create the client with a busy timeout, such as `createClient({ url, timeout: 30_000 })`. See the note on SQLite below.
 
 - `acquire(key, { ttl, owner? })` returns `[error, lease]`. `lease` is `null` when another caller holds the key. `ttl` is in seconds, like KV. Fractions are allowed. Leases are not reentrant: the same `owner` also gets `null`.
 - Each acquire gets a new random `id`. `lease.release()` and `lease.renew({ ttl? })` act only when the stored `id` is still this one. They return `false` when the lease expired and another caller took it. `renew()` updates `lease.expiresAt`.
@@ -413,4 +413,6 @@ On SQLite or libSQL, pass `{ dialect: 'sqlite', query: async (sql, args) => (awa
 
 The SQL store keeps leases in the `vitehub_leases` table and creates it when it is missing. Each operation is one statement. Acquire is one `INSERT ... ON CONFLICT ("key") DO UPDATE ... WHERE expires_at <= now RETURNING`, so of many processes that acquire one key at the same time, exactly one gets it. Expiry uses the clock of the Database, not the clocks of the hosts. Postgres and SQLite 3.35 or later work. The store deletes expired rows at most once a minute.
 
-KV has no lease store. KV `setIfAbsent()` is atomic, but KV has no delete-if-value or set-if-value operation, so `release()` and `renew()` cannot check the holder in one step. The `fs-lite` driver also ignores the TTL, so a lease would never expire.
+There is no KV lease store yet. A KV lease store needs atomic compare-and-delete for `release()` and atomic compare-and-set with a TTL for `renew()` on every KV driver it supports, so it can check the holder in the same step. These are follow-ups. The `fs-lite` driver also ignores the TTL, so a lease on it would never expire.
+
+On SQLite, a statement that fails with `SQLITE_BUSY` because another process holds the lock runs again for up to 5 seconds, without blocking the event loop. Contention gives a `null` lease, not `RUNTIME_LEASE_FAILED`. The local libSQL client (`@libsql/client` 0.18) can lose committed writes when a connection runs more statements after `SQLITE_BUSY`, so give it a `timeout`. Then SQLite waits for the lock itself and does not return `SQLITE_BUSY`.
