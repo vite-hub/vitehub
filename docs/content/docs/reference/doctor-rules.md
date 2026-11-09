@@ -106,7 +106,6 @@ Application code imports an internal ViteHub path or a generated file. These pat
 
 ```ts [server/api/settings.get.ts] fragment
 // Invalid
-import { kv } from 'vite-hub/_internal/kv'
 import { useServerEnv } from '../../.vitehub/env/server'
 
 // Valid
