@@ -165,12 +165,21 @@ const optionalNetlifyAgentBundleExternals = [
   "vitest/*",
 ]
 
+// The ChatGPT model is the only Agent module that imports @ai-sdk/openai.
+const chatgptModelProvider = "@ai-sdk/openai"
+const chatgptModelProviderWithoutConnections = "\0vitehub-agent:chatgpt-model-provider-without-connections"
+
+function isAgentModule(importer: string | undefined): boolean {
+  if (!importer) return false
+  const normalized = importer.replace(/\\/g, "/")
+  return normalized.includes("/node_modules/@vite-hub/agent/") || normalized.startsWith(agentPackageRoot)
+}
+
 function isAgentPackageImporter(importer: string | undefined): boolean {
   if (!importer) return false
   const normalized = importer.replace(/\\/g, "/")
-  return normalized.includes("/node_modules/@vite-hub/agent/")
+  return isAgentModule(importer)
     || normalized.includes("/node_modules/@vite-hub/gateways/")
-    || normalized.startsWith(agentPackageRoot)
     || normalized.startsWith(gatewaysPackageRoot)
 }
 
@@ -3194,11 +3203,23 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (!resolved?.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")) return { external: true, id: source }
           return
         }
+        if (source === chatgptModelProvider && isAgentModule(importer)) {
+          // The ChatGPT model reads its plan credential through the connections runtime capability and stops with
+          // AGENT_R1016 before this import when the build gives Agents none, or `connections: false`. Workers compile
+          // every bundled module at isolate start, lazy ones too, so leave the package out of those builds.
+          const connections = runtimeCapabilities.some(capability => capability.name === "connections" && capability.packageName !== false)
+          if (resolved && !connections) return chatgptModelProviderWithoutConnections
+          return
+        }
         if (source !== optionalAskDriverPeer || !isAgentPackageImporter(importer)) return
         // The ask Driver imports this optional peer lazily. Keep it external when the application does not install it,
         // so Agents without driver.ask still build. An ask Driver then reports the missing package when it runs.
         return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { external: true, id: source }
       },
+    },
+    load(id) {
+      if (id !== chatgptModelProviderWithoutConnections) return
+      return `export function createOpenAI() { throw new Error(${JSON.stringify("[vitehub] The ChatGPT model needs Connections. Enable connections in vitehub() and rebuild.")}) }`
     },
     async configureServer(server) {
       const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))
