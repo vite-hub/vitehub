@@ -1,4 +1,4 @@
-import { handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
+import { getInput, handleSubmit, reset, setErrors, useField, useForm } from "@formisch/vue"
 import { computed, defineComponent, h, ref } from "vue"
 
 import { submitForm } from "./client.ts"
@@ -12,8 +12,11 @@ export type { FormAnchor, FormIssue, SubmitFormOptions } from "./client.ts"
 
 /** What `useFormSubmit()` returns. */
 export interface FormSubmitState {
-  /** Pass it to Formisch: `<Form :of="form" @submit="send">`, or call it with the values. */
-  send: (values: Record<string, unknown>) => Promise<void>
+  /**
+   * Sends the input of the form, not the output of its schema, since the server validates the same schema again. Pass
+   * fields that are not in the form, such as a honeypot, as `extra`: `<Form :of="form" @submit="() => send()">`.
+   */
+  send: (extra?: Record<string, unknown>) => Promise<void>
   /** The id of the stored submission after a success. */
   sent: Ref<string | true | undefined>
   /** The last failure. Field issues are also set on the Formisch form, under their field. */
@@ -27,10 +30,10 @@ export interface FormSubmitState {
 export function useFormSubmit<TSchema extends FormSchema>(name: string, form: FormStore<TSchema>, options: SubmitFormOptions = {}): FormSubmitState {
   const sent = ref<string | true>()
   const error = ref<FormSubmitError>()
-  async function send(values: Record<string, unknown>) {
+  async function send(extra: Record<string, unknown> = {}) {
     sent.value = undefined
     error.value = undefined
-    const [failure, data] = await submitForm(name, values, options)
+    const [failure, data] = await submitForm(name, { ...getInput(form), ...extra }, options)
     if (!failure) {
       sent.value = data.id ?? true
       reset(form)
@@ -71,7 +74,8 @@ export interface AutoFormField {
   control: "input" | "textarea" | "select" | "checkbox"
   /** The `type` of an `input`: text, email, url, or number. */
   inputType?: "text" | "email" | "url" | "number"
-  options?: string[]
+  /** The values of a select, with their type: a picklist of numbers gives numbers. */
+  options?: readonly (string | number)[]
   required: boolean
   maxLength?: number
 }
@@ -112,8 +116,8 @@ export function describeFormFields(schema: unknown): AutoFormField[] {
     const base = node.type
     if (base === "boolean") return { ...field, control: "checkbox", required: false }
     if (base === "number") return { ...field, inputType: "number" }
-    if (base === "picklist") return { ...field, control: "select", options: (node.options ?? []).map(String) }
-    if (base === "enum") return { ...field, control: "select", options: Object.values(node.enum ?? {}).map(String) }
+    // `options` of a Valibot enum holds its values without the reverse keys of a TypeScript numeric enum.
+    if (base === "picklist" || base === "enum") return { ...field, control: "select", options: (node.options ?? []).filter((option): option is string | number => typeof option === "string" || typeof option === "number") }
     if (action("email")) return { ...field, inputType: "email" }
     if (action("url")) return { ...field, inputType: "url" }
     if (longTextKeys.test(key) || (typeof max === "number" && max > 200)) return { ...field, control: "textarea" }
@@ -149,9 +153,12 @@ const AutoFormControl = defineComponent({
         control = h("input", { ...common, type: "checkbox", checked: value === true, onChange: (event: Event) => { store.input = (event.target as HTMLInputElement).checked as never } })
       }
       else if (field.control === "select") {
-        control = h("select", { ...common, value: value ?? "", onChange: (event: Event) => { store.input = (event.target as HTMLSelectElement).value as never } }, [
+        // Each option is its index, so a number option goes back to the form as a number.
+        const options = field.options ?? []
+        const selected = options.indexOf(value as string | number)
+        control = h("select", { ...common, value: selected < 0 ? "" : String(selected), onChange: (event: Event) => { const index = (event.target as HTMLSelectElement).value; store.input = (index === "" ? undefined : options[Number(index)]) as never } }, [
           h("option", { value: "", disabled: true }, "Choose one"),
-          ...(field.options ?? []).map(option => h("option", { value: option }, option)),
+          ...options.map((option, index) => h("option", { value: String(index) }, String(option))),
         ])
       }
       else {
@@ -203,15 +210,16 @@ export const AutoForm = defineComponent({
   },
   emits: { sent: (id: string | true) => Boolean(id) },
   setup(props, { emit, slots }) {
-    const form = useForm({ schema: props.schema })
+    // An unchecked checkbox is `false`, not missing, so a required boolean validates.
+    const form = useForm({ schema: props.schema, emptyInput: { boolean: false } })
     const fields = computed(() => describeFormFields(props.schema))
     const trap = ref("")
     const { send, sent } = useFormSubmit(props.name, form, {
       get anchor() { return props.anchor },
       get base() { return props.base },
     } as SubmitFormOptions)
-    const onSubmit = handleSubmit(form, async (values) => {
-      await send({ ...values, ...(props.honeypot ? { [props.honeypot]: trap.value } : {}) })
+    const onSubmit = handleSubmit(form, async () => {
+      await send(props.honeypot ? { [props.honeypot]: trap.value } : {})
       if (sent.value) emit("sent", sent.value)
     })
     const prefix = `vitehub-form-${props.name}`

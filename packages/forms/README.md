@@ -98,7 +98,7 @@ const { send, sent } = useFormSubmit("contact", form)
 </script>
 
 <template>
-  <Form :of="form" @submit="send">
+  <Form :of="form" @submit="() => send()">
     <Field v-slot="field" :of="form" :path="['message']">
       <textarea v-model="field.input" v-bind="field.props" />
       <p v-if="field.errors">{{ field.errors[0] }}</p>
