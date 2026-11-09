@@ -168,6 +168,8 @@ describe("Process Schedule Runtime", () => {
     // The bounded fallback must not repeat the existing 14:50 occurrence.
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
     expect(listRuns.mock.calls.map(([options]) => options)).toEqual([
+      // Recovery of unfinished runs reads the two occurrences of the window, 14:50 and 15:00.
+      { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 2 },
       { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 },
       { scheduleId: "reconcile", limit: 100 },
     ])

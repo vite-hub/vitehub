@@ -195,7 +195,7 @@ Every server checks every Schedule. Before a server runs an occurrence, it takes
 
 - The server that holds the lease renews it every third of `leaseTtlMs` while the run works. When the run ends, it writes a done marker (`schedule/<run id>/done`) and frees the lease. The marker lasts for `catchUpMs` plus `leaseTtlMs` plus two minutes, so a server that starts later does not run the occurrence again.
 - A failed run is final, as on one server. It is not retried.
-- When a server stops during a run, for example after a crash, its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless it has a done marker. With shared run history, the run gets a new attempt, and the stopped attempt is marked as failed.
+- When a server stops during a run, for example after a crash, its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless it has a done marker. With shared run history, the run gets a new attempt, and the stopped attempt is marked as failed. This also works when every server restarts: at start, a server reads the runs inside `catchUpMs` that are still pending or running, and tries them again.
 
 The generated runtime keeps the leases in the `vitehub_leases` table of the Default Database, through `createSqlLeaseStore()` from `@vite-hub/runtime`. That works on Postgres and libSQL. Without a Database, the leases stay in memory and the build prints a warning: each server then runs every occurrence, so run one server only. The run history stays in KV. Use a KV store that all servers share, such as Upstash, so catch-up and the Console see the runs of every server.
 

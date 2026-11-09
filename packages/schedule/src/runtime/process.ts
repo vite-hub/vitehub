@@ -211,11 +211,45 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   }
   const driver = createProcessWakeDriver(options, context)
 
+  /**
+   * Catch-up starts after the newest cron-triggered run, also when that run did not finish. A run that is still pending
+   * or running inside the catch-up window lost its process, as when every server restarts after a crash. Try those
+   * occurrences again at each scan, through the claim: they run when the lease of their process ends and no process
+   * finished them.
+   */
+  async function recoverUnfinishedOccurrences(): Promise<void> {
+    const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
+    if (catchUpMs <= 0) return
+    const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
+    const since = currentMinute - catchUpMs
+    for (const entry of definitions.values()) {
+      if (entry.definition.handler === runStartedSchedules) continue
+      try {
+        // Read only as many runs as the cron has occurrences in the window, so a daily Schedule reads none at most starts.
+        let due = 0
+        for (let minute = Math.ceil(since / minuteMs) * minuteMs; minute <= currentMinute; minute += minuteMs) {
+          if (isScheduleDue(scheduleCronRecord(entry), new Date(minute))) due++
+        }
+        if (due === 0) continue
+        const runs = await options.scheduleRunStore.listRuns({ idPrefix: "srun_static_", limit: due, scheduleId: entry.name })
+        for (const run of runs) {
+          if (run.scheduledAt.getTime() < since || !run.id.startsWith("srun_static_")) continue
+          if (run.status !== "pending" && run.status !== "running") continue
+          held.set(run.id, { scheduleId: entry.name, scheduledAt: run.scheduledAt })
+        }
+      }
+      catch (error) {
+        reportError(error)
+      }
+    }
+  }
+
   setScheduleRuntimeRegistry(options.registry)
   setScheduleRunStore(options.scheduleRunStore)
   setScheduleOccurrenceClaims(claims)
   try {
     definitions = await loadStaticDefinitions(options.registry)
+    await recoverUnfinishedOccurrences()
     await driver.reconcile([...definitions.values()].map(scheduleCronRecord))
   }
   catch (error) {

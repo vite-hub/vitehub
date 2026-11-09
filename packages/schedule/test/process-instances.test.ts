@@ -150,6 +150,37 @@ describe("Process Runtime on more than one process", () => {
     }))
   })
 
+  it("runs an unfinished occurrence once when every process restarts after its minute", async () => {
+    const leases = createMemoryLeaseStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const scheduledAt = minute("2026-11-09T08:00:00.000Z")
+    const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"
+    // At 08:00 a process claimed the occurrence, recorded its run as running, and crashed. Every process stopped.
+    await leases.acquire(`schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: scheduledAt, id: runId, scheduleId: "daily", scheduledAt, startedAt: scheduledAt, status: "running", target: "daily", updatedAt: scheduledAt })
+    await scheduleRunStore.createAttempt({ createdAt: scheduledAt, id: "satt_crashed", runId, startedAt: scheduledAt, status: "running", updatedAt: scheduledAt })
+    const calls: string[] = []
+    const registry = {
+      daily: async () => defineSchedule({
+        cron: "* * * * *",
+        handler: async (context: ScheduleRunContext) => {
+          calls.push(context.scheduledAt.toISOString())
+          await sleep(20)
+        },
+      }),
+    }
+    const now = () => minute("2026-11-09T08:02:10.000Z")
+
+    // Two processes start at 08:02 with an empty memory.
+    await install(await startProcess(), { catchUpMs: 60 * 60_000, leases, now, registry, scheduleRunStore })
+    await install(await startProcess(), { catchUpMs: 60 * 60_000, leases, now, registry, scheduleRunStore })
+    await vi.waitFor(() => expect(calls).toContain("2026-11-09T08:00:00.000Z"), { timeout: 2000 })
+    await sleep(300)
+
+    expect(calls.toSorted()).toEqual(["2026-11-09T08:00:00.000Z", "2026-11-09T08:01:00.000Z", "2026-11-09T08:02:00.000Z"])
+    expect(await scheduleRunStore.getRun(runId)).toEqual(expect.objectContaining({ attemptCount: 2, status: "succeeded" }))
+  })
+
   it("does not run an occurrence again when the crashed process finished it", async () => {
     const leases = createMemoryLeaseStore()
     const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"

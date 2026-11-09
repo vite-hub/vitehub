@@ -49,6 +49,7 @@ Every server checks every Schedule, and one server runs each occurrence. Before 
 | The run ends | The server writes a done marker, `schedule/<run id>/done`, and frees the lease. The marker lasts for `catchUpMs` plus `leaseTtlMs` plus two minutes, so catch-up on another server does not run the occurrence again. |
 | The handler fails | The run is final, as on one server. No server retries it. |
 | The server stops during the run | Its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless a done marker exists. The run gets a new attempt, and the stopped attempt is marked as failed. |
+| Every server restarts after a crash | At start, each server reads the Static Schedule runs inside `catchUpMs` that are still pending or running. It tries them like a held occurrence: one server runs each of them when the lease of the stopped server ends. |
 | A started Schedule is due | Each occurrence takes the same lease, so one server runs it. |
 | A manual run | The server that gets the request runs it once. Each manual run has its own run id. |
 
