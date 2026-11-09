@@ -19,6 +19,35 @@ Wrangler development and can incur charges.
 
 Use this configuration in the tutorial's app:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+  	preset: 'cloudflare',
+  	browser: { remote: true },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+	plugins: [vitehub({
+		preset: 'cloudflare',
+		browser: { remote: true },
+	}), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -30,6 +59,8 @@ export default defineConfig({
 	})],
 })
 ```
+:::
+::
 
 Keep Browser operations in `server/browsers/`. A Definition receives the
 provider-backed browser, while application code calls its discovered name.

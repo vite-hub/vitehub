@@ -10,20 +10,65 @@ icon: i-lucide-sliders-horizontal
 
 Configure a default store directly, or configure named stores with `kv.stores`.
 
-```ts [vite.config.ts]
-import { hubKv } from '@vite-hub/kv/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubKv()],
-  kv: {
-    stores: {
-      default: { driver: 'fs-lite' },
-      rateLimit: { driver: 'upstash' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    kv: {
+      stores: {
+        default: { driver: 'fs-lite' },
+        rateLimit: { driver: 'upstash' },
+      },
     },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      kv: {
+        stores: {
+          default: { driver: 'fs-lite' },
+          rateLimit: { driver: 'upstash' },
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      kv: {
+        stores: {
+          default: { driver: 'fs-lite' },
+          rateLimit: { driver: 'upstash' },
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 | Shape | Description |
 | --- | --- |
@@ -54,6 +99,31 @@ On the Cloudflare preset, a store uses the KV binding of the dev runtime when th
 
 Set `remote: true` to use the real store in development:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    kv: { remote: true },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ kv: { remote: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -62,6 +132,8 @@ export default defineConfig({
   plugins: [vitehub({ kv: { remote: true } })],
 })
 ```
+:::
+::
 
 ::warning
 Writes from `vite dev` then change real data. The development server prints `KV store "default" is remote` on the first operation, and `vitehub inspect definitions --kind kv` shows `Development: Remote`.
@@ -77,6 +149,29 @@ An explicit `driver` is honored in development as before: an `upstash` store use
 
 Nitro keeps `defineCachedFunction()`, `defineCachedEventHandler()`, and route rule cache entries in its `cache` storage, which is memory in each server instance unless something mounts it. With `vitehub()`, set `cache: { driver: 'kv' }` to keep them in the default KV Store instead:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', kv: true, cache: { driver: 'kv' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', kv: true, cache: { driver: 'kv' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -85,5 +180,7 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'cloudflare', kv: true, cache: { driver: 'kv' } })],
 })
 ```
+:::
+::
 
 Cache keys get the `nitro-cache:` prefix, so they stay apart from the app's keys. `base` changes the prefix. Development uses the dev KV Store too. Nitro passes each entry's `maxAge` as the TTL: Cloudflare KV keeps an entry at least 60 seconds, Upstash and Deno KV expire it on time, and `fs-lite` keeps the file until it is overwritten. Nitro checks the entry's age on every read, so an entry that outlives its TTL is never served as fresh. The option fails the build when `kv` is not enabled. A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) takes precedence.

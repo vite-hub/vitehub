@@ -56,6 +56,32 @@ An Agent Sandbox starts the Codex or Claude Code process and sends it input whil
 
 Select it for Sandbox Tasks with the `vercel` preset:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', sandboxTask: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'vercel', sandboxTask: true }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -66,6 +92,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Open a session directly when your server code owns the commands. Install `@vercel/sandbox` first. `networkPolicy: 'deny-all'` blocks network access, and ViteHub then reports `network: 'none'`:
 
@@ -98,6 +126,32 @@ Vercel does more than ViteHub exposes. Vercel offers persistent sandboxes, snaps
 
 Select it for Sandbox Tasks with the `cloudflare` preset:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', sandboxTask: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'cloudflare', sandboxTask: true }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -108,6 +162,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 The preset writes the Container, the Durable Object binding, the migration, and the Worker exports. It generates a Dockerfile when the container has no image. That Dockerfile builds on `node:24-bookworm-slim` with git, curl, jq, and zip, and copies the `sandbox-shim` helper from the `docker.io/cloudflare/sandbox` image whose tag matches the installed `@cloudflare/sandbox` version. A custom image must include bash and GNU coreutils (`timeout` must be on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image and keep running, for example with `CMD ["sleep", "infinity"]`. The generated container uses the `lite` instance type, which has 1/16 vCPU and 256 MiB of memory, and allows 12 instances. An application-owned container entry with the same class name keeps its own instance type.
 
