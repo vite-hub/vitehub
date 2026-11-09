@@ -4,7 +4,7 @@
 
 ## The server
 
-```ts
+```ts fragment
 import * as v from "valibot"
 import { defineForm, handleFormRequest } from "@vite-hub/forms"
 
@@ -60,7 +60,7 @@ Two fields are not form data: `_page`, the app path of the form (default: the `R
 
 ## The client
 
-```ts
+```ts fragment
 import { submitForm } from "@vite-hub/forms/client"
 
 const [error, sent] = await submitForm("contact", { email, message })
