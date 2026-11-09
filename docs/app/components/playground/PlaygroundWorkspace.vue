@@ -8,13 +8,12 @@ import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
 import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
 import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
 import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
+import { downloadZip, encodePlaygroundLink, playgroundLinkLimit, playgroundUrl } from "@vite-hub/ui/playground";
 import { useClipboard } from "@vueuse/core";
-import { encodePlayground, shareHashKey, shareLimit } from "~/utils/playground-share";
 import WorkspacePane from "~/components/workspace/WorkspacePane.vue";
 import WorkspaceRunState from "~/components/workspace/WorkspaceRunState.vue";
 import WorkspaceTabs from "~/components/workspace/WorkspaceTabs.vue";
 import { splitterHitArea, splitterUi, useRunState } from "~/utils/workspace-layout";
-import { downloadZip } from "~/utils/zip";
 
 import type { ConnectProviderName } from "@vite-hub/web-container/connect";
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
@@ -155,12 +154,12 @@ function reset() {
 const toast = useToast();
 const { copy } = useClipboard({ legacy: true });
 async function share() {
-  const code = await encodePlayground({ template: current.value.id, files: workspace.files.value }, current.value.files);
-  const url = `${location.origin}${location.pathname}#${shareHashKey}=${code}`;
-  if (url.length > shareLimit) {
+  const code = await encodePlaygroundLink({ template: current.value.id, files: workspace.files.value }, current.value.files);
+  const url = `${location.origin}${playgroundUrl(location.pathname, code)}`;
+  if (url.length > playgroundLinkLimit) {
     toast.add({
       title: "Too big for a link",
-      description: `This link would have ${(url.length / 1000).toFixed(1)} KB, and a share link can have ${shareLimit / 1000} KB. Download the files instead.`,
+      description: `This link would have ${(url.length / 1000).toFixed(1)} KB, and a share link can have ${playgroundLinkLimit / 1000} KB. Download the files instead.`,
       color: "warning",
       icon: "i-lucide-triangle-alert",
     });
