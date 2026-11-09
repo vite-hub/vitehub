@@ -55,7 +55,7 @@ describe("createFormsHandler", () => {
 
   it("routes by the last path segment, limits each address, and installs the inbox", async () => {
     let address = "1.1.1.1"
-    const handler = createFormsHandler({ forms: { contact }, context: () => ({ clientAddress: address }) })
+    const handler = createFormsHandler({ forms: { contact }, context: () => ({ runtime: { clientAddress: address } }) })
     expect((await handler.fetch(post("missing").request)).status).toBe(404)
     expect((await handler.fetch(post("contact").request)).status).toBe(201)
     expect((await handler.fetch(post("contact").request)).status).toBe(201)

@@ -155,7 +155,8 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
         await writeFile(handler, renderFormsHandler(forms, { ...options, imports }))
         const { mount } = viteHubPageToolsBase(config)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        kit.addHandler({ handler, lazy: true, route: `${mount}${formsRoute}/**` })
+        // Not lazy: the handler installs the inbox when the server starts, so server code reads it before any submission.
+        kit.addHandler({ handler, lazy: false, route: `${mount}${formsRoute}/**` })
         Reflect.set(config, "nitro", kit.config)
       },
     },
