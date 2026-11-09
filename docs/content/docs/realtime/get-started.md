@@ -13,7 +13,7 @@ Realtime lets many people edit the same document at the same time, like a shared
 In this tutorial, you open the same document in two browser tabs. You type in one tab and see the text appear in the other.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app that uses Vue and TypeScript. Run every command from the app root. You need no account. This tutorial keeps everything in memory, so a server restart loses your documents. The room is also public: anyone who can reach your server can join it. Turn on [Auth](/docs/auth) before you use it for private documents.
+> Use the app from [Installation](/docs/getting-started/installation), with Vue added: `@vitejs/plugin-vue`, an `index.html`, and a `src/main.ts` that mounts `src/App.vue`. Run every command from the app root. You need no account. This tutorial keeps everything in memory, so a server restart loses your documents. The room is also public: anyone who can reach your server can join it. Turn on [Auth](/docs/auth) before you use it for private documents.
 
 ::tutorial-step{title="Configure Realtime"}
 ## Configure Realtime
@@ -21,12 +21,46 @@ In this tutorial, you open the same document in two browser tabs. You type in on
 Add Realtime, Workspace, and the TipTap editor for Vue to your app:
 
 ```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3
-pnpm add -D nitro
+pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3
 ```
 
 Then add `realtime` and `workspace` to `vitehub()` in `vite.config.ts`. Keep the Vue plugin and the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    realtime: { authority: 'memory' },
+    workspace: true,
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import vue from '@vitejs/plugin-vue'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({
+      preset: 'node',
+      realtime: { authority: 'memory' },
+      workspace: true,
+    }), nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
 import { vitehub } from 'vite-hub'
@@ -43,6 +77,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 - `authority: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
 - `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
@@ -139,10 +175,10 @@ const { status, synced } = realtime
 Start the dev server:
 
 ```bash [commands/dev]
-pnpm vite dev
+pnpm dev
 ```
 
-Open the URL that Vite prints in two browser tabs. Both tabs show `Realtime: connected, Document synced`.
+Open `http://localhost:3000` in two browser tabs. Both tabs show `Realtime: connected, Document synced`.
 
 Click the editor below the status line in one tab, and type a sentence. The sentence appears in the other tab. Type in the second tab, and the first tab changes too.
 

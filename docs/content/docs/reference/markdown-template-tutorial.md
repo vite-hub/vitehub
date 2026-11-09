@@ -8,9 +8,9 @@ navigation.group: Application APIs
 icon: i-lucide-rocket
 ---
 
-Generate a short release note from a Markdown template and a data object. You will insert the version and status as text, then include a trusted Markdown list. The result is a Markdown string that you can print or pass to an Agent.
+Build a short release note from a Markdown template and a data object. You insert the version and status as text, then add a trusted Markdown list. You get a Markdown string to print or pass to an Agent.
 
-You need Node.js 22.18 or newer and pnpm. Run it in a project whose `package.json` has `"type": "module"`, so that Node.js reads `import` and `export`. The renderer needs no Vite server, account, or network access.
+You need Node.js 22.18 or newer and pnpm. Set `"type": "module"` in `package.json` so Node.js reads `import` and `export`. You need no Vite server, account, or network access.
 
 ::tutorial-step{title="Install the package"}
 ## Install the package
@@ -19,15 +19,13 @@ You need Node.js 22.18 or newer and pnpm. Run it in a project whose `package.jso
 pnpm add @vite-hub/markdown-template
 ```
 
-The package accepts a complete template string and an explicit `data` object.
-Scalar bindings are escaped Markdown text. Use `:insert` only for a fragment
-that your application has already validated.
+The renderer takes a full template string and a `data` object. It escapes scalar values as Markdown text.
 ::
 
 ::tutorial-step{title="Render a document"}
 ## Render a document
 
-Create this file and its parent directory. Double braces insert scalar values as escaped text. `:insert` preserves the Markdown list, so only pass a fragment that your application trusts.
+Create this file. Double braces insert scalar values as escaped text. `:insert` keeps the Markdown list as is, so pass it only a fragment that your app has checked and trusts.
 
 ```ts [server/render-release.ts]
 import { renderMarkdownTemplate } from "vite-hub/markdown-template";
@@ -52,14 +50,12 @@ const markdown = await renderMarkdownTemplate(
 console.log(markdown);
 ```
 
-The template escapes scalar values while preserving the list supplied through
-the trusted `notes` fragment.
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Run the module with Node.js 22.18 or newer:
+Run the file with Node.js 22.18 or newer:
 
 ```sh [commands/verify]
 node server/render-release.ts
@@ -76,10 +72,7 @@ Status: ready
 - Preview checked
 ```
 
-For a file-backed template, import a `*.template.md` file directly. The
-`vitehub()` preset handles the module in a framework application, or a modular
-Vite config can add `hubMarkdownTemplate()` from
-`@vite-hub/markdown-template/vite`. Read [Markdown templates](/docs/reference/markdown-templates)
-for conditions, file imports, and migration rules. [Agent Instructions](/docs/agents/instructions)
-shows how to use rendered Markdown as durable Agent guidance.
+To keep the template in a file, import a `*.template.md` file. In a framework app, `vitehub()` loads it. In a modular Vite config, add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`.
+
+Next, read [Markdown templates](/docs/reference/markdown-templates) for conditions, file imports, and migration. [Agent Instructions](/docs/agents/instructions) shows how to use rendered Markdown as lasting Agent guidance.
 ::
