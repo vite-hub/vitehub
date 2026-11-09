@@ -6,16 +6,16 @@ navigation.group: Blocks
 icon: i-ph-chats-teardrop-light
 ---
 
-This block combines a session list, [`ChatSession`](/docs/ui/chat-session), and [`PromptInput`](/docs/ui/prompt-input) with attachments. Select a session, send a message, or attach a log file. The sessions and streamed replies are synthetic. No model runs and no network requests leave the page.
+This block combines a session list, [`ChatSession`](/docs/ui/chat-session), and [`PromptInput`](/docs/ui/prompt-input) with attachments. Select a session, send a message, or attach a log file. The sessions and replies are fake. No model runs and no requests leave the page.
 
-::component-preview{name="ChatAppBlock" flush reset}
+::example{name="ChatAppBlock" flush reset height=36}
 ::
 
-The session list moves above the chat when the block is narrower than 42rem. Sending a message, stopping a reply, and switching sessions all work in the preview.
+Below 42rem wide, the session list moves above the chat. Sending, stopping, and switching sessions all work in the preview.
 
 ## Connect a real transport
 
-Move the chat pane into a child component and key it by the session ID, so each session gets its own `useChat()` state. Replace the synthetic `submit()` and `stop()` with the chat helpers.
+Move the chat pane into a child component keyed by the session ID, so each session gets its own `useChat()` state. Replace the fake `submit()` and `stop()` with the chat helpers.
 
 ```vue [SessionPane.vue]
 <script setup lang="ts">
@@ -51,12 +51,12 @@ function submit({ text, files: attached }: PromptInputSubmit) {
 <SessionPane :key="selected.id" :session="selected" />
 ```
 
-Load and save sessions in your own storage. The components do not persist anything.
+Load and save sessions in your own storage. The components store nothing.
 
 ## What to keep
 
-- The prompt, or the pane that contains it, has a `:key` with the session ID. Changing sessions unmounts it, so a pending file read cannot write into another session.
-- The application clears `input` and `files` after a send. The prompt keeps the draft when a send is blocked.
+- The prompt, or its pane, has a `:key` with the session ID. Changing sessions unmounts it, so a pending file read cannot write into another session.
+- Your app clears `input` and `files` after a send. The prompt keeps the draft when a send is blocked.
 - The session list is a `<nav>` with `aria-current` on the selected session.
 
 ## Components used
