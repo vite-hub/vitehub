@@ -137,7 +137,6 @@ export const CommentComposer = defineComponent({
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Set by the shake of an Esc. The next Esc, with nothing typed in between, discards the text and closes.
     const escaped = ref(false);
-    watch(() => props.modelValue, () => (escaped.value = false));
     let lookup = 0;
     let mentionCaret: number | undefined;
     // The `@` whose menu Esc closed. It stays closed until the caret leaves that mention.
@@ -145,6 +144,8 @@ export const CommentComposer = defineComponent({
 
     const localFiles = ref<File[]>([]);
     const files = computed(() => props.files ?? localFiles.value);
+    // A change to the text or the files is new work, so the next Esc shakes again first.
+    watch([() => props.modelValue, files], () => (escaped.value = false));
     const attachmentsOn = computed(() => props.attachments && props.variant !== "edit");
     const allowEmpty = computed(() => props.allowEmpty ?? props.variant === "reply");
     // PromptInput shows a file as a UI part. The preview is an object URL, so no file is read before it is sent.
