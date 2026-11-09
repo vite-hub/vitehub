@@ -369,4 +369,48 @@ await work.run(key, observedFingerprint, async () => {
 })
 ```
 
-Unchanged parked work is skipped. Retries use bounded exponential backoff, including thrown errors. A changed fingerprint bypasses cooldown. Failed checkpoint writes retain a local cooldown and propagate the persistence failure; they do not claim durability. Active keys are exclusive within one tracker. Use an external lease for multiple hosts sharing work. `eligible(key, fingerprint)` supports discovery filtering, while `run` rechecks eligibility after acquiring local ownership.
+Unchanged parked work is skipped. Retries use bounded exponential backoff, including thrown errors. A changed fingerprint bypasses cooldown. Failed checkpoint writes retain a local cooldown and propagate the persistence failure; they do not claim durability. Active keys are exclusive within one tracker. When several hosts share the work, take a [lease](#leases) on the key first. `eligible(key, fingerprint)` supports discovery filtering, while `run` rechecks eligibility after acquiring local ownership.
+
+### Leases
+
+A lease gives one caller at a time a key, such as one Schedule occurrence or one leader. It ends at `release()` or when its TTL passes, so a holder that crashes blocks the key only until then.
+
+| Store | Use it for | Atomic across |
+| --- | --- | --- |
+| `createMemoryLeaseStore()` | One process and tests | One process |
+| `createSqlLeaseStore(client)` | Several instances on one Database | Every process on the Database |
+
+```ts fragment
+import { createSqlLeaseStore } from '@vite-hub/runtime'
+import postgres from 'postgres'
+
+const sql = postgres(process.env.DATABASE_URL!)
+const leases = createSqlLeaseStore({
+  dialect: 'postgresql',
+  query: async (text, params) => await sql.unsafe(text, params),
+})
+
+const [error, lease] = await leases.acquire('report:2026-11-09', { ttl: 60, owner: 'instance-a' })
+if (error) throw error
+// `lease` is null when another instance holds the key.
+if (lease) {
+  try {
+    await sendReport()
+  }
+  finally {
+    await lease.release()
+  }
+}
+```
+
+On SQLite or libSQL, pass `{ dialect: 'sqlite', query: async (sql, args) => (await client.execute({ sql, args })).rows }`.
+
+- `acquire(key, { ttl, owner? })` returns `[error, lease]`. `lease` is `null` when another caller holds the key. `ttl` is in seconds, like KV. Fractions are allowed. Leases are not reentrant: the same `owner` also gets `null`.
+- Each acquire gets a new random `id`. `lease.release()` and `lease.renew({ ttl? })` act only when the stored `id` is still this one. They return `false` when the lease expired and another caller took it. `renew()` updates `lease.expiresAt`.
+- `get(key)` returns the live lease with its `owner` and `expiresAt`, or `null`. Use it to inspect who holds a key.
+- `owner` is a label for inspection. Acquire does not compare it.
+- Errors: `RUNTIME_LEASE_INVALID_TTL` when `ttl` is not a positive number, and `RUNTIME_LEASE_FAILED` when the store fails. Read `error.cause` for the Database error.
+
+The SQL store keeps leases in the `vitehub_leases` table and creates it when it is missing. Each operation is one statement. Acquire is one `INSERT ... ON CONFLICT ("key") DO UPDATE ... WHERE expires_at <= now RETURNING`, so of many processes that acquire one key at the same time, exactly one gets it. Expiry uses the clock of the Database, not the clocks of the hosts. Postgres and SQLite 3.35 or later work. The store deletes expired rows at most once a minute.
+
+KV has no lease store. KV `setIfAbsent()` is atomic, but KV has no delete-if-value or set-if-value operation, so `release()` and `renew()` cannot check the holder in one step. The `fs-lite` driver also ignores the TTL, so a lease would never expire.
