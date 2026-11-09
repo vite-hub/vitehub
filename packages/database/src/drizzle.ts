@@ -1,5 +1,5 @@
 import virtualSchema from "#vitehub/database/schema"
-import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
+import { databases as runtimeDatabases, db as runtimeDb, useDatabase as useRuntimeDatabase } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase } from "./runtime/agent.ts"
 
 import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "./types.ts"
@@ -41,11 +41,23 @@ export const databases = runtimeDatabases as RuntimeDatabaseLookup
 // SAFETY: generated schema declarations specialize the default runtime database schema.
 export const db = runtimeDb as DefaultDatabaseEntry["db"]
 
-export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {
-  if (Object.hasOwn(databases, name)) return databases[name]
+type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
 
-  // SAFETY: missing runtime entries are represented as undefined by the public lookup contract.
-  return undefined as unknown as RuntimeDatabaseRegistry[Name]
+/** The Database that `useDatabase()` returns without a name: `default`, else the only one. */
+type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
+  ? "default"
+  : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
+
+/**
+ * Returns the Drizzle client and schema of a discovered Database. Without a name, it returns the `default` Database or
+ * the only one. It throws `DATABASE_NOT_FOUND` for a name without a Database Definition, and `DATABASE_NAME_REQUIRED`
+ * without a name when the app has several Databases and none is named `default`.
+ */
+export function useDatabase<Name extends keyof RuntimeDatabaseRegistry = DefaultDatabaseName>(
+  ...name: [DefaultDatabaseName] extends [never] ? [name: Name] : [name?: Name]
+): RuntimeDatabaseRegistry[Name] {
+  // SAFETY: generated registry declarations type each runtime entry by its name.
+  return useRuntimeDatabase(...name) as RuntimeDatabaseRegistry[Name]
 }
 
 export const agentDb = createAgentDatabase(databases)

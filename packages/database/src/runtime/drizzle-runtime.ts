@@ -4,6 +4,7 @@ import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 import { localLibsql } from "./local-client.ts"
 import { resolveLocalSqliteUrl } from "./local-url.ts"
 import { createTestDatabaseClient } from "./test-database.ts"
+import { createUseDatabase } from "./use-database.ts"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
@@ -108,3 +109,5 @@ export const databases = {
 }
 
 export const db = databases.default.db
+
+export const useDatabase = createUseDatabase(databases, Object.keys(resolvedDatabases))

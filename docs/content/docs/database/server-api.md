@@ -11,7 +11,7 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
+| `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema, by name or the only one. |
 | `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the bound parameter limit of D1. |
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
@@ -21,7 +21,16 @@ All Database Definition, integration, connection, Cloudflare D1, Drizzle, and ru
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. Without a name, it returns the Default Database, or the only Database when the app has one Named Database.
+
+| Call | App Databases | Result |
+| --- | --- | --- |
+| `useDatabase()` | A Default Database, or one Named Database | That Database |
+| `useDatabase()` | Several Named Databases | Throws [`DATABASE_NAME_REQUIRED`](/docs/database/limits-and-errors#database_name_required) |
+| `useDatabase(name)` | A Definition with this name | That Database |
+| `useDatabase(name)` or `useDatabase()` | No Definition with this name, or no Database | Throws [`DATABASE_NOT_FOUND`](/docs/database/limits-and-errors#database_not_found) |
+
+Both errors list the Database names. The generated types reject the same calls before the app runs. Check the names with `vitehub inspect definitions --kind database`.
 
 ```ts [server/api/notes.get.ts]
 import { useDatabase } from '@vite-hub/database/drizzle'
