@@ -21,6 +21,12 @@ declare module "#docs/parser" {
   export default parser
 }
 
+/** The source of each Vue file in the examples folder, by name. */
+declare module "#docs/example-sources" {
+  const examples: Record<string, string>
+  export default examples
+}
+
 declare module "#imports" {
   import type { H3Event } from "h3"
 

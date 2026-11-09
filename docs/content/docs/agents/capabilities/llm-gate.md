@@ -1,19 +1,17 @@
 ---
 title: LLM gate
-description: Allow or reject an Agent Invocation with a Decisions choice, answered by any model or TypeSafe Jev, before the Agent Driver runs.
+description: Let a model or TypeSafe Jev allow or reject a request before your Agent runs.
 navigation.title: LLM gate
 navigation.order: 280
 navigation.group: Capabilities
 icon: i-lucide-shield-alert
 ---
 
-`llmGate()` classifies the request into one allow or reject category before the Agent Driver runs.
-It adds no model-facing tool. When the category is a reject category, it stops the Agent Invocation with code `LLM_GATE_REJECTED`.
-The decision is one [Decisions](/docs/decisions) group with `infer: true`. The Agent model answers it, or the `model` you pass, or TypeSafe Jev when you set `gateway`. No Server Primitive is involved.
+`llmGate()` puts a request in one allow or reject category before the Agent Driver runs. A reject stops the Invocation (one Agent run) with `LLM_GATE_REJECTED`. It adds no model tool and uses no Server Primitive. The decision is one [Decisions](/docs/decisions) group with `infer: true`. The Agent model answers it, or your `model`, or TypeSafe Jev when you set `gateway`.
 
 ## Configure the gate
 
-Define allow and reject categories with stable keys and short descriptions.
+Give each category a stable key and a short description.
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -34,7 +32,7 @@ export default defineAgent({
 })
 ```
 
-Set `message` to change the error message that server code receives on rejection:
+`message` sets the error message server code gets on a reject:
 
 ```ts
 import { llmGate } from 'vite-hub/agent/capabilities'
@@ -48,16 +46,15 @@ llmGate({
 
 ## How the gate works
 
-`llmGate()` runs in the input phase, before the Agent Driver.
+In the input phase, before the Driver:
 
-1. It reads the latest user text: the string `prompt`, or else the text of the latest user message.
+1. It reads the string `prompt`, else the latest user message text.
 2. Each category description gets an `ALLOW:` or `REJECT:` prefix. It asks which category fits the text best. See [Decisions](#decisions).
-3. It validates that `category` is a configured key. ViteHub sets `allowed` from the category group, not from the model output.
-4. It stores the decision as the Invocation context value `llm-gate` (or your `id`) and provides it as a finish extension under the same id.
+3. It checks that `category` is one of your keys and sets `allowed` from its group, ignoring the model output.
+4. It stores the decision as context value `llm-gate`, or your `id`, and as a finish extension under the same id. A second Capability writing that value fails early.
 5. If the category is a reject category, it throws `ViteHubError` with code `LLM_GATE_REJECTED`. The Agent Driver does not run.
 
-A second writer for the same context value fails early.
-`history: true` includes the last 10 messages. A number includes that many messages.
+`history: true` includes the last 10 messages; a number includes that many.
 
 ### Rejection errors
 
@@ -69,7 +66,7 @@ HTTP and Invocation clients receive a public error instead. The HTTP status is `
 ## Decisions
 
 Every category becomes an option of one Decisions group with `multiple: false` and `infer: true`, with 2 to 255 categories.
-The text is the Invocation `data` as JSON when a caller sets it. Otherwise it is the latest user text, after the recent history when `history` is set. The decision reads up to the last 16,000 bytes of JSON-encoded UTF-8 text, on a code point boundary. Jev leaves room for the choices and question within its 30,000-byte input budget. If these alone cannot fit, use fewer or shorter choices, or set `model`.
+The text is the run's `data` as JSON when set, else the latest user text with recent `history` before it. It reads up to the last 16,000 bytes of JSON-encoded UTF-8 text, at a code point boundary. Jev leaves room for the choices and question within its 30,000-byte input limit. If these alone cannot fit, use fewer or shorter choices, or set `model`.
 
 Who answers:
 
@@ -81,17 +78,18 @@ The decision has `category`, `allowed`, `confidence`, and `probabilities`, a map
 ## Requirements
 
 - At least one allow category and one reject category.
-- Category keys must be stable identifiers: a letter first, then letters, digits, `-`, `_`, or `.`.
-- A model or a gateway. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents do not expose an Agent model to Capabilities, so set `model` or `gateway`.
+- Category keys: a letter, then letters, digits, `-`, `_`, or `.`.
+- A model or a gateway. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents give Capabilities no model, so set `model` or `gateway`.
 - For Jev: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for `typesafe()`, `AI_GATEWAY_API_KEY` for `vercel()`).
 
 ## Security and approval
 
-`llmGate()` adds no model-facing tool, so the Agent gets no new authority. It has no `policy` option.
-The end user controls the classified text. The classifier can be wrong or manipulated by that text, so do not use the gate as the only access control. Use authentication and Capability policies for authority.
+`llmGate()` adds no tool or authority, and has no `policy` option.
 
-The gate sends the latest user text, the category descriptions, and the optional history to the configured model provider or to TypeSafe Jev.
-It does not attach, remove, or grant Capabilities. Later behavior must read the recorded decision explicitly.
+> [!WARNING]
+> Users control the classified text, and the classifier can be wrong or tricked. Never use it as your only access control. Use authentication and Capability policies.
+
+It sends the user text, category descriptions, and optional history to the model provider or TypeSafe Jev. It does not attach, remove, or grant Capabilities. Later code that depends on the decision must read it.
 
 ## Driver support
 
@@ -112,7 +110,7 @@ It does not attach, remove, or grant Capabilities. Later behavior must read the 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `allow` | `Record<string, string \| { label?: string; description?: string }>` | required | Allowed categories. The description falls back to `label`, then the key. |
+| `allow` | `Record<string, string \| { label?: string; description?: string }>` | required | Allowed categories. Description falls back to `label`, then the key. |
 | `reject` | `Record<string, string \| { label?: string; description?: string }>` | required | Rejected categories. Same shape as `allow`. |
 | `gateway` | `AiGateway` | none, or `typesafe()` for ask Driver Agents | Ask TypeSafe Jev through this gateway instead of a model. Ignored when `model` is set. |
 | `history` | `boolean \| number` | `false` | Include recent messages in the decision. `true` uses the last 10. |

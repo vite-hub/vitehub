@@ -7,10 +7,9 @@ navigation.group: Choose a target
 icon: i-lucide-network
 ---
 
-Use this section to choose where your application runs. You select one
-framework integration and one deployment preset. ViteHub then discovers your
-Definitions during the build and writes the files and bindings that the host
-needs. Application code keeps using ViteHub imports instead of generated paths
+Pick one framework integration and one deployment preset (a named host
+target). At build time, ViteHub finds your Definitions and writes the files and
+bindings the host needs. Your code keeps ViteHub imports, not generated paths
 or provider SDKs.
 
 ## Choose a framework
@@ -20,23 +19,20 @@ or provider SDKs.
 | Vite | `vitehub()` from `vite-hub`. It includes Nitro's Vite plugin. | [Installation](/docs/getting-started/installation) |
 | Nuxt | The `vite-hub/nuxt` module | [Nuxt](/docs/frameworks-hosts/nuxt) |
 
-Both integrations use Nitro to build the server output.
+Both build the server output with Nitro.
 [Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) explains where ViteHub
-packages register Nitro handlers.
-
-To move a Nuxt application from NuxtHub, read
+packages register Nitro handlers. To move a Nuxt app off NuxtHub, read
 [Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub).
 
 ## Choose a preset
 
-`preset` selects the host, the Nitro preset, and the provider that each
-enabled feature uses by default. When you omit it, ViteHub detects the host
-in this order:
+`preset` selects the host, the Nitro preset, and each feature's default
+provider. Without it, ViteHub detects the host in this order:
 
 1. `VITEHUB_HOSTING`
 2. `NITRO_PRESET`, then `SERVER_PRESET`
-3. The variables that the host sets during its build, the same ones Nitro
-   reads: `WORKERS_CI` (Cloudflare Workers Builds), `NETLIFY`, `NOW_BUILDER`,
+3. The build variables the host sets, the same ones Nitro reads:
+   `WORKERS_CI` (Cloudflare Workers Builds), `NETLIFY`, `NOW_BUILDER`,
    `VERCEL` or `VERCEL_ENV`, then `DENO_DEPLOY` or `DENO_DEPLOYMENT_ID`
 4. `node` when none of them is set
 
@@ -70,22 +66,22 @@ app picks its own default. Inside a Cloudflare Worker, it returns
 | `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Queue, Rate Limit, Sandbox |
 | `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/server/index.mjs` | KV Deno KV | Blob, Queue, Rate Limit, Sandbox, Schedule |
 
-A rejected feature fails the build. It does not fall back to another provider.
-Browser and `email: true` require the `cloudflare` preset. Blob without an
-explicit store also requires a preset with a Blob provider. When KV has no
-explicit driver, every preset except `deno` selects Upstash Redis if
-`KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build.
+- A rejected feature fails the build. It does not fall back to another provider.
+- Browser and `email: true` require the `cloudflare` preset.
+- Blob without an explicit store requires a preset with a Blob provider.
+- KV without an explicit driver uses Upstash Redis on every preset except
+  `deno` when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time.
+- ViteHub sets the Nitro preset. The build fails when `nitro.preset`,
+  `NITRO_PRESET`, or `SERVER_PRESET` names a different one.
 
-ViteHub sets the Nitro preset. The build fails when `nitro.preset`,
-`NITRO_PRESET`, or `SERVER_PRESET` selects a different one. The
-[support matrix](/docs/frameworks-hosts/support-matrix) lists every primitive
-for every host, including explicit provider choices.
+The [support matrix](/docs/frameworks-hosts/support-matrix) lists every
+primitive on every host, with explicit provider choices.
 
 ## Keep runtime imports stable
 
-Import server APIs through documented ViteHub paths. The same code runs on every
-preset. Do not import framework virtual modules or generated files unless a
-reference page marks the path public.
+Import server APIs from documented ViteHub paths so the same code runs on
+every preset. Do not import framework virtual modules or generated files
+unless a reference page marks the path public.
 
 ```ts [server/settings.ts]
 import { kv } from 'vite-hub/kv'
@@ -96,14 +92,13 @@ export async function saveSettings(settings: Record<string, unknown>) {
 }
 ```
 
-Libraries and focused integrations can register an individual `hubX()`
-integration from its `@vite-hub/*/vite` package instead of `vitehub()`.
+Libraries can register one `hubX()` integration from its `@vite-hub/*/vite`
+package instead of `vitehub()`.
 
 ## Inspect the output
 
-Vite development proves discovery and local generation. A production build
-writes the output for the selected preset. List the generated host files with
-the CLI.
+Development proves discovery and local generation. A production build writes
+the output for the preset. List the generated host files with the CLI:
 
 ```bash [Terminal]
 pnpm build

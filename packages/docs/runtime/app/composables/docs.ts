@@ -1,5 +1,6 @@
 import { computed, type ComputedRef } from "vue"
-import { useRoute, useRuntimeConfig } from "#imports"
+import { useError, useRoute, useRuntimeConfig } from "#imports"
+import { useTutorialNavigation } from "./tutorial"
 import manifest from "#docs/manifest"
 import { docsSectionForPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
 
@@ -47,4 +48,20 @@ export function useDocsSection(): ComputedRef<DocsSection | null> {
 export function useDocsShell(): ComputedRef<boolean> {
   const route = useRoute()
   return computed(() => route.meta.layout === "docs")
+}
+
+/**
+ * Whether the docs page shows its sidebar column. On wide screens that column then carries the brand, search, and the
+ * site links, and the site header hides. A page with `sidebar: false`, or a code panel tutorial whose reader closed the
+ * navigation, keeps the header.
+ */
+export function useDocsSidebarShown(): ComputedRef<boolean> {
+  const shell = useDocsShell()
+  const found = useDocsPage()
+  const tutorialNavigation = useTutorialNavigation()
+  return computed(() => {
+    if (!shell.value || useError().value) return false
+    const page = found.value?.page
+    return page?.sidebar !== false && (page?.codePanel !== true || tutorialNavigation.value)
+  })
 }
