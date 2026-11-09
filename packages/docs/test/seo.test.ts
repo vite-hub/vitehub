@@ -27,6 +27,9 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     await writeFile(join(root, "content/docs/guide/none.md"), "---\ntitle: None\nseo:\n  image: false\n---\nNone\n")
     await writeFile(join(root, "content/docs/guide/embedded.md"), "---\ntitle: Lumenate\n---\nA distinct word\n")
     await writeFile(join(root, "content/docs/guide/named.md"), "---\ntitle: LUMEN!\n---\nThe site name\n")
+    await writeFile(join(root, "content/docs/guide/no-sidebar.md"), "---\ntitle: No sidebar\nsidebar: false\n---\nPlain page\n")
+    await mkdir(join(root, "app/components"), { recursive: true })
+    await writeFile(join(root, "app/components/DocsHeaderActions.vue"), '<template><button type="button" data-custom-docs-action>Package menu</button></template>\n')
     await writeFile(join(root, "public/own.png"), "")
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
     const config: NuxtConfig & { schemaOrg: Partial<SchemaOrgOptions> } = {
@@ -78,12 +81,22 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     expect(install).toContain("\"@type\":[\"Article\",\"TechArticle\"]")
     expect(install).toContain("\"@type\":\"BreadcrumbList\"")
 
-    // A `home` page is its own blocks under the site header, which shows on every page, docs pages included.
+    // A `home` page is its own blocks under the site header. On a docs page the sidebar carries the brand and search,
+    // so the header hides on wide screens and stays for phones.
     const home = await page("index")
     expect(home).toContain("Read <a")
     expect(home).not.toMatch(/class="[^"]*vh-docs-rail/)
-    expect(home).toMatch(/class="sticky top-0 z-50"/)
-    expect(await page("docs/guide/install")).toMatch(/class="sticky top-0 z-50"/)
+    expect(home).toMatch(/class="vh-docs-header sticky top-0 z-50"/)
+    expect(home).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
+    expect(home.match(/data-custom-docs-action/g)).toHaveLength(1)
+    // The action renders once on the server; after hydration it moves into the active shell.
+    expect(install).toMatch(/<div[^>]*data-docs-sidebar-head/)
+    expect(install).toContain("vh-docs-aside-footer")
+    expect(install.match(/data-custom-docs-action/g)).toHaveLength(1)
+    const noSidebar = await page("docs/guide/no-sidebar")
+    expect(noSidebar).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
+    expect(noSidebar).toMatch(/class="vh-docs-header sticky top-0 z-50"/)
+    expect(noSidebar.match(/data-custom-docs-action/g)).toHaveLength(1)
     expect.soft(await page("docs/guide/embedded")).toContain("<title>Lumenate · Lumen</title>")
     expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 
