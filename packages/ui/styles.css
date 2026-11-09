@@ -3230,6 +3230,11 @@
     padding-inline: 0.5rem 0.375rem;
     position: relative;
   }
+  /* Keep the invisible select's focus visible when the app imports only styles.css. */
+  .vh-device-frame__select:has(select:focus-visible) {
+    outline: 2px solid var(--vh-focus, var(--vh-primary));
+    outline-offset: 2px;
+  }
   /* The native select lies invisible over its label: the label shows the device, and the platform's own list opens. */
   .vh-device-frame__select select {
     appearance: none;
