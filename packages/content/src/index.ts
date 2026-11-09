@@ -176,36 +176,7 @@ export interface ContentHandler {
 }
 
 export interface ContentHandlerEvent {
-  method?: string
-  node?: { req: NodeContentRequest }
-  req: Request | NodeContentRequest
-}
-
-type NodeContentRequest = {
-  aborted: boolean
-  headers: Record<string, string | string[] | undefined>
-  method?: string
-  url?: string
-  [Symbol.asyncIterator](): AsyncIterator<Uint8Array>
-  once(event: "aborted", listener: () => void): unknown
-}
-
-function nodeBodyChunk(value: unknown): Uint8Array | undefined {
-  try {
-    if (ArrayBuffer.isView(value)) {
-      // SAFETY: ArrayBuffer.isView narrows value to an ArrayBufferView with the required buffer offsets.
-      const view = value as ArrayBufferView
-      return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
-    }
-    // Calling the intrinsic getter performs the ArrayBuffer brand check and
-    // works for genuine buffers created in another realm.
-    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
-    // SAFETY: The intrinsic byteLength getter above verified the ArrayBuffer internal slot.
-    return new Uint8Array(value as ArrayBuffer)
-  }
-  catch {
-    return undefined
-  }
+  req: Request
 }
 
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
@@ -734,7 +705,7 @@ export function defineContentMarkdownHandler(content: SeoRuntime): ContentHandle
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
     if (content.seo?.markdown !== true) return
-    const method = event.method || event.node?.req.method || "GET"
+    const method = event.req.method
     if (method !== "GET" && method !== "HEAD") return
     const url = requestUrl(event)
     if (!url.pathname.endsWith(".md")) return
@@ -746,70 +717,18 @@ export function defineContentMarkdownHandler(content: SeoRuntime): ContentHandle
   }) as ContentHandler
 }
 
-function nodeHeaders(nodeRequest: NodeContentRequest): Headers {
-  const headers = new Headers()
-  for (const [name, value] of Object.entries(nodeRequest.headers)) {
-    if (value === undefined) continue
-    if (Array.isArray(value)) {
-      for (const entry of value) headers.append(name, entry)
-    }
-    else headers.set(name, value)
-  }
-  return headers
-}
-
-function nodeUrl(nodeRequest: NodeContentRequest, headers: Headers): URL {
-  const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
-  const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
-    || headers.get("host")
-    || "localhost"
-  return new URL(nodeRequest.url || "/", `${protocol}://${host}`)
-}
-
-/** The request URL of an H3 v2 Web event, or of an H3 v1 (Nitro 2) Node event. */
 function requestUrl(event: H3Event): URL {
-  if (isRequestLike(event.req)) return new URL(event.req.url)
-  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-  const nodeRequest = event.node.req as NodeContentRequest
-  return nodeUrl(nodeRequest, nodeHeaders(nodeRequest))
+  return new URL(webRequest(event).url)
 }
 
 async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
-  if (isRequestLike(event.req)) return await content.handler(event.req)
+  return await content.handler(webRequest(event))
+}
 
-  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-  const nodeRequest = event.node.req as NodeContentRequest
-  const method = event.method || nodeRequest.method || "GET"
-  const headers = nodeHeaders(nodeRequest)
-  const url = nodeUrl(nodeRequest, headers)
-  let body: Uint8Array | undefined
-  if (method !== "GET" && method !== "HEAD") {
-    const chunks: Uint8Array[] = []
-    for await (const chunk of nodeRequest) {
-      const bytes = nodeBodyChunk(chunk)
-      if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
-      chunks.push(bytes)
-    }
-    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-    body = new Uint8Array(length)
-    let offset = 0
-    for (const chunk of chunks) {
-      body.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-  }
-  const abort = new AbortController()
-  if (nodeRequest.aborted) abort.abort()
-  else nodeRequest.once("aborted", () => abort.abort())
-
-  return await content.handler(new Request(url, {
-    body,
-    headers,
-    method,
-    signal: abort.signal,
-  }))
+/** The Web Request of an H3 event. A value that is not a real Request, also from another realm, fails. */
+function webRequest(event: H3Event): Request {
+  if (isRequestLike(event.req)) return event.req
+  throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received a request that is not a Web Request." })
 }
 
 // Every Comark Content plugin field is optional, so a parse plugin type-checks in `plugins`, but Content never runs it there.
