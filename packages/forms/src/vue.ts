@@ -2,10 +2,12 @@ import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm } fr
 import { computed, defineComponent, h, ref, useId } from "vue"
 
 import { formRoute, submitForm } from "./client.ts"
+import { unwrap } from "./schema.ts"
 
 import type { FormSchema, FormStore } from "@formisch/vue"
 import type { PropType, Ref, VNode } from "vue"
 import type { FormAnchor, FormSubmitError, SubmitFormOptions } from "./client.ts"
+import type { SchemaNode } from "./schema.ts"
 
 export { FormSubmitError, formRoute, submitForm } from "./client.ts"
 export type { FormAnchor, FormIssue, SubmitFormOptions } from "./client.ts"
@@ -56,19 +58,6 @@ export function useFormSubmit<TSchema extends FormSchema>(name: string, form: Fo
   return { send, sent, error }
 }
 
-/** The parts of a Valibot schema that `AutoForm` reads. */
-interface SchemaNode {
-  type: string
-  wrapped?: SchemaNode
-  pipe?: readonly SchemaNode[]
-  entries?: Record<string, SchemaNode>
-  options?: readonly unknown[]
-  enum?: Record<string, unknown>
-  requirement?: unknown
-  title?: string
-  description?: string
-}
-
 /** One field that `AutoForm` draws. */
 export interface AutoFormField {
   key: string
@@ -88,19 +77,6 @@ const longTextKeys = /^(message|details|description|text|body|comment|feedback|w
 function humanize(key: string): string {
   const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase()
   return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
-/** The base schema, whether a wrapper made it optional, and the actions of every layer, outer first. */
-function unwrap(node: SchemaNode): { node: SchemaNode, required: boolean, actions: readonly SchemaNode[] } {
-  let current = node
-  let required = true
-  const actions: SchemaNode[] = [...node.pipe ?? []]
-  while (["optional", "nullish", "nullable", "exact_optional", "undefinedable"].includes(current.type) && current.wrapped) {
-    required = false
-    current = current.wrapped
-    actions.push(...current.pipe ?? [])
-  }
-  return { node: current, required, actions }
 }
 
 /**
@@ -148,6 +124,7 @@ const AutoFormControl = defineComponent({
       const described = [field.description ? helpId : undefined, store.errors ? errorId : undefined].filter(Boolean).join(" ") || undefined
       const common = {
         ...store.props,
+        name: field.key,
         id,
         required: field.required,
         "aria-invalid": store.errors ? "true" : undefined,
