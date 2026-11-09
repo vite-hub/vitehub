@@ -110,6 +110,8 @@ const consolidatedOwnerExports = new Set([
 
 const lowLevelOwnerExports = new Set([
   "@vite-hub/comments/testing",
+  // Comments imports the guard of public writes; apps use defineForm().
+  "@vite-hub/forms/guard",
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/env-identity",

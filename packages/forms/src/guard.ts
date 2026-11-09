@@ -1,0 +1,173 @@
+import type { FormAnchor, FormRateLimit, FormRateLimitDecision } from "./types.ts"
+
+const defaultRateLimit = { limit: 5, window: "1m" }
+const defaultMaxBytes = 64 * 1024
+const pageField = "_page"
+const anchorField = "_anchor"
+
+export function json(status: number, body: unknown, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...headers } })
+}
+
+export function fail(status: number, message: string, headers?: Record<string, string>): Response {
+  return json(status, { message }, headers)
+}
+
+type BodyKind = "json" | "form"
+
+function bodyKind(request: Request): BodyKind | undefined {
+  const type = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase()
+  if (type === "application/json") return "json"
+  if (type === "application/x-www-form-urlencoded" || type === "multipart/form-data") return "form"
+  return undefined
+}
+
+/** Reads at most `limit` bytes, so a large body without `content-length` stops early. */
+async function readText(request: Request, limit: number): Promise<string | undefined> {
+  const declared = Number(request.headers.get("content-length") ?? 0)
+  if (declared > limit) return undefined
+  if (!request.body) return ""
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > limit) {
+      await reader.cancel()
+      return undefined
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
+}
+
+async function readBody(request: Request, kind: BodyKind, text: string): Promise<Record<string, unknown> | undefined> {
+  if (kind === "json") {
+    try {
+      const value: unknown = JSON.parse(text)
+      return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+    }
+    catch {
+      return undefined
+    }
+  }
+  const form = request.headers.get("content-type")?.toLowerCase().startsWith("multipart/")
+    ? await new Response(text, { headers: { "content-type": request.headers.get("content-type")! } }).formData()
+    : new URLSearchParams(text)
+  const body: Record<string, unknown> = {}
+  for (const [key, value] of form.entries()) {
+    if (typeof value !== "string") return undefined
+    const previous = body[key]
+    body[key] = previous === undefined ? value : Array.isArray(previous) ? [...previous, value] : [previous, value]
+  }
+  return body
+}
+
+function appPath(value: unknown, request: Request): string | null {
+  const raw = typeof value === "string" ? value : request.headers.get("referer")
+  if (!raw) return null
+  try {
+    const url = new URL(raw, request.url)
+    if (url.origin !== new URL(request.url).origin) return null
+    return `${url.pathname}${url.search}`.slice(0, 2000)
+  }
+  catch {
+    return null
+  }
+}
+
+function readAnchor(value: unknown): FormAnchor | null {
+  let input = value
+  if (typeof input === "string") {
+    try {
+      input = JSON.parse(input)
+    }
+    catch {
+      return null
+    }
+  }
+  if (!input || typeof input !== "object") return null
+  const field = (key: string, limit: number) => {
+    const raw: unknown = Reflect.get(input, key)
+    return typeof raw === "string" ? raw.slice(0, limit) : ""
+  }
+  const selector = field("selector", 500)
+  return selector ? { selector, exact: field("exact", 1000), prefix: field("prefix", 64), suffix: field("suffix", 64) } : null
+}
+
+
+function wantsPage(request: Request, kind: BodyKind): boolean {
+  return kind === "form" && (request.headers.get("accept") ?? "").includes("text/html")
+}
+
+/** A browser form without JavaScript goes back to its page, with `?form=sent` or `?form=error`. */
+export function back(request: Request, page: string | null, result: "sent" | "error"): Response {
+  const url = new URL(page ?? "/", request.url)
+  url.searchParams.set("form", result)
+  return new Response(null, { status: 303, headers: { location: `${url.pathname}${url.search}`, "cache-control": "no-store" } })
+}
+
+export interface GuardRequestOptions {
+  /** The rate limit key of this kind of request, such as `form:contact` or `comments:create`. */
+  key: string
+  /** Other origins that may post. The app's own origin may always post. */
+  origins?: readonly string[]
+  /** A field that people leave empty and bots fill. Default `website`. `false` turns it off. */
+  honeypot?: string | false
+  /** Largest body in bytes. Default 64 KB. */
+  maxBytes?: number
+  /** Default `{ limit: 5, window: "1m" }`. `false` turns it off. */
+  rateLimit?: FormRateLimit | false
+}
+
+export interface GuardRequestServices {
+  rateLimit?: (request: Request, key: string, policy: FormRateLimit) => Promise<FormRateLimitDecision>
+}
+
+/** A request that passed the guard. */
+export interface GuardedRequest {
+  /** The fields of the body, without `_page`, `_anchor`, and the honeypot. */
+  body: Record<string, unknown>
+  /** The app path that the request came from: `_page`, else the `Referer`, when it is on the app's origin. */
+  page: string | null
+  anchor: FormAnchor | null
+  /** A browser form without JavaScript: answer it with a redirect back to `page`. */
+  html: boolean
+}
+
+/**
+ * The checks of a public write, before the app reads the body: `POST`, a JSON, URL-encoded, or multipart body, the
+ * origin, the rate limit, the size, and the honeypot. Returns `[response]` when a check stops the request, else
+ * `[undefined, guarded]`. A filled honeypot answers like a success, so a bot does not try again.
+ */
+export async function guardRequest(request: Request, options: GuardRequestOptions, services: GuardRequestServices = {}): Promise<[Response, undefined] | [undefined, GuardedRequest]> {
+  if (request.method !== "POST") return [fail(405, "Use POST.", { allow: "POST" }), undefined]
+  const kind = bodyKind(request)
+  if (!kind) return [fail(415, "Send JSON or form data."), undefined]
+  const origin = request.headers.get("origin")
+  if (origin && origin !== new URL(request.url).origin && !options.origins?.includes(origin)) return [fail(403, "This origin may not send this form."), undefined]
+  const rateLimit = options.rateLimit === false ? undefined : options.rateLimit ?? defaultRateLimit
+  if (rateLimit && services.rateLimit) {
+    const decision = await services.rateLimit(request, options.key, rateLimit)
+    if (!decision.allowed) return [fail(429, "Too many messages. Try again later.", decision.retryAfter ? { "retry-after": String(Math.ceil(decision.retryAfter)) } : undefined), undefined]
+  }
+  const text = await readText(request, options.maxBytes ?? defaultMaxBytes)
+  if (text === undefined) return [fail(413, "The message is too large."), undefined]
+  const raw = await readBody(request, kind, text)
+  if (!raw) return [fail(400, "The body is not a form."), undefined]
+  const page = appPath(raw[pageField], request)
+  const html = wantsPage(request, kind)
+  const honeypot = options.honeypot === false ? undefined : options.honeypot ?? "website"
+  const trap = honeypot ? raw[honeypot] : undefined
+  if (typeof trap === "string" && trap.trim()) return [html ? back(request, page, "sent") : json(202, { ok: true }), undefined]
+  const body = Object.fromEntries(Object.entries(raw).filter(([key]) => key !== pageField && key !== anchorField && key !== honeypot))
+  return [undefined, { body, page, anchor: readAnchor(raw[anchorField]), html }]
+}
