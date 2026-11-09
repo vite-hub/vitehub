@@ -197,7 +197,7 @@ describe("installOpenWorkflow", () => {
   it("stops trying when only a configuration change can fix the setup", async () => {
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({})
-    fake.state.connectErrors = [Object.assign(new Error("No second connection."), { code: "WORKFLOW_R0037" })]
+    fake.state.connectErrors = [Object.assign(new Error("No connection URL."), { code: "WORKFLOW_R0036" })]
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const app = createApp()
 
@@ -206,6 +206,42 @@ describe("installOpenWorkflow", () => {
     expect(fake.state.workers).toHaveLength(0)
     await app.close()
     consoleError.mockRestore()
+  })
+
+  it("tries again when the pool gives no second connection, because a busy pool frees one later", async () => {
+    vi.useFakeTimers()
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({})
+    // Other boot traffic fills the pool twice, then a connection is free.
+    fake.state.connectErrors = [
+      Object.assign(new Error("No second connection."), { code: "WORKFLOW_R0037" }),
+      Object.assign(new Error("No second connection."), { code: "WORKFLOW_R0037" }),
+    ]
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = createApp()
+
+    const started = installOpenWorkflow(app)
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    await expect(started).resolves.toBe(true)
+    // Each failure is reported with its error, and each retry is logged.
+    expect(app.captureError).toHaveBeenCalledTimes(2)
+    const codes = (error: unknown) => {
+      const found: unknown[] = []
+      for (let current = error; current instanceof Error; current = current.cause) found.push(Reflect.get(current, "code"))
+      return found
+    }
+    for (const [error] of app.captureError.mock.calls) expect(codes(error)).toContain("WORKFLOW_R0037")
+    expect(consoleWarn.mock.calls.map(call => String(call[0]))).toEqual([
+      expect.stringContaining("tries again in 500 ms"),
+      expect.stringContaining("tries again in 1000 ms"),
+    ])
+    expect(fake.state.workers).toHaveLength(1)
+    vi.useRealTimers()
+    await app.close()
+    consoleError.mockRestore()
+    consoleWarn.mockRestore()
   })
 
   it("stops trying when the server closes", async () => {
