@@ -119,7 +119,8 @@ let crowded = false
  * text anyway. A layer over most of the screen, such as a backdrop, is no control.
  */
 function pageControlAtPillPlace(): boolean {
-  if (storedViteHubPageDock(dockKey)) return false
+  // A DOM without layout, such as happy-dom in tests, has nothing under the pill.
+  if (storedViteHubPageDock(dockKey) || typeof document.elementsFromPoint !== "function") return false
   const y = innerHeight - 35
   for (const dx of [-120, -60, 0, 60, 120]) {
     for (const element of document.elementsFromPoint(innerWidth / 2 + dx, y)) {
