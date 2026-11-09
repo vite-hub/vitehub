@@ -315,6 +315,46 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(picture.blank, 0)
   })
 
+  await t.test("the picture keeps sticky and fixed parts of a scrolled page where they are on screen", async () => {
+    const scrolled = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+    try {
+      await scrolled.goto(`http://127.0.0.1:${port}/`)
+      await scrolled.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      await scrolled.evaluate(() => {
+        const header = document.createElement("header")
+        header.style.cssText = "position:sticky;top:0;height:48px;background:rgb(18,52,86)"
+        document.body.prepend(header)
+        const tall = document.createElement("div")
+        tall.style.height = "2000px"
+        document.body.append(tall)
+        scrollTo(0, 600)
+      })
+      await scrolled.mouse.click(900, 400)
+      await scrolled.keyboard.press("b")
+      await scrolled.locator("vitehub-marker .layer").waitFor({ timeout: 5000 })
+      await drag(scrolled, { x: 300, y: 300 }, { x: 600, y: 300 })
+      await scrolled.locator("vitehub-tool button", { hasText: "Done" }).click()
+      const file = scrolled.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='attachment'] img")
+      await file.waitFor({ timeout: 10000 })
+      // The picture in the box: the header stays at the top, and the site's fixed Menu button at the bottom left.
+      const colors = await file.evaluate(async (image) => {
+        const bitmap = await createImageBitmap(await (await fetch(image.src)).blob())
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+        const context = canvas.getContext("2d")
+        context.drawImage(bitmap, 0, 0)
+        const pixel = (x, y) => [...context.getImageData(x, y, 1, 1).data.slice(0, 3)]
+        return { header: pixel(500, 20), menu: pixel(30, 680), size: [bitmap.width, bitmap.height] }
+      })
+      if (evidence) await scrolled.screenshot({ path: `${evidence}/highlight-scrolled.png` })
+      assert.deepEqual(colors.size, [1024, 720])
+      assert.ok(colors.header.every((channel, index) => Math.abs(channel - [18, 52, 86][index]) < 12), `header ${colors.header}`)
+      assert.ok(colors.menu.every(channel => channel > 200 && channel < 250), `menu button ${colors.menu}`)
+    }
+    finally {
+      await scrolled.close()
+    }
+  })
+
   await t.test("a tap on the Comment bar comments on the selected text", async () => {
     const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
     try {
