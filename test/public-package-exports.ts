@@ -69,6 +69,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
   ["@vite-hub/workspace/nitro", { "vite": "declaration" }],
+  ["@vite-hub/workflow/runtime/vercel-vite", { "@vercel/functions": "runtime" }],
+  ["vite-hub/_internal/workflow/runtime/vercel-vite", { "@vercel/functions": "runtime" }],
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],

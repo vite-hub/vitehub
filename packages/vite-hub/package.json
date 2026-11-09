@@ -1486,6 +1486,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
     "@supabase/storage-js": "catalog:storage",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
@@ -1580,6 +1581,9 @@
       "optional": true
     },
     "@supabase/storage-js": {
+      "optional": true
+    },
+    "@vercel/functions": {
       "optional": true
     },
     "@vite-hub/agent": {

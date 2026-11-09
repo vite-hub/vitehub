@@ -100,7 +100,6 @@
     "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
-    "@vercel/functions": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
@@ -111,6 +110,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",
@@ -120,6 +120,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/database": "workspace:*",
     "@workflow/builders": "catalog:workflow",
     "openworkflow": "catalog:workflow",
@@ -127,6 +128,9 @@
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vite-hub/database": {
       "optional": true
     },
