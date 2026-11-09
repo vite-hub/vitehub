@@ -53,7 +53,6 @@ class CommentsOverlay extends HTMLElement {
       segment.replaceChildren(style(viteHubPillButtonStyles + pillBarStyles), this.toolbar)
       this.toolbar.replaceChildren(busy)
     }
-    this.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
     this.followTheme()
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())

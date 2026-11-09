@@ -1,7 +1,7 @@
 /**
  * Styles of the overlay's own pieces. The comment parts bring theirs from `@vite-hub/ui/styles.css`. All of them live
  * in shadow roots, so the host page's CSS does not reach them: the overlay, its toolbar in the page tools pill, and
- * the list in the pill's window. The overlay takes the page's font and follows its light or dark scheme. It sets the Nuxt UI
+ * the list in the pill's window. The overlay uses the system sans-serif font, as Drop does, and follows the page's light or dark scheme. It sets the Nuxt UI
  * tokens that the parts read, because their fallbacks follow `currentColor`, which is white inside a pin.
  */
 export const overlayStyles = `
@@ -14,7 +14,7 @@ export const overlayStyles = `
   --ui-bg: #171717; --ui-bg-elevated: #262626; --ui-bg-accented: #404040; --ui-bg-muted: #1f1f1f; --ui-border: rgb(255 255 255 / 12%);
   --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #60a5fa;
 }
-.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif); }
+.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .root > * { pointer-events: auto; }
 /* The comment layer covers the page. Only its parts and the comment mode overlay take the pointer, as @vite-hub/ui styles them. */
 .root > .cursors, .root > .outlines, .root > .areas, .root > [data-slot="comment-layer"] { pointer-events: none; }
@@ -43,28 +43,28 @@ export const overlayStyles = `
 .toast > span { padding: 4px 0; }
 
 /*
- * Drop's comment marks. A pin is the author's avatar in a 22px drop whose sharp corner points at the spot: after the end
- * of a quote, in the middle of its last line; at the corner of an area; at the point of a click. --pin-x and --pin-y
+ * Drop's comment marks. A pin is the author's avatar in a 28px drop whose sharp corner points at the spot: in the gutter
+ * right of a quote's block, level with its last line; at the corner of an area; at the point of a click. --pin-x and --pin-y
  * place the pin's corner from the spot, and the card opens beside the pin, level with it, or under it near the right
  * edge of the screen.
  */
-[data-slot="comment-layer-item"] { --pin-x: 0px; --pin-y: -22px; }
-[data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 2px; --pin-y: -11px; }
-[data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: -11px; --pin-y: -11px; }
+[data-slot="comment-layer-item"] { --pin-x: 0px; --pin-y: -28px; }
+[data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 0px; --pin-y: -14px; }
+[data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: -14px; --pin-y: -14px; }
 [data-slot="comment-pin"] {
-  width: 22px; height: 22px; border: 0; border-radius: 11px 11px 11px 2px; overflow: hidden;
+  width: 28px; height: 28px; border: 0; border-radius: 14px 14px 14px 4px; overflow: hidden;
   background: var(--ui-text-highlighted); color: var(--ui-text-inverted);
-  box-shadow: 0 1px 4px rgb(0 0 0 / .25), 0 0 0 2px var(--ui-bg);
+  box-shadow: 0 0 0 2px var(--ui-bg), 0 2px 8px rgb(0 0 0 / .18);
   transform: translate(var(--pin-x), var(--pin-y)); transform-origin: 0 100%;
   transition: scale 120ms ease-out, opacity 150ms ease-out;
 }
 [data-kind="text"] > [data-slot="comment-pin"] { transform-origin: 0 50%; }
-:is([data-kind="area"], [data-kind="image"]) > [data-slot="comment-pin"] { border-radius: 11px; transform-origin: 50% 50%; }
-[data-slot="comment-pin"]:is(:hover, :focus-visible, [data-active="true"]) { scale: 1.15; }
-[data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: 22px; }
+:is([data-kind="area"], [data-kind="image"]) > [data-slot="comment-pin"] { border-radius: 14px; transform-origin: 50% 50%; }
+[data-slot="comment-pin"]:is(:hover, :focus-visible, [data-active="true"]) { scale: 1.06; }
+[data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: 28px; }
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { display: block; }
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
-  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 9px/22px ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em;
+  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/28px ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em;
 }
 /* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
 [data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
@@ -77,17 +77,17 @@ export const overlayStyles = `
 [data-slot="comment-pin"][data-draft="true"] { outline: none; }
 
 [data-slot="comment-layer-popover"] {
-  left: calc(var(--pin-x) + 30px); top: var(--pin-y); width: 340px; max-width: calc(100vw - 24px);
+  left: calc(var(--pin-x) + 36px); top: var(--pin-y); width: 340px; max-width: calc(100vw - 24px);
   border-radius: 6px 16px 16px 16px; box-shadow: 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
-  transform-origin: 0 11px; animation: vitehub-comments-pop 160ms cubic-bezier(.23, 1, .32, 1);
+  transform-origin: 0 14px; animation: vitehub-comments-pop 160ms cubic-bezier(.23, 1, .32, 1);
 }
 [data-draft="true"] > [data-slot="comment-layer-popover"] { width: 300px; border-radius: 6px 18px 18px 18px; }
 [data-slot="comment-layer-popover"][data-preview="true"] { width: 18rem; animation: none; }
 [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
-  left: auto; right: calc(-22px - var(--pin-x)); top: calc(var(--pin-y) + 30px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
+  left: auto; right: calc(-28px - var(--pin-x)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
 }
 [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
-  top: auto; bottom: calc(-22px - var(--pin-y)); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
+  top: auto; bottom: calc(-28px - var(--pin-y)); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
 }
 [data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
   bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px; transform-origin: 100% 100%;
@@ -168,9 +168,9 @@ img.me { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
  * Highlights draw on the page itself, so they take a grey that shows on light and dark pages.
  */
 export const documentStyles = `
-::highlight(vitehub-comment) { background-color: rgb(128 128 128 / 16%); text-decoration: underline; text-decoration-color: rgb(128 128 128 / 55%); text-underline-offset: 3px; }
+::highlight(vitehub-comment) { background-color: rgb(128 128 128 / 18%); }
 ::highlight(vitehub-comment-resolved) { background-color: rgb(128 128 128 / 8%); }
-::highlight(vitehub-comment-active) { background-color: rgb(128 128 128 / 30%); text-decoration: underline; text-decoration-color: rgb(128 128 128 / 75%); text-underline-offset: 3px; }
+::highlight(vitehub-comment-active) { background-color: rgb(128 128 128 / 34%); }
 html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 [data-vitehub-editing] { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 2px; }
 `

@@ -98,6 +98,15 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.match(thread.anchor.exact, /^Most of you/)
   })
 
+  await t.test("the pin sits in the gutter beside the quote and opens its thread", async () => {
+    const pin = page.locator("vitehub-comments [data-slot='comment-pin']").first()
+    const [pinBox, text] = [await pin.boundingBox(), await page.locator("#first").boundingBox()]
+    assert.ok(pinBox.x >= text.x + text.width, "the pin covers no text")
+    await pin.click()
+    await page.locator("vitehub-comments").getByText("Say which airport").waitFor({ timeout: 5000 })
+    await page.keyboard.press("Escape")
+  })
+
   await t.test("in comment mode a drag comments on an area", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
