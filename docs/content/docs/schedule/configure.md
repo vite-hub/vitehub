@@ -83,7 +83,7 @@ export default defineConfig({
 
 Use `createScheduleNitroConfig()` when your Nitro integration merges config and needs Schedule's provider output in Nitro form.
 
-The Process Runtime runs each schedule on its cron inside the Node.js process.
+The Process Runtime loads the discovered registry and runs each Static Schedule Definition on its cron inside the Node.js process.
 
 - It records Schedule Runs in the default KV store (the `kv` option) under the prefix, reports errors through Nitro, and stops on Nitro shutdown.
 - By default it checks once per minute, with one run at a time. `intervalMs` cannot be more than one minute.
