@@ -172,13 +172,17 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const page = ref(normalizeCommentPage(location.pathname))
   /** The server decides the subject of a page. Without its answer, it is the page itself. */
   const subject = shallowRef<CommentSubject>(session?.subject ?? { kind: "page", id: page.value })
+  /** The version of the subject that `/session` gave with it. New threads send it, so they start on the version shown. */
+  let revision = session?.revision
   /**
    * After a navigation, until the server names the subject of the new page. The overlay then shows no threads and
    * starts no comment, so a draft is not lost when the subject changes.
    */
   const resolving = ref(false)
   /** Whether comment mode was on when the navigation started, so it comes back once the subject is known. */
-  let paused = false
+  const paused = ref(false)
+  /** Counts the navigations, so only the answer for the latest one applies. */
+  let navigations = 0
   const search = ref(location.search)
   const toast = shallowRef<Toast>()
   const panelOpen = ref(false)
@@ -245,6 +249,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   const transport = createOverlayTransport({
     contextOf: input => contexts.get(input.anchor) ?? captureContext(undefined),
+    revisionOf: () => revision,
     onPeople(people) {
       const next = new Map(known.value.map(person => [person.id, person]))
       for (const person of people) next.set(person.id, person)
@@ -284,7 +289,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function setMode(next: Mode) {
     if (resolving.value && next !== "edit") {
-      paused = next === "comment" && canComment.value
+      paused.value = next === "comment" && canComment.value
       return
     }
     if (next === "comment") {
@@ -312,6 +317,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     hover.value = undefined
   }
   const mode = computed<Mode>(() => editing.value ? "edit" : state?.active.value ? "comment" : "view")
+  /** Whether comment mode is on, or comes back on when the subject of the new page is known. */
+  const commentOn = computed(() => mode.value === "comment" || (resolving.value && paused.value))
 
   // The Realtime client, with Yjs, is a chunk of its own: only a site with presence loads it, after the threads.
   async function joinRoom(reconnect = false) {
@@ -590,8 +597,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               },
             })))
           }
-          if (options.toolbar) nodes.push(h(Teleport, { to: options.toolbar }, toolbar()))
         }
+        // The toolbar stays while the subject of a new page loads, so its buttons do not jump.
+        if (pageCan.value?.read && options.toolbar) nodes.push(h(Teleport, { to: options.toolbar }, toolbar()))
         if (naming.value) nodes.push(h(NameCard))
         const current = toast.value
         if (current) {
@@ -616,7 +624,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const count = `${open} open ${open === 1 ? "thread" : "threads"}`
     const signOutUrl = session?.signOut
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
-      canComment.value ? h("button", { "aria-keyshortcuts": "C", "aria-pressed": String(mode.value === "comment"), onClick: () => setMode(mode.value === "comment" ? "view" : "comment"), title: "Comment (C)", type: "button" }, "Comment") : null,
+      canComment.value ? h("button", { "aria-keyshortcuts": "C", "aria-pressed": String(commentOn.value), onClick: () => setMode(commentOn.value ? "view" : "comment"), title: "Comment (C)", type: "button" }, "Comment") : null,
       session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, "Edit") : null,
       h("span", { class: "sep" }),
       h("button", {
@@ -703,6 +711,34 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
 
+  let retryToast: Toast | undefined
+  /**
+   * Asks `/session` for the subject and the permissions of a new page. Until it answers, comments stay paused. A failed
+   * answer keeps them paused, because the subject is not known, and offers Retry.
+   */
+  function resolvePage(next: string) {
+    const current = ++navigations
+    void api.session(next).then(([error, answer]) => {
+      if (current !== navigations || page.value !== next) return
+      if (error) {
+        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => resolvePage(next)] }
+        showToast(retryToast, true)
+        return
+      }
+      if (toast.value === retryToast) toast.value = undefined
+      retryToast = undefined
+      pageCan.value = answer.can
+      revision = answer.revision
+      const mapped = answer.subject ?? { kind: "page", id: next }
+      if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
+      // The same subject lists no threads again, so the new page joins its room here.
+      else if (!room && state.status.value === "ready") void joinRoom()
+      resolving.value = false
+      state.active.value = paused.value && canComment.value
+      paused.value = false
+    })
+  }
+
   const hasUnsentComment = () => [shadow, panelTarget.value?.getRootNode()].some(node =>
     node instanceof ShadowRoot && node.querySelector("[data-slot='comment-composer'][data-dirty='true']") !== null)
 
@@ -718,25 +754,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         return
       }
       // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
-      if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
+      if (hasUnsentComment()) {
+        if (!window.confirm("Discard your unsent comment and show comments for the new page?")) return
+        // The new page can have the same subject, which keeps the state's draft. The person said to discard it.
+        state.cancelDraft()
+      }
       page.value = next
       search.value = location.search
       panelThread.value = null
       // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
-      paused = paused || state.active.value
+      paused.value = paused.value || state.active.value
       state.active.value = false
       resolving.value = true
-      void api.session(next).then(([error, answer]) => {
-        if (page.value !== next) return
-        if (!error) pageCan.value = answer.can
-        const mapped = !error && answer.subject ? answer.subject : { kind: "page", id: next }
-        if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
-        // The same subject lists no threads again, so the new page joins its room here.
-        else if (!room && state.status.value === "ready") void joinRoom()
-        resolving.value = false
-        state.active.value = paused && canComment.value
-        paused = false
-      })
+      resolvePage(next)
       // The state lists the threads of the new page. The page then joins its room.
       leaveRoom()
     },
@@ -777,7 +807,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (event.key === "c" && canComment.value) {
         event.preventDefault()
         // With text selected, C comments on it and leaves the mode as it is, like Drop's selection bar.
-        if (!commentOnSelection()) setMode(mode.value === "comment" ? "view" : "comment")
+        if (!commentOnSelection()) setMode(commentOn.value ? "view" : "comment")
       }
       if (event.key === "e" && session?.content && canComment.value) {
         event.preventDefault()
