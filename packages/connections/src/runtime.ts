@@ -784,11 +784,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   async function approvalGrant(context: CallContext): Promise<string> {
     if (isLoginProvider(context.definition.provider)) return LOGIN_GRANT
     if (await fallbackFor(context)) return FALLBACK_GRANT
-    await requireConnected(context.name)
+    const apiKey = isApiKeyProvider(context.definition.provider)
+    await requireConnected(context.name, apiKey)
     const current = await (await getStore()).secrets.read(tokenKey(context.name))
     const token = current ? parseToken(current.value, context.name) : undefined
     if (!token?.grantId) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: context.name, problem: "approval" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ apiKey, connection: context.name, problem: "approval" })
     }
     return token.grantId
   }
