@@ -9,6 +9,7 @@ import { cleanWorkspaceShellPath } from "./path.ts"
 import type { ShellExecutionProvider, ShellObservation } from "../runtime/types.ts"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
+import type { WorkspaceInspectionCommandSegment } from "./command-analysis.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
 import type { SearchableShellWorkspace } from "./types.ts"
 import type { SimpleCommandNode, WordNode } from "just-bash"
@@ -44,17 +45,18 @@ export async function runWorkspaceInspectionCommand(
   const chargeRejected = () => {
     if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   }
-  const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
+  const segments = await analyzeWorkspaceInspectionCommand(command)
+  const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, segments, options.commands, Boolean(provider))
   if (unsupportedSyntax) { chargeRejected(); return limitInspectionObservation(unsupportedSyntax, maxOutputLength) }
   const preflight = await withInspectionTimeout(timeout, options.signal, async (signal) => {
-    const broad = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd, signal)
+    const broad = await preflightWorkspaceInspectionCommand(segments, options.fs, options.broadSearchPaths, options.cwd, signal)
     if (broad) return broad
-    return await preflightMissingWorkspacePath(command, options.fs, options.cwd, signal)
+    return await preflightMissingWorkspacePath(command, segments, options.fs, options.cwd, signal)
   }, command, options.cwd)
   if (preflight) { chargeRejected(); return limitInspectionObservation(preflight, maxOutputLength) }
-  const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
+  const pipedBroadSearch = preflightPipedSearchWithoutPath(segments, options.broadSearchPaths)
   if (pipedBroadSearch) { chargeRejected(); return limitInspectionObservation(pipedBroadSearch, maxOutputLength) }
-  const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
+  const unsupported = preflightUnsupportedWorkspaceCommand(command, segments, options.commands, Boolean(provider))
   if (unsupported) { chargeRejected(); return limitInspectionObservation(unsupported, maxOutputLength) }
   const runtime = createShellRuntime({
     policy: {
@@ -75,9 +77,9 @@ export async function runWorkspaceInspectionCommand(
     cwd,
     timeout,
     signal: options.signal,
-    workspacePaths: workspaceSessionPaths(command, cwd),
+    workspacePaths: workspaceSessionPaths(segments, cwd),
   })
-  const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
+  const noMatchFeedback = searchNoMatchFeedback(segments, result, options.broadSearchPaths, options.cwd)
 
   if (!noMatchFeedback) return result
   const bounded = limitInspectionFeedback(noMatchFeedback, maxOutputLength)
@@ -150,11 +152,11 @@ async function withInspectionTimeout(timeout: number, callerSignal: AbortSignal 
   }
 }
 
-function workspaceSessionPaths(command: string, cwd = workspaceMountPoint): string[] | undefined {
+function workspaceSessionPaths(segments: WorkspaceInspectionCommandSegment[], cwd = workspaceMountPoint): string[] | undefined {
   try {
     const paths = new Set<string>()
     let currentCwd = cwd
-    for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+    for (const segment of segments) {
       const words = segment.words
       if (words[0] === "cd") {
         const path = words[1] || workspaceMountPoint
@@ -173,9 +175,9 @@ function workspaceSessionPaths(command: string, cwd = workspaceMountPoint): stri
   }
 }
 
-function preflightPipedSearchWithoutPath(command: string, broadSearchPaths: string[] = []): ShellObservation | undefined {
+function preflightPipedSearchWithoutPath(segments: WorkspaceInspectionCommandSegment[], broadSearchPaths: string[] = []): ShellObservation | undefined {
   try {
-    for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+    for (const segment of segments) {
       if (segment.separatorAfter !== "|" || segment.paths.length) continue
       const name = segment.words[0]
       if (name === "rg" || name === "grep") return broadWorkspaceSearchFeedback(broadSearchPaths)
@@ -219,9 +221,9 @@ function staticCommandWord(parts: WordNode["parts"]): string | undefined {
   return word
 }
 
-async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
+async function preflightWorkspaceInspectionCommand(segments: WorkspaceInspectionCommandSegment[], fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
   try {
-    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(command, fs, cwd, signal)) {
+    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(segments, fs, cwd, signal)) {
       throwIfAborted(signal)
       if (isBroadWorkspaceSearch(segment, broadSearchPaths, segmentCwd)) return broadWorkspaceSearchFeedback(broadSearchPaths)
     }
@@ -232,9 +234,9 @@ async function preflightWorkspaceInspectionCommand(command: string, fs: Workspac
   }
 }
 
-async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
+async function preflightMissingWorkspacePath(command: string, segments: WorkspaceInspectionCommandSegment[], fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
   try {
-    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(command, fs, cwd, signal)) {
+    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(segments, fs, cwd, signal)) {
       throwIfAborted(signal)
       for (const path of segment.paths) {
         if (!isConcreteWorkspacePath(path)) continue
@@ -254,11 +256,11 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
   }
 }
 
-async function* walkWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, cwd: string, signal?: AbortSignal) {
+async function* walkWorkspaceInspectionCommand(segments: WorkspaceInspectionCommandSegment[], fs: WorkspaceShellFileSystem, cwd: string, signal?: AbortSignal) {
   let currentCwd = cwd
   let skipAndChain = false
   let skipOrChain = false
-  for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+  for (const segment of segments) {
     throwIfAborted(signal)
     if (skipAndChain) {
       skipAndChain = segment.separatorAfter === "&&"
@@ -315,7 +317,7 @@ function missingWorkspacePathFeedback(command: string, resolvedPath: string): Sh
   }
 }
 
-function isBroadWorkspaceSearch(segment: ReturnType<typeof analyzeWorkspaceInspectionCommand>[number], broadSearchPaths: string[] = [], cwd = workspaceMountPoint) {
+function isBroadWorkspaceSearch(segment: WorkspaceInspectionCommandSegment, broadSearchPaths: string[] = [], cwd = workspaceMountPoint) {
   const name = segment.words[0]
   if (name === "rg" || name === "grep") {
     const paths = segment.paths
@@ -357,11 +359,11 @@ function isBroadWorkspacePath(path: string, broadSearchPaths: string[] = [], cwd
   return normalized === "." || broadSearchPaths.includes(normalized)
 }
 
-function searchNoMatchFeedback(command: string, result: ShellObservation, broadSearchPaths: string[] = [], cwd = workspaceMountPoint) {
+function searchNoMatchFeedback(segments: WorkspaceInspectionCommandSegment[], result: ShellObservation, broadSearchPaths: string[] = [], cwd = workspaceMountPoint) {
   if (result.exitCode !== 1 || result.stderr || result.stdout) return ""
   try {
     let currentCwd = cwd
-    for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+    for (const segment of segments) {
       const words = segment.words
       if (words[0] === "cd") {
         const path = words[1] || workspaceMountPoint
@@ -394,29 +396,29 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
   return ""
 }
 
-function preflightUnsupportedWorkspaceCommand(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
-  const syntax = preflightUnsupportedWorkspaceSyntax(command, commands, strictProvider)
+function preflightUnsupportedWorkspaceCommand(command: string, segments: WorkspaceInspectionCommandSegment[], commands?: string[], strictProvider = false): ShellObservation | undefined {
+  const syntax = preflightUnsupportedWorkspaceSyntax(command, segments, commands, strictProvider)
   if (syntax) return syntax
   // Just Bash enforces its command registry inside substitutions and compound commands.
-  if (!strictProvider && (usesShellSubstitution(command) || usesCompoundShellSyntax(command))) return undefined
+  if (!strictProvider && (usesShellSubstitution(command) || usesCompoundShellSyntax(segments))) return undefined
   if (!commands) return undefined
   const allowed = new Set([...commands, "cd", "false", "true"])
-  for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+  for (const segment of segments) {
     const executable = workspaceExecutable(segment.words)
     if (!executable || allowed.has(executable.name)) continue
     return unsupportedWorkspaceCommandFeedback(command, executable.name, commands)
   }
 }
 
-function preflightUnsupportedWorkspaceSyntax(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
-  if (analyzeWorkspaceInspectionCommand(command).some(segment => segment.invalid)) {
+function preflightUnsupportedWorkspaceSyntax(command: string, segments: WorkspaceInspectionCommandSegment[], commands?: string[], strictProvider = false): ShellObservation | undefined {
+  if (segments.some(segment => segment.invalid)) {
     return unsupportedWorkspaceCommandFeedback(command, "invalid shell syntax", commands)
   }
   if (usesShellSubstitution(command)) {
     if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
     return undefined
   }
-  if (usesCompoundShellSyntax(command)) {
+  if (usesCompoundShellSyntax(segments)) {
     if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "compound shell syntax", commands)
     return undefined
   }
@@ -477,9 +479,8 @@ function workspaceExecutable(words: string[]) {
   }
 }
 
-function usesCompoundShellSyntax(command: string) {
-  return analyzeWorkspaceInspectionCommand(command)
-    .some(segment => isCompoundShellSyntaxWord(segment.words[0] || ""))
+function usesCompoundShellSyntax(segments: WorkspaceInspectionCommandSegment[]) {
+  return segments.some(segment => isCompoundShellSyntaxWord(segment.words[0] || ""))
 }
 
 function isCompoundShellSyntaxWord(word: string) {

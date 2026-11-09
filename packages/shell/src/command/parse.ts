@@ -1,6 +1,7 @@
-import { BinCmdOperator, LangVariant, parseSync, RedirOperator, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
+import { BinCmdOperator, LangVariant, RedirOperator, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
 
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
+import { parseShell } from "./sh-syntax.ts"
 
 type SourceIndex = (byteOffset: number) => number
 
@@ -40,10 +41,10 @@ function unescapeDoubleQuoted(value: string): string {
   return result
 }
 
-export function parseShellCommand(command: string, mode: "execution" | "inspection" = "execution"): string[] {
+export async function parseShellCommand(command: string, mode: "execution" | "inspection" = "execution"): Promise<string[]> {
   let file
   try {
-    file = parseSync(command, {
+    file = await parseShell(command, {
       recoverErrors: mode === "inspection" ? 1 : 0,
       variant: LangVariant.LangBash,
     })
@@ -93,10 +94,10 @@ interface StatementSeparator {
   length: number
 }
 
-export function splitShellCommandSegments(command: string): ShellCommandSegment[] {
+export async function splitShellCommandSegments(command: string): Promise<ShellCommandSegment[]> {
   let file
   try {
-    file = parseSync(command, { keepComments: true, variant: LangVariant.LangBash })
+    file = await parseShell(command, { keepComments: true, variant: LangVariant.LangBash })
   }
   catch {
     return [{ command, followsPipe: false, invalid: true, words: [] }]

@@ -1,6 +1,7 @@
-import { BinCmdOperator, LangVariant, parse, RedirOperator, walk, type File } from "sh-syntax"
+import { BinCmdOperator, LangVariant, RedirOperator, walk, type File } from "sh-syntax"
 
 import { createSourceIndex, wordText } from "./parse.ts"
+import { parseShell } from "./sh-syntax.ts"
 
 import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
@@ -40,7 +41,7 @@ export async function analyzeShellCommand(
 }
 
 async function parseWithShSyntax(command: string) {
-  return parse(command, { keepComments: true, variant: LangVariant.LangBash })
+  return parseShell(command, { keepComments: true, variant: LangVariant.LangBash })
 }
 
 function analyzeAst(file: File, command: string) {

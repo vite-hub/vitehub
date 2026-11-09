@@ -122,7 +122,7 @@ catalogs:
     "@vercel/sandbox": ^3.9.1
   shell:
     just-bash: ^3.6.0
-    sh-syntax: 0.8.2
+    sh-syntax: 0.8.3
   storage:
     "@aws-sdk/client-s3": ^3.1146.0
     "@aws-sdk/lib-storage": ^3.1146.0

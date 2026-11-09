@@ -5,16 +5,16 @@ import { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "../src
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
 describe("single-quoted backslashes in command segments", () => {
-  it.each([";", "&&", "||", "|", "\n"] as const)("finds the %j separator after a literal backslash", (separator) => {
-    expect(splitShellCommandSegments(`printf '%s' '\\' ${separator} cat docs/readme.md`)).toMatchObject([
+  it.each([";", "&&", "||", "|", "\n"] as const)("finds the %j separator after a literal backslash", async (separator) => {
+    await expect(splitShellCommandSegments(`printf '%s' '\\' ${separator} cat docs/readme.md`)).resolves.toMatchObject([
       { command: "printf '%s' '\\' ", followsPipe: false, separatorAfter: separator },
       { command: " cat docs/readme.md", followsPipe: separator === "|" },
     ])
   })
 
-  it("preserves a backslash and newline inside single quotes", () => {
+  it("preserves a backslash and newline inside single quotes", async () => {
     const command = "printf '%s' 'a\\\nb'"
-    expect(splitShellCommandSegments(command)).toMatchObject([{ command, followsPipe: false }])
+    await expect(splitShellCommandSegments(command)).resolves.toMatchObject([{ command, followsPipe: false }])
   })
 
   it("checks the root search after a single-quoted backslash", async () => {
@@ -32,15 +32,15 @@ describe("single-quoted backslashes in command segments", () => {
 })
 
 describe("non-ASCII and pipe-all command segments", () => {
-  it("uses UTF-16 indexes for UTF-8 AST offsets", () => {
-    expect(splitShellCommandSegments("echo 😀; rg needle .")).toMatchObject([
+  it("uses UTF-16 indexes for UTF-8 AST offsets", async () => {
+    await expect(splitShellCommandSegments("echo 😀; rg needle .")).resolves.toMatchObject([
       { command: "echo 😀", followsPipe: false, separatorAfter: ";" },
       { command: " rg needle .", followsPipe: false },
     ])
   })
 
-  it("preserves the complete |& operator", () => {
-    expect(splitShellCommandSegments("echo ok |& rg needle .")).toMatchObject([
+  it("preserves the complete |& operator", async () => {
+    await expect(splitShellCommandSegments("echo ok |& rg needle .")).resolves.toMatchObject([
       { command: "echo ok ", followsPipe: false, separatorAfter: "|" },
       { command: " rg needle .", followsPipe: true },
     ])
@@ -61,22 +61,22 @@ describe("non-ASCII and pipe-all command segments", () => {
 })
 
 describe("ANSI-C quoted command segments", () => {
-  it.each([";", "&&", "||", "|", "\n"] as const)("finds the %j separator after an escaped quote", (separator) => {
+  it.each([";", "&&", "||", "|", "\n"] as const)("finds the %j separator after an escaped quote", async (separator) => {
     const command = String.raw`printf '%s' $'it\'s'`
-    expect(splitShellCommandSegments(`${command} ${separator} rg needle .`)).toMatchObject([
+    await expect(splitShellCommandSegments(`${command} ${separator} rg needle .`)).resolves.toMatchObject([
       { command: `${command} `, followsPipe: false, separatorAfter: separator },
       { command: " rg needle .", followsPipe: separator === "|" },
     ])
   })
 
-  it("preserves backslash-newline inside ANSI-C quotes", () => {
+  it("preserves backslash-newline inside ANSI-C quotes", async () => {
     const command = "printf '%s' $'a\\\nb'"
-    expect(splitShellCommandSegments(command)).toMatchObject([{ command, followsPipe: false }])
+    await expect(splitShellCommandSegments(command)).resolves.toMatchObject([{ command, followsPipe: false }])
   })
 
-  it("keeps a quote after an escaped dollar sign ordinary", () => {
+  it("keeps a quote after an escaped dollar sign ordinary", async () => {
     const command = String.raw`printf '%s' \$'\'`
-    expect(splitShellCommandSegments(`${command}; rg needle .`)).toMatchObject([
+    await expect(splitShellCommandSegments(`${command}; rg needle .`)).resolves.toMatchObject([
       { command, followsPipe: false, separatorAfter: ";" },
       { command: " rg needle .", followsPipe: false },
     ])
@@ -95,8 +95,8 @@ describe("ANSI-C quoted command segments", () => {
     })
   })
 
-  it("reads segment words from the statement that owns a heredoc", () => {
-    expect(splitShellCommandSegments("cat <<EOF | rg needle\nhi\nEOF")).toEqual([
+  it("reads segment words from the statement that owns a heredoc", async () => {
+    await expect(splitShellCommandSegments("cat <<EOF | rg needle\nhi\nEOF")).resolves.toEqual([
       { command: "cat <<EOF ", followsPipe: false, separatorAfter: "|", words: ["cat", "<<EOF"] },
       { command: " rg needle", followsPipe: true, words: ["rg", "needle"] },
     ])

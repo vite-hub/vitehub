@@ -10,8 +10,8 @@ export interface WorkspaceInspectionCommandSegment {
   words: string[]
 }
 
-export function analyzeWorkspaceInspectionCommand(command: string): WorkspaceInspectionCommandSegment[] {
-  return splitShellCommandSegments(command).map(segment => ({
+export async function analyzeWorkspaceInspectionCommand(command: string): Promise<WorkspaceInspectionCommandSegment[]> {
+  return (await splitShellCommandSegments(command)).map(segment => ({
     ...segment,
     paths: shellPathArguments(segment.words),
     searchRecursive: hasRecursiveGrepFlag(segment.words),
