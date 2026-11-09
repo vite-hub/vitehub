@@ -11,6 +11,7 @@ import { anchor, createDatabase } from "./harness.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 const origin = "http://site.test"
 
@@ -157,7 +158,8 @@ describe("createCommentsGitHubLogin", () => {
   function request(path: string) {
     const request = new Request(`${origin}${path}`)
     installRequestStandardContext(request)
-    return request
+    // SAFETY: the installer above sets the Standard Context on the Request.
+    return request as Request & ViteHubContext
   }
 
   it("is off without an OAuth client, and says which variables turn it on", async () => {

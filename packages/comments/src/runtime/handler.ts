@@ -6,7 +6,7 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { resolveCommentsRuntime } from "../index.ts"
+import { resolveCommentsRuntime } from "../installed.ts"
 import { commentActions, commentAnchorSchema, commentInputSchemas } from "../operations-core/operations.ts"
 import { deniedForMissingPolicy } from "../operations-core/define.ts"
 import { can as policyCan, contextSchema, deniedError, mentionedPeople } from "../operations-core/service.ts"
@@ -480,9 +480,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
   }
 
   return {
-    async fetch(request) {
+    async fetch(input) {
       // In a ViteHub app, Nitro already set the Standard Context of the request. Set it for a Request from elsewhere.
-      installRequestStandardContext(request)
+      installRequestStandardContext(input)
+      // SAFETY: the installer above sets the Standard Context on the Request.
+      const request = input as CommentsRequest
       // Nitro's workerd dev server gives the Cloudflare bindings only with the request, so the database finds D1 there.
       const env = request["~standard"].runtime?.cloudflare?.env
       return env ? await runWithActiveCloudflareEnv(env, () => handle(request)) : await handle(request)

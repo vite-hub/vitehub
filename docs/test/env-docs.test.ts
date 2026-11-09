@@ -18,6 +18,8 @@ import {
 } from "typescript";
 import { describe, expect, it } from "vitest";
 
+import { frameworkView } from "../modules/tutorials/build";
+
 const docsRoot = resolve(import.meta.dirname, "..");
 const canonicalPages = [
   "content/docs/env/index.md",
@@ -99,7 +101,7 @@ function optionsHaveBuildMode(options: ObjectLiteralExpression) {
 async function canonicalBuildDeclarations() {
   const declarations: CallExpression[] = [];
   for (const page of canonicalPages) {
-    const markdown = await readFile(resolve(docsRoot, page), "utf8");
+    const markdown = frameworkView(await readFile(resolve(docsRoot, page), "utf8"), "Vite");
     for (const source of typescriptExamples(markdown)) {
       declarations.push(
         ...directEnvDeclarations(source).filter((call) => {
