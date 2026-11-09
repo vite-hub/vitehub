@@ -64,11 +64,16 @@ export function kvRemoteNotice(name: string, store: ResolvedKVStoreConfig): stri
   }
 }
 
-export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
+export function resolveHostedKVStore(config: false | ResolvedKVModuleOptions | undefined, name = "default") {
   const resolved = assertHostedConfig(config)
   const stores = resolved.stores || { default: resolved.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
   if (!store) throw kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store: name })
+  return store
+}
+
+export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
+  const store = resolveHostedKVStore(config, name)
   const notice = kvRemoteNotice(name, store)
   if (notice) console.warn(notice)
   const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } })

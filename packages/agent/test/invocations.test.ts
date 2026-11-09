@@ -5202,6 +5202,45 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("slow-running-write")).resolves.toMatchObject({ status: "completed" })
   })
 
+  it("opens the store once, outside storeTimeoutMs, and retries a failed open", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    let attempts = 0
+    const open = vi.fn(async () => {
+      attempts++
+      // A lazy journal loads its driver and creates tables on first use, which can take longer than one operation.
+      await new Promise(resolve => setTimeout(resolve, 100))
+      if (attempts === 1) throw new Error("first open failed")
+    })
+    const invocations = defineAgentInvocations({ store: { ...memory, open }, storeTimeoutMs: 20 })
+
+    await expect(invocations.list()).rejects.toThrow("first open failed")
+    await expect(Promise.all([invocations.list(), invocations.getByRunId("missing")])).resolves.toMatchObject([{ invocations: [] }, undefined])
+    await expect(runAgentWithContext(defineAgent({ driver: { run: () => "done" }, invocations, runtime: false }), runtime("after-open"), {})).resolves.toBe("done")
+    await expect(invocations.getByRunId("after-open")).resolves.toMatchObject({ status: "completed" })
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
+  it("shares an unfinished open after its wait times out", async () => {
+    vi.useFakeTimers()
+    try {
+      const pending = Promise.withResolvers<void>()
+      const open = vi.fn(() => pending.promise)
+      const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), open } })
+      const stalled = expect(invocations.list()).rejects.toThrow("store open timed out after 10000 ms")
+      await vi.advanceTimersByTimeAsync(10_000)
+      await stalled
+      const next = invocations.list()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(open).toHaveBeenCalledOnce()
+      pending.resolve()
+      await expect(next).resolves.toMatchObject({ invocations: [] })
+      expect(open).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each([0, 1.5, 60_001])("rejects storeTimeoutMs %s", (storeTimeoutMs) => {
     expect(() => defineAgentInvocations({ store: createMemoryAgentInvocationStore(), storeTimeoutMs }))
       .toThrow("storeTimeoutMs must be an integer between 1 and 60000")
