@@ -6,6 +6,8 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const DEFAULT_MAX_PARALLEL = 2
+// A package build writes only inside its own package, so builds run in dependency order, four at a time, like `vp run build`.
+const BUILD_MAX_PARALLEL = 4
 const LEADING_BUILD = /^vp run -t ([@\w./-]+)#build(?:\s*&&\s*|$)/
 const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/env",
@@ -384,10 +386,10 @@ export async function runPackageTask(options) {
     const buildPackages = buildClosure(selected, packageByName)
     buildResults = await runPhase({
       execute,
-      maxParallel: options.maxParallel ?? DEFAULT_MAX_PARALLEL,
+      maxParallel: BUILD_MAX_PARALLEL,
       packages: buildPackages,
       packageByName,
-      parallelSafePackages: options.parallelSafePackages ?? DEFAULT_PARALLEL_SAFE_PACKAGES,
+      parallelSafePackages: buildPackages.map(pkg => pkg.name),
       phase: "build",
       signal: controller.signal,
     })
