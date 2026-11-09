@@ -115,7 +115,7 @@ import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.string() }), body))
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.pipe(v.string(), v.minLength(1)) }), body))
 
   const [error, response] = await streamAgent(support, { prompt }, {
     output: 'ui-message-stream',

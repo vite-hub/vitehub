@@ -5,6 +5,7 @@ import { getConsoleAgentDefinition } from "./agents.ts"
 import { getConsoleInvocations } from "./invocations.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
@@ -49,7 +50,7 @@ type WorkspaceHistoryReader = {
 }
 
 function failure(statusCode: number, message: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_C0001({ message }), { statusCode, statusMessage: message })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_C0001({ message }))
 }
 
 function visiblePath(path: string): boolean {

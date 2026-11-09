@@ -2,7 +2,7 @@ import type { FeatureId } from "@vite-hub/internal/features";
 
 import type { HostConfigs } from "../utils/host-config";
 
-// What `vitehub({...})` sets on each host, for the primitive heroes that opt in with `:::product-files{feature="..."}`.
+// What `vitehub({...})` sets on each host, for the primitive heroes that opt in with `:::code-tree{feature="..."}`.
 // The feature catalog decides which hosts support a feature. This map only holds the config text, and
 // `docs/test/host-configs.test.ts` checks both against each other and against the landing pages.
 
