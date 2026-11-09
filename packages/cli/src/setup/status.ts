@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 
 import { deploymentPresetFromNitro, detectPreset } from "@vite-hub/internal/deployment"
-import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -33,11 +33,32 @@ export interface SetupStatus {
 
 type Enabled = Pick<SetupFeatureStatus, "enabled" | "reason">
 
-const addCommands: Record<SetupPackageManager, { dev: string, prod: string }> = {
-  bun: { dev: "bun add -d", prod: "bun add" },
-  npm: { dev: "npm install -D", prod: "npm install" },
-  pnpm: { dev: "pnpm add -D", prod: "pnpm add" },
-  yarn: { dev: "yarn add -D", prod: "yarn add" },
+const addArgs: Record<SetupPackageManager, { dev: readonly string[], prod: readonly string[] }> = {
+  bun: { dev: ["add", "-d"], prod: ["add"] },
+  npm: { dev: ["install", "-D"], prod: ["install"] },
+  pnpm: { dev: ["add", "-D"], prod: ["add"] },
+  yarn: { dev: ["add", "-D"], prod: ["add"] },
+}
+
+/** The arguments of the `packageManager` command that installs `packages`, such as `["add", "-D", "drizzle-kit"]`. */
+export function installArgs(packageManager: SetupPackageManager, packages: readonly string[], dev: boolean): string[] {
+  return [...addArgs[packageManager][dev ? "dev" : "prod"], ...packages]
+}
+
+const removeArgs: Record<SetupPackageManager, readonly string[]> = { bun: ["remove"], npm: ["uninstall"], pnpm: ["remove"], yarn: ["remove"] }
+
+/** The arguments of the `packageManager` command that uninstalls `packages`, such as `["remove", "@vite-hub/queue"]`. */
+export function uninstallArgs(packageManager: SetupPackageManager, packages: readonly string[]): string[] {
+  return [...removeArgs[packageManager], ...packages]
+}
+
+/** The shell command that installs `prod` and then `dev`, such as `pnpm add kv && pnpm add -D drizzle-kit`. */
+export function installCommand(packageManager: SetupPackageManager, prod: readonly string[], dev: readonly string[]): string | undefined {
+  const commands = [
+    ...(prod.length ? [[packageManager, ...installArgs(packageManager, prod, false)].join(" ")] : []),
+    ...(dev.length ? [[packageManager, ...installArgs(packageManager, dev, true)].join(" ")] : []),
+  ]
+  return commands.length ? commands.join(" && ") : undefined
 }
 
 function readHost(project: SetupProject, env: NodeJS.ProcessEnv): SetupStatus["host"] {
@@ -69,7 +90,7 @@ function readEnabled(project: SetupProject, id: FeatureId): Enabled {
 }
 
 /** True when the config sets `option`, such as `blob.driver`, as a literal key of the feature object. */
-function setsOption(project: SetupProject, option: string): boolean {
+export function setsOption(project: SetupProject, option: string): boolean {
   const config = project.config
   if (!config?.ok) return false
   const [id, key] = option.split(".") as [string, string]
@@ -80,12 +101,8 @@ function setsOption(project: SetupProject, option: string): boolean {
 }
 
 function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }): string | undefined {
-  const commands = addCommands[project.packageManager]
-  const installs = [
-    ...(missing.prod.length ? [`${commands.prod} ${missing.prod.join(" ")}`] : []),
-    ...(missing.dev.length ? [`${commands.dev} ${missing.dev.join(" ")}`] : []),
-  ]
-  if (installs.length) return installs.join(" && ")
+  const install = installCommand(project.packageManager, missing.prod, missing.dev)
+  if (install) return install
   if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another preset than ${host}.`
   if (support.level === "explicit" && !setsOption(project, support.option)) return `Set \`${support.option}\` in vitehub() to choose a provider on ${host}.`
 }
@@ -123,8 +140,10 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): Setu
         ? { level: "unknown", detail: "The config does not statically identify the deployment host." }
         : featureSupport(id, host.name)
       const definition = features[id]
+      const value = project.config?.ok ? project.config.site.keys[id] : undefined
+      const packages = featurePackages(id, value?.kind === "literal" ? value.value : undefined, host.name)
       const missing = state.enabled === "on"
-        ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: definition.packages.filter(name => !project.installed(name)) }
+        ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
       const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing) : undefined
       return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support, ...(fix ? { fix } : {}) }

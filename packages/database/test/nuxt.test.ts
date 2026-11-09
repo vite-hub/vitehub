@@ -175,7 +175,7 @@ describe("Database Nuxt integration", () => {
           ],
         },
       },
-      modules: [expect.any(Function), expect.any(Function)],
+      modules: [expect.any(Function), expect.any(Function), expect.any(Function)],
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
@@ -445,7 +445,7 @@ describe("Database Nuxt integration", () => {
       const modules = (nitroConfig as { modules: Array<(nitro: unknown) => void> }).modules
       let compiled: (() => Promise<void>) | undefined
       modules[0]!({
-        hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => { compiled = callback } },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") compiled = callback } },
         options: { output: { serverDir: join(rootDir, ".output/server") } },
       })
       await compiled!()
@@ -653,7 +653,7 @@ describe("Database Nuxt integration", () => {
       const modules = nitroConfig.modules as Array<(nitro: unknown) => void>
       const callbacks: Array<() => Promise<void>> = []
       for (const module of modules) module({
-        hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => callbacks.push(callback) },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") callbacks.push(callback) } },
         options: { output: { serverDir: join(rootDir, ".output/server") } },
       })
       for (const compiled of callbacks) await compiled()
@@ -712,7 +712,7 @@ describe("Database Nuxt integration", () => {
       ])
       const callbacks: Array<() => Promise<void>> = []
       for (const module of nitroConfig.modules as Array<(nitro: unknown) => void>) module({
-        hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => callbacks.push(callback) },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") callbacks.push(callback) } },
         options: { output: { serverDir: join(rootDir, ".output/server") } },
       })
       await Promise.all(callbacks.map(compiled => compiled()))
@@ -743,7 +743,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", config)
       const callbacks: Array<() => Promise<void>> = []
       for (const module of config.modules as Array<(nitro: unknown) => void>) module({
-        hooks: { hook: (_name: string, callback: () => Promise<void>) => callbacks.push(callback) },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") callbacks.push(callback) } },
         options: { output: { serverDir: join(rootDir, ".output/server") } },
       })
       await Promise.all(callbacks.map(callback => callback()))
@@ -820,7 +820,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", nitroConfig)
       const callbacks: Array<() => Promise<void>> = []
       for (const module of nitroConfig.modules as Array<(nitro: unknown) => void>) module({
-        hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => callbacks.push(callback) },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") callbacks.push(callback) } },
         options: { output: { serverDir: join(rootDir, ".output/server") } },
       })
       if (parallel) await Promise.all(callbacks.map(compiled => compiled()))
@@ -887,6 +887,71 @@ describe("Database Nuxt integration", () => {
         code,
         why: expect.stringContaining(missing),
       })
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["default", "orders"])("rejects D1 Definition %s without cloudflare options before Vite builds", async (name) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unnamed-d1-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const definition = join(rootDir, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, `export default defineDatabase({ name: '${name}', schema: {} })\n`)
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDb({ driver: "d1" })(undefined, nuxt)
+      const config = { alias: {}, preset: "cloudflare_module" }
+
+      await expect(callHook(hooks, "nitro:config", config)).rejects.toMatchObject({
+        code: "DATABASE_MISSING_D1_RESOURCE",
+        why: expect.stringContaining("`cloudflare.databaseName`"),
+      })
+      expect(config.alias).not.toHaveProperty("@vite-hub/database/drizzle")
+      await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["no use", undefined],
+    ["a Database use", { name: "@vite-hub/connections/vite", vitehub: { databases: () => [{ database: "default", name: "connections", reason: "Stores Connection grants." }] } }],
+  ])("checks the implicit default D1 Database only when a plugin needs it: %s", async (_case, plugin) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-implicit-d1-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: { plugins: plugin ? [plugin] : [] } })
+      // With D1 module options, the module D1 resource check covers the implicit default before this one.
+      await hubDb()(undefined, nuxt)
+      const config = { alias: {}, preset: "cloudflare_module" }
+      const result = callHook(hooks, "nitro:config", config)
+      if (!plugin) return await expect(result).resolves.toBeUndefined()
+      await expect(result).rejects.toMatchObject({
+        code: "DATABASE_MISSING_D1_RESOURCE",
+        why: expect.stringContaining("`database.databaseName`"),
+      })
+      expect(config.alias).not.toHaveProperty("@vite-hub/database/drizzle")
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps a D1 Definition without cloudflare options when the app sets the Database runtime alias", async () => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-custom-runtime-d1-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDb({ driver: "d1" })(undefined, nuxt)
+      const config = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs" }, preset: "cloudflare_module" }
+
+      await callHook(hooks, "nitro:config", config)
+      expect(config.alias["@vite-hub/database/drizzle"]).toBe("/custom/database.mjs")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -1948,7 +2013,15 @@ describe("Database Nuxt integration", () => {
         "#vitehub/database/definition-defaults": join(projectRoot, ".vitehub/database/definition-defaults.mjs"),
         "@vite-hub/database/drizzle": join(projectRoot, ".vitehub/database/cloudflare-runtime.mjs"),
       })
-      expect(nitroConfig.modules).toHaveLength(2)
+      expect(nitroConfig.modules).toHaveLength(3)
+      // The last module tells `@vite-hub/bundle` that this D1 Worker never runs libSQL at startup.
+      const rules: Array<{ owner: string, packages: string[] }> = []
+      const bundleModule = (nitroConfig.modules as Array<(nitro: unknown) => void>).at(-1)!
+      bundleModule({
+        hooks: { hook: (name: string, callback: (value: typeof rules) => void) => { if (name === "vitehub:bundle:rules") callback(rules) } },
+        options: { preset: "cloudflare_module" },
+      })
+      expect(rules).toMatchObject([{ owner: "@vite-hub/database", packages: expect.arrayContaining(["@libsql/client"]) }])
       if (resource === "inherited") return
       const defaultsFile = join(projectRoot, ".vitehub/database/definition-defaults.mjs")
       const { default: defaults } = await import(pathToFileURL(defaultsFile).href)

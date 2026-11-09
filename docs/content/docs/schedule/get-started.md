@@ -1,89 +1,181 @@
 ---
-title: Run a daily report once with Schedule
-description: Declare a UTC schedule and execute one occurrence with the direct runtime API.
+title: Run a daily report with Schedule
+description: Write a schedule that runs every day at 08:00 UTC, then start it by hand to see it work now.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Run one occurrence of a daily report and check that it finishes with `succeeded`. You will declare its UTC cron expression, then trigger a fixed occurrence from a script. This lets you test the handler without waiting until tomorrow.
+A Schedule is server code that runs at set times, like an alarm clock for your app. You write the time and the code in one file. ViteHub tells your host when to run it.
 
-You need Node.js 22.18 or newer and pnpm. Start in an empty directory. The script uses an in-memory run store and needs no Vite server or provider account. It runs once; [host configuration](/docs/schedule/hosts) supplies the recurring trigger in a deployed app.
+In this tutorial, you write a daily report that runs every day at 08:00 UTC. Then you start it by hand, so you see it work now and not tomorrow morning.
 
-::tutorial-step{title="Install"}
-## Install
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). You need no account and no API key. Everything runs on your computer.
 
-Initialize an ESM package so Node can load the TypeScript modules below:
+::tutorial-step{title="Turn on Schedule"}
+## Turn on Schedule
 
-```bash [commands/install]
-pnpm init
-pnpm pkg set type=module
-pnpm add @vite-hub/schedule
+Schedule and KV are separate packages. Add them to your app:
+
+```bash pm [commands/install]
+pnpm add @vite-hub/schedule @vite-hub/kv
 ```
+
+Then add `kv` and `schedule` to the ViteHub options. Keep the other options of your app.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      kv: true,
+      schedule: { runtime: { driver: 'process' } },
+    }),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import viteHubNuxt from 'vite-hub/nuxt'
+
+export default defineNuxtConfig({
+  modules: [
+    [viteHubNuxt, {
+      preset: 'node',
+      kv: true,
+      schedule: { runtime: { driver: 'process' } },
+    }],
+  ],
+})
+```
+:::
+::
+
+- `schedule` turns on Schedule. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
+- `kv` gives Schedule a place to save each run. You read those runs in the last step.
 
 ::
 
-::tutorial-step{title="Declare the schedule"}
-## Declare the schedule
+::tutorial-step{title="Write the schedule"}
+## Write the schedule
 
-`0 8 * * *` means every day at 08:00 UTC. `manual: true` allows a manual occurrence. The handler logs the occurrence time rather than the current wall-clock time.
+Create `server/schedules/daily-report.ts`. The file name is the name of the schedule: `daily-report`.
 
 ```ts [server/schedules/daily-report.ts]
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',
   manual: true,
   handler({ scheduledAt }) {
-    console.log(`Daily report scheduled for ${scheduledAt.toISOString()}`)
+    console.log(`Daily report for ${scheduledAt.toISOString()}`)
   },
 })
 ```
 
-Create the `server/schedules` directory and save this as `daily-report.ts`. After the manual run works, replace the log with your report code.
+- `cron: '0 8 * * *'` means "at minute 0 of hour 8, every day". The time is in UTC. Set `timeZone` to use another time zone.
+- `manual: true` lets you start the schedule by hand. Without it, only the clock can start it.
+- `scheduledAt` is the time that the run is for, not the time that it started. A run that starts late still gets `08:00`. Use it to know which day the report is for.
+
+Later, put your report code in `handler`. For now, it only writes a line to the log.
 
 ::
 
-::tutorial-step{title="Execute one occurrence"}
-## Execute one occurrence
+::tutorial-step{title="Run it now"}
+## Run it now
 
-Create a script that imports the Definition and executes a fixed occurrence:
+Start the dev server:
 
-The fixed timestamp makes the result repeatable. Importing and executing this Definition does not create a recurring timer.
-
-```ts [run.ts]
-import { executeStaticSchedule } from '@vite-hub/schedule/runtime'
-import dailyReport from './server/schedules/daily-report.ts'
-
-const run = await executeStaticSchedule({
-  cron: dailyReport.cron,
-  definition: dailyReport,
-  name: 'daily-report',
-  scheduledAt: new Date('2026-08-27T08:00:00.000Z'),
-})
-
-console.log(run.status)
+```bash [commands/dev]
+pnpm dev
 ```
 
-Node.js can run this TypeScript script directly:
+Open a second terminal in the same folder, and start the schedule by hand:
 
 ```bash [commands/run]
-node run.ts
+pnpm vitehub schedule run daily-report
 ```
 
-The process prints:
+The command prints the result of the run:
 
-```txt [output/daily-report.txt]
-Daily report scheduled for 2026-08-27T08:00:00.000Z
-succeeded
+```txt [output/run.txt]
+succeeded daily-report in 7 ms
+Run srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg
+Scheduled at 2026-11-07T12:33:04.174Z
 ```
 
-The handler ran for the exact timestamp you supplied. To run it every day, add the Schedule integration to your app and configure a hosted scheduler or a long-lived Node process. [Hosts](/docs/schedule/hosts) explains those options.
+The dev server terminal shows the line from your handler:
+
+```txt [output/dev-server.txt]
+Daily report for 2026-11-07T12:33:04.174Z
+```
+
+To test a given day, add `--at`. The handler gets that time as `scheduledAt`:
+
+```bash [commands/run-at]
+pnpm vitehub schedule run daily-report --at 2026-01-31T08:00:00Z
+```
 
 ::
 
-## Choose the next path
+::tutorial-step{title="See the runs"}
+## See the runs
 
-- Read [Configure](/docs/schedule/configure) to add the Schedule integration to an app.
-- Read [Hosts](/docs/schedule/hosts) for provider wake output and long-running Node processes.
+ViteHub saves each manual run and Process Runtime run, with its status and its time. List the runs of `daily-report`, newest first:
+
+```bash [commands/runs]
+pnpm vitehub schedule runs daily-report
+```
+
+```txt [output/runs.txt]
+RUN                                                                         STATUS     SCHEDULED AT              ATTEMPTS  ERROR
+srun_manual_daily-report_2026-11-07T12:33:04.174Z_manual_mw6dwazy_ug9q6smg  succeeded  2026-11-07T12:33:04.174Z  1         -
+srun_manual_daily-report_2026-01-31T08:00:00.000Z_manual_mw6dwbtr_3xkimura  succeeded  2026-01-31T08:00:00.000Z  1         -
+```
+
+A saved run that throws shows `failed` and its error. Provider cron executions do not create saved runs.
+
+To see the same runs in a page, with a button to run the schedule, turn on the [Console](/docs/development/console).
+
+::
+
+## What happens when you deploy
+
+You keep the schedule file. You change the `schedule` option for the host:
+
+- **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. Keep exactly one process running. Two processes would both run it, and a stopped process runs nothing.
+- **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
+
+For example, on Vercel:
+
+```ts [vercel/vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', schedule: true })],
+})
+```
+
+The `deno` preset does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
+
+## Next steps
+
+::card-group
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/schedule/configure"}
+Set a time zone, change the cron on one host, and see every option.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/schedule/hosts"}
+See what the build writes for Cloudflare, Vercel, Netlify, Deno, and Node.
+:::
+::

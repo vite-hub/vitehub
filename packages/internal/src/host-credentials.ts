@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, join, resolve } from "node:path"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
 export type CredentialSource = "env" | "host-cli"
@@ -20,7 +22,7 @@ export interface HostCliRunResult {
 }
 
 /** Runs a host CLI with an argument array and no shell, and returns its stdout. */
-export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv }) => Promise<HostCliRunResult>
+export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, signal?: AbortSignal }) => Promise<HostCliRunResult>
 
 export interface HostCredentialsContext {
   /** Directory whose activated Wrangler profile is used. Defaults to the process cwd. */
@@ -34,7 +36,7 @@ export interface HostCredentialsContext {
 type EnvCredentials = Omit<Extract<HostCredentials, { ok: true }>, "ok" | "host" | "source">
 
 const missingFixes: Record<CredentialHost, { missing: readonly string[], fix: string }> = {
-  cloudflare: { missing: ["CLOUDFLARE_API_TOKEN"], fix: "Run `wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." },
+  cloudflare: { missing: ["CLOUDFLARE_API_TOKEN"], fix: "Install Wrangler in the project and run `npx wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." },
   // Vercel and Netlify have no documented command that prints the login token, so only env vars work.
   vercel: { missing: ["VERCEL_TOKEN"], fix: "Set VERCEL_TOKEN to a token from https://vercel.com/account/tokens. Set VERCEL_TEAM_ID for a team." },
   netlify: { missing: ["NETLIFY_AUTH_TOKEN"], fix: "Set NETLIFY_AUTH_TOKEN to a token from https://app.netlify.com/user/applications#personal-access-tokens." },
@@ -73,13 +75,7 @@ export function readHostCredentialsFromEnv(host: CredentialHost, env: Record<str
  */
 export async function resolveHostCredentials(host: CredentialHost, context: HostCredentialsContext): Promise<HostCredentials> {
   const fromEnv = readHostCredentialsFromEnv(host, context.env)
-  if (fromEnv) {
-    if (host === "cloudflare" && !fromEnv.accountId) {
-      const accountId = await readWranglerAccountId(context)
-      return { ok: true, host, source: "env", ...fromEnv, ...(accountId && { accountId }) }
-    }
-    return { ok: true, host, source: "env", ...fromEnv }
-  }
+  if (fromEnv) return { ok: true, host, source: "env", ...fromEnv }
   if (host === "cloudflare") {
     const token = await readWranglerToken(context)
     if (token) {
@@ -117,23 +113,50 @@ async function readWranglerAccountId(context: HostCredentialsContext): Promise<s
 // A CLI that is not installed, exits non-zero, or prints something else means "not logged in".
 async function runJson(context: HostCredentialsContext, command: string, args: readonly string[]): Promise<unknown> {
   const run = context.run ?? runHostCli
+  let result: HostCliRunResult
   let cwd: string | undefined
   try {
-    // Wrangler loads project .env files before dispatch and searches ancestors for config.
-    // Keep the empty config under the caller's directory so its activated profile is inherited.
-    // Explicit empty files still prevent project env and config discovery.
+    // Keep the activated profile in the caller's directory while isolating project env and config files.
+    const local = command === "wrangler" ? localWrangler(context.cwd) : undefined
     cwd = await mkdtemp(join(context.cwd ?? process.cwd(), ".vitehub-wrangler-auth-"))
     await writeFile(join(cwd, ".env"), "")
     await writeFile(join(cwd, "wrangler.json"), "{}")
-    const result = await run(command, [...args, "--env-file", ".env", "--config", "wrangler.json"], { cwd, env: context.env })
-    if (result.exitCode !== 0) return
-    return JSON.parse(result.stdout)
+    const isolatedArgs = [...args, "--env-file", ".env", "--config", "wrangler.json"]
+    result = await run(local ? process.execPath : command, local ? [local, ...isolatedArgs] : isolatedArgs, { cwd, env: context.env })
   }
   catch {
     return
   }
   finally {
     if (cwd) await rm(cwd, { force: true, recursive: true })
+  }
+  if (result.exitCode !== 0) return
+  try {
+    return JSON.parse(result.stdout)
+  }
+  catch {
+    return
+  }
+}
+
+/** Resolve a project dependency before changing cwd, as package-manager invocations do. */
+function localWrangler(cwd: string | undefined): string | undefined {
+  if (!cwd) return
+  const require = createRequire(join(resolve(cwd), "package.json"))
+  let directory = resolve(cwd)
+  // Explicit node_modules paths include hoisted dependencies and symlinks, but never NODE_PATH copies.
+  while (true) {
+    try {
+      const manifest = require.resolve(join(directory, "node_modules", "wrangler", "package.json"))
+      const pkg: unknown = JSON.parse(readFileSync(manifest, "utf8"))
+      if (!isRecord(pkg)) return
+      const bin = typeof pkg.bin === "string" ? pkg.bin : isRecord(pkg.bin) ? pkg.bin.wrangler : undefined
+      return typeof bin === "string" ? resolve(dirname(manifest), bin) : undefined
+    }
+    catch {}
+    const parent = dirname(directory)
+    if (parent === directory) return
+    directory = parent
   }
 }
 
@@ -142,10 +165,11 @@ export const runHostCli: HostCliRun = (command, args, options) => new Promise((r
   const child = spawn(command, [...args], {
     cwd: options.cwd,
     env: options.env,
-    // Windows needs a shell to run `.cmd` shims. The arguments are fixed literals.
-    shell: process.platform === "win32",
+    // Windows needs a shell for PATH shims, but the absolute Node executable runs directly.
+    shell: process.platform === "win32" && command !== process.execPath,
     stdio: ["ignore", "pipe", "ignore"],
     timeout: HOST_CLI_TIMEOUT_MS,
+    ...(options.signal ? { signal: options.signal } : {}),
   })
   const chunks: Buffer[] = []
   child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk))

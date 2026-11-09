@@ -55,7 +55,7 @@ Omit `id` for a singleton. `user` is `{ id, name?, image? }`: the signed-in user
 
 `report()` and `acquire()` return the document's sessions after the call:
 
-```ts
+```ts fragment
 {
   collection: 'posts',
   id: 'hello',
@@ -111,13 +111,25 @@ await posts.save('hello', input, { lease: 'override' })
 
 The error is `CONTENT_LEASE_HELD` with `details: { collection, id, holder: { user, since, expiresAt } }`. The Console returns it as a `409`. Writes succeed when nobody holds a lease, so Agents, the CLI, and API routes keep working on documents no one has open. They honor leases by default and override only when you pass `lease: 'override'`. [`vitehub content edit`](/docs/content/cli#edit-leases) passes it only with `--override-lease`.
 
+Other Workspace writers to the draft check leases too, such as [`vitehub push`](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder), a raw `history.commit()`, or an Agent's `workspace.commit`. The `vitehub.content` Workspace plugin refuses a commit that writes or deletes a document that another session holds, with `CONTENT_LEASE_HELD` and status 409. Nothing is saved. One error names every held document of the commit: `details` has the first one as `collection`, `id`, and `holder`, and all of them in `documents`. To write anyway, put `lease: 'override'` in the revision metadata:
+
+```bash [Terminal]
+pnpm vitehub push --override-lease
+```
+
+```ts fragment
+await workspace.history.commit({ ref: 'draft', ifHead, changes, metadata: { lease: 'override' } })
+```
+
+An Agent or an MCP client may override only when you allow it with `operations({ overrideLeases: true })`. Content's own writes, such as saves, seeding the draft, publishing, live rooms, and schedules, checked the lease of their caller already and skip this check. The `published` ref and the working tree have no lease check.
+
 `publish()` and `schedule()` do not check leases. They publish the reviewed digests from `expect`, and a draft saved after review already fails with `WORKSPACE_CONFLICT`.
 
 ## Opt out per collection
 
 Some collections are edited by many people at once, such as a shared notes list, or only by code. Turn the lease off:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 notes: documents({ path: 'notes/*.md', fields, editing: { lease: false } }),
 settings: singleton({ path: 'settings.json', fields, editing: { lease: false } }),
 ```
@@ -129,6 +141,8 @@ Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` 
 Where Realtime runs, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'node',
   console: { auth: 'app' },
@@ -169,7 +183,7 @@ const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
 
 ## Limits
 
-- Leases are advisory for reads and enforced for writes through Content. A Workspace writer that bypasses Content, such as a raw history commit, does not check them.
+- Leases are advisory for reads and enforced for writes to the draft, through Content or any other Workspace writer. Writes to the working tree of the Workspace, such as `fs` writes, do not check them.
 - The lease check and the commit are two steps. A lease taken between them does not stop that one save; `ifDigest` still protects the bytes.
 - Each write with leases on runs one extra Database query. Each `report()` and `acquire()` is one atomic batch.
 - Rows of sessions that expired more than an hour ago are deleted on the next report in the same Workspace.

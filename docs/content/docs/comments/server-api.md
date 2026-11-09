@@ -1,6 +1,6 @@
 ---
 title: Comments server API
-description: The comments() plugin, defineComments() options, the runtime methods and their error codes, thread and anchor types, the HTTP routes, and Content field addresses.
+description: "The comments() plugin, defineComments() options, runtime methods and error codes, thread and anchor types, HTTP routes, and Content field addresses."
 navigation.title: Server API
 navigation.order: 5
 icon: i-lucide-code-2
@@ -16,7 +16,7 @@ icon: i-lucide-code-2
 | `defineCommentSubject` from `vite-hub/comments` | A kind of subject of your own, with its numbering scope. See [Comments in your own UI](/docs/comments/configure#comments-in-your-own-ui). |
 | `migrateComments`, `commentsMigrationSql` from `vite-hub/comments/database` | Move a Database from the live-site tables to one model. See [Upgrade to one model](/docs/comments/configure#upgrade-to-one-model). |
 | `normalizeCommentPage` from `vite-hub/comments` | The page key of a path, as Comments stores it. |
-| `installComments` from `vite-hub/comments` | Connect a definition to a Drizzle Database in tests or outside ViteHub. The generated Nitro plugin calls it for you. |
+| `installComments` from `vite-hub/comments/server` | Connect a definition to a Drizzle Database in tests or outside ViteHub. The generated Nitro plugin calls it for you on the first Comments call. |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Write and read [Content field addresses](#content-field-addresses). |
 | `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join a Realtime room for presence. The overlay uses it for the [presence rooms](#presence-rooms). |
 
@@ -49,7 +49,7 @@ Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/
 
 Import `comments` from `server/comments.ts` in server routes, plugins, and Agent tools. Each method returns `[error, data]`, except `can()`. These methods are trusted server API: they do not call `authorize`.
 
-```ts [server/api/threads/[id]/resolve.post.ts]
+```ts [server/api/threads/[id]/resolve.post.ts] fragment
 import { defineEventHandler, getRouterParam } from 'h3'
 import { comments } from '../../../comments'
 
@@ -68,8 +68,8 @@ export default defineEventHandler(async (event) => {
 | `get(id)` | One thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByNumber(scope, n)` | Thread `#n` of a scope, such as `site`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByMessage(messageId)` | The thread that holds a message. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
-| `create({ subject?, page?, anchor?, context?, metadata?, revision?, body, author, mentions?, attachments? })` | The new thread, with its first message and the next number of the scope of its subject. Give `subject`, or `page` for a page subject. `anchor` is `{ kind: 'page' }` by default. Runs `onComment` and `onMention`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
-| `reply(threadId, { body, author, mentions?, attachments? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `create({ subject?, page?, anchor?, context?, metadata?, revision?, body, author, actor?, mentions?, attachments? })` | The new thread, with its first message and the next number of the scope of its subject. Give `subject`, or `page` for a page subject. `anchor` is `{ kind: 'page' }` by default. Runs `onComment` and `onMention`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
+| `reply(threadId, { body, author, actor?, mentions?, attachments? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved, and the comment parts list it with the open threads until someone resolves it again. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
 | `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `remove(threadId)` | Nothing. Deletes the thread and all its messages. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
@@ -94,6 +94,8 @@ A change from server code does not reach open pages at once. Open pages read the
 The server API, the comment operations, the browser client, and the overlay use the same types.
 
 ```ts
+import type { CommentAnchor, CommentContext } from 'vite-hub/comments'
+
 interface CommentThread {
   id: string
   scope: string                   // the numbering scope: 'site' for pages and Content
@@ -131,6 +133,12 @@ interface CommentUser {
   name?: string
   image?: string
   guest?: boolean                 // true for a guest that named itself in the browser
+}
+
+interface CommentActor {
+  id: string
+  name?: string                   // the comment parts show the Agent in place of `author`: "Claude (Ana Ruiz)"
+  image?: string                  // the Agent's logo, its avatar in the comment parts
 }
 
 interface CommentSubject {
@@ -290,7 +298,7 @@ The overlay script is a static file at `/api/_vitehub/comments/assets/overlay.js
 
 `createRestTransport()` from `vite-hub/comments/client` is a [`CommentsTransport`](/docs/comments/operations/server-api#browser-transport) over these routes, for an app's own comment UI. Unlike the RPC transport, it needs no Console access, so it serves guests and share-link readers too.
 
-```ts [app/comments.ts]
+```ts [app/comments.ts] fragment
 import { createCommentsClient, createRestTransport } from 'vite-hub/comments/client'
 
 const transport = createRestTransport({
