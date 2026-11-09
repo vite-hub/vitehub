@@ -128,14 +128,14 @@
     "@vite-hub/runtime": "workspace:*",
     "confbox": "^0.3.1",
     "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs",
-    "nitro": "catalog:unjs"
+    "h3": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "marked": "catalog:realtime",
+    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
@@ -147,6 +147,7 @@
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

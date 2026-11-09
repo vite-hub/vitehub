@@ -62,7 +62,9 @@ set `"type": "module"`, and add the scripts you need.
 ```
 
 Install the framework distribution and its server dependencies. These Nitro
-and H3 versions match the server integration used by ViteHub.
+and H3 versions match the server integration used by ViteHub. `nitro` is a peer
+of `vite-hub`, so ViteHub runs on your app's Nitro. It supports
+`3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash [commands/install-vite]
 pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8
