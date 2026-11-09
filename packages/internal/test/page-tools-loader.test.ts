@@ -292,6 +292,20 @@ describe("loadViteHubPageTools", () => {
     menu.remove()
   })
 
+  it("finds a small control that sits between the old sample points", async () => {
+    page("/?vitehub")
+    const top = document.createElement("button")
+    top.style.position = "fixed"
+    document.body.append(top)
+    // A 44px button from 8px to 52px right of the middle.
+    vi.spyOn(top, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: innerWidth / 2 + 8, y: innerHeight - 60, width: 44, height: 44 }))
+    vi.spyOn(document, "elementsFromPoint").mockImplementation((x: number) => (x >= innerWidth / 2 + 8 && x <= innerWidth / 2 + 52 ? [top, document.body, document.documentElement] : [document.body, document.documentElement]))
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(true)
+    top.remove()
+  })
+
   it("folds for a small control in a fixed layer over the whole screen, but not for the layer", async () => {
     page("/?vitehub")
     const layer = document.createElement("div")

@@ -132,9 +132,16 @@ function pageControlAtPillPlace(): boolean {
     const box = element.getBoundingClientRect()
     return box.width * box.height < innerWidth * innerHeight / 2
   }
-  const y = innerHeight - 35
-  for (const dx of [-120, -60, 0, 60, 120]) {
-    for (const element of document.elementsFromPoint(innerWidth / 2 + dx, y)) {
+  // Points every 16px over the place of the open pill, 280px wide at two heights, so even a small button is found.
+  const points = Array.from({ length: 36 }, (_, index) => [
+    Math.min(innerWidth - 1, Math.max(0, innerWidth / 2 - 140 + (index % 18) * 16 + 8)),
+    innerHeight - (index < 18 ? 24 : 44),
+  ] as const)
+  const walked = new Set<Element>()
+  for (const [x, y] of points) {
+    for (const element of document.elementsFromPoint(x, y)) {
+      if (walked.has(element)) continue
+      walked.add(element)
       for (let node: Element | null = element; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
         if (node.localName.startsWith("vitehub-")) break
         const style = getComputedStyle(node)
