@@ -7,11 +7,11 @@ icon: i-lucide-tags
 navigation.kind: Guides
 ---
 
-`labeller` composes the Gmail Channel with ordered rules, a constrained Jev label choice, and allowlisted message actions. The application supplies labels and rules; Gmail OAuth, Pub/Sub, history, and message methods remain owned by ViteHub.
+`labeller` labels your Gmail messages. It runs your rules in order, lets Jev pick a label when no rule matches, and runs only the message actions you allow. You give the labels and rules. ViteHub handles Gmail OAuth, Pub/Sub, history, and message methods.
 
 ```ts [server/agents/inbox.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { labeller } from '@vite-hub/presets/labeller'
+import { labeller } from 'vite-hub/presets/labeller'
 
 export default defineAgent({
   extends: labeller,
@@ -40,28 +40,32 @@ export default defineAgent({
 })
 ```
 
-Rules are evaluated in object insertion order. A matching rule with a `label` finishes without calling Jev; messages without a matching rule use Jev to choose one declared label or `none`. Model labels require the configured `minConfidence` (default `0.6`). Unknown labels are ignored and never sent to Gmail.
+How a message gets its label:
 
-Labels accept the Gmail Channel's `color`, `labelListVisibility`, and `messageListVisibility` settings. Colors must come from Gmail's label palette; the preset fails when you define the Agent with another color. See [Label colors and visibility](/docs/agents/gmail#label-colors-and-visibility).
+- Rules run in the order you write them. A matching rule with a `label` ends there, without Jev.
+- Otherwise Jev picks one declared label or `none`. Its pick needs `minConfidence` (default `0.6`).
+- Unknown labels are ignored and never sent to Gmail.
+
+Labels accept the Gmail Channel's `color`, `labelListVisibility`, and `messageListVisibility`. Colors must come from Gmail's label palette, or defining the Agent fails. See [Label colors and visibility](/docs/agents/gmail#label-colors-and-visibility).
 
 ## Synchronize the labels
 
-`vitehub channels sync` creates the declared labels and updates their color and visibility in Gmail. It prints the plan first and changes Gmail only with `--apply`:
+`vitehub channels sync` creates your labels in Gmail and updates their color and visibility. It prints the plan, and changes Gmail only with `--apply`:
 
 ```sh
 vitehub channels sync --stage production --channel gmail
 vitehub channels sync --stage production --channel gmail --apply
 ```
 
-Set `hideUnmanagedLabels: true` in `options` to also hide the Gmail labels that `labels` does not declare from the sidebar. Messages keep those labels.
+Set `hideUnmanagedLabels: true` in `options` to also hide undeclared Gmail labels from the sidebar. Messages keep those labels.
 
 ## Defaults
 
-The preset defaults to `dryRun: true`, `minConfidence: 0.6`, `hideUnmanagedLabels: false`, and `trashEnabled: false`. Set `dryRun: false` only when the Gmail writes are intended. Enabling trash requires both `trashEnabled: true` and a rule or label action with `trash: true`.
+The defaults are `dryRun: true`, `minConfidence: 0.6`, `hideUnmanagedLabels: false`, and `trashEnabled: false`. Set `dryRun: false` only when you want Gmail writes. Trash needs both `trashEnabled: true` and a rule or label action with `trash: true`.
 
 ## Clean up old mail
 
-`cleanup` moves labelled mail to Trash after a number of days. Each rule names a declared label and an age in days. Starred mail stays. Cleanup is off by default: `cleanup` is empty.
+`cleanup` moves labelled mail to Trash after some days. Each rule names a declared label and an age in days. Starred mail stays. `cleanup` is empty by default, so cleanup is off.
 
 ```ts [server/agents/inbox.ts]
 import { labeller } from 'vite-hub/presets/labeller'
@@ -82,7 +86,7 @@ Run the rules from a daily [Schedule](/docs/schedule) with `cleanupLabeller()`:
 
 ```ts [server/schedules/cleanup.ts]
 import { defineSchedule } from 'vite-hub/schedule'
-import { cleanupLabeller } from '@vite-hub/presets/labeller'
+import { cleanupLabeller } from 'vite-hub/presets/labeller'
 import inbox from '../agents/inbox'
 
 export default defineSchedule({
@@ -94,13 +98,15 @@ export default defineSchedule({
 })
 ```
 
-`cleanupLabeller()` searches `label:"<label>" older_than:<days>d -is:starred -in:trash` for each rule and returns the matching message IDs. It moves them to Trash only when you pass `apply: true` and the Agent has `dryRun: false`. Otherwise the result is a preview. `trashEnabled` does not affect cleanup; it gates only the `trash` action of rules and labels.
+For each rule, `cleanupLabeller()` searches `label:"<label>" older_than:<days>d -is:starred -in:trash` and returns the message IDs. It moves them to Trash only with `apply: true` and `dryRun: false` on the Agent. Otherwise it is a preview. `trashEnabled` does not affect cleanup. It controls only the `trash` action of rules and labels.
 
-Each run moves at most 500 messages per rule, so a large backlog takes several runs. `manual: true` lets `vitehub schedule run cleanup` start a run now. To use the rules with another Gmail Channel, call `cleanupGmailChannel(channel, { rules, apply })` from `vite-hub/agent/channels`.
+- Each run moves at most 500 messages per rule, so a large backlog takes several runs.
+- `manual: true` lets `vitehub schedule run cleanup` start a run now.
+- For another Gmail Channel, call `cleanupGmailChannel(channel, { rules, apply })` from `vite-hub/agent/channels`.
 
 ## Label older mail
 
-The Gmail Channel already exposes history replay, so no application script is needed. Start with a dry run:
+The Gmail Channel has history replay, so you need no script. Start with a dry run:
 
 ```sh
 vitehub channels replay \
@@ -111,6 +117,7 @@ vitehub channels replay \
   --dry-run
 ```
 
-Inspect the result before any live run. `channels replay` is live when `--dry-run` is absent, so remove that flag only for an intentional apply. `--force` is only for intentionally repeating completed invocations. Replay uses the same Gmail history collection and trigger as new mail, and the CLI reports IDs and statuses without printing message bodies.
+Check the result before a live run. Without `--dry-run`, `channels replay` changes Gmail. Use `--force` only to repeat completed invocations on purpose. Replay uses the same Gmail history collection and trigger as new mail. The CLI prints IDs and statuses, not message bodies.
 
-The preset sends bounded message bodies to the configured Jev provider. Treat email as untrusted data; Gmail Channel instructions explicitly prevent email content from becoming Agent instructions.
+> [!WARNING]
+> The preset sends size-limited message bodies to your Jev provider. Treat email as untrusted data. Gmail Channel instructions stop email content from becoming Agent instructions.

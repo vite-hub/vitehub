@@ -1,6 +1,6 @@
 ---
 title: Sandbox server API
-description: Run Sandbox Task Definitions from server code with runSandboxTask(), and read the result, output, and errors of each run.
+description: Run Sandbox Tasks from server code with runSandboxTask() and read each run's result and errors.
 navigation.title: Server API
 navigation.order: 5
 icon: i-lucide-code-2
@@ -10,21 +10,21 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `runSandboxTask` from `@vite-hub/sandbox/task` | Invoke a discovered Definition by name. Returns a native `Response`. |
-| `defineSandboxTask` from `@vite-hub/sandbox/task` | Declare a free-form `<path>.sandbox-task.ts` Definition. |
-| `resolveSandboxTaskRunner` from `@vite-hub/sandbox/task` | Resolve a runner and read its `executionAuthority` before execution. |
-| `readRequestPayload`, `readValidatedPayload` from `@vite-hub/sandbox/task` | Read the JSON body of a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, then validate it with a Standard Schema or a validation function. |
-| `hubSandboxTask` from `@vite-hub/sandbox/task/vite` | Register discovery, types, package preparation, and Provider Output. |
+| `runSandboxTask` from `vite-hub/sandbox/task` | Run a task by name. Returns a native `Response`. |
+| `defineSandboxTask` from `vite-hub/sandbox/task` | Declare a free-form `<path>.sandbox-task.ts` task. |
+| `resolveSandboxTaskRunner` from `vite-hub/sandbox/task` | Get a runner and read its `executionAuthority` before execution. |
+| `readRequestPayload`, `readValidatedPayload` from `vite-hub/sandbox/task` | Read the JSON body of a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, then validate it with a Standard Schema or a function. |
+| `hubSandboxTask` from `@vite-hub/sandbox/task/vite` | Add discovery, types, package setup, and Provider Output (generated host files). |
 
-Applications that use the `vite-hub` distribution import the same runtime APIs from `vite-hub/sandbox/task`.
+With the `vite-hub` package, import the same runtime APIs from `vite-hub/sandbox/task`.
 
 ## Run a Sandbox Task
 
-`runSandboxTask(name, payload?, options?)` infers its payload type from the default function and returns a native Web `Response`. A zero-argument function accepts an `unknown` payload.
+`runSandboxTask(name, payload?, options?)` takes its payload type from the default function and returns a native `Response`. A function with no arguments accepts an `unknown` payload.
 
 ```ts [server/api/release-notes-json.post.ts]
 import { defineEventHandler } from 'h3'
-import { runSandboxTask } from '@vite-hub/sandbox/task'
+import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineEventHandler(async () => {
   const response = await runSandboxTask('release-notes', { notes: 'ship it' }, {
@@ -38,10 +38,10 @@ export default defineEventHandler(async () => {
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `context` | `Record<string, unknown>` | Second argument passed to the entrypoint. |
-| `signal` | `AbortSignal` | Abort the invocation. The caller's abort reason is preserved; this also stops cancellable provider operations. |
-| `sandboxId` | `string` | Cloudflare only. Reuse a named Sandbox instead of a new Sandbox for each run. |
+| `context` | `Record<string, unknown>` | Second argument of the entry point. |
+| `signal` | `AbortSignal` | Cancel the run. Keeps your abort reason and stops provider work that can stop. |
+| `sandboxId` | `string` | Cloudflare only. Reuse a named Sandbox instead of a new one per run. |
 
-Payloads, context, and results use JSON serialization. Nested `Blob` and `Uint8Array` values cross the Sandbox boundary through invocation-local Sandbox files, so you do not convert them to base64. Node.js `Buffer` values keep their `Buffer` type.
+Payloads, context, and results are JSON. Nested `Blob` and `Uint8Array` values travel as files in the Sandbox, so you do not convert them to base64. Node.js `Buffer` values stay `Buffer`.
 
-Failures, including timeouts and cleanup failures, return a non-2xx JSON `Response`. A timed-out attempt returns the `SANDBOX_TASK_TIMEOUT` code.
+Failures, including timeouts and cleanup failures, return a non-2xx JSON `Response`. A timed-out attempt has the `SANDBOX_TASK_TIMEOUT` code.

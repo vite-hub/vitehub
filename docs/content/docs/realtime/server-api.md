@@ -10,40 +10,40 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineRealtime` from `vite-hub/realtime` | Declare a discovered Realtime Definition. |
-| `defineRealtimeEditor`, `realtimeMarkdownEditor` from `vite-hub/realtime` | Declare an editor schema and Markdown codec, or reuse the built-in kit. |
+| `defineRealtime` from `vite-hub/realtime` | Declare a room file in `server/realtime`. |
+| `defineRealtimeEditor`, `realtimeMarkdownEditor` from `vite-hub/realtime` | Declare an editor schema and Markdown codec, or use the built-in kit. |
 | `RealtimeDocumentConflict` from `vite-hub/realtime` | Throw from a document adapter when `ifDigest` no longer matches. |
-| `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read the `body`, `fields`, and `status` root types of a room document. |
+| `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read a room document's `body`, `fields`, and `status` root types. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
-| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
-| `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell the open room of a document that its stored copy changed. |
-| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check whether this build has a room authority. See [Builds without Realtime](/docs/realtime/configure#builds-without-realtime). |
-| `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, for wrapping or composing. |
-| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one private Blob file. See [Blob documents](#blob-documents). |
-| `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server integration. The ViteHub integration generates this route for normal applications. |
+| `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
+| `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
+| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
+| `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
+| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one private Blob file ([Blob documents](#blob-documents)). |
+| `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server setup. ViteHub generates this route for normal apps. |
 
-The integration generates `.vitehub/nitro/realtime/registry.mjs` and
-`.vitehub/nitro/realtime/handler.ts`. Treat both as inspectable build output,
-not application imports.
+ViteHub generates `.vitehub/nitro/realtime/registry.mjs` and
+`.vitehub/nitro/realtime/handler.ts`. Read them to inspect the build, but do
+not import them.
 
 ## How a room keeps state
 
-The room's Yjs state is the source of truth while the room is open. Realtime
-loads the stored document once, when the room opens, and then only saves to it.
-It never rebuilds a Yjs document from Markdown for clients that already hold
-state: merging two independently built documents duplicates their content.
+While a room is open, its Yjs state is the source of truth. Realtime loads
+the stored document once, when the room opens, and then only saves to it. It
+never rebuilds a Yjs document from Markdown for clients that already have
+state, because merging two separately built documents duplicates content.
 
 When the stored document changes outside the room, Realtime re-seeds the room
-from the new version and resets every client. A reset closes the connection;
-the Vue composable drops its Y.Doc, reports the reset, and reconnects with an
+from the new version and resets every client. A reset closes the connection.
+The Vue composable drops its Y.Doc, reports the reset, and reconnects with an
 empty one.
 
 ## Custom document adapters
 
 `document: { workspace: 'docs' }` stores each path as a Markdown file in a
-Workspace working tree. Pass an adapter object to store documents anywhere
-else. Realtime calls it with plain snapshots; your storage stays a copy synced
-from the room.
+Workspace working tree. To store documents elsewhere, pass an adapter object.
+Realtime calls it with plain snapshots. Your storage stays a copy synced from
+the room.
 
 ```ts [server/realtime/pages.ts]
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
@@ -68,30 +68,33 @@ export default defineRealtime({
 | Member | Contract |
 | --- | --- |
 | `load(context)` | Returns `{ body, fields?, digest }`. `digest: null` means the document does not exist yet. Called when a room opens and on `refresh()`. |
-| `save(context, { body, fields }, options)` | Stores the snapshot only if the stored digest equals `options.ifDigest`; otherwise throws `RealtimeDocumentConflict` (a Workspace conflict also counts). Returns `{ digest, issues?, stored? }`. |
-| `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, keeping concurrent edits and without a reset. Omit `fields` to leave live fields untouched. |
-| `issues` | Validation problems that did not block the save. They appear in the room `status` map. |
+| `save(context, { body, fields }, options)` | Stores the snapshot only if the stored digest equals `options.ifDigest`. Else throws `RealtimeDocumentConflict` (a Workspace conflict also counts). Returns `{ digest, issues?, stored? }`. |
+| `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. |
+| `issues` | Validation problems that did not block the save. They show in the room `status` map. |
 | `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. |
-| `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to keep a lease. A thrown error shows in the room `status` until a later call succeeds. |
+| `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to hold a lease. A thrown error shows in the room `status` until a later call works. |
 | `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
 
 `context` is `{ authority, definition, documentId }`. `authority` is `memory`
-or `cloudflare`, so an adapter can refuse an ephemeral store behind a durable
-room. `options` is `{ ifDigest, reason, user, editors }`: `reason` is `idle`,
-`leave`, or `request`; `user` is the latest identified editor; `editors` lists
-every identified user who changed the room since the previous save.
+or `cloudflare`, so an adapter can refuse a temporary store behind a durable
+room. `options` is `{ ifDigest, reason, user, editors }`:
+
+- `reason` is `idle`, `leave`, or `request`.
+- `user` is the latest identified editor.
+- `editors` lists every identified user who changed the room since the last
+  save.
 
 Adapters run inside the room authority. On Cloudflare that is the Durable
 Object, so bindings come from its environment.
 
 ### Blob documents
 
-`blobDocument(store, { prefix, contentType })` stores each document as one
-private Blob file at `prefix + documentId`, with the body as its content. The
-digest is the SHA-256 of the body. `contentType` defaults to
-`text/markdown; charset=utf-8`. A `%` in the document id stays a literal `%`
-in the Blob pathname, so `a%2Fb.md` and `a/b.md` are two files.
+`blobDocument(store, { prefix, contentType })` stores each document's body as
+one private Blob file at `prefix + documentId`. The digest is the SHA-256 of
+the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
+the document id stays a literal `%` in the Blob pathname, so `a%2Fb.md` and
+`a/b.md` are two files.
 
 ```ts [server/realtime/drafts.ts]
 import { blob } from 'vite-hub/blob'
@@ -103,18 +106,22 @@ export default defineRealtime({
 })
 ```
 
-`save()` reads the stored file first and throws `RealtimeDocumentConflict`
-when it changed, was created, or was deleted after the room loaded it. Blob
-has no conditional write, so a write from outside the room between that read
-and the save's write is lost. After you change the file outside the room, call
-`refreshRealtimeDocument()` so the room loads it.
+`save()` reads the stored file first. It throws `RealtimeDocumentConflict`
+when the file changed, was created, or was deleted after the room loaded it.
+
+> [!WARNING]
+> Blob has no conditional write. An outside write between that read and the
+> save's write is lost.
+
+After you change the file outside the room, call `refreshRealtimeDocument()`
+so the room loads it.
 
 ## Editor codecs
 
 The editor codec owns the schema and the Markdown conversion. The server
-builds the ProseMirror schema from `extensions()` and calls the codec; it never
+builds the ProseMirror schema from `extensions()` and calls the codec. It never
 creates an editor view, so a codec must not depend on the DOM. All functions
-may be async.
+can be async.
 
 ```ts [shared/editor.ts] fragment
 import { defineRealtimeEditor } from 'vite-hub/realtime'
@@ -128,22 +135,22 @@ export const pagesEditor = defineRealtimeEditor({
 
 Use it in the definition with `editor: pagesEditor` and in the browser with
 `useRealtimeTiptap('pages', id, { editor: pagesEditor })`. Both sides must
-use the same extensions. `editor` may also be a function of the document
-context, such as `({ documentId }) => editorFor(documentId)`, when documents
-of one definition use different schemas. Content uses it for one codec per
-collection; see [Edit Content together](/docs/content/editing-together#live-editing). Without `editor`, Realtime uses `realtimeMarkdownEditor`:
-StarterKit, images, tables, and raw YAML frontmatter as an atom node, parsed
-by `@tiptap/markdown`.
+use the same extensions. When documents of one definition use different
+schemas, `editor` can be a function of the document context, such as
+`({ documentId }) => editorFor(documentId)`. Content uses this for one codec
+per collection ([Edit Content together](/docs/content/editing-together#live-editing)).
+Without `editor`, Realtime uses `realtimeMarkdownEditor`: StarterKit, images,
+tables, and raw YAML frontmatter as an atom node, parsed by `@tiptap/markdown`.
 
-A lossless codec makes `toMarkdown(fromMarkdown(x)) === x` for documents your
-users write. Realtime only converts at seed and save time, so a lossy codec
+A lossless codec gives `toMarkdown(fromMarkdown(x)) === x` for your users'
+documents. Realtime converts only at seed and save time, so a lossy codec
 changes stored formatting on the first save, not on every keystroke.
 
 ### Guard documents the codec cannot keep
 
 Most codecs normalize some Markdown and lose some. For example, a codec can
-drop an undeclared `::callout` wrapper or unwrap raw HTML. A room autosaves,
-so the first save after any edit would rewrite the stored document. Add
+drop an undeclared `::callout` wrapper or unwrap raw HTML. A room saves on its
+own, so the first save after any edit rewrites the stored document. Add
 `verify()` to tell Realtime what the codec does with a stored document:
 
 ```ts [shared/editor.ts] fragment
@@ -161,21 +168,21 @@ export const pagesEditor = defineRealtimeEditor({
 
 | Result | Effect |
 | --- | --- |
-| `writable: false` | The whole room opens read-only, body and fields. `status.error` explains it and `status.issues` holds the `issues`. The room never saves; `save()` and `history.checkpoint()` answer `409` with `REALTIME_READ_ONLY`; a client update closes the connection with `4403`. |
-| `canonical` | The body the codec writes for the unchanged document. A save whose body equals it, with unchanged fields, writes nothing, so opening and editing back to the start does not rewrite `* item` as `- item`. |
+| `writable: false` | The whole room opens read-only, body and fields. `status.error` explains why, and `status.issues` holds the `issues`. The room never saves. `save()` and `history.checkpoint()` answer `409` with `REALTIME_READ_ONLY`. A client update closes the connection with `4403`. |
+| `canonical` | The body the codec writes for the unchanged document. A save with this body and unchanged fields writes nothing, so editing back to the start does not rewrite `* item` as `- item`. |
 | `issues` | Shown in `status.issues` until the first save. |
 
 Realtime calls `verify(body, { fields })` each time it seeds a room from the
-stored document: when the room opens and after a re-seed. `refresh()` after a
-fix to the stored document re-seeds the room, so it can become writable.
+stored document: when the room opens and after a re-seed. After you fix the
+stored document, `refresh()` re-seeds the room, so it can become writable.
 
 Realtime also guards every save, with or without `verify()`:
 
-- It parses the Markdown it is about to save. When `fromMarkdown(toMarkdown(doc))`
+- It parses the Markdown it is about to save. If `fromMarkdown(toMarkdown(doc))`
   differs from the room body, it saves anyway and adds an entry to
   `status.issues`.
-- When the stored body ends with a newline and the codec output does not,
-  Realtime adds the newline back.
+- If the stored body ends with a newline and the codec output does not,
+  Realtime adds it back.
 
 ## Structured documents
 
@@ -184,7 +191,7 @@ Every room document has three root types, named in `realtimeDocumentLayout`:
 | Root | Type | Written by |
 | --- | --- | --- |
 | `body` | `Y.XmlFragment` | Clients, through TipTap Collaboration. |
-| `fields` | `Y.Map` with one JSON value per field | Clients. Concurrent writes to the same field resolve last-write-wins; different fields never conflict. |
+| `fields` | `Y.Map` with one JSON value per field | Clients. For two writes to the same field at once, the last write wins. Different fields never conflict. |
 | `status` | `Y.Map`: `digest`, `error`, `issues`, `savedAt`, `savedBy` | The server only. `error` also holds the read-only reason from `verify()`. |
 
 ```ts
@@ -200,13 +207,13 @@ realtime.readOnlyReason.value // 'access', 'document', or null
 
 `readOnlyReason` is `access` when `authorize` denied write, and `document`
 when `verify()` returned `writable: false`. Pass `editable: !readOnly` to the
-editor and show `saveStatus.error` for the `document` reason.
+editor, and show `saveStatus.error` for the `document` reason.
 
-`status` lives in the Yjs document so it arrives in order with the content it
-describes, survives a Durable Object restart, and is readable with plain Yjs.
-The server checks every client update against a copy of the room and closes
-the connection with code `4403` when an update changes `status`. Write whole
-values to a field; nested objects inside a field are replaced, not merged.
+`status` lives in the Yjs document, so it arrives in order with its content,
+survives a Durable Object restart, and plain Yjs can read it.
+The server checks each client update against a copy of the room, and closes
+the connection with `4403` when an update changes `status`. Write whole values
+to a field. Nested objects in a field are replaced, not merged.
 
 ## Identity and authorization
 
@@ -224,32 +231,32 @@ export default defineRealtime({
 
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Resolves the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests whose `Origin` differs from the application origin are rejected with 403. Behind a TLS-terminating proxy, the application origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
-| `auth: true` | Requires an identified user (401 otherwise). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
-| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
+| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
+| `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
+| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
 `event` is the request event of the WebSocket upgrade or HTTP request, a `RealtimeRequestEvent`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/reference/runtime-context#standard-context).
 
-An identified user replaces the client's `user` presence field, so names and
-avatars cannot be forged. Without an identity, presence is client-asserted.
+An identified user replaces the client's `user` presence field, so nobody can
+fake names and avatars. Without an identity, the client sets its own presence.
 
-In the browser, pass `identity` to `useRealtimeTiptap` when presence should
-come from another session than ViteHub Auth. Server identity still wins.
+In the browser, pass `identity` to `useRealtimeTiptap` when presence comes
+from a session other than ViteHub Auth. Server identity still wins.
 
 ## Carets
 
-`realtime.extensions` includes other people's carets and selections, drawn in
-each person's presence color. They render with TipTap's CollaborationCaret
-classes: `collaboration-carets__caret`, `collaboration-carets__label`, and
-`ProseMirror-yjs-selection`. TipTap ships no styles for them, and
-`@vite-hub/ui` styles them in `styles.css`.
+`realtime.extensions` includes other people's carets and selections, in each
+person's presence color. They use TipTap's CollaborationCaret classes:
+`collaboration-carets__caret`, `collaboration-carets__label`, and
+`ProseMirror-yjs-selection`. TipTap ships no styles for them. `@vite-hub/ui`
+styles them in `styles.css`.
 
 Do not add `@tiptap/extension-collaboration-caret` next to Realtime. It has its
-own copy of y-tiptap, so it cannot find the sync plugin that Realtime installs,
-and it draws nothing. To change the markup, pass `render` and `selectionRender`
-in `carets`. They take the same arguments as in TipTap's CollaborationCaret.
-`render` builds the caret element, and `selectionRender` returns the decoration
-attributes of a selection. An option that you leave out keeps the default.
+own copy of y-tiptap, so it cannot find Realtime's sync plugin and draws
+nothing. To change the markup, pass `render` and `selectionRender` in `carets`,
+with the same arguments as in TipTap's CollaborationCaret. `render` builds the
+caret element. `selectionRender` returns a selection's decoration attributes.
+Options you leave out keep the default.
 
 ```ts fragment
 const realtime = useRealtimeTiptap('docs', 'guides/welcome.md', {
@@ -267,17 +274,17 @@ const editor = useEditor({ extensions: realtime.extensions.value })
 ```
 
 `realtime.extensions` binds the carets to the current document. It is empty
-during SSR and while the document id is empty, and it changes when the
-document changes, so create the editor again for each document. Pass
-`carets: false` to leave the carets out.
+during SSR and while the document id is empty. It changes with the document,
+so create the editor again for each document. Pass `carets: false` to leave
+carets out.
 
 ## Presence without an editor
 
-`connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document, and it has no Vue dependency. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
+`connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document and needs no Vue. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
 ```ts fragment
-import { connectRealtimeRoom } from '@vite-hub/realtime/client'
-import { commentRoom, normalizeCommentPage } from '@vite-hub/comments'
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+import { commentRoom, normalizeCommentPage } from 'vite-hub/comments'
 
 const page = normalizeCommentPage(location.pathname)
 const room = connectRealtimeRoom('comments', commentRoom(page), { changes: true, params: { page } })
@@ -296,20 +303,23 @@ room.onChange(change => reload(change))
 | `onUpdate(listener)` | Runs when people, their fields, or the status change. Returns a function that removes it. |
 | `destroy()` | Leaves the room. |
 
-`identity` sets the person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
+`identity` sets who this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
 
-`params` sends query parameters on presence and workspace connections, so a definition can check context such as the current page. The definition must verify that context against the requested document before granting access.
+`params` sends query parameters on presence and workspace connections, so a definition can check context such as the current page.
+
+> [!WARNING]
+> The definition must check that context against the requested document before it grants access.
 
 ## Saves, refresh, and resets
 
 | Client call | Endpoint | Result |
 | --- | --- | --- |
-| Idle save | none | 2 s after the last edit, at most 10 s, and when the last client leaves. See [Configure](/docs/realtime/configure#control-saves). |
+| Idle save | none | 2 s after the last edit, at most 10 s, and when the last client leaves ([Configure](/docs/realtime/configure#control-saves)). |
 | `realtime.save()` | `POST …?document=save` | Saves now, including every edit this client sent. Returns `[error, saved]`, where `saved` is `{ digest, document, issues, savedAt, savedBy, error }`. |
 | `realtime.refresh()` | `POST …?document=refresh` | Reloads the stored digest. If it changed, re-seeds the room and resets clients. Returns `[error, { digest, reseeded }]`. |
-| `realtime.history.checkpoint()` | `POST …?history=checkpoint` | Saves, then records a history entry through the adapter, in one room operation. Returns `[error, checkpoint]`, where `checkpoint` is the save plus `snapshot`. |
+| `realtime.history.checkpoint()` | `POST …?history=checkpoint` | Saves, then records a history entry through the adapter, in one room operation. Returns `[error, checkpoint]`: the save plus `snapshot`. |
 
-Each call returns `[error, data]` and does not throw. `error.code` is a `RealtimeRequestErrorCode`; see [Realtime limits and errors](/docs/realtime/limits-and-errors).
+Each call returns `[error, data]` and does not throw. `error.code` is a `RealtimeRequestErrorCode` ([Realtime limits and errors](/docs/realtime/limits-and-errors)).
 
 ```ts fragment
 const [error, saved] = await realtime.save()
@@ -318,14 +328,14 @@ else console.log(saved.digest)
 ```
 
 Save and checkpoint requests send the client's Yjs state. The server answers
-`409` with `REALTIME_SYNC_PENDING` until it has received that state; the
-composable retries. A save or checkpoint that finds the stored document
-changed answers `409` with `REALTIME_SOURCE_CHANGED` after re-seeding the room.
+`409` with `REALTIME_SYNC_PENDING` until it has that state, and the composable
+retries. If a save or checkpoint finds the stored document changed, it
+re-seeds the room and answers `409` with `REALTIME_SOURCE_CHANGED`.
 
-When the server changes a stored document itself, for example in a route
-that an Agent calls, call `refreshRealtimeDocument(definition, documentId)`
-after the write. The open room re-seeds and resets its clients at once, so
-people see the change without a `refresh()` from the browser:
+When server code changes a stored document, for example in a route that an
+Agent calls, call `refreshRealtimeDocument(definition, documentId)` after the
+write. The open room re-seeds and resets its clients at once, so people see
+the change without a browser `refresh()`:
 
 ```ts [server/api/pages/[id].put.ts] fragment
 import { refreshRealtimeDocument } from 'vite-hub/realtime/server'
@@ -334,13 +344,13 @@ await db.pages.update(id, { body })
 await refreshRealtimeDocument('pages', id)
 ```
 
-It resolves `true` when a room re-seeded and never throws. A room with unsaved
-edits finds the change at its next save, and a room that is not open loads the
-new copy when it opens. On Cloudflare it reaches the rooms through the Worker's
-`$DurableObject` binding; pass `{ durableObjects }` only to use another one.
+It resolves `true` when a room re-seeded, and never throws. A room with
+unsaved edits finds the change at its next save. A room that is not open loads
+the new copy when it opens. On Cloudflare it reaches rooms through the Worker's
+`$DurableObject` binding. Pass `{ durableObjects }` only to use another one.
+Content calls it after every save from outside a live room.
 
-Listen for resets to tell people what happened and to recover text that the
-room never saved:
+Listen for resets to tell people what happened and recover unsaved text:
 
 ```ts fragment
 realtime.onReset(({ reason, previous }) => {
@@ -349,32 +359,25 @@ realtime.onReset(({ reason, previous }) => {
 })
 ```
 
-After a reset `realtime.document` and `realtime.extensions` point to a new
-document. Recreate the editor when `document` changes, as for a document
+After a reset, `realtime.document` and `realtime.extensions` point to a new
+document. Create the editor again when `document` changes, as for a document
 switch.
-
-Server code tells a room that its stored copy changed outside it with
-`refreshRealtimeDocument(definition, documentId)` from `vite-hub/realtime/server`.
-An open room without unsaved edits re-seeds at once; a room with unsaved
-edits finds the change at its next save. On Cloudflare pass
-`{ durableObjects: env.$DurableObject }` to reach the room's Durable Object.
-Content calls it after every save from outside a live room.
 
 ## Workspace documents and history
 
 With `document: { workspace }`, saves write the Markdown file to the Workspace
-working tree with `ifDigest`, keeping its media type and metadata. Workspace
-hooks may normalize the file; Realtime merges the stored form back into the
-room. Saves require a Workspace Store with conditional writes. A Cloudflare
-room also requires a durable Workspace Store.
+working tree with `ifDigest`, and keep its media type and metadata. Workspace
+hooks can normalize the file. Realtime merges the stored form back into the
+room. Saves need a Workspace Store with conditional writes. A Cloudflare room
+also needs a durable Workspace Store.
 
 `history.checkpoint()` commits the working tree to Workspace history. The
-commit includes every staged path, including other documents saved by their
-rooms. If Workspace history moved, Realtime rebases onto the remote head and
-retries; a path changed both locally and remotely takes the remote version and
-re-seeds the room.
+commit includes every staged path, also other documents saved by their rooms.
+If Workspace history moved, Realtime rebases onto the remote head and retries.
+A path changed both locally and remotely takes the remote version and re-seeds
+the room.
 
-Disabling the composable destroys its document provider, disconnects Workspace
-events, clears queued notifications, and makes requests return
-`REALTIME_DISABLED`. Enabling it reconnects both providers for the current
+Turning the composable off destroys its document provider, disconnects
+Workspace events, clears queued notifications, and makes requests return
+`REALTIME_DISABLED`. Turning it on reconnects both providers for the current
 document.

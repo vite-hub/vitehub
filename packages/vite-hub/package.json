@@ -728,6 +728,11 @@
       "import": "./dist/email/server.js",
       "default": "./dist/email/server.js"
     },
+    "./email/test": {
+      "types": "./dist/email/test.d.ts",
+      "import": "./dist/email/test.js",
+      "default": "./dist/email/test.js"
+    },
     "./env": {
       "types": "./dist/env.d.ts",
       "import": "./dist/env.js",
@@ -783,6 +788,26 @@
       "import": "./dist/env/server.js",
       "default": "./dist/env/server.js"
     },
+    "./forms": {
+      "types": "./dist/forms.d.ts",
+      "import": "./dist/forms.js",
+      "default": "./dist/forms.js"
+    },
+    "./forms/client": {
+      "types": "./dist/forms/client.d.ts",
+      "import": "./dist/forms/client.js",
+      "default": "./dist/forms/client.js"
+    },
+    "./forms/database": {
+      "types": "./dist/forms/database.d.ts",
+      "import": "./dist/forms/database.js",
+      "default": "./dist/forms/database.js"
+    },
+    "./forms/runtime": {
+      "types": "./dist/forms/runtime.d.ts",
+      "import": "./dist/forms/runtime.js",
+      "default": "./dist/forms/runtime.js"
+    },
     "./gateways": {
       "types": "./dist/gateways.d.ts",
       "import": "./dist/gateways.js",
@@ -828,10 +853,25 @@
       "import": "./dist/rate-limit.js",
       "default": "./dist/rate-limit.js"
     },
+    "./rate-limit/drivers/cloudflare": {
+      "types": "./dist/rate-limit/drivers/cloudflare.d.ts",
+      "import": "./dist/rate-limit/drivers/cloudflare.js",
+      "default": "./dist/rate-limit/drivers/cloudflare.js"
+    },
+    "./rate-limit/drivers/memory": {
+      "types": "./dist/rate-limit/drivers/memory.d.ts",
+      "import": "./dist/rate-limit/drivers/memory.js",
+      "default": "./dist/rate-limit/drivers/memory.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
+    },
+    "./realtime/client": {
+      "types": "./dist/realtime/client.d.ts",
+      "import": "./dist/realtime/client.js",
+      "default": "./dist/realtime/client.js"
     },
     "./realtime/server": {
       "types": "./dist/realtime/server.d.ts",
@@ -1133,6 +1173,11 @@
       "import": "./dist/workflow.js",
       "default": "./dist/workflow.js"
     },
+    "./workflow/openworkflow": {
+      "types": "./dist/workflow/openworkflow.d.ts",
+      "import": "./dist/workflow/openworkflow.js",
+      "default": "./dist/workflow/openworkflow.js"
+    },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js",
@@ -1402,6 +1447,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
@@ -1484,6 +1530,7 @@
     "@vite-hub/decisions": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/forms": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -1507,6 +1554,7 @@
     "dropbox": "catalog:storage",
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",
+    "openworkflow": "catalog:workflow",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",
@@ -1606,6 +1654,9 @@
     "@vite-hub/email": {
       "optional": true
     },
+    "@vite-hub/forms": {
+      "optional": true
+    },
     "@vite-hub/gateways": {
       "optional": true
     },
@@ -1673,6 +1724,9 @@
       "optional": true
     },
     "google-auth-library": {
+      "optional": true
+    },
+    "openworkflow": {
       "optional": true
     },
     "playwright-core": {
