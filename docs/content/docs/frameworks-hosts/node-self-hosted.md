@@ -161,6 +161,7 @@ starting the built server, not only by typechecking.
 
 ## Next steps
 
+- Run the app on several instances with Postgres: [Several Node instances](/docs/frameworks-hosts/node-instances).
 - Read [Production deployment](/docs/frameworks-hosts/production) before you serve traffic.
 - See [Runtime and host support](/docs/frameworks-hosts/support-matrix) for remote providers on Node.
 - See [Config options](/docs/reference/config-options) for local and hosted providers.
