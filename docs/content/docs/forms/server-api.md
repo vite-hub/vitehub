@@ -17,7 +17,7 @@ icon: i-lucide-code
 | `rateLimit` | `{ limit: 5, window: "1m" }` | A budget for each sender address. `false` turns it off. |
 | `honeypot` | `"website"` | A field that bots fill. A filled field gets `202` and is not stored. `false` turns it off. |
 | `maxBytes` | 64 KB | The largest body. |
-| `origins` | the app's origin | Other origins that may post. |
+| `origins` | the app's origin | Other origins that may post an HTML form. The route sends no CORS headers, so `fetch` works only from the app's origin. Behind a TLS proxy, the app's origin comes from `X-Forwarded-Proto` and `X-Forwarded-Host`. |
 | `store` | `true` | Keep messages in the Database. With `false`, set `notify` or `onSubmit`. |
 | `notify.email` | none | `{ to, from?, subject?, replyTo? }`. `replyTo` names the field that holds the sender's email. |
 | `onSubmit` | none | Runs after validation and before the message is stored. Return a `Response` to answer with it and store nothing. |
@@ -77,7 +77,7 @@ import { guardRequest } from '@vite-hub/forms/guard'
 const [stopped, guarded] = await guardRequest(request, {
   key: 'votes',
   rateLimit: { limit: 10, window: '1h' },
-  // Runs before the rate limit and the body. Return a status and a message to stop the request.
+  // Runs before the rate limit and the body, with a copy of the request. Return a status and a message to stop it.
   check: async request => await signedIn(request) ? undefined : { status: 401, message: 'Sign in to vote.' },
 }, { rateLimit: countRequests })
 if (stopped) return stopped

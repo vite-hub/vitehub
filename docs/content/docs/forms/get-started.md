@@ -24,18 +24,24 @@ pnpm add -D drizzle-kit
 ::tutorial-step{title="Write the form"}
 ## Write the form
 
+Write the schema in `shared/schemas.ts`, so the server and, later, the page use the same one:
+
+```ts [shared/schemas.ts] fragment
+import * as v from 'valibot'
+
+export const ContactSchema = v.object({
+  email: v.pipe(v.string(), v.email('Enter a valid email.')),
+  message: v.pipe(v.string(), v.trim(), v.minLength(10, 'Tell me a little more.'), v.maxLength(5000)),
+})
+```
+
 Create `server/forms/contact.ts`. The file name is the form name.
 
 ```ts [server/forms/contact.ts] fragment
-import * as v from 'valibot'
 import { defineForm } from 'vite-hub/forms'
+import { ContactSchema } from '../../shared/schemas'
 
-export default defineForm({
-  schema: v.object({
-    email: v.pipe(v.string(), v.email('Enter a valid email.')),
-    message: v.pipe(v.string(), v.trim(), v.minLength(10, 'Tell me a little more.'), v.maxLength(5000)),
-  }),
-})
+export default defineForm({ schema: ContactSchema })
 ```
 
 The folder `server/forms/` turns the Database on when you did not set `database`. Forms adds its table to the default Database. Write and apply the migration:
@@ -94,6 +100,9 @@ vitehub forms mark 72838d15-a93e-481a-9ede-af489f6fff06 done
 Turn on [Email](/docs/email), then add `notify`. A reply goes to the address that the sender typed:
 
 ```ts [notify/server/forms/contact.ts] fragment
+import { defineForm } from 'vite-hub/forms'
+import { ContactSchema } from '../../shared/schemas'
+
 export default defineForm({
   schema: ContactSchema,
   notify: { email: { to: 'you@example.com', replyTo: 'email' } },
@@ -107,12 +116,12 @@ The message is stored first. When the email fails, the message stays in the inbo
 ::tutorial-step{title="Draw the form"}
 ## Draw the form
 
-In a Vue app, install `@formisch/vue` and draw the form from the same schema. Put the schema in `shared/` so the client and the server import it:
+In a Vue app, install `@formisch/vue` and draw the form from the same schema:
 
 ```vue [app/components/ContactForm.vue] fragment
 <script setup lang="ts">
 import { AutoForm } from 'vite-hub/forms/vue'
-import { ContactSchema } from '#shared/schemas'
+import { ContactSchema } from '../../shared/schemas'
 </script>
 
 <template>
