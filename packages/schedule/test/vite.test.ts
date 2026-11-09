@@ -48,9 +48,12 @@ describe("Vite schedule integration", () => {
 
   it("collects provider import aliases without a Workflow plugin", async () => {
     const root = await temporaryDirectory("vitehub-schedule-provider-aliases-")
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
     const getImportAliases = vi.fn(async () => ({}))
-    const plugin = hubSchedule()
+    const plugin = hubSchedule({ providerOutput: "standalone" })
 
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)({ root }, { command: "build", mode: "production" })
     await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist" },
       command: "build",
@@ -63,6 +66,24 @@ describe("Vite schedule integration", () => {
     await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 
     expect(getImportAliases).toHaveBeenCalledOnce()
+  })
+
+  it("does not collect provider import aliases when no Schedule needs provider functions", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-provider-aliases-")
+    const getImportAliases = vi.fn(async () => ({}))
+    const plugin = hubSchedule()
+
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      plugins: [{ vitehub: { providerOutput: { getImportAliases } } }],
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
+
+    expect(getImportAliases).not.toHaveBeenCalled()
   })
 
   it("runs before downstream framework integrations that consume Provider Output config", () => {
