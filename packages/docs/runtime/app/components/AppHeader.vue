@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { docsHomePath, isDocsPath } from "#docs/navigation"
+import { docsHomePath, isDocsPath, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const { base, github, site, socials, start } = useDocsConfig()
-const docsHome = docsHomePath(useDocsManifest())
+const docsHome = docsHomePath(useDocsManifest(), start)
 // Docs routes and the start links use the docs shell. There the brand opens the docs home, like a docs site logo,
 // and the menu shows the docs sidebar. Elsewhere the brand opens the home page.
 // The header is the same on every page: the brand, search in the middle, and the site's links and controls.
@@ -14,10 +14,10 @@ const menuOpen = ref(false)
 // Nuxt turns a `null` in runtime config into "", so only a number counts.
 const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
 
-// A site without docs pages has no "Docs" link.
+// A site without docs pages has no "Docs" link. A start link that "Docs" already opens would repeat it.
 const navLinks = [
   ...docsHome ? [{ label: "Docs", to: docsHome }] : [],
-  ...(start?.links ?? []).filter(link => link.to !== base).map(link => ({ label: link.label, to: link.to })),
+  ...(start?.links ?? []).filter(link => link.to !== base && normalizeDocsPath(link.to) !== docsHome).map(link => ({ label: link.label, to: link.to })),
 ]
 
 const mobileLinks = [
