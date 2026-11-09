@@ -8,6 +8,7 @@ import { createBuilder } from "vite"
 import { expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import { productionConsole } from "./support/console-authorize.ts"
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -28,7 +29,7 @@ it("starts a KV app with the Console from the Node output", async () => {
     await mkdir(join(root, "server/api"), { recursive: true })
     await writeFile(join(root, "server/api/health.get.ts"), "import { defineEventHandler } from \"h3\"\n\nexport default defineEventHandler(() => ({ ok: true }))\n")
 
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { auth: false }, kv: true, preset: "node" })], root })
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: { ...productionConsole, embed: true }, kv: true, preset: "node" })], root })
     await builder.buildApp()
 
     const port = await freePort()

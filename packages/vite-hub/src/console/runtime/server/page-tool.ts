@@ -20,9 +20,11 @@ const script = "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__"
 /**
  * Registers the Console and Content windows in the page tools pill. The Console access policy decides
  * who gets it, so in `local` mode only the development server shows it. Generated Console output calls this with the
- * app base.
+ * app base. With `embed: false`, a production build without the Console pages, the tools have no script, so only the
+ * page tools session answers.
  */
-export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
+export function installConsolePageTool(nitroApp: unknown, { embed = true, ...options }: ViteHubPageToolsInstallOptions & { embed?: boolean } = {}): void {
+  if (!embed) return installViteHubPageTools(nitroApp, options)
   registerViteHubPageTool(nitroApp, {
     id: "console",
     label: "Console",

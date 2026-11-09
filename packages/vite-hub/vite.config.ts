@@ -128,6 +128,7 @@ const runtimeEntries = [
   "src/console/runtime/server/mcp-discovery.ts",
   "src/console/runtime/server/mcp-authorization-server.ts",
   "src/console/runtime/server/mcp-metadata.ts",
+  "src/console/runtime/server/not-embedded.ts",
   "src/console/runtime/server/page.get.ts",
   "src/console/runtime/server/page-session.ts",
   "src/console/runtime/server/schedule-run.ts",
@@ -551,6 +552,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/mcp-discovery"];
           delete exports["./console/runtime/server/mcp-authorization-server"];
           delete exports["./console/runtime/server/mcp-metadata"];
+          delete exports["./console/runtime/server/not-embedded"];
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];

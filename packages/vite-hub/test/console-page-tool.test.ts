@@ -11,6 +11,7 @@ import pageSessionHandler from "../src/console/runtime/server/page-session.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
+import { productionConsole } from "./support/console-authorize.ts"
 
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import { requestEvent } from "./console-event.ts"
@@ -109,7 +110,7 @@ describe("the Console Nitro configuration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { ...productionConsole, embed: true }, preset: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -156,7 +157,7 @@ describe("the Console Nitro configuration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { ...productionConsole, embed: true }, preset: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -198,12 +199,12 @@ describe("the Console Nitro configuration", () => {
 })
 
 describe("the Console below a Nitro baseURL", () => {
-  it.each([false, { server: "./console-auth.ts" }] as const)("leaves the base to Nitro, including MCP discovery with auth %j", async (auth) => {
+  it.each([{ provider: "cloudflare-access" }, { server: "./console-auth.ts" }] as const)("leaves the base to Nitro, including MCP discovery with auth %j", async (auth) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "console-auth.ts"), "export default {}")
-      const plugin = consoleVitePlugin({ console: { auth }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { auth, embed: true }, preset: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -215,7 +216,7 @@ describe("the Console below a Nitro baseURL", () => {
       expect(routes).toContain("/_vitehub/rpc/**")
       expect(routes).toContain("/_vitehub/mcp")
       expect(routes).toContain("/_vitehub/page/session")
-      if (auth) {
+      if ("server" in auth) {
         expect(routes).toContain("/.well-known/oauth-protected-resource")
         expect(routes).toContain("/.well-known/oauth-authorization-server")
       }

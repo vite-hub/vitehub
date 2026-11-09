@@ -49,7 +49,8 @@ async function registeredConsoleRoutes(): Promise<Registration[]> {
     await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "serve", mode: "development" }])
     const nuxt: { handlers?: Registration[] } = {}
     addConsoleRpcHandler(nuxt, "/runtime", undefined, sections)
-    addConsolePageHandlers(nuxt, "/runtime")
+    // Development always serves the Console pages.
+    addConsolePageHandlers(nuxt, "/runtime", undefined, undefined, true)
     const all = [...config.nitro?.handlers ?? [], ...nuxt.handlers ?? []].filter(entry => !entry.middleware && entry.route)
     return all.filter((entry, index) => all.findIndex(other => other.route === entry.route && other.handler.endsWith(basename(entry.handler))) === index)
   }

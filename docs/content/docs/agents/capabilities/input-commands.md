@@ -70,7 +70,7 @@ The context also includes the resolved host Runtime Capabilities that the applic
 ### Console helpers
 
 When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work.
-`invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
+`invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context. It returns the `/_vitehub` URL on the app in `vite dev` and with `console.embed: true`, and a hosted Console URL in a production build without the embed. See [Open the Console of a production app](/docs/development/console#open-the-console-of-a-production-app).
 Read the journal itself with `getAgentInvocations()` and `getAgentInvocationsDatabase()` from `vite-hub/agent`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
 
 ```ts [server/agents/support.ts]

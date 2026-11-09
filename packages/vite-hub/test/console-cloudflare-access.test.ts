@@ -418,8 +418,9 @@ describe("Cloudflare Access Console Auth", () => {
       const production = await run("build")
       expect(production).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/**", middleware: true, handler: resolve(root, ".vitehub/nitro/console/auth-middleware.mjs") }),
-        expect.objectContaining({ route: "/_vitehub/api/client.js", handler: expect.stringContaining("server/client.get.js") }),
       ]))
+      // Without console.embed, a production build has no Console page, so it needs no Console Auth client.
+      expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/client.js")
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/sign-in")
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/auth/**")
       expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], "cloudflare-access")`)
@@ -433,23 +434,19 @@ describe("Cloudflare Access Console Auth", () => {
     }
   })
 
-  it("warns when a Cloudflare production build uses host-managed exposure", async () => {
+  it("refuses host-managed exposure in a production build on every preset", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-host-managed-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const run = async (preset: string) => {
         const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset })
         const configHook = plugin.config
-        const resolvedHook = plugin.configResolved
-        if (!configHook || !resolvedHook) throw new TypeError("Expected Console config hooks.")
-        const warn = vi.fn()
-        const config = { logger: { warn }, root }
+        if (!configHook) throw new TypeError("Expected Console config hooks.")
+        const config = { root }
         await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "build", mode: "production" }])
-        await Reflect.apply("handler" in resolvedHook ? resolvedHook.handler : resolvedHook, {}, [config])
-        return warn
       }
-      expect(await run("cloudflare")).toHaveBeenCalledWith(expect.stringContaining('auth: { provider: "cloudflare-access" }'))
-      expect(await run("node")).not.toHaveBeenCalled()
+      await expect(run("cloudflare")).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+      await expect(run("node")).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
     }
     finally {
       await rm(root, { recursive: true, force: true })
