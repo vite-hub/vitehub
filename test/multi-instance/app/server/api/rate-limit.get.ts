@@ -1,0 +1,8 @@
+import { defineHandler, getQuery } from "h3"
+import { checkRateLimit } from "vite-hub/rate-limit"
+
+export default defineHandler(async (event) => {
+  const key = String(getQuery(event).key)
+  const decision = await checkRateLimit(event, "multi-instance", { key, limit: 10, window: "1m" })
+  return { allowed: decision.allowed }
+})

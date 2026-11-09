@@ -1,0 +1,21 @@
+// The harness builds this app once and runs it as three Node instances.
+// Blob and Workflow have a shared store set by hand. The other primitives use their Node defaults.
+export default {
+  compatibilityDate: "2026-11-01",
+  modules: ["vite-hub/nuxt"],
+  nitro: { preset: "node-server" },
+  vitehub: {
+    agent: false,
+    // run.mjs sets this directory at build time. It stands for a volume that every instance mounts.
+    blob: { driver: "fs", base: process.env.MULTI_INSTANCE_SHARED_BLOB_DIR },
+    database: true,
+    kv: true,
+    preset: "node",
+    queue: true,
+    rateLimit: true,
+    realtime: { authority: "memory" },
+    schedule: { runtime: { driver: "process", intervalMs: 1000 } },
+    // OpenWorkflow reads DATABASE_URL when the server starts.
+    workflow: { provider: "openworkflow" },
+  },
+}
