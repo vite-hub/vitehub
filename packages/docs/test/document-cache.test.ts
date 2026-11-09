@@ -6,6 +6,7 @@ import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 const { getItem, parsed, useKV } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), useKV: vi.fn() }))
 vi.mock("nitro/kv", () => ({ useKV }))
 vi.mock("#docs/content", () => ({ content: undefined }))
+vi.mock("#docs/example-sources", () => ({ default: {} }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] } }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")

@@ -20,3 +20,9 @@ declare module "#docs/parser" {
   const parser: DocsParserOptions
   export default parser
 }
+
+/** The source of each Vue file in the examples folder, by name. */
+declare module "#docs/example-sources" {
+  const examples: Record<string, string>
+  export default examples
+}

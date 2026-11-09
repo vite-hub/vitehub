@@ -1,9 +1,10 @@
 import { useKV } from "nitro/kv"
+import examples from "#docs/example-sources"
 import parser from "#docs/parser"
 import { createDocsParser } from "../markdown.ts"
 import type { DocsDocument } from "../markdown.ts"
 
-export const parseDocsDocument = createDocsParser(parser)
+export const parseDocsDocument = createDocsParser({ examples, ...parser })
 const parsed = new Map<string, Promise<DocsDocument | null>>()
 const pending = new Map<string, Promise<DocsDocument | null>>()
 
