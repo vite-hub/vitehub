@@ -373,9 +373,6 @@ jobs:
       - run: vp test test/agent-invocations-journal-file.test.ts test/codex-home-retention.test.ts test/github-install.test.ts test/provider-runtime-packages.test.ts test/optional-capabilities-import.test.ts test/windows-1252.test.ts test/gmail-channel.test.ts test/response.test.ts test/crossrealm-trigger-response.test.ts test/stream-output-cross-realm-response.test.ts test/invocations.test.ts
         working-directory: packages/agent
 
-  # A pull request that changes only packages the docs do not import skips the
-  # docs build, like a package test shard without changed packages. The push to
-  # main always builds them before docs deploy.
   docs:
     name: docs
     runs-on: ubuntu-latest
@@ -384,27 +381,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Select docs build
-        id: scope
-        if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-        env:
-          BASE_REF: origin/${{ github.base_ref }}
-        run: |
-          affected="$(node .github/scripts/docs-affected.mjs "$BASE_REF")"
-          echo "Docs affected by this change: $affected"
-          echo "affected=$affected" >> "$GITHUB_OUTPUT"
-      - if: ${{ steps.scope.outputs.affected != 'false' }}
-        uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup
 
-      - if: ${{ steps.scope.outputs.affected != 'false' }}
-        run: vp run --filter vitehub-docs test
-      - if: ${{ steps.scope.outputs.affected != 'false' }}
-        run: vp run docs:build
-      - if: ${{ steps.scope.outputs.affected != 'false' }}
-        run: vp run --filter vitehub-docs test:artifact
+      - run: vp run --filter vitehub-docs test
+      - run: vp run docs:build
+      - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
-        if: ${{ steps.scope.outputs.affected != 'false' }}
         run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config docs/.output/server/wrangler.json
       - name: Upload Worker bundle
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

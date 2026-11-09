@@ -7,8 +7,6 @@ import { array, boolean, object, optional, parse, pipe, record, string, transfor
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
-import { docsAffected } from "../.github/scripts/docs-affected.mjs"
-
 const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
   name: optional(string()),
   permissions: optional(record(string(), string())),
@@ -297,29 +295,6 @@ describe("CI merge gate", () => {
   it.each(pullRequestJobs)("runs %s on pull requests and rejects a skipped result", (name) => {
     expect(workflow.jobs[name]?.if).toBeUndefined()
     expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }).status).not.toBe(0)
-  })
-
-  it("skips the docs build only on pull requests that the docs cannot see", () => {
-    const steps = workflow.jobs.docs?.steps ?? []
-    const scope = steps.find(step => step.name === "Select docs build")
-    expect(scope?.run).toContain('node .github/scripts/docs-affected.mjs "$BASE_REF"')
-    for (const command of ["vp run --filter vitehub-docs test", "vp run docs:build", "vp run --filter vitehub-docs test:artifact"]) {
-      expect(steps.find(step => step.run === command)?.if).toBe("${{ steps.scope.outputs.affected != 'false' }}")
-    }
-  })
-
-  it("builds the docs for changes to the docs, their packages or anything outside packages", () => {
-    const docsManifest = { dependencies: { "vite-hub": "workspace:*", "nuxt": "^4.0.0" }, devDependencies: { "@vite-hub/ui": "workspace:*" } }
-    const packageDirs = new Map([["vite-hub", "vite-hub"], ["ui", "@vite-hub/ui"], ["blob", "@vite-hub/blob"], ["kv", "@vite-hub/kv"]])
-    const affected = (files: string[]) => docsAffected(files, docsManifest, packageDirs)
-    expect(affected(["packages/blob/src/index.ts", "packages/kv/test/kv.test.ts"])).toBe(false)
-    expect(affected([])).toBe(false)
-    expect(affected(["packages/blob/src/index.ts", "packages/vite-hub/src/index.ts"])).toBe(true)
-    expect(affected(["packages/ui/src/button.vue"])).toBe(true)
-    expect(affected(["docs/content/index.md"])).toBe(true)
-    expect(affected(["pnpm-lock.yaml"])).toBe(true)
-    expect(affected(["test/ci-gate.test.ts"])).toBe(true)
-    expect(affected(["packages/unknown/src/index.ts"])).toBe(true)
   })
 
   it("selects package tests from the pull request change", () => {
