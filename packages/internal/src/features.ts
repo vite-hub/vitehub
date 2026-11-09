@@ -20,6 +20,7 @@ export const featureIds = [
   "env",
   "kv",
   "logs",
+  "mcp",
   "observability",
   "queue",
   "rateLimit",
@@ -356,6 +357,14 @@ export default defineDatabase({
     id: "logs",
     summary: "Read an existing log source, or inspect a bounded Evlog buffer during development.",
     title: "Logs",
+  }),
+  mcp: feature({
+    docs: "/docs/development/app-mcp",
+    hosts: everywhere("nitro", "Nitro"),
+    id: "mcp",
+    packages: ["@vite-hub/mcp"],
+    summary: "The app's own MCP server, with one tool per file in `server/mcp/tools/`.",
+    title: "MCP server",
   }),
   observability: feature({
     docs: "/docs/agents/observability",

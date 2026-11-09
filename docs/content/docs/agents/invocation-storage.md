@@ -590,7 +590,7 @@ export const invocations = defineAgentInvocations({
 The store creates its table and indexes on each isolate's first use of a binding, with `CREATE ... IF NOT EXISTS`, so concurrent isolates and existing tables are safe. A failed creation retries on the next operation. To use your own migrations, set `migrate: false` and apply `d1AgentInvocationSchema()` before the first request:
 
 ```ts [scripts/invocation-schema.ts]
-import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations/d1'
+import { d1AgentInvocationSchema } from 'vite-hub/agent/invocations/d1'
 
 console.log(d1AgentInvocationSchema().join(';\n') + ';')
 ```

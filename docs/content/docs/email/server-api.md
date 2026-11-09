@@ -137,7 +137,7 @@ pnpm add @vite-hub/email
 
 ```ts [welcome.test.ts]
 import { expect, it } from 'vitest'
-import { createTestEmail } from '@vite-hub/email/test'
+import { createTestEmail } from 'vite-hub/email/test'
 
 it('sends the welcome message', async () => {
   const mail = createTestEmail()
