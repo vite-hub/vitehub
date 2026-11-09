@@ -219,6 +219,28 @@ describe("useForge() with a token", () => {
     await expect(forge[method]({ signal: AbortSignal.abort(reason) })).rejects.toBe(reason)
   })
 
+  it("provider rejects when cancelled while obtaining the token", async () => {
+    const forge = useForge({ env: { VITEHUB_GITHUB_TOKEN: "ghp_token" } })
+    const controller = new AbortController()
+    const reason = new Error("stop")
+
+    const provider = forge.provider({ signal: controller.signal })
+    controller.abort(reason)
+
+    await expect(provider).rejects.toBe(reason)
+  })
+
+  it("provider rejects when cancelled while loading the provider", async () => {
+    const forge = useForge({ env: { VITEHUB_GITHUB_TOKEN: "ghp_token" } })
+    const controller = new AbortController()
+    const reason = new Error("stop")
+
+    const provider = forge.provider({ signal: controller.signal })
+    queueMicrotask(() => controller.abort(reason))
+
+    await expect(provider).rejects.toBe(reason)
+  })
+
   it("returns VITEHUB_GITHUB_TOKEN and throws FORGE_NOT_APP for app()", async () => {
     const forge = useForge({ env: { VITEHUB_GITHUB_TOKEN: " ghp_token " } })
 

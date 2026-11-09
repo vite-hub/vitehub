@@ -212,6 +212,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     },
     async provider(call = {}) {
       const [error, minted] = await forge.token(call)
+      if (call.signal?.aborted) throw abortError(call.signal)
       if (error) return [error, undefined]
       const provider = await forgeProvider({
         forge: kind,
@@ -220,6 +221,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
         ...(baseUrl ? { baseUrl } : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })
+      if (call.signal?.aborted) throw abortError(call.signal)
       // SAFETY: forgeProvider() returns a GitHubProvider for "github", as its overloads declare.
       return [undefined, provider as ForgeProviderOf<TKind>]
     },

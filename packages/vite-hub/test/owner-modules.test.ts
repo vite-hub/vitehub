@@ -42,6 +42,19 @@ it("includes Database in the first Comments package check", async () => {
   }
 })
 
+it.each([undefined, false])("checks Forms with database: %s", async (database) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-optional-forms-"))
+  try {
+    await mkdir(join(root, "server/forms"), { recursive: true })
+    await writeFile(join(root, "server/forms/contact.ts"), "export default {}\n")
+    await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin({ database })] }, "build")
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(database === false ? ["forms"] : ["forms", "database"])
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 it("checks the owner package of each vite-hub facade that the app imports", () => {
   const { resolveId } = optionalOwnerImportsPlugin()
   if (!resolveId || typeof resolveId !== "object" || !(resolveId.filter?.id instanceof RegExp)) throw new TypeError("Expected a filtered resolver")
