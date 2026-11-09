@@ -177,6 +177,10 @@ describe("handleFormRequest", () => {
     expect(await store.list()).toHaveLength(1)
     const wrong = await handleFormRequest("contact", contact, post({ email: "x", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
     expect(wrong.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+    // Every other failure also goes back to the page, such as the rate limit.
+    const limited = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), { ...all, rateLimit: async () => ({ allowed: false }) })
+    expect(limited.status).toBe(303)
+    expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=error")
   })
 
   it("reads multipart form data", async () => {

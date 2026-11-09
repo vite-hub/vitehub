@@ -158,23 +158,26 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   if (!kind) return fail(415, "Send JSON or form data.")
   const origin = request.headers.get("origin")
   if (origin && origin !== new URL(request.url).origin && !options.origins?.includes(origin)) return fail(403, "This origin may not send this form.")
+  // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
+  let page = appPath(undefined, request)
+  const stop = (status: number, message: string, headers?: Record<string, string>) => wantsPage(request, kind) ? back(request, page, "error") : fail(status, message, headers)
 
   const user: FormUser | null = services.identify ? await services.identify(request) : null
   if (options.authorize && !await options.authorize({ request, user })) {
-    return user ? fail(403, "You may not send this form.") : fail(401, "Sign in to send this form.")
+    return user ? stop(403, "You may not send this form.") : stop(401, "Sign in to send this form.")
   }
 
   const rateLimit = options.rateLimit === false ? undefined : options.rateLimit ?? defaultRateLimit
   if (rateLimit && services.rateLimit) {
     const decision = await services.rateLimit(request, `form:${name}`, rateLimit)
-    if (!decision.allowed) return fail(429, "Too many messages. Try again later.", decision.retryAfter ? { "retry-after": String(Math.ceil(decision.retryAfter)) } : undefined)
+    if (!decision.allowed) return stop(429, "Too many messages. Try again later.", decision.retryAfter ? { "retry-after": String(Math.ceil(decision.retryAfter)) } : undefined)
   }
 
   const text = await readText(request, options.maxBytes ?? defaultMaxBytes)
-  if (text === undefined) return fail(413, "The message is too large.")
+  if (text === undefined) return stop(413, "The message is too large.")
   const body = await readBody(request, kind, text)
-  if (!body) return fail(400, "The body is not a form.")
-  const page = appPath(body[pageField], request)
+  if (!body) return stop(400, "The body is not a form.")
+  page = appPath(body[pageField], request)
   const honeypot = options.honeypot === false ? undefined : options.honeypot ?? "website"
   const trap = honeypot ? body[honeypot] : undefined
   // A filled honeypot gets the answer of a success, so a bot does not try again.
@@ -219,13 +222,13 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     else services.log?.(`[vitehub] The ${name} form stored a submission but the app cannot send email.`, undefined)
   }
   else if (message) {
-    if (!services.email) return fail(503, "This form cannot send messages now.")
+    if (!services.email) return stop(503, "This form cannot send messages now.")
     try {
       await services.email(message)
     }
     catch (error) {
       services.log?.(`[vitehub] The ${name} form could not send its email.`, error)
-      return fail(502, "The message could not be sent. Try again later.")
+      return stop(502, "The message could not be sent. Try again later.")
     }
   }
 
