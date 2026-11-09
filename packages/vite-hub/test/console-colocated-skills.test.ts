@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 import { expect, it, vi } from "vitest"
 import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { agentWithColocatedSkills } from "@vite-hub/agent/runtime/workflow"
@@ -19,22 +20,35 @@ it("loads colocated Skills into the production Console definition", async () => 
     const plugin = join(root, "plugin.mjs")
     await writeConsoleNitroPlugin(plugin, root, ["agents"], [{ name: "bot-dev", handler }], { agents: [], content: {} }, [], undefined, undefined, true)
     const generated = await readFile(plugin, "utf8")
-    const skillsImport = generated.match(/import \{ agentWithColocatedSkills \} from "([^"]+)"/)?.[1]
+    const agentUrl = pathToFileURL(handler).href
+    // The Agent Definition and the Agent runtime load with the Console runtime, not when the server starts.
+    expect(generated).not.toMatch(/^import .*(agent\.ts|_internal\/agent)/m)
+    expect(generated).toContain(`import(${JSON.stringify(agentUrl)})`)
+    const skillsImport = generated.match(/import\("(vite-hub\/_internal\/agent\/runtime\/workflow)"\)/)?.[1]
     expect(skillsImport).toBe("vite-hub/_internal/agent/runtime/workflow")
     if (!skillsImport) throw new Error("Expected the generated Skills import")
     const skillsRuntime = await import(skillsImport)
     expect(skillsRuntime.agentWithColocatedSkills).toBeTypeOf("function")
     const install = vi.fn()
     const definition = defineAgent({ driver: codexDriver(), runtime: false, workspace: {} })
-    const execute = new Function("installConsoleSections", "installOperations", "installConsoleRuntime", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace(`import("vite-hub/console/operations")`, "Promise.resolve({ installConsoleOperations: installOperations })").replace("export default function", "function"))
+    const source = generated
+      .replace(/^import .+$/gm, "")
+      .replace(`import("vite-hub/console/operations")`, "Promise.resolve({ installConsoleOperations: installOperations })")
+      .replace(`import("vite-hub/console/server")`, "Promise.resolve({ installConsoleAgentDefinitions: installAgents })")
+      .replace(`import("vite-hub/_internal/agent/runtime/workflow")`, "Promise.resolve({ agentWithColocatedSkills: withSkills })")
+      .replace(`import(${JSON.stringify(agentUrl)})`, "Promise.resolve(agentModule)")
+      .replace("export default function", "function")
+    const execute = new Function("installConsoleSections", "installOperations", "installConsoleRuntime", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installAgents", "withSkills", "agentModule", source)
     const installOperations = vi.fn()
     let loadRuntime: (() => Promise<() => void>) | undefined
     execute(() => {}, installOperations, (load: () => Promise<() => void>) => { loadRuntime = load }, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition })
     expect(installOperations).not.toHaveBeenCalled()
     const installRuntime = await loadRuntime?.()
     expect(installOperations).not.toHaveBeenCalled()
+    expect(install).not.toHaveBeenCalled()
     installRuntime?.()
     expect(installOperations).toHaveBeenCalledWith([], { invoke: true })
+    expect(install).toHaveBeenCalledWith([expect.objectContaining({ fallbackName: "bot-dev" })], expect.objectContaining({ invoke: true, projectRoot: root }))
     const installed = install.mock.calls[0]?.[0]?.[0]?.definition
     expect(installed?.[Symbol.for("vitehub.agent.colocatedSkills")]).toMatchObject({
       "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { content: new TextEncoder().encode("# Review\n"), materialize: "startup", workspacePath: ".agents/skills/review/SKILL.md" },
