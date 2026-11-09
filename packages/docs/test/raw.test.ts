@@ -38,7 +38,7 @@ describe("toRawMarkdown", () => {
       'title: Storage',
       '---',
       '::product-hero{tagline="Save values by key." hosts="Node, Cloudflare"}',
-      '  :::product-files{feature="kv"}',
+      '  :::code-tree{feature="kv"}',
       '  ```ts [server/api/value.ts]',
       '  const value = "::literal"',
       '  ```',
@@ -94,6 +94,20 @@ describe("toRawMarkdown", () => {
       '    :::product-feature-item{title="Indented example"}',
       '',
     ].join('\n'))
+  })
+
+  it("keeps a Markdown example's source and marks a Vue example's preview", () => {
+    const raw = convert(["::examples", ":::example{label=\"Bold\"}", "```md", "Some **bold** text.", "```", ":::", "::", "", "::example{name=\"ButtonExample\"}", "::"].join("\n"))
+
+    expect(raw).toContain("**Bold**")
+    expect(raw).toContain("```md\nSome **bold** text.\n```")
+    expect(raw).toContain("_Interactive preview available on the rendered documentation page._")
+    expect(raw).not.toContain("::example")
+  })
+
+  it("marks existing component previews in raw Markdown", () => {
+    const raw = convert("::component-preview{name=\"ButtonExample\"}\n::")
+    expect(raw).toBe("_Interactive preview available on the rendered documentation page._\n")
   })
 
   it("keeps site-relative links relative without a site URL", () => {
