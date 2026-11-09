@@ -243,6 +243,13 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(boxes.length, 2)
     assert.ok(Math.abs(boxes[0].y - boxes[1].y) >= 28, JSON.stringify(boxes))
     assert.ok(boxes.every(box => box.hit), JSON.stringify(boxes))
+    // At the bottom of the screen the stack grows upward, so no pin goes off screen.
+    const height = Math.ceil(Math.max(...boxes.map(box => box.y))) + 20
+    await page.setViewportSize({ width: 1024, height })
+    await page.waitForTimeout(200)
+    const low = await pins.evaluateAll(elements => elements.map(pin => pin.getBoundingClientRect().bottom))
+    await page.setViewportSize({ width: 1024, height: 720 })
+    assert.ok(low.every(bottom => bottom <= height), `pins end at ${low} in a ${height}px screen`)
   })
 
   await t.test("a tap on the Comment bar comments on the selected text", async () => {
