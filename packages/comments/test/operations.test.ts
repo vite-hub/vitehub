@@ -146,7 +146,7 @@ it.each([1, 10])("acknowledges every reply when resolving again in the same mill
 })
 
 function setup(comments: Comments, users?: CommentsPeople) {
-  const store = createCommentsStore(drizzle(client))
+  const store = createCommentsStore(drizzle({ client }))
   installCommentsRuntime({ definition: comments.options, store, ...(users ? { users } : {}) })
   return store
 }
@@ -347,7 +347,7 @@ it.each(["admin", "stranger"])("identifies %s through the standalone CLI operati
   const identify = vi.fn(({ event }: CommentsIdentifyContext) => event["~standard"].req.headers.get("x-person") === "admin" ? identified : null)
   const comments = defineComments({ identify, authorize })
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
   const handler = createStandaloneOperationHandler([{ operations: commentsOperations, plugin: "comments" }], "/project")
   // `ip` is the loopback peer address that srvx reports for `vite dev`.
   const request = Object.assign(new Request("http://localhost/_vitehub/rpc/__call", {
@@ -377,7 +377,7 @@ it("gives authorize the user that identify builds for the request, not the Conso
     },
   })
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
   const request = new Request("http://site.test/_vitehub/rpc/__call", { headers: { "x-person": "admin" } })
   const context = { access: { mode: "auth", sections: "all" }, surface: "console", user: { id: "admin", name: "Admin" }, request, event: new H3Event(request) } satisfies OperationContext
   const created = await runOperation(registry, "comments.create", input, context)

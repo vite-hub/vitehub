@@ -12,8 +12,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 ## Minimal API
@@ -92,7 +92,7 @@ Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or 
 
 ## Migrations
 
-`vitehub db generate` writes Drizzle migrations beside the Definition. `vitehub db migrate` applies the pending ones with Drizzle Kit. For D1 HTTP it applies them itself with Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), so `wrangler d1 migrations apply` and `vitehub db migrate` agree on what is applied. Each file and its ledger row go in one request. Kit runs from the Database project root, including when Nuxt uses `app/` as its Vite root. The CLI resolves Kit from the application or the installed `vite-hub` facade, so it does not depend on an application binary on `PATH`.
+`vitehub db generate` writes Drizzle migrations beside the Definition, one `<YYYYMMDDHHmmss>_<name>/migration.sql` folder each, as Drizzle Kit 1.0 does. Convert a `meta/_journal.json` folder from Drizzle Kit 0.x once with `npx drizzle-kit up`. `vitehub db migrate` applies the pending ones with Drizzle Kit. For D1 HTTP it applies them itself with Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), so `wrangler d1 migrations apply` and `vitehub db migrate` agree on what is applied. Each file and its ledger row go in one request. Kit runs from the Database project root, including when Nuxt uses `app/` as its Vite root. The CLI resolves Kit from the application or the installed `vite-hub` facade, so it does not depend on an application binary on `PATH`.
 
 Connection URLs and tokens can use string literals or runtime environment declarations, including module-level variables initialized with those values. The generated Kit config reads environment values at invocation time and uses the Turso dialect for remote or authenticated libSQL. The migration check uses the same connection values. Local migration creates the database's parent directory after the check; generation and `--dry-run` do not create the database file.
 

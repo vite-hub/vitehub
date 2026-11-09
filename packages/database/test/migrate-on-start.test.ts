@@ -26,9 +26,9 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-const init = { sql: "CREATE TABLE `users` (\n\t`id` integer PRIMARY KEY NOT NULL,\n\t`name` text NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE `legacy` (`id` integer);\n", tag: "0000_init", when: 1_700_000_000_000 }
-const seed = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (7, 'Ada');", tag: "0001_seed", when: 1_700_000_001_000 }
-const dropLegacy = { sql: "DROP TABLE `legacy`;", tag: "0002_drop_legacy", when: 1_700_000_002_000 }
+const init = { sql: "CREATE TABLE `users` (\n\t`id` integer PRIMARY KEY NOT NULL,\n\t`name` text NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE `legacy` (`id` integer);\n", tag: "20231114221320_init", when: 1_700_000_000_000 }
+const seed = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (7, 'Ada');", tag: "20231114221321_seed", when: 1_700_000_001_000 }
+const dropLegacy = { sql: "DROP TABLE `legacy`;", tag: "20231114221322_drop_legacy", when: 1_700_000_002_000 }
 
 async function createProject() {
   const root = await mkdtemp(join(packageRoot, ".vitest-migrate-on-start-"))
@@ -44,15 +44,11 @@ async function createProject() {
 }
 
 async function writeMigrations(root: string, migrations: Array<{ sql: string, tag: string, when: number }>) {
+  // Drizzle Kit 1.0 writes `<YYYYMMDDHHmmss>_<name>/migration.sql`. The folder time is the `when` of each fixture.
   const dir = join(root, "server/databases/migrations")
-  await mkdir(join(dir, "meta"), { recursive: true })
-  await writeFile(join(dir, "meta/_journal.json"), JSON.stringify({
-    dialect: "sqlite",
-    entries: migrations.map((migration, idx) => ({ breakpoints: true, idx, tag: migration.tag, version: "6", when: migration.when })),
-    version: "7",
-  }))
   for (const migration of migrations) {
-    await writeFile(join(dir, `${migration.tag}.sql`), migration.sql)
+    await mkdir(join(dir, migration.tag), { recursive: true })
+    await writeFile(join(dir, migration.tag, "migration.sql"), migration.sql)
   }
   return dir
 }
@@ -114,8 +110,8 @@ describe("database.migrateOnStart", () => {
 
     const first = await server.start()
     expect(first.stdout.trim().split("\n")).toEqual([
-      '[vitehub] Database "default": applied 0000_init.',
-      '[vitehub] Database "default": applied 0001_seed.',
+      '[vitehub] Database "default": applied 20231114221320_init.',
+      '[vitehub] Database "default": applied 20231114221321_seed.',
       JSON.stringify([{ id: 7, name: "Ada" }]),
     ])
     // The second start finds nothing pending, so the seed row is not inserted twice.
@@ -123,7 +119,7 @@ describe("database.migrateOnStart", () => {
     expect(await readLedger(url)).toEqual([init.when, seed.when])
 
     // `vitehub db migrate` and Drizzle's own migrator read the same ledger and find nothing to apply.
-    const database = { connection: { url }, dialect: "sqlite", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
+    const database = { connection: { url }, dialect: "sqlite", generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()
     expect(plan?.pending).toEqual([])
@@ -174,8 +170,8 @@ describe("database.migrateOnStart", () => {
     try {
       await migrateOnStart(databases, { log: message => applied.push(message) })
       expect(applied).toEqual([
-        '[vitehub] Database "default": applied 0000_init.',
-        '[vitehub] Database "default": applied 0001_seed.',
+        '[vitehub] Database "default": applied 20231114221320_init.',
+        '[vitehub] Database "default": applied 20231114221321_seed.',
         '[vitehub] Database "shared": applied 0002_extra.',
       ])
       expect((await second.execute("SELECT id, name FROM users ORDER BY id")).rows.map(row => [row[0], row[1]])).toEqual([[7, "Ada"], [8, "Grace"]])
@@ -213,8 +209,8 @@ describe("database.migrateOnStart", () => {
       expect((await second.execute("SELECT id, name FROM users ORDER BY id")).rows.map(row => [row[0], row[1]])).toEqual([[7, "Ada"], [8, "Grace"]])
       expect(await readLedger(url)).toEqual([init.when, seed.when, late.when])
       expect(applied).toEqual([
-        `[vitehub] Database "${reverse ? "second" : "first"}": applied 0000_init.`,
-        '[vitehub] Database "second": applied 0001_seed.',
+        `[vitehub] Database "${reverse ? "second" : "first"}": applied 20231114221320_init.`,
+        '[vitehub] Database "second": applied 20231114221321_seed.',
         '[vitehub] Database "first": applied 0002_late.',
       ])
       await migrateOnStart(databases, { log: message => applied.push(message) })
@@ -227,31 +223,48 @@ describe("database.migrateOnStart", () => {
     }
   })
 
-  it.each([seed.when, dropLegacy.when])("refuses an unapplied shared-file migration at or below the ledger (%s)", async (when) => {
+  it("upgrades a ledger of Drizzle Kit 0.x and applies only the migrations it lacks", async () => {
     const root = await createProject()
-    const url = `file:${join(root, "shared.sqlite")}`
-    const first = createClient({ url })
-    const second = createClient({ url })
-    const migration = (name: string, timestamp: number, sql: string) => ({ dataLoss: [], hash: name, name, statements: [sql], when: timestamp })
-    const history = [migration(init.tag, init.when, "CREATE TABLE users (id integer)"), migration("late", dropLegacy.when, "INSERT INTO users VALUES (1)")]
+    const url = `file:${join(root, "app.sqlite")}`
+    const client = createClient({ url })
+    const migration = (entry: typeof init) => ({ dataLoss: [], hash: entry.tag, name: entry.tag, statements: entry.sql.split("--> statement-breakpoint"), when: entry.when })
     try {
-      await migrateOnStart([{ db: drizzle({ client: first }), migrations: history, name: "first" }], { log: () => {} })
+      // Drizzle Kit 0.x applied `init` with its journal `when` in milliseconds and no `name` column.
+      await client.migrate([
+        ...init.sql.split("--> statement-breakpoint"),
+        "CREATE TABLE \"__drizzle_migrations\" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric)",
+        { args: [init.tag, init.when + 417], sql: "INSERT INTO \"__drizzle_migrations\" (hash, created_at) VALUES (?, ?)" },
+      ])
       const applied: string[] = []
-      await expect(migrateOnStart([
-        { db: drizzle({ client: first }), migrations: [...history, migration("future", dropLegacy.when + 1, "INSERT INTO users VALUES (2)")], name: "first" },
-        { db: drizzle({ client: second }), migrations: [migration("divergent", when, "CREATE TABLE missing_history (id integer)")], name: "second" },
-      ], { allowDataLoss: true, log: message => applied.push(message) })).rejects.toMatchObject({
-        code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
-        why: expect.stringContaining("divergent"),
-      })
-      expect(applied).toEqual([])
-      expect(await readLedger(url)).toEqual([init.when, dropLegacy.when])
-      expect((await first.execute("SELECT id FROM users")).rows.map(row => row[0])).toEqual([1])
-      expect((await first.execute("SELECT name FROM sqlite_master WHERE name = 'missing_history'")).rows).toEqual([])
+      await migrateOnStart([{ db: drizzle({ client }), migrations: [migration(init), migration(seed)], name: "default" }], { log: message => applied.push(message) })
+      expect(applied).toEqual([`[vitehub] Database "default": applied ${seed.tag}.`])
+      expect((await client.execute("SELECT name FROM __drizzle_migrations ORDER BY id")).rows.map(row => row[0])).toEqual([init.tag, seed.tag])
+      await migrateOnStart([{ db: drizzle({ client }), migrations: [migration(init), migration(seed)], name: "default" }], { log: message => applied.push(message) })
+      expect(applied).toHaveLength(1)
     }
     finally {
-      first.close()
-      second.close()
+      client.close()
+    }
+  })
+
+  it("refuses a ledger of Drizzle Kit 0.x with a row that matches no migration folder", async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "app.sqlite")}`
+    const client = createClient({ url })
+    try {
+      await client.migrate([
+        "CREATE TABLE \"__drizzle_migrations\" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric)",
+        { args: ["gone", 1_600_000_000_000], sql: "INSERT INTO \"__drizzle_migrations\" (hash, created_at) VALUES (?, ?)" },
+      ])
+      const migrations = [{ dataLoss: [], hash: init.tag, name: init.tag, statements: init.sql.split("--> statement-breakpoint"), when: init.when }]
+      await expect(migrateOnStart([{ db: drizzle({ client }), migrations, name: "default" }], { log: () => {} })).rejects.toMatchObject({
+        code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
+        why: expect.stringContaining("match no migration folder"),
+      })
+      expect((await client.execute("SELECT name FROM sqlite_master WHERE name = 'users'")).rows).toEqual([])
+    }
+    finally {
+      client.close()
     }
   })
 
@@ -291,7 +304,7 @@ describe("database.migrateOnStart", () => {
     expect(await readLedger(url)).toEqual([init.when, seed.when])
 
     const allowed = await buildNodeServer(root, { connection: { url }, migrateOnStart: { allowDataLoss: true } })
-    expect((await allowed.start()).stdout).toContain('[vitehub] Database "default": applied 0002_drop_legacy.')
+    expect((await allowed.start()).stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
   })
 
@@ -300,11 +313,11 @@ describe("database.migrateOnStart", () => {
     const migrationsDir = await writeMigrations(root, [init, seed, dropLegacy])
     const url = `file:${join(root, "data/app.sqlite")}`
     const started = await (await buildNodeServer(root, { connection: { url }, migrateOnStart: true })).start()
-    expect(started.stdout).toContain('[vitehub] Database "default": applied 0002_drop_legacy.')
+    expect(started.stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
 
     // `vitehub db migrate --dry-run` reads the same run on a new file and finds no data loss either.
-    const database = { connection: { url: `file:${join(root, "data/new.sqlite")}` }, dialect: "sqlite", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
+    const database = { connection: { url: `file:${join(root, "data/new.sqlite")}` }, dialect: "sqlite", generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
     const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
     expect(error).toBeUndefined()
     expect(plan?.pending.map(migration => [migration.name, migration.dataLoss])).toEqual([[init.tag, []], [seed.tag, []], [dropLegacy.tag, []]])
@@ -326,7 +339,7 @@ describe("database.migrateOnStart", () => {
       await migrateOnStart([{ db: drizzle({ client }), migrations: migrations.slice(0, 1), name: "default" }], { log: () => {} })
       await expect(migrateOnStart([{ db: drizzle({ client }), migrations, name: "default" }], { log: () => {} })).rejects.toMatchObject({
         code: "DATABASE_MIGRATION_DATA_LOSS",
-        message: expect.stringContaining("0002_drop_legacy: drops table \"legacy\""),
+        message: expect.stringContaining("20231114221322_drop_legacy: drops table \"legacy\""),
       })
       expect(await readLedger(url)).toEqual([init.when])
     }
@@ -374,7 +387,7 @@ describe("database.migrateOnStart", () => {
   it("checks every database before it changes the first one", async () => {
     const applied: string[] = []
     const client = (name: string) => ({ execute: async () => ({ rows: [] }), migrate: async () => applied.push(name), protocol: "file" })
-    const migration = (dataLoss: Array<{ reason: string, statement: string }>) => ({ dataLoss, hash: "hash", name: "0000_init", statements: ["SELECT 1"], when: 1 })
+    const migration = (dataLoss: Array<{ reason: string, statement: string }>) => ({ dataLoss, hash: "hash", name: "20231114221320_init", statements: ["SELECT 1"], when: 1 })
     await expect(migrateOnStart([
       { db: { $client: client("default") }, migrations: [migration([])], name: "default" },
       { db: { $client: client("orders") }, migrations: [migration([{ reason: "drops table \"orders\"", statement: "DROP TABLE orders;" }])], name: "orders" },

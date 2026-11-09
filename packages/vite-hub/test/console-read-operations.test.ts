@@ -27,7 +27,7 @@ const clients: Array<ReturnType<typeof createClient>> = []
 async function install(): Promise<void> {
   const client = createClient({ url: "file::memory:" })
   clients.push(client)
-  const db = drizzle({ client, schema })
+  const db = drizzle({ client })
   await client.execute("create table users (id integer primary key autoincrement, email text not null unique)")
   await client.execute("create table posts (id integer primary key autoincrement, author_id integer not null references users(id), title text not null)")
   await db.insert(users).values([{ email: "ada@example.com" }, { email: "grace@example.com" }, { email: "linus@example.com" }])

@@ -153,7 +153,7 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
 
 function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
   if (databaseNames.length > 1) {
-    // One Drizzle config has one set of credentials, one casing, and one migrations folder, so each Database needs its own.
+    // One Drizzle config has one set of credentials and one migrations folder, so each Database needs its own.
     const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
     return [
       `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub db generate\` and \`vitehub db migrate\`.`)})`,
@@ -161,26 +161,21 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
     ].join("\n")
   }
   const database = config.databases[databaseNames[0]!]!
-  const definition = config.definitions.find(item => item.name === database.name)!
   const sqlite = database.dialect === "sqlite" && !(database.cloudflare?.http && database.cloudflare.databaseId)
   const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
-  // Read Drizzle options from the Definition so migrations and queries use the same casing.
   return [
-    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     ...(sqlite ? [
-      "",
       "const dbCredentials = {",
       `  authToken: ${renderConfigValueExpression(database.connection?.authToken) ?? "undefined"} || undefined,`,
       `  url: ${renderConfigValueExpression(database.connection?.url) ?? "undefined"} || ${JSON.stringify(defaultUrl)},`,
       "}",
+      "",
     ] : []),
-    "",
     "export default {",
     ...(sqlite ? [
       '  dialect: /^(?:libsql:|https?:\\/\\/|wss?:\\/\\/)/i.test(dbCredentials.url) || dbCredentials.authToken ? "turso" : "sqlite",',
       "  dbCredentials,",
     ] : [`  dialect: ${JSON.stringify(database.dialect)},`, ...renderDbCredentials(database)]),
-    "  casing: databaseDefinition.drizzle?.casing,",
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
     `  out: ${JSON.stringify(database.migrationsDir)},`,
     "}",

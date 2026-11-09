@@ -61,7 +61,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
     cleanup.push(() => rm(root, { recursive: true, force: true }))
     const client = createClient({ url: `file:${join(root, "sessions.sqlite")}` })
     cleanup.push(() => client.close())
-    database = drizzle(client, { schema: contentSessionsSchema })
+    database = drizzle({ client: client })
     for (const statement of sessionsTable.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   }
   const workspace = `github-${process.pid}-${++workspaces}`

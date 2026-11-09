@@ -61,7 +61,6 @@ function createReplicatedD1() {
 function createDb(readReplication: boolean | undefined) {
   return createDrizzleSqliteAdapter({
     cloudflare: { binding: "DB", ...(readReplication === undefined ? {} : { readReplication }) },
-    drizzle: {},
     name: "default",
   }, schema, { missingConnection: "a D1 binding", requireRemoteUrl: true })
 }

@@ -44,7 +44,7 @@ async function setup(definition: Comments = defineComments({ authorize: () => tr
   const client = createClient({ url: ":memory:" })
   for (const statement of commentsTables) await client.execute(statement)
   // SAFETY: The test database has the tables of the comments schema.
-  const store = createCommentsStore(drizzle(client) as never)
+  const store = createCommentsStore(drizzle({ client: client }) as never)
   install(definition, store)
   return { client, store }
 }
@@ -380,7 +380,7 @@ async function asAgent<T>(name: string, input: unknown, user: CommentUser | null
 
 function database() {
   const client = createClient({ url: ":memory:" })
-  return { client, db: drizzle(client) }
+  return { client, db: drizzle({ client: client }) }
 }
 
 async function ready() {

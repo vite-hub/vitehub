@@ -738,6 +738,10 @@ describe("Database Nuxt integration", () => {
       await writeFile(definition, "export default defineDatabase({ schema: {} })")
       ;(nuxt.options.vite as { plugins: unknown[] }).plugins.push({ name: "late-module", vitehub: { databases: [{ name: "default", definition }] } })
       await writeFile(join(directory, "migrations/0001.sql"), "SELECT 1;")
+      // Drizzle Kit 1.0 writes a folder per migration. Wrangler reads flat files, so the build writes `<tag>.sql`.
+      await mkdir(join(directory, "migrations/20261109120000_init"), { recursive: true })
+      await writeFile(join(directory, "migrations/20261109120000_init/migration.sql"), "CREATE TABLE notes (id integer);")
+      await writeFile(join(directory, "migrations/20261109120000_init/snapshot.json"), "{}")
       const binding = { binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: migrationsDir }
       const config: Record<string, unknown> = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [binding, { binding: "HOST_A", database_id: "a", database_name: "a" }, { binding: "HOST_B", database_id: "b", database_name: "b" }] } } }
       await callHook(hooks, "nitro:config", config)
@@ -750,6 +754,8 @@ describe("Database Nuxt integration", () => {
       const finalBinding = (config.cloudflare as { wrangler: { d1_databases: Array<{ migrations_dir: string }> } }).wrangler.d1_databases[0]!
       expect(finalBinding.migrations_dir).toBe(migrationsDir ?? ".vitehub/database/migrations/DB")
       await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0001.sql"), "utf8")).resolves.toBe("SELECT 1;")
+      expect((await readdir(join(rootDir, ".output/server", finalBinding.migrations_dir))).toSorted()).toEqual(["0001.sql", "20261109120000_init.sql"])
+      await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "20261109120000_init.sql"), "utf8")).resolves.toBe("CREATE TABLE notes (id integer);")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -1325,7 +1331,7 @@ describe("Database Nuxt integration", () => {
         "@vite-hub/database/drizzle": runtimeFile,
         "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
       })
-      const inherited = { drizzle: {}, name: "default", schema: {} }
+      const inherited = { name: "default", schema: {} }
       const initial = runtimeConfig(inherited, await readDefaults()).cloudflare
       expect(initial?.binding).toBe("HOST_DB")
       expect(resolveConfigValue(initial?.databaseId)).toBe("host-provisioned-id")
@@ -1610,7 +1616,7 @@ describe("Database Nuxt integration", () => {
       const module = await readFile(join(rootDir, ".vitehub/database/vercel-runtime.mjs"), "utf8")
       const expression = /db: createHostedDrizzleDb\((\{[\s\S]*?\}), schema_0\)/.exec(module)?.[1]
       expect(expression).toBeDefined()
-      const config = Function("definition_0", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ drizzle: {}, schema: {} }, resolveRuntimeCloudflareConfig)
+      const config = Function("definition_0", "resolveRuntimeCloudflareConfig", `return (${expression})`)({ schema: {} }, resolveRuntimeCloudflareConfig)
       expect(resolveConfigValue(config.cloudflare.databaseId)).toBe("provisioned-id")
       expect(config.cloudflare.databaseName).toBe("content-db")
       const viteOptions = (nuxt.options.vite as { database: { databaseId: Parameters<typeof resolveConfigValue>[0] } }).database

@@ -1,6 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { copyFile, mkdir } from "node:fs/promises"
 
 import { join } from "pathe"
+
+import { migrationSqlFile } from "./migration-journal.ts"
+import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
+
+import type { MigrationEntry } from "./migration-journal.ts"
 
 /** Wrangler's default ledger. `wrangler d1 migrations apply` and `vitehub db migrate` share it. */
 export const defaultD1MigrationsTable = "d1_migrations"
@@ -57,10 +63,18 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
   }
 }
 
-/** Lists the `.sql` files of a migrations directory in the order that Wrangler applies them. */
+/**
+ * Lists the migrations of a directory as the `.sql` file names that Wrangler applies, in Wrangler's order. A Drizzle Kit
+ * folder `<tag>/migration.sql` is `<tag>.sql`, the flat file that the build writes beside the Wrangler config. A flat
+ * `.sql` file, such as one from `wrangler d1 migrations create`, keeps its name.
+ */
 export function listD1MigrationFiles(migrationsDir: string): string[] {
   if (!existsSync(migrationsDir)) return []
-  return readdirSync(migrationsDir).filter(name => name.endsWith(".sql")).sort((a, b) => {
+  return readdirSync(migrationsDir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isFile() && entry.name.endsWith(".sql")) return [entry.name]
+    if (entry.isDirectory() && existsSync(join(migrationsDir, entry.name, "migration.sql"))) return [`${entry.name}.sql`]
+    return []
+  }).sort((a, b) => {
     const aNumber = Number.parseInt(a.split("_")[0]!, 10)
     const bNumber = Number.parseInt(b.split("_")[0]!, 10)
     if (aNumber !== bNumber) {
@@ -73,13 +87,23 @@ export function listD1MigrationFiles(migrationsDir: string): string[] {
 }
 
 /**
- * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the journal entries that
+ * Writes the migrations of `migrationsDir` into `outputDir` as the flat `.sql` files that Wrangler reads from
+ * `migrations_dir`. Each Drizzle Kit folder becomes `<tag>.sql`.
+ */
+export async function copyD1MigrationFiles(migrationsDir: string, outputDir: string): Promise<void> {
+  const files = listD1MigrationFiles(migrationsDir)
+  await mkdir(outputDir, { recursive: true })
+  await Promise.all(files.map(name => copyFile(migrationSqlFile(migrationsDir, name.slice(0, -".sql".length)), join(outputDir, name))))
+}
+
+/**
+ * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the migrations that
  * Drizzle Kit applied count as applied, so a database that `vitehub db migrate` migrated before keeps its state.
  */
 export async function readD1Ledger(
   query: D1Query,
   { cloudflare, migrationsDir }: { cloudflare?: { migrationsTable?: string }, migrationsDir: string },
-  journal: ReadonlyArray<{ tag: string, when: number }>,
+  migrations: readonly MigrationEntry[],
 ): Promise<D1Ledger> {
   const migrationsTable = cloudflare?.migrationsTable ?? defaultD1MigrationsTable
   const tables = new Set((await query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)", [migrationsTable, drizzleMigrationsTable]))
@@ -90,10 +114,15 @@ export async function readD1Ledger(
   }
   let adopted: string[] = []
   if (tables.has(drizzleMigrationsTable)) {
-    const [last] = await query(`SELECT created_at FROM ${drizzleMigrationsTable} ORDER BY created_at DESC LIMIT 1`)
-    const lastApplied = Number(readRowValue(last, "created_at", 0))
+    // ViteHub wrote this ledger as Drizzle Kit 0.x did, without `name`, so rows match by time and hash.
+    const rows = await query(`SELECT id, hash, created_at FROM ${drizzleMigrationsTable}`)
+    const { applied } = matchLedger(rows.map(row => toLedgerRow({
+      created_at: readRowValue(row, "created_at", 2),
+      hash: readRowValue(row, "hash", 1),
+      id: readRowValue(row, "id", 0),
+    })), migrations)
     const files = new Set(listD1MigrationFiles(migrationsDir))
-    adopted = journal.filter(entry => entry.when <= lastApplied).map(entry => `${entry.tag}.sql`).filter(name => files.has(name))
+    adopted = migrations.filter(entry => applied.has(entry.tag)).map(entry => `${entry.tag}.sql`).filter(name => files.has(name))
   }
   return { applied: new Set(adopted), missing: { adopted }, table: migrationsTable }
 }
@@ -119,7 +148,7 @@ export async function applyD1Migrations(
   }
   for (const name of listD1MigrationFiles(migrationsDir)) {
     if (ledger.applied.has(name)) continue
-    const sql = normalizeSqlLineEndings(readFileSync(join(migrationsDir, name), "utf8"))
+    const sql = normalizeSqlLineEndings(readFileSync(migrationSqlFile(migrationsDir, name.slice(0, -".sql".length)), "utf8"))
     await query(`${sql}\n;\n${insert(name)}`)
     onApplied(name)
   }

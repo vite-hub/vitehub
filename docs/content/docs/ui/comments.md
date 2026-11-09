@@ -24,7 +24,7 @@ The built-in live-site overlay uses a different thread and anchor format.
 Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add the client:
 
 ```bash
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
 `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/comments`:

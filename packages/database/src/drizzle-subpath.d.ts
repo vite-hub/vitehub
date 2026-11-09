@@ -1,16 +1,19 @@
 import "./virtual-module.d.ts"
 
-import type { Table } from "drizzle-orm"
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
+import type { EmptyRelations, ExtractTablesFromSchema, ExtractTablesWithRelations, Table } from "drizzle-orm"
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
+import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import virtualSchema from "#vitehub/database/schema"
 import type { AgentDatabaseHandle } from "./runtime/agent.js"
 
 type DatabaseDialect = "sqlite" | "postgresql"
 
+/** Each table of the schema, as `defineRelations(schema)` returns it, so `db.query.<table>` reads one table. */
+type SchemaRelations<TSchema extends Record<string, unknown>> = ExtractTablesWithRelations<EmptyRelations, ExtractTablesFromSchema<TSchema>>
+
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> = TDialect extends "postgresql"
-  ? PgDatabase<PgQueryResultHKT, TSchema>
-  : BaseSQLiteDatabase<"async", unknown, TSchema>
+  ? PgAsyncDatabase<PgQueryResultHKT, SchemaRelations<TSchema>>
+  : SQLiteAsyncDatabase<"async", unknown, SchemaRelations<TSchema>>
 
 export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> {
   db: DrizzleRuntimeDatabase<TSchema, TDialect>

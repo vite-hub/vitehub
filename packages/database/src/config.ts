@@ -948,7 +948,6 @@ export function resolveDBViteConfig(
       databases[definition.name] = {
         connection: url === undefined ? {} : { url },
         dialect: "postgresql",
-        drizzle: {},
         generatedSchemaFile,
         hyperdrive: readDefinitionHyperdriveConfig(definition.handler, definition.name),
         migrationsDir,
@@ -984,7 +983,6 @@ export function resolveDBViteConfig(
       cloudflare,
       connection: resolveDefinitionConnection(definition.handler, definition.name, options?.connection),
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile,
       migrationsDir,
       mode: definition.mode,

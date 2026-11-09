@@ -74,7 +74,6 @@ async function createProject(databases: Record<string, Partial<ResolvedDrizzleDa
   tempDirs.push(rootDir)
   const resolved = Object.fromEntries(Object.entries(databases).map(([name, database]) => [name, {
     dialect: "sqlite",
-    drizzle: {},
     migrationsDir: join(rootDir, "migrations"),
     name,
     ...database,

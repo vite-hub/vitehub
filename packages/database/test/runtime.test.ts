@@ -67,7 +67,6 @@ async function createHostedAnalyticsDb(http: true | { authToken: string, url: st
       migrationsDir: "server/databases/analytics/migrations",
     },
     dialect: "sqlite",
-    drizzle: {},
     generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
     migrationsDir: "server/databases/analytics/migrations",
     mode: "named",
@@ -85,7 +84,6 @@ async function createLocalAnalyticsDb(http: true | { authToken: string, url: str
       databaseId: "analytics-d1-id",
       http,
     },
-    drizzle: {},
     name: "analytics",
     schema: analyticsSchema,
   })
@@ -129,7 +127,6 @@ function createRuntimeDatabaseEntries() {
           },
         },
         dialect: "sqlite",
-        drizzle: {},
         generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
         migrationsDir: "src/database/analytics/migrations",
         mode: "named",
@@ -146,7 +143,6 @@ function createRuntimeDatabaseEntries() {
           },
         },
         dialect: "sqlite",
-        drizzle: {},
         generatedSchemaFile: ".vitehub/database/schema/default.ts",
         migrationsDir: "src/database/migrations",
         mode: "default",
@@ -282,7 +278,6 @@ describe("drizzle runtime", () => {
             migrationsDir: "src/database/analytics/migrations",
           },
           dialect: "sqlite",
-          drizzle: {},
           generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
           migrationsDir: "src/database/analytics/migrations",
           mode: "named",
@@ -372,7 +367,6 @@ describe("database definition runtime", () => {
     const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
     const db = createDefinitionRuntime({
       cloudflare: { binding: "ANALYTICS_DB" },
-      drizzle: {},
       name: "analytics",
       schema: analyticsSchema,
     }, {
@@ -402,7 +396,6 @@ describe("database definition runtime", () => {
         },
       },
       connection: { url: "file:.data/analytics.sqlite" },
-      drizzle: {},
       name: "analytics",
       schema: analyticsSchema,
     })
@@ -430,7 +423,6 @@ describe("database definition runtime", () => {
     const { createDefinitionRuntime } = await import("../src/runtime/definition-hosted.ts")
     const database = createDefinitionRuntime({
       cloudflare: { binding: "DB_ANALYTICS" },
-      drizzle: {},
       name: "analytics",
       schema: analyticsSchema,
     })
@@ -484,7 +476,6 @@ describe("hosted drizzle runtime", () => {
         url: "file:.data/database.sqlite",
       },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/default.ts",
       migrationsDir: "src/database/migrations",
       mode: "default",
@@ -503,7 +494,6 @@ describe("hosted drizzle runtime", () => {
         url: "postgres://database.example.com/app",
       },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/default.ts",
       migrationsDir: "src/database/migrations",
       mode: "default",
@@ -527,7 +517,6 @@ describe("hosted drizzle runtime", () => {
         migrationsDir: "src/database/analytics/migrations",
       },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
       migrationsDir: "src/database/analytics/migrations",
       mode: "named",
@@ -604,7 +593,6 @@ describe("hosted drizzle runtime", () => {
       },
       connection: { url: "libsql://analytics.example.turso.io" },
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
       migrationsDir: "server/databases/analytics/migrations",
       mode: "named",

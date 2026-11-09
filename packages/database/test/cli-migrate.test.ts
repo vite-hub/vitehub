@@ -1,6 +1,6 @@
 import { spawn as spawnProcess } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
@@ -20,6 +20,19 @@ afterEach(async () => {
 })
 
 const databaseUrl = "file:.vitehub/data/database/sqlite.db"
+
+/**
+ * Waits for the next second. Drizzle Kit 1.0 names a SQLite migration folder by the current second only, and Drizzle
+ * orders folders of the same second by name, so two generates in one second can apply in the wrong order.
+ */
+async function nextSecond() {
+  await new Promise(resolve => setTimeout(resolve, 1_010 - Date.now() % 1_000))
+}
+
+/** The migration folders that Drizzle Kit 1.0 wrote, oldest first, such as `20261109183119_init`. */
+async function migrationTags(migrationsDir: string) {
+  return (await readdir(migrationsDir)).sort()
+}
 
 function realSpawn(command: string, args: string[], options: { cwd?: string, env?: NodeJS.ProcessEnv } = {}) {
   return new Promise<{ exitCode: number | null }>((resolve, reject) => {
@@ -97,7 +110,7 @@ describe("vitehub db migrate", () => {
     const first = await project.run("migrate", ["--dry-run"])
     expect(first).toMatchObject({ exitCode: 0, stderr: "" })
     expect(first.stdout).toContain("[vitehub] Database \"default\" (local SQLite .vitehub/data/database/sqlite.db): 1 pending migration.")
-    expect(first.stdout).toMatch(/0000_init\n {4}CREATE TABLE `notes`/)
+    expect(first.stdout).toMatch(/\d{14}_init\n {4}CREATE TABLE `notes`/)
     expect(first.stdout).toContain("[vitehub] Dry run. No changes were made.")
     expect(existsSync(join(project.rootDir, ".vitehub/data/database/sqlite.db"))).toBe(false)
 
@@ -105,17 +118,18 @@ describe("vitehub db migrate", () => {
     await expect(project.columns()).resolves.toEqual(["id", "title", "body"])
 
     await project.writeSchema(["title"])
+    await nextSecond()
     await expect(project.run("generate", ["--name", "drop_body"])).resolves.toMatchObject({ exitCode: 0 })
 
     const dryRun = await project.run("migrate", ["--dry-run"])
     expect(dryRun.exitCode).toBe(1)
     expect(dryRun.stdout).toContain("1 pending migration.")
-    expect(dryRun.stdout).toContain("0001_drop_body\n    ALTER TABLE `notes` DROP COLUMN `body`;\n    ! Data loss: drops column \"body\" from \"notes\".")
+    expect(dryRun.stdout).toMatch(/\d{14}_drop_body\n {4}ALTER TABLE `notes` DROP COLUMN `body`;\n {4}! Data loss: drops column "body" from "notes"\./)
     expect(dryRun.stderr).toContain("DATABASE_MIGRATION_DATA_LOSS")
 
     const refused = await project.run("migrate")
     expect(refused.exitCode).toBe(1)
-    expect(refused.stderr).toContain("0001_drop_body: drops column \"body\" from \"notes\": ALTER TABLE `notes` DROP COLUMN `body`;")
+    expect(refused.stderr).toMatch(/\d{14}_drop_body: drops column "body" from "notes": ALTER TABLE `notes` DROP COLUMN `body`;/)
     expect(refused.stderr).toContain("vitehub db migrate --allow-data-loss")
     await expect(project.columns()).resolves.toEqual(["id", "title", "body"])
 
@@ -148,8 +162,35 @@ describe("readMigrationPlan", () => {
     await project.writeSchema(["title"])
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
     const database = { ...project.database, cloudflare: { binding: "DB", databaseId: "database-id", http: true, migrationsDir: project.database.migrationsDir } } as ResolvedDrizzleDatabaseConfig
-    return { database, rootDir: project.rootDir }
+    const [init] = await migrationTags(project.database.migrationsDir)
+    return { database, init: init!, rootDir: project.rootDir }
   }
+
+  it("reads a Drizzle Kit 0.x ledger as Drizzle 1.0 upgrades it, and fails on rows of no migration folder", async () => {
+    const project = await createProject()
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    const [init] = await migrationTags(project.database.migrationsDir)
+    // Drizzle Kit 0.x wrote the journal `when` in milliseconds. Drizzle 1.0 matches it to the folder of the same second.
+    const createdAt = Date.UTC(Number(init!.slice(0, 4)), Number(init!.slice(4, 6)) - 1, Number(init!.slice(6, 8)), Number(init!.slice(8, 10)), Number(init!.slice(10, 12)), Number(init!.slice(12, 14))) + 417
+    await mkdir(join(project.rootDir, ".vitehub/data/database"), { recursive: true })
+    const client = createClient({ url: `file:${join(project.rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await client.execute("CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric)")
+      await client.execute({ args: [createdAt], sql: "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('old-hash', ?)" })
+      const options = { env: process.env, projectRoot: project.rootDir }
+      await expect(readMigrationPlan(project.database, options)).resolves.toMatchObject([undefined, { pending: [] }])
+
+      // A row of another Definition on the same database stops the upgrade in Drizzle 1.0, so the check fails first.
+      await client.execute("INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('other-hash', 1600000000000)")
+      const [error] = await readMigrationPlan(project.database, options)
+      expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
+      expect(error?.why).toContain("1 row(s) (id 2) that match no migration folder")
+    }
+    finally {
+      client.close()
+    }
+  })
 
   it("fails clearly when D1 HTTP has no Cloudflare credentials", async () => {
     const { database, rootDir } = await d1Project()
@@ -163,8 +204,9 @@ describe("readMigrationPlan", () => {
   }, 60_000)
 
   it("reads Wrangler's migrations table of D1 over HTTP", async () => {
-    const { database, rootDir } = await d1Project()
-    const d1 = await createFakeD1(rootDir, "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');")
+    const { database, init, rootDir } = await d1Project()
+    // The build writes the folder `<tag>/migration.sql` as `<tag>.sql` for Wrangler, so Wrangler's ledger has that name.
+    const d1 = await createFakeD1(rootDir, `CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO d1_migrations (name) VALUES ('${init}.sql');`)
 
     const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: d1.fetch, projectRoot: rootDir })
 
@@ -177,13 +219,13 @@ describe("readMigrationPlan", () => {
   }, 60_000)
 
   it("accepts the Cloudflare D1 array row response shape", async () => {
-    const { database, rootDir } = await d1Project()
+    const { database, init, rootDir } = await d1Project()
     const request = vi.fn<typeof fetch>(async () => Response.json({ result: [{ results: { columns: ["name"], rows: [] } }], success: true }))
 
     const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: request, projectRoot: rootDir })
 
     expect(error).toBeUndefined()
-    expect(plan?.pending.map(migration => migration.name)).toEqual(["0000_init"])
+    expect(plan?.pending.map(migration => migration.name)).toEqual([init])
   }, 60_000)
 })
 
@@ -321,28 +363,31 @@ describe("vitehub db migrate with D1 over HTTP", () => {
     project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir: project.database.migrationsDir, ...(migrationsTable ? { migrationsTable } : {}) }
     await project.writeSchema(["title"])
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
-    const init = await readFile(join(project.database.migrationsDir, "0000_init.sql"), "utf8")
+    const [initTag] = await migrationTags(project.database.migrationsDir)
+    const init = await readFile(join(project.database.migrationsDir, initTag!, "migration.sql"), "utf8")
     await project.writeSchema(["title", "body"])
+    await nextSecond()
     await expect(project.run("generate", ["--name", "add_body"])).resolves.toMatchObject({ exitCode: 0 })
+    const [, addBodyTag] = await migrationTags(project.database.migrationsDir)
     const env = { ...process.env, ...d1Env }
-    return { ...project, init, migrate: (args: string[] = []) => project.run("migrate", args, env) }
+    return { ...project, addBodyTag: addBodyTag!, init, initTag: initTag!, migrate: (args: string[] = []) => project.run("migrate", args, env) }
   }
 
   it("applies only the migrations that Wrangler's ledger lacks", async () => {
     const project = await d1MigrateProject()
     // `wrangler d1 migrations apply` applied the first migration.
-    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL); INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');`)
+    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL); INSERT INTO d1_migrations (name) VALUES ('${project.initTag}.sql');`)
     vi.stubGlobal("fetch", d1.fetch)
 
     const dryRun = await project.migrate(["--dry-run"])
     expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
     expect(dryRun.stdout).toContain("(Cloudflare D1 database-id over HTTP): 1 pending migration.")
-    expect(dryRun.stdout).toContain("  0001_add_body\n    ALTER TABLE `notes` ADD `body` text;")
+    expect(dryRun.stdout).toContain(`  ${project.addBodyTag}\n    ALTER TABLE \`notes\` ADD \`body\` text;`)
 
     const applied = await project.migrate()
     expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
-    expect(applied.stdout).toContain("[vitehub] Database \"default\": applied 0001_add_body.sql.")
-    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+    expect(applied.stdout).toContain(`[vitehub] Database "default": applied ${project.addBodyTag}.sql.`)
+    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([[`${project.initTag}.sql`], [`${project.addBodyTag}.sql`]])
     await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"], ["body"]])
     await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = '__drizzle_migrations'")).resolves.toEqual([])
 
@@ -357,20 +402,22 @@ describe("vitehub db migrate with D1 over HTTP", () => {
 
     await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
 
-    await expect(d1.rows("SELECT name FROM custom_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+    await expect(d1.rows("SELECT name FROM custom_migrations ORDER BY id")).resolves.toEqual([[`${project.initTag}.sql`], [`${project.addBodyTag}.sql`]])
     await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'd1_migrations'")).resolves.toEqual([])
     d1.client.close()
   }, 120_000)
 
   it("keeps the migrations that Drizzle Kit applied before", async () => {
     const project = await d1MigrateProject()
-    const journal = JSON.parse(await readFile(join(project.database.migrationsDir, "meta/_journal.json"), "utf8")) as { entries: Array<{ when: number }> }
-    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC); INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('hash', ${journal.entries[0]!.when});`)
+    // ViteHub wrote Drizzle's ledger as Drizzle Kit 0.x did: no `name`, and `created_at` from the journal in milliseconds.
+    const tag = project.initTag
+    const folderTime = Date.UTC(Number(tag.slice(0, 4)), Number(tag.slice(4, 6)) - 1, Number(tag.slice(6, 8)), Number(tag.slice(8, 10)), Number(tag.slice(10, 12)), Number(tag.slice(12, 14)))
+    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC); INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('hash', ${folderTime + 417});`)
     vi.stubGlobal("fetch", d1.fetch)
 
     await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
 
-    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([[`${project.initTag}.sql`], [`${project.addBodyTag}.sql`]])
     d1.client.close()
   }, 120_000)
 
