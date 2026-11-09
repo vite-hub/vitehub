@@ -394,6 +394,20 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(tool(bar, "Comment (C)")).not.toBeNull())
   })
 
+  it("starts a whole-page thread from the list on the revision that the server maps the page to", async () => {
+    const { bar, panel, comments } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: () => ({ kind: "drop", id: "pricing", revision: 4 }),
+    })
+    tool(bar, "Comments on this page")!.click()
+    await vi.waitFor(() => expect(panel()?.querySelector("textarea")).not.toBeNull())
+    const box = panel()!.querySelector("textarea")!
+    await type(box, "On the whole drop")
+    press(box, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]).toMatchObject({ subject: { kind: "drop", id: "pricing" }, anchor: { kind: "page" }, revision: 4 })
+  })
+
   it("starts no comment and lists no threads until the server names the subject of the new page", async () => {
     let answer!: () => void
     const answered = new Promise<void>((resolve) => { answer = resolve })
