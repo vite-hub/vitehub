@@ -33,6 +33,42 @@ pnpm add -D drizzle-kit nitro
 
 Comments stores threads in a Database. Realtime shows who is on each page. The memory authority keeps the presence rooms in this server process.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    database: true,
+    realtime: { authority: 'memory' },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({
+      preset: 'node',
+      database: true,
+      realtime: { authority: 'memory' },
+    }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
 import { vitehub } from 'vite-hub'
@@ -49,6 +85,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 Add `server/comments.ts`. It exports the definition as `comments`, or as the default export. Without the file, `vitehub({ comments: true })` turns Comments on with the default policy. The Console alone does not turn it on. Without `authorize`, guests may comment only on the dev server. This policy allows everyone, so the next steps also work in a preview build. People without an account comment as guests under a name they type.
 

@@ -1,13 +1,17 @@
-import { hubWorkspace } from '@vite-hub/workspace/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
-export default {
+export default defineConfig({
   plugins: [
-    hubWorkspace({
-      store: {
-        provider: 'cloudflare-artifacts',
-        binding: 'WORKSPACE_ARTIFACTS',
-        namespace: 'vitehub',
+    vitehub({
+      preset: 'cloudflare',
+      workspace: {
+        store: {
+          provider: 'cloudflare-artifacts',
+          binding: 'WORKSPACE_ARTIFACTS',
+          namespace: 'vitehub',
+        },
       },
     }),
   ],
-}
+})

@@ -8,7 +8,7 @@ icon: i-lucide-calendar-clock
 ---
 
 ::product-hero{tagline="Run server code at set times, from one file that deploys as cron on your host." hosts="Cloudflare, Vercel, Deno, Node, Docker"}
-  :::product-files{feature="schedule"}
+  :::code-tree{feature="schedule"}
   ```ts [server/schedules/daily-report.ts]
   import { defineSchedule } from 'vite-hub/schedule'
 
@@ -23,6 +23,41 @@ icon: i-lucide-calendar-clock
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // Keeps Schedule Run history across restarts
+      kv: true,
+      // Checks for due schedules every minute
+      schedule: { runtime: { driver: 'process' } },
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({
+        preset: 'node',
+        // Keeps Schedule Run history across restarts
+        kv: true,
+        // Checks for due schedules every minute
+        schedule: { runtime: { driver: 'process' } },
+      }),
+      nitro(),
+    ],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
   ```ts [vite.config.ts]
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
@@ -39,6 +74,7 @@ icon: i-lucide-calendar-clock
     ],
   })
   ```
+  ::::
   :::
 ::
 
