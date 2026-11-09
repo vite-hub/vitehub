@@ -20,6 +20,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, message jumps, `useComments()`, and the Choices input parts | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/choices-input` | The text box, clear button, live region, and error of a `useChoices()` input, without styles; `FilterSearch` in `@vite-hub/ui/filter-search` styles them with Nuxt UI | Markup, styles, and applying the selection in `onSelect` |
 | `@vite-hub/ui/workspace` (and the other workspace entries) | A live app in the browser: editor, terminal, preview, boot checklist, and Connect | Files, tokens, and the cross-origin isolated route |
+| `@vite-hub/ui/playground-render` | A playground that renders files in the page, such as Markdown, with share links | The render function, the examples, and the preview styles |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 
 `@vite-hub/ui/primitive-rail` holds the icon rail and `PrimitiveIcon`, which draws a [`@vite-hub/icons`](../icons/README.md) icon inline so its rail item can move it on hover. ViteHub docs and the Console share both. `vite-hub/nuxt` registers the `vitehub` Iconify collection, so `i-vitehub-kv` also works in `UIcon`. It is internal: it can change in any release and `vite-hub/nuxt` does not auto-import it. Its styles are in `@vite-hub/ui/styles.css`. The rail always takes 3.5rem of the layout and expands over the next element on hover or keyboard focus to show labels. Its slots receive `expanded`, so a consumer can turn off its tooltips while the labels show.
@@ -81,6 +82,7 @@ The workspace entries render a live app next to a docs page: a tutorial with the
 | `@vite-hub/ui/workspace-boot-status` | `WorkspaceBootStatus`, the boot checklist with live times |
 | `@vite-hub/ui/connect-panel` | `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()` |
 | `@vite-hub/ui/browser-support-notice` | `BrowserSupportNotice` |
+| `@vite-hub/ui/playground-render` | `PlaygroundRender`, a playground that renders files in the page. See [Render files in the page](#render-files-in-the-page) |
 | `@vite-hub/ui/playground` | Share links and zips for any playground: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, `downloadZip()` |
 
 None of them is in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
@@ -148,6 +150,40 @@ const source = computed({
 - `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported` and, when unsupported, its `reason` to distinguish missing page isolation from browser limitations. `description` replaces the text for a tutorial with what the reader of your page can do instead.
 
 The demo page in `test/browser/page` shows every part in the tutorial layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
+
+## Render files in the page
+
+`PlaygroundRender` from `@vite-hub/ui/playground-render` is a playground for code that renders in the browser, such as Markdown or YAML. It needs no WebContainer. You give it a `render` function, the editor panes, and the examples. It shows the editors, the examples, the issues, and the preview.
+
+```vue
+<script setup lang="ts">
+import { PlaygroundRender, type PlaygroundFiles } from "@vite-hub/ui/playground-render";
+import { marked } from "marked";
+
+const presets = [
+  { id: "hello", label: "Hello", group: "Basics", files: { "content.md": "# Hello\n" } },
+  { id: "list", label: "A list", group: "Basics", files: { "content.md": "- One\n- Two\n" } },
+];
+const panes = [{ file: "content.md", label: "Markdown", language: "markdown" }];
+const languages = [() => import("shiki/langs/markdown.mjs")];
+
+async function render(files: PlaygroundFiles) {
+  return { html: await marked.parse(files["content.md"] ?? ""), issues: [] };
+}
+</script>
+
+<template>
+  <PlaygroundRender :presets :panes :languages :render class="h-[70vh]" />
+</template>
+```
+
+- The state is a set of files. Each edit renders 200 ms after the last key, and a render that ends after a newer one is dropped. The preview keeps its scroll position.
+- The URL hash holds the files as a share link of `@vite-hub/ui/playground`, with the open example as its template. The playground replaces the hash, so Back leaves the page. It loads the hash again on `hashchange`, and says so when a link cannot be read.
+- `render(files)` returns `{ html, issues? }`. An issue is `{ message, line? }`. A thrown error shows as an issue.
+- `previewDocument(html, files)` wraps the HTML in the preview page, with your stylesheets, body class, and theme. The default is a plain white page. The preview runs scripts in a sandboxed frame with its own origin, so a shared link cannot reach your page.
+- `languages` are Shiki languages for the `language` of each pane. Shiki loads after the first render. Without `languages`, the panes are plain text.
+- `preset` is the id of the example that opens first. Copy link refuses links longer than `playgroundLinkLimit`; Download gives a zip of the files instead. Reset asks first, then goes back to the example.
+- A pane with `slot: "theme"` shows the `#theme` slot in place of the editor, with `{ pane, value, files, setFile }`. The `#toolbar` slot gets `{ files, preset, setFile }`, and the `#preset` slot gets `{ preset, active }` to draw each example.
 
 ## Nuxt
 

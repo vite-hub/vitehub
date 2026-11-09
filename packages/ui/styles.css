@@ -3221,6 +3221,78 @@
   }
 }
 
+/* PlaygroundRender: the examples, the editor, and the preview side by side. The textarea of each pane sits over a
+   colored copy of its text in one grid cell. The copy sets the height and the pane scrolls. */
+@layer components {
+  .vh-pg {
+    background: var(--vh-bg); border: 1px solid var(--vh-border); border-radius: var(--vh-radius); color: var(--vh-text);
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; overflow: hidden;
+  }
+  .vh-pg:has(> .vh-pg-presets) { grid-template-columns: 14rem minmax(0, 1fr) minmax(0, 1fr); }
+  .vh-pg-presets { border-inline-end: 1px solid var(--vh-border); display: grid; align-content: start; gap: 1rem; min-height: 0; overflow-y: auto; padding: 0.75rem 0.5rem; }
+  .vh-pg-group ul { display: grid; gap: 0.125rem; list-style: none; margin: 0; padding: 0; }
+  .vh-pg-group-title { color: var(--vh-muted); font-size: 0.75rem; font-weight: 600; margin: 0 0 0.25rem; padding: 0 0.5rem; }
+  .vh-pg-preset {
+    background: none; border: 0; border-radius: calc(var(--vh-radius) * 0.75); color: var(--vh-muted); cursor: pointer; display: block;
+    font: inherit; font-size: 0.8125rem; padding: 0.375rem 0.5rem; text-align: start; width: 100%;
+  }
+  .vh-pg-preset[aria-current="true"] { background: var(--vh-bg-muted); color: var(--vh-highlighted); font-weight: 500; }
+  @media (hover: hover) { .vh-pg-preset:hover { color: var(--vh-highlighted); } }
+
+  .vh-pg-editor { border-inline-end: 1px solid var(--vh-border); display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
+  .vh-pg-bar { align-items: center; border-bottom: 1px solid var(--vh-border); display: flex; flex: none; gap: 0.5rem; justify-content: space-between; min-height: 2.75rem; padding: 0 0.25rem 0 0.5rem; }
+  .vh-pg-tabs { display: flex; gap: 0.125rem; }
+  .vh-pg-tab {
+    background: none; border: 0; border-radius: calc(var(--vh-radius) * 0.75); color: var(--vh-muted); cursor: pointer;
+    font: inherit; font-size: 0.8125rem; font-weight: 500; min-height: 2rem; padding: 0 0.625rem;
+  }
+  .vh-pg-tab[aria-pressed="true"] { background: var(--vh-bg-muted); color: var(--vh-highlighted); }
+  .vh-pg-title { color: var(--vh-highlighted); font-size: 0.8125rem; font-weight: 500; padding: 0 0.25rem; }
+  .vh-pg-actions { align-items: center; display: flex; gap: 0.25rem; }
+  .vh-pg-icon-button { height: 2rem; width: 2rem; }
+  .vh-pg-preset:focus-visible, .vh-pg-tab:focus-visible, .vh-pg-code textarea:focus-visible { outline: 2px solid var(--vh-highlighted); outline-offset: -2px; }
+
+  .vh-pg-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; }
+  .vh-pg-pane[hidden] { display: none; }
+  .vh-pg-code { display: grid; flex: 1; background: var(--vh-ws-code-bg, var(--vh-bg-muted)); }
+  .vh-pg-code > *, .vh-pg-paint pre { grid-area: 1 / 1; }
+  .vh-pg-paint { display: grid; pointer-events: none; }
+  .vh-pg-paint pre, .vh-pg-code textarea {
+    background: none !important; border: 0; border-radius: 0; box-shadow: none; color: var(--vh-text); font: 0.8125rem/1.65 var(--vh-ws-font-mono);
+    margin: 0; overflow: visible; overflow-wrap: anywhere; padding: 1rem; tab-size: 2; white-space: pre-wrap;
+  }
+  .vh-pg-paint code { font: inherit; }
+  :root.dark .vh-pg-paint span { color: var(--shiki-dark) !important; }
+  .vh-pg-code textarea { caret-color: var(--vh-text); color: transparent; overflow: hidden; resize: none; }
+  .vh-pg-code textarea::selection { background: color-mix(in oklab, var(--vh-text) 18%, transparent); }
+
+  .vh-pg-notice { border-top: 1px solid var(--vh-border); color: var(--vh-highlighted); flex: none; font-size: 0.8125rem; margin: 0; padding: 0.625rem 1rem; }
+  .vh-pg-issues { border-top: 1px solid var(--vh-border); color: var(--vh-warning); flex: none; font-size: 0.8125rem; list-style: none; margin: 0; max-height: 30%; overflow-y: auto; padding: 0.625rem 1rem; }
+  .vh-pg-issues[hidden] { display: none; }
+  .vh-pg-issues li + li { margin-top: 0.375rem; }
+  .vh-pg-issue-line { font-family: var(--vh-ws-font-mono); font-weight: 600; margin-inline-end: 0.5rem; }
+
+  .vh-pg-confirm { background: var(--vh-bg); border: 1px solid var(--vh-border); border-radius: var(--vh-radius); color: var(--vh-text); max-width: 22rem; padding: 1rem; }
+  .vh-pg-confirm form { display: grid; gap: 0.5rem; }
+  .vh-pg-confirm p { font-size: 0.875rem; margin: 0; }
+  .vh-pg-confirm-title { color: var(--vh-highlighted); font-weight: 600; }
+  .vh-pg-confirm .vh-ws-actions { justify-content: end; margin-top: 0.5rem; }
+
+  /* The frame paints white, so its page must not take the dark scheme of this page and draw white text. */
+  .vh-pg-preview { background: #fff; border: 0; color-scheme: light; height: 100%; width: 100%; }
+
+  @media (max-width: 60rem) {
+    .vh-pg, .vh-pg:has(> .vh-pg-presets) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(18rem, 1fr) minmax(18rem, 1fr); }
+    .vh-pg-presets { border-bottom: 1px solid var(--vh-border); border-inline-end: 0; display: flex; overflow-x: auto; }
+    .vh-pg-group { flex: none; }
+    .vh-pg-group ul { display: flex; }
+    .vh-pg-preset { white-space: nowrap; }
+    .vh-pg-editor { border-bottom: 1px solid var(--vh-border); border-inline-end: 0; }
+    /* Smaller text makes iOS zoom into the field. */
+    .vh-pg-paint pre, .vh-pg-code textarea { font-size: 1rem; }
+  }
+}
+
 /* MarkdownEditor: the text takes the comark typeset, and the page's focus shows on the editor's own frame. */
 @layer components {
   .vh-markdown-editor:focus-within {
