@@ -2,12 +2,12 @@
 title: Source
 layout: landing
 navigation.title: Overview
-description: Read files and data from your project, a GitHub repository, or your own code without changing them, and serve lists as paged API routes.
+description: Read files from your project, GitHub, or your own code without changing them, and serve lists as paged routes.
 navigation.order: 1
 icon: i-lucide-folder-input
 ---
 
-::product-hero{tagline="Read files from your project, GitHub, or your own data with one reader, and turn lists into paged API routes." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+::product-hero{tagline="Read files from your project, GitHub, or your own data, and turn lists into paged API routes." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-tree
   ```ts [server/sources/docs.ts]
   import { github } from 'vite-hub/source/github'
@@ -93,28 +93,28 @@ icon: i-lucide-folder-input
 
 ::product-features
   :::product-feature-item{title="Ready-made readers" icon="i-lucide-files" to="/docs/source/configure#source-loader-options"}
-  Read one file, a folder of files, or a GitHub repository. Your files do not change.
+  Read a file, a folder, or a GitHub repository. Your files do not change.
   :::
 
   :::product-feature-item{title="Read from any route" icon="i-lucide-code-2" to="/docs/source/server-api#source-reader-api"}
-  `createSource()` opens a reader. `keys()`, `read()`, and `list()` get the files you need.
+  `createSource()` opens a reader. `keys()`, `read()`, and `list()` get files.
   :::
 
   :::product-feature-item{title="Bring your own data" icon="i-lucide-blocks" to="/docs/source/configure#source-object-contract"}
-  `defineSource()` reads from anywhere. Give it a list of keys and a way to load one item. TypeScript infers the types.
+  `defineSource()` reads from anywhere. Give it the keys and a way to load one item. TypeScript infers the types.
   :::
 
   :::product-feature-item{title="Turn a list into an API route" icon="i-lucide-list" to="/docs/source/server-api#expose-a-typed-collection"}
-  Add a file to `server/collections` to get a GET route. In Vue, `useCollection()` loads it one page at a time.
+  A file in `server/collections` becomes a GET route. In Vue, `useCollection()` loads it page by page.
   :::
 
 
   :::product-feature-item{title="Filter and search a list" icon="i-lucide-list-filter" to="/docs/source/server-api#collections-over-an-array"}
-  `array()` adds filters, search, and counts to a list that fits in server memory.
+  `array()` adds filters, search, and counts to a list that fits in memory.
   :::
 
   :::product-feature-item{title="Keep a list private" icon="i-lucide-shield-check" to="/docs/source/server-api#protect-a-collection"}
-  Set `authorize` to allow only signed-in users. Other requests get a `401` or `403` error.
+  `authorize` allows only signed-in users. Others get `401` or `403`.
   :::
 ::
 
