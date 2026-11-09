@@ -7,13 +7,15 @@ import { array, boolean, object, optional, parse, pipe, record, string, transfor
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
+import { docsAffected } from "../.github/scripts/docs-affected.mjs"
+
 const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
   name: optional(string()),
   permissions: optional(record(string(), string())),
   needs: optional(pipe(union([string(), array(string())]), transform(value => typeof value === "string" ? [value] : value))),
   if: optional(string()),
   "continue-on-error": optional(boolean()),
-  steps: array(object({ name: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
+  steps: array(object({ name: optional(string()), if: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
 })) })
 const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
 const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
@@ -65,9 +67,9 @@ describe("CI merge gate", () => {
     ])
   })
 
-  it("runs packed release contracts for pull requests and manual dispatches", () => {
+  it("runs packed release contracts on pushes, manual dispatches and repair-main pull requests", () => {
     const prepublish = workflow.jobs["prepublish-contracts"]
-    expect(prepublish?.if).toBe("${{ github.event_name != 'push' }}")
+    expect(prepublish?.if).toBe(fullSuite)
     expect(prepublish?.steps.flatMap(step => step.run ? [step.run] : [])).toEqual([
       'vp run --no-cache --filter "./packages/*" build',
       [
@@ -257,7 +259,6 @@ describe("CI merge gate", () => {
     "contract-tests",
     "package-tests",
     "package-tests-success",
-    "node-22",
     "docs",
     "docs-snippets",
     "console",
@@ -265,16 +266,19 @@ describe("CI merge gate", () => {
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "node-22", "docs", "docs-snippets", "console", "prepublish-contracts"].includes(name) ? "success" : "skipped",
+      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "docs", "docs-snippets", "console"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
   })
 
-  it("requires packed release contracts on pull requests while allowing their push skip", () => {
-    const results = { ...successfulJobs, "prepublish-contracts": { result: "skipped" } }
-    expect(runGate(results, "pull_request").status).not.toBe(0)
-    expect(runGate(results, "push").status).toBe(0)
+  it.each(["node-22", "prepublish-contracts"])("runs %s only on pushes, manual dispatches and repair-main pull requests", (name) => {
+    expect(workflow.jobs[name]?.if).toBe(fullSuite)
+    const results = { ...successfulJobs, [name]: { result: "skipped" } }
+    expect(runGate(results, "pull_request").status).toBe(0)
+    expect(runGate(results, "push").status).not.toBe(0)
+    expect(runGate(results, "workflow_dispatch").status).not.toBe(0)
+    expect(runGate(results, "pull_request", true).status).not.toBe(0)
   })
 
   it("rejects the push-only checks skipped on a repair-main pull request", () => {
@@ -286,12 +290,36 @@ describe("CI merge gate", () => {
     const result = runGate({ ...results, "docs-deploy": { result: "skipped" } }, "pull_request", true)
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain("contracts-examples: skipped")
-    expect(result.stderr).toContain("windows-agent-credentials: skipped")
+    expect(result.stderr).toContain("node-22: skipped")
+    expect(result.stderr).toContain("prepublish-contracts: skipped")
   })
 
   it.each(pullRequestJobs)("runs %s on pull requests and rejects a skipped result", (name) => {
     expect(workflow.jobs[name]?.if).toBeUndefined()
     expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }).status).not.toBe(0)
+  })
+
+  it("skips the docs build only on pull requests that the docs cannot see", () => {
+    const steps = workflow.jobs.docs?.steps ?? []
+    const scope = steps.find(step => step.name === "Select docs build")
+    expect(scope?.run).toContain('node .github/scripts/docs-affected.mjs "$BASE_REF"')
+    for (const command of ["vp run --filter vitehub-docs test", "vp run docs:build", "vp run --filter vitehub-docs test:artifact"]) {
+      expect(steps.find(step => step.run === command)?.if).toBe("${{ steps.scope.outputs.affected != 'false' }}")
+    }
+  })
+
+  it("builds the docs for changes to the docs, their packages or anything outside packages", () => {
+    const docsManifest = { dependencies: { "vite-hub": "workspace:*", "nuxt": "^4.0.0" }, devDependencies: { "@vite-hub/ui": "workspace:*" } }
+    const packageDirs = new Map([["vite-hub", "vite-hub"], ["ui", "@vite-hub/ui"], ["blob", "@vite-hub/blob"], ["kv", "@vite-hub/kv"]])
+    const affected = (files: string[]) => docsAffected(files, docsManifest, packageDirs)
+    expect(affected(["packages/blob/src/index.ts", "packages/kv/test/kv.test.ts"])).toBe(false)
+    expect(affected([])).toBe(false)
+    expect(affected(["packages/blob/src/index.ts", "packages/vite-hub/src/index.ts"])).toBe(true)
+    expect(affected(["packages/ui/src/button.vue"])).toBe(true)
+    expect(affected(["docs/content/index.md"])).toBe(true)
+    expect(affected(["pnpm-lock.yaml"])).toBe(true)
+    expect(affected(["test/ci-gate.test.ts"])).toBe(true)
+    expect(affected(["packages/unknown/src/index.ts"])).toBe(true)
   })
 
   it("selects package tests from the pull request change", () => {
