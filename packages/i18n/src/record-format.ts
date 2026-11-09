@@ -32,34 +32,82 @@ export interface MessageSegment {
 
 const positionalRe = /(?<!\\)\{(\d+)\}/g
 
-/** Read runtime arguments with Lingui's ICU parser, including arguments in nested choices. */
-function messageArguments(message: string): Set<string> {
-  const names = new Set<string>()
-  const visit = (tokens: CompiledMessage) => {
-    for (const token of tokens) {
-      if (typeof token === "string") continue
-      names.add(token[0])
-      if (token[1] === "plural" || token[1] === "select" || token[1] === "selectordinal") {
-        for (const branch of Object.values(token[2] as CompiledIcuChoices)) if (Array.isArray(branch)) visit(branch)
-      }
-    }
+type TagCounts = Map<string, { min: number, max: number }>
+
+/** Sequential messages add occurrences; ICU alternatives take their minimum and maximum. */
+function addTagCounts(target: TagCounts, counts: TagCounts) {
+  for (const [tag, count] of counts) {
+    const previous = target.get(tag)
+    target.set(tag, { min: (previous?.min ?? 0) + count.min, max: (previous?.max ?? 0) + count.max })
   }
-  visit(compileMessageOrThrow(message))
-  return names
 }
 
-/** Diglot 0.2.1 understands numeric bindings only. Check the complete ICU argument set as well. */
-export function validateMessageArguments(source: string, text: string): ValidationIssue[] {
+/** Read ICU arguments and rich-text components from the messages that Lingui will render. */
+function messagePlaceholders(message: string) {
+  const names = new Set<string>()
+  const visit = (tokens: CompiledMessage, parents: string[]): { parents: string[], tags: TagCounts } => {
+    const tags: TagCounts = new Map()
+    for (const token of tokens) {
+      if (typeof token === "string") {
+        for (const [, closing, name, empty] of token.matchAll(/<(\/?)(\d+)(\/?)>/g)) {
+          if (closing) {
+            if (empty || parents.pop() !== name) throw new Error(`Unpaired rich-text tag </${name}>`)
+          }
+          else {
+            const placeholder = empty ? `Rich-text tag <${name}/>` : `Rich-text tag <${name}>...</${name}>`
+            names.add(placeholder)
+            addTagCounts(tags, new Map([[placeholder, { min: 1, max: 1 }]]))
+            if (!empty) parents.push(name!)
+          }
+        }
+        continue
+      }
+      names.add(`ICU argument {${token[0]}}`)
+      if (token[1] === "plural" || token[1] === "select" || token[1] === "selectordinal") {
+        let next: string[] | undefined
+        const branches: TagCounts[] = []
+        for (const branch of Object.values(token[2] as CompiledIcuChoices)) {
+          if (!Array.isArray(branch)) continue
+          const result = visit(branch, [...parents])
+          if (next && next.join(",") !== result.parents.join(",")) throw new Error("Unbalanced rich-text tags across ICU choices")
+          next = result.parents
+          branches.push(result.tags)
+        }
+        parents = next ?? parents
+        const choices: TagCounts = new Map()
+        for (const tag of new Set(branches.flatMap(branch => [...branch.keys()]))) {
+          choices.set(tag, {
+            min: Math.min(...branches.map(branch => branch.get(tag)?.min ?? 0)),
+            max: Math.max(...branches.map(branch => branch.get(tag)?.max ?? 0)),
+          })
+        }
+        addTagCounts(tags, choices)
+      }
+    }
+    return { parents, tags }
+  }
+  const result = visit(compileMessageOrThrow(message), [])
+  if (result.parents.length) throw new Error("Unclosed rich-text tag")
+  return { names, tags: result.tags }
+}
+
+/** Diglot 0.2.1 understands numeric bindings only. Check all runtime placeholders as well. */
+export function validateMessagePlaceholders(source: string, text: string): ValidationIssue[] {
   try {
-    const required = messageArguments(source)
-    const translated = messageArguments(text)
+    const required = messagePlaceholders(source)
+    const translated = messagePlaceholders(text)
     return [
-      ...[...required].filter(name => !translated.has(name)).map((name): ValidationIssue => ({ code: "missing-placeholder", message: `ICU argument {${name}} is missing` })),
-      ...[...translated].filter(name => !required.has(name)).map((name): ValidationIssue => ({ code: "unknown-placeholder", message: `Unknown ICU argument {${name}}` })),
+      ...[...required.names].filter(name => !translated.names.has(name)).map((name): ValidationIssue => ({ code: "missing-placeholder", message: `${name} is missing` })),
+      ...[...translated.names].filter(name => !required.names.has(name)).map((name): ValidationIssue => ({ code: "unknown-placeholder", message: `Unknown ${name}` })),
+      // Preserve occurrence counts, both on every source path and on paths that repeat a component.
+      ...[...required.tags].filter(([tag, count]) => {
+        const actual = translated.tags.get(tag)
+        return actual && (actual.min < count.min || actual.max < count.max)
+      }).map(([tag]): ValidationIssue => ({ code: "missing-placeholder", message: `${tag} has missing occurrences` })),
     ]
   }
   catch (error) {
-    return [{ code: "brace", message: `Invalid ICU message: ${(error as Error).message}` }]
+    return [{ code: "brace", message: `Invalid message: ${(error as Error).message}` }]
   }
 }
 
@@ -94,5 +142,5 @@ export function recordSegment(record: Pick<TranslationRecord, "source" | "salt">
 /** False for a record that a reviewer rejected or whose text fails validation. Readers see the source text then. */
 export function isVisible(record: TranslationRecord): boolean {
   return recordStatus(record, diglotSegment(recordSegment(record))) !== "rejected"
-    && validateMessageArguments(record.source, record.text).length === 0
+    && validateMessagePlaceholders(record.source, record.text).length === 0
 }
