@@ -88,16 +88,23 @@ export type OptionalFeature = keyof typeof optionalFeaturePackages
 
 /** Whether the app installed `packageName`, as `vite-hub` resolves it. */
 export function isPackageInstalled(packageName: string): boolean {
+  try {
+    import.meta.resolve(`${packageName}/package.json`)
+    return true
+  }
+  catch (error) {
+    // A missing package fails the same way for its entry. Each failed lookup walks every node_modules folder up to the
+    // file system root, and most owner packages are missing in a typical app.
+    if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return false
+  }
   // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry.
-  return [`${packageName}/package.json`, packageName].some((specifier) => {
-    try {
-      import.meta.resolve(specifier)
-      return true
-    }
-    catch {
-      return false
-    }
-  })
+  try {
+    import.meta.resolve(packageName)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 /** Loads a module of an optional owner package, or returns `undefined` when the app did not install the package. */
