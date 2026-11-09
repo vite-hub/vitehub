@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Turn on Queue with `queue: true`. The `preset` selects the Queue Provider.
+Turn on Queue with `queue: true`. The `preset` picks the Queue Provider (the service that stores and delivers jobs).
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -44,7 +44,7 @@ export default defineConfig({
 :::
 ::
 
-With `vitehub()`, the preset sets `provider`, and on Cloudflare the app name sets `namePrefix`. On `preset: 'node'`, ViteHub picks `postgres` when the app has a Postgres Default Database, else `local`. Set `queue: { provider: 'postgres' }` or `queue: { provider: 'local' }` to pick it yourself:
+With `vitehub()`, the preset sets `provider`, and on Cloudflare the app name sets `namePrefix`. On `preset: 'node'`, ViteHub picks `postgres` when the app has a Postgres Default Database, else `local`. To pick it yourself, set `queue: { provider: 'postgres' }` or `queue: { provider: 'local' }`:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -52,7 +52,7 @@ export default defineNuxtConfig({
   vitehub: { preset: 'node', queue: { provider: 'postgres' } },
 })
 ```
- To set the other options in the table, such as `region`, use the Queue package without ViteHub. Pass the options to `hubQueue()`, or set a top-level `queue` key, which takes precedence:
+ For the other options, such as `region`, use the Queue package alone. Pass them to `hubQueue()`, or to a top-level `queue` key, which wins:
 
 ```ts [vite.config.ts]
 import { hubQueue } from '@vite-hub/queue/vite'
@@ -66,41 +66,41 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'vercel' \| 'local' \| 'postgres'` | inferred | Selects the Queue Provider. ViteHub resolves Cloudflare for Cloudflare hosting, and Vercel for other supported production builds. On a Node server (`preset: 'node'` or the Nitro `node-server` preset), it resolves `postgres` when the app has a Postgres Default Database, else `local`. Netlify cannot infer a Queue Provider, so set `provider` or disable Queue there. |
-| `cache` | `boolean` | `true` | Controls named QueueClient reuse for providers that can cache clients. Cloudflare QueueClients still resolve the request-scoped binding for each request. |
-| `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. You can use it with one Queue Definition only. |
-| `namePrefix` | `string` | none | Cloudflare only. Prefixes the generated queue names: `<namePrefix>queue--<hex-name>`. |
-| `region` | `string` | resolved at runtime | Vercel only. Sets the default Vercel Queue region. |
-| `base` | `string` | `.vitehub/data/queue` | Local only. Directory of the stored jobs, relative to the working directory of the server. |
+| `provider` | `'cloudflare' \| 'vercel' \| 'local' \| 'postgres'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, and Vercel for other production builds. On a Node server (`preset: 'node'` or Nitro `node-server`), `postgres` with a Postgres Default Database, else `local`. On Netlify, set `provider` or turn Queue off. |
+| `cache` | `boolean` | `true` | Reuses named QueueClients where the provider allows it. Cloudflare clients still read the request's binding on each request. |
+| `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. Works with one Queue Definition only. |
+| `namePrefix` | `string` | none | Cloudflare only. Prefix of generated queue names: `<namePrefix>queue--<hex-name>`. |
+| `region` | `string` | resolved at runtime | Vercel only. Default Vercel Queue region. |
+| `base` | `string` | `.vitehub/data/queue` | Local only. Folder of stored jobs, relative to the server's working directory. |
 
 ### `queue: false`
 
-Disables runtime queue dispatch and skips generated Vercel queue consumer functions. Runtime calls throw `QUEUE_DISABLED`.
+Turns off runtime dispatch and the generated Vercel consumer functions. Runtime calls throw `QUEUE_DISABLED`.
 
 ## Providers
 
 | Provider | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
-| Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses request-scoped queue bindings. Supports `contentType` and `delaySeconds`. |
-| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
-| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs the stored jobs in the server process. | The default of the Node preset without a Postgres Database. Supports `delaySeconds` and `idempotencyKey`. The jobs stay on one host. `pnpm dev` uses it for every provider, with the rules of the provider of the build. |
-| Postgres | `queue: { provider: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | The default of the Node preset with a Postgres Default Database. Uses the connection of the Default Database. `QUEUE_POSTGRES_URL` overrides it, and an explicit provider without a Postgres Database needs it. Every instance runs jobs. Supports `delaySeconds` and `idempotencyKey`. Install `postgres`. |
+| Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
+| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue`. Supports idempotency, region, retention, and delay. |
+| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node preset without a Postgres Database. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every provider, with that provider's rules. |
+| Postgres | `queue: { provider: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | Default of the Node preset with a Postgres Default Database. Uses the Default Database's connection. `QUEUE_POSTGRES_URL` overrides it, and an explicit provider without a Postgres Database needs it. Every instance runs jobs. Supports `delaySeconds` and `idempotencyKey`. Install `postgres`. |
 
-ViteHub has no Queue Provider for Deno. The local provider keeps the jobs on one host: see [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. To run more than one Node server, use the postgres provider: see [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery). Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a deployment target.
+ViteHub has no Queue Provider for Deno. The local provider keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. For more than one Node server, use the postgres provider: see [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery). Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
 
 ### Cloudflare names
 
-Without `binding`, ViteHub derives a binding from the Queue Definition name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are generated as `<namePrefix>queue--<hex-name>`. A name longer than 63 characters becomes a readable prefix plus a digest. Application code must not depend on these names. Use `runQueue()` with the Queue Definition name.
+Without `binding`, the binding comes from the queue name, such as `QUEUE_77656C636F6D65` for `welcome`. Cloudflare queue names are `<namePrefix>queue--<hex-name>`. A name over 63 characters becomes a readable prefix plus a digest. Do not depend on these names. Call `runQueue()` with the queue name.
 
 ### Vercel region and topics
 
-If you omit `region`, ViteHub checks `QUEUE_REGION`, then `VERCEL_REGION`, then request headers in a Vercel request context.
+Without `region`, ViteHub reads `QUEUE_REGION`, then `VERCEL_REGION`, then the headers of a Vercel request.
 
-Vercel topic names are generated as `topic--<hex-name>`. Application code must not depend on that topic. Use `runQueue()` with the Queue Definition name.
+Vercel topic names are `topic--<hex-name>`. Do not depend on them. Call `runQueue()` with the queue name.
 
 ## Define a queue
 
-Create a Queue Definition in `server/queues/<name>.ts` or `src/<name>.queue.ts`.
+Create a Queue Definition (the file that handles one queue's jobs) in `server/queues/<name>.ts` or `src/<name>.queue.ts`.
 
 ```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from '@vite-hub/queue'
@@ -110,11 +110,11 @@ export default defineQueue<{ email: string }>(async (job) => {
 })
 ```
 
-The queue name comes from discovery. Runtime Helpers address this file as `welcome-email`.
+The file path gives the queue name. Runtime helpers call this file `welcome-email`.
 
 ## Queue Definition options
 
-Pass Definition Options as the second argument to `defineQueue()`.
+Pass options as the second argument to `defineQueue()`.
 
 ```ts [server/queues/report.ts] fragment
 import { defineQueue } from '@vite-hub/queue'
@@ -128,8 +128,8 @@ export default defineQueue<{ reportId: string }>(async (job) => {
 
 | Option | Type | Provider | Description |
 | --- | --- | --- | --- |
-| `cache` | `boolean` | All | Overrides QueueClient caching for this Queue Definition. |
-| `concurrency` | `number` | Cloudflare | Controls batch delivery concurrency. Default: `1`. Values are floored to an integer and never lower than `1`. |
-| `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delaySeconds?: number } } \| void` | Cloudflare | Handles message delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
-| `callbackOptions` | `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }` | Vercel | Passes callback options to `@vercel/queue` for this Queue Definition. |
-| `onDispatchError` | `(error, context) => unknown \| Promise<unknown>` | All | Handles dispatch errors from `deferQueue()`. This is not a Queue Delivery error hook. |
+| `cache` | `boolean` | All | Overrides QueueClient caching for this queue. |
+| `concurrency` | `number` | Cloudflare | Batch delivery concurrency. Default `1`. Rounded down to an integer, at least `1`. |
+| `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delaySeconds?: number } } \| void` | Cloudflare | Handles delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
+| `callbackOptions` | `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }` | Vercel | Callback options for `@vercel/queue` for this queue. |
+| `onDispatchError` | `(error, context) => unknown \| Promise<unknown>` | All | Handles dispatch errors from `deferQueue()`, not delivery errors. |
