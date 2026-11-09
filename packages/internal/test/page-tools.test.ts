@@ -720,6 +720,13 @@ describe("GET /_vitehub/page/session", () => {
     expect(response.headers.get("set-cookie")).toBe("vitehub-tools=1; Path=/; Max-Age=2592000; SameSite=Lax")
   })
 
+  it("marks a tool lazy for this visitor when its check answers lazy", async () => {
+    registerViteHubPageTool(app, { ...comments, allowed: async () => "lazy" })
+    const { body, response } = await session("person=ada")
+    expect(body.tools).toEqual([{ id: "comments", label: "COMMENTS", icon: "i-lucide-comments", lazy: true, script: "/comments.js" }])
+    expect(response.headers.get("set-cookie")).toContain("vitehub-tools=1")
+  })
+
   it("returns only the tools that allow this visitor", async () => {
     registerViteHubPageTool(app, comments)
     registerViteHubPageTool(app, pill)

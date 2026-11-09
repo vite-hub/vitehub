@@ -109,6 +109,33 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.keyboard.press("Escape")
   })
 
+  await t.test("a scroll does not repaint the highlights, and a change to the page does", async () => {
+    const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    // Away from the pins, so no hover changes while the page moves.
+    await page.mouse.move(5, 5)
+    await page.evaluate(() => {
+      document.body.style.paddingBottom = "2000px"
+      window.highlightPaints = 0
+      const set = CSS.highlights.set.bind(CSS.highlights)
+      CSS.highlights.set = (...args) => { window.highlightPaints++; return set(...args) }
+    })
+    try {
+      // The padding is a change to the page too. Count from after it.
+      await frames()
+      await page.evaluate(() => { window.highlightPaints = 0 })
+      for (const y of [40, 80, 120, 0]) {
+        await page.evaluate(top => scrollTo(0, top), y)
+        await frames()
+      }
+      assert.equal(await page.evaluate(() => window.highlightPaints), 0)
+      await page.evaluate(() => document.querySelector("#second").append(" More."))
+      await page.waitForFunction(() => window.highlightPaints > 0, undefined, { timeout: 5000 })
+    }
+    finally {
+      await page.evaluate(() => { document.body.style.paddingBottom = ""; scrollTo(0, 0) })
+    }
+  })
+
   await t.test("in comment mode a drag comments on an area", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
@@ -140,6 +167,22 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal((await api.threads()).length, 2)
   })
 
+  await t.test("a new area comment that grows past the top of the screen moves under its area", async () => {
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
+    const box = await page.locator("#second").boundingBox()
+    await drag(page, { x: box.x + 300, y: box.y + 4 }, { x: box.x + 500, y: box.y + box.height - 4 })
+    await composer.waitFor({ timeout: 5000 })
+    const card = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
+    assert.equal(await page.locator("vitehub-comments [data-slot='comment-layer-item'][data-draft='true']").getAttribute("data-above"), "true")
+    await composer.fill(Array.from({ length: 9 }, (_, line) => `Line ${line + 1}`).join("\n"))
+    await page.waitForTimeout(200)
+    assert.ok((await card.boundingBox()).y >= 0, `the card starts at ${(await card.boundingBox()).y}`)
+    await composer.press("Escape")
+    await composer.press("Escape")
+    await composer.waitFor({ state: "detached", timeout: 5000 })
+  })
+
   await t.test("Enter comments on the focused element, and the focus goes back to it after the comment", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
@@ -149,7 +192,9 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.waitFor({ timeout: 5000 })
     await composer.fill("Rename the menu")
     await composer.press("Escape")
-    assert.equal(await page.locator("vitehub-comments [data-slot='comment-composer-status']").textContent(), "Press Escape again to discard the comment.")
+    const status = page.locator("vitehub-comments [data-slot='comment-composer-status']")
+    assert.equal(await status.textContent(), "Press Esc again to discard.")
+    assert.ok((await status.boundingBox()).height > 0, "the hint shows")
     await composer.press("Escape")
     await composer.waitFor({ state: "detached", timeout: 5000 })
     assert.equal(await page.evaluate(() => document.activeElement?.className), "menu-button")
@@ -169,6 +214,65 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await composer.waitFor({ state: "detached", timeout: 5000 })
     }
     await page.setViewportSize({ width: 1024, height: 720 })
+  })
+
+  await t.test("two quotes of one paragraph get two pins that each take a click", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    if (await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.evaluate(() => {
+      const text = document.querySelector("#first").lastChild
+      const range = document.createRange()
+      range.setStart(text, text.data.indexOf("worth"))
+      range.setEnd(text, text.data.indexOf("worth") + "worth staying".length)
+      getSelection().removeAllRanges()
+      getSelection().addRange(range)
+    })
+    await page.locator("vitehub-comments .selection-bar").waitFor({ timeout: 5000 })
+    await page.keyboard.press("c")
+    await composer.fill("Second quote")
+    await composer.press("Enter")
+    await composer.waitFor({ state: "detached", timeout: 5000 })
+    const pins = page.locator("vitehub-comments [data-slot='comment-pin'][aria-label*='quote'], vitehub-comments [data-slot='comment-pin'][aria-label*='airport']")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelectorAll("[data-slot='comment-pin'][aria-label*='Second quote']").length === 1)
+    const boxes = await pins.evaluateAll(elements => elements.map((pin) => {
+      const box = pin.getBoundingClientRect()
+      const hit = pin.getRootNode().elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+      return { label: pin.getAttribute("aria-label"), y: box.y, hit: hit?.closest("[data-slot='comment-pin']") === pin }
+    }))
+    assert.equal(boxes.length, 2)
+    assert.ok(Math.abs(boxes[0].y - boxes[1].y) >= 28, JSON.stringify(boxes))
+    assert.ok(boxes.every(box => box.hit), JSON.stringify(boxes))
+  })
+
+  await t.test("a tap on the Comment bar comments on the selected text", async () => {
+    const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
+    try {
+      await touch.goto(`http://127.0.0.1:${port}/`)
+      await touch.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      await touch.evaluate(() => {
+        const range = document.createRange()
+        range.selectNodeContents(document.querySelector("#second"))
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+      })
+      const button = touch.locator("vitehub-comments .selection-bar button")
+      await button.waitFor({ timeout: 5000 })
+      // No hover color on a touch screen, where a tap would leave it on.
+      await button.hover()
+      assert.equal(await button.evaluate(element => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)")
+      // Under reduced motion a press does not scale the button.
+      await touch.emulateMedia({ reducedMotion: "reduce" })
+      assert.doesNotMatch(await button.evaluate(element => getComputedStyle(element).transitionProperty), /scale/)
+      // A tap on a phone can clear the selection before the click lands, as a press outside the selected text does.
+      await touch.evaluate(() => addEventListener("pointerdown", () => getSelection().removeAllRanges(), { capture: true }))
+      await button.tap()
+      await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
+      assert.equal((await highlights(touch))["vitehub-comment-active"], 1)
+    }
+    finally {
+      await touch.close()
+    }
   })
 
   assert.deepEqual(errors, [])

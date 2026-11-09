@@ -30,6 +30,8 @@ class CommentsOverlay extends HTMLElement {
   private control?: OverlayControl
   private mode: Mode = "view"
   private frame = 0
+  /** Whether the DOM of the page changed since the last layout frame. */
+  private changed = false
   private lastCursor = 0
   private readonly cleanups: Array<() => void> = []
 
@@ -135,7 +137,11 @@ class CommentsOverlay extends HTMLElement {
 
   private schedule() {
     cancelAnimationFrame(this.frame)
-    this.frame = requestAnimationFrame(() => this.control?.layout())
+    this.frame = requestAnimationFrame(() => {
+      const changed = this.changed
+      this.changed = false
+      this.control?.layout(changed)
+    })
   }
 
   private listen() {
@@ -150,6 +156,7 @@ class CommentsOverlay extends HTMLElement {
       // Astro replaces html attributes; Astro and Turbo both merge the head. The retained overlay must restore its
       // stylesheet and mode class without resetting its mode or drafts, even when the URL stays the same.
       this.restoreDocumentState()
+      this.changed = true
       schedule()
     })
     // Follow the new page as well when its router replaces the body.

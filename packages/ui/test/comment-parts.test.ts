@@ -192,7 +192,7 @@ describe("composer mentions", () => {
     const field = wrapper.get("textarea");
     const status = () => wrapper.get("[data-slot=comment-composer-status]").text();
     await field.trigger("keydown", { key: "Escape" });
-    expect(status()).toBe("Press Escape again to discard the comment.");
+    expect(status()).toBe("Press Esc again to discard.");
     await wrapper.setProps({ files: [file] });
     expect(status()).toBe("");
     await field.trigger("keydown", { key: "Escape" });
@@ -201,6 +201,23 @@ describe("composer mentions", () => {
     await field.trigger("keydown", { key: "Escape" });
     await flushPromises();
     expect(wrapper.emitted("cancel")).toHaveLength(1);
+  });
+
+  it("forgets the first Esc after two seconds, so a late Esc shakes again", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
+      const field = wrapper.get("textarea");
+      await field.trigger("keydown", { key: "Escape" });
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("Press Esc again to discard.");
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(wrapper.get("[data-slot=comment-composer-status]").text()).toBe("");
+      await field.trigger("keydown", { key: "Escape" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(wrapper.emitted("cancel")).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders a mention-item slot with the person and whether it is active", async () => {
