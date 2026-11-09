@@ -8,6 +8,7 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { RealtimeBus, RealtimeBusMessage, RealtimeBusMessageType } from "./bus-protocol.ts"
 // Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
 import type {} from "@vite-hub/runtime/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
@@ -81,9 +82,20 @@ export { readRealtimeRequestState } from "./transport.ts"
 export { isRealtimeWorkspaceDocument, readRealtimeWorkspaceDocument, workspaceDocument } from "./workspace-document.ts"
 export type { RealtimeWorkspaceDocumentAdapter } from "./workspace-document.ts"
 
+export type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-protocol.ts"
+
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
   fetch(input: Request | URL | string): Promise<Response>
+}
+
+export interface RealtimeHandlerOptions {
+  /**
+   * Shares the rooms of this server with other instances. ViteHub passes `useRealtimeBus()` from
+   * `@vite-hub/realtime/bus` in Node builds. It runs once, when the first room opens. `undefined` keeps the rooms in
+   * this process.
+   */
+  bus?: () => Promise<RealtimeBus | undefined> | RealtimeBus | undefined
 }
 
 const routePrefix = "/api/_vitehub/realtime/"
@@ -119,6 +131,12 @@ export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxW
 
 /** Origin of updates that the server writes itself: seeds, stored-form merges, and status. */
 const serverOrigin = Symbol("vitehub.realtime.server")
+/** Origin of updates that another instance sent over the bus. */
+const busOrigin = Symbol("vitehub.realtime.bus")
+/** A Yjs update with no structs and no deletions. */
+const emptyUpdateBytes = 2
+/** The epoch of Workspace event rooms, which hold no document. */
+const eventsEpoch = "events"
 
 /** The fields that the adapter loaded, without the ones it left undefined. */
 function loadedFields(loaded: RealtimeLoadedDocument): Record<string, RealtimeFieldValue> {
@@ -152,10 +170,31 @@ export function encodeSyncStep1(document: Y.Doc): Uint8Array {
 }
 
 export function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
+  return encodeAwareness(awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
+}
+
+function encodeAwareness(update: Uint8Array): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageAwareness)
-  encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
+  encoding.writeVarUint8Array(encoder, update)
   return encoding.toUint8Array(encoder)
+}
+
+/**
+ * The clients that the awareness has a clock for. A client's first awareness update has clock 0, which Yjs does not
+ * apply, so the client has no clock yet and cannot be encoded.
+ */
+function knownAwarenessClients(awareness: awarenessProtocol.Awareness, clients: readonly number[]): number[] {
+  return clients.filter(client => awareness.meta.has(client))
+}
+
+/** Whether a transaction changed only the server-written `status` map. */
+function changesOnlyStatus(document: Y.Doc, transaction: Y.Transaction): boolean {
+  const status: object = document.getMap(realtimeDocumentLayout.status)
+  for (const type of transaction.changed.keys()) {
+    if (type !== status) return false
+  }
+  return true
 }
 
 /** A peer tried to write what it may not: a read-only connection, or the server-written status map. */
@@ -331,6 +370,8 @@ export function resolveRealtimeDefinition(definition: RealtimeDefinition): Resol
 interface RoomBase {
   awareness: awarenessProtocol.Awareness
   awarenessOwners: ReturnType<typeof createRealtimeAwarenessOwners>
+  /** Shares the room with other instances. */
+  bus?: RealtimeBus
   channel: string
   document: Y.Doc
   key: string
@@ -713,7 +754,7 @@ export function registerRealtimeDurableObject(state: unknown, env: unknown): voi
   durableScope[durableObjectKey] = { env, state }
 }
 
-export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
+export function createRealtimeHandler(registry: RealtimeRegistry, options: RealtimeHandlerOptions = {}): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
@@ -730,6 +771,151 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!held) return
     peerHeldUpdates.delete(peer)
     clearTimeout(held.timer)
+  }
+
+  let pendingBus: Promise<RealtimeBus | undefined> | undefined
+  /** Rooms that finished opening, by key. */
+  const openRooms = new Map<string, Room>()
+  /** One owner object per other instance, for the awareness clients of its peers. */
+  const remoteOwners = new Map<string, object>()
+
+  /** The bus that shares rooms with other instances, connected and subscribed on first use. */
+  function sharedBus(): Promise<RealtimeBus | undefined> {
+    if (!options.bus) return Promise.resolve(undefined)
+    if (pendingBus) return pendingBus
+    const connect = options.bus
+    const pending = (async () => {
+      const bus = await connect()
+      if (!bus) return undefined
+      await bus.subscribe(receive, () => {
+        // The bus may have lost messages while it was down: ask the other instances for what each room lacks.
+        for (const room of rooms.values()) room.then(requestSync, () => {})
+      })
+      bus.onClose(announceDeparture)
+      return bus
+    })()
+    pendingBus = pending
+    pending.catch(() => {
+      if (pendingBus === pending) pendingBus = undefined
+    })
+    return pending
+  }
+
+  function roomEpoch(room: Room): string {
+    return room.kind === "document" ? room.epoch : eventsEpoch
+  }
+
+  function publish(room: Room, type: RealtimeBusMessageType, data: Uint8Array): void {
+    room.bus?.publish({ type, room: room.key, epoch: roomEpoch(room), data }).catch((error: unknown) => {
+      console.error("[vitehub] Realtime could not send a room message to the other instances.", error)
+    })
+  }
+
+  /** Asks the other instances for the document updates and the presence that this room lacks. */
+  function requestSync(room: Room): void {
+    if (room.kind === "document" && room.destroyed) return
+    publish(room, "sync", room.kind === "document" ? Y.encodeStateVector(room.document) : new Uint8Array())
+  }
+
+  /** Awareness clients of this instance's peers. */
+  function localAwarenessClients(room: RoomBase): number[] {
+    return knownAwarenessClients(room.awareness, [...room.awareness.getStates().keys()].filter(client => room.awarenessOwners.ownsLocally(client)))
+  }
+
+  /** Tells the other instances that the peers of this instance left, before the bus closes. */
+  async function announceDeparture(): Promise<void> {
+    const sent: Array<Promise<void>> = []
+    for (const pending of rooms.values()) {
+      const room = await pending.catch(() => undefined)
+      if (!room?.bus) continue
+      const clients = localAwarenessClients(room)
+      if (!clients.length) continue
+      // A null state at the current clock removes the client on the other instances.
+      const update = awarenessProtocol.encodeAwarenessUpdate(room.awareness, clients, new Map())
+      sent.push(room.bus.publish({ type: "awareness", room: room.key, epoch: roomEpoch(room), data: update }))
+    }
+    await Promise.allSettled(sent)
+  }
+
+  function remoteOwner(instance: string): object {
+    let owner = remoteOwners.get(instance)
+    if (!owner) remoteOwners.set(instance, owner = { instance })
+    return owner
+  }
+
+  /**
+   * Applies a message from another instance to the open room it names. A room that is still opening skips the
+   * message: it asks for what it lacks when it opens.
+   */
+  function receive(message: RealtimeBusMessage): void {
+    if (message.type === "refresh") {
+      const key: unknown = JSON.parse(message.room)
+      const [definitionName, documentId]: unknown[] = Array.isArray(key) ? key : []
+      if (typeof definitionName === "string" && typeof documentId === "string") refreshOpenRoom(definitionName, documentId, false).catch(() => {})
+      return
+    }
+    if (message.type === "reset") {
+      // Also a room that is opening: it may have read the record before the reset.
+      rooms.get(message.room)?.then((room) => {
+        if (room.kind !== "document" || !room.bus || room.destroyed || room.epoch === message.epoch) return
+        enqueue(room, async () => {
+          if (room.epoch !== message.epoch) await reseedRoom(room, "source-changed", undefined, false, true)
+        }).catch(() => {})
+      }, () => {})
+      return
+    }
+    const room = openRooms.get(message.room)
+    if (!room?.bus || (room.kind === "document" && room.destroyed)) return
+    // Updates from another Yjs history would duplicate the document.
+    if (message.epoch !== roomEpoch(room)) return
+    switch (message.type) {
+      case "update":
+        if (room.kind === "document") Y.applyUpdate(room.document, message.data, busOrigin)
+        return
+      case "awareness": {
+        let clients: number[]
+        try {
+          clients = room.awarenessOwners.apply(room.awareness, remoteOwner(message.instance), message.data, undefined, true)
+        }
+        catch {
+          return
+        }
+        const known = knownAwarenessClients(room.awareness, clients)
+        if (!known.length) return
+        const frame = encodeAwarenessState(room.awareness, known)
+        for (const peer of room.peers) peer.send(frame)
+        return
+      }
+      case "sync": {
+        if (room.kind === "document") {
+          const missing = Y.encodeStateAsUpdate(room.document, message.data)
+          if (missing.byteLength > emptyUpdateBytes) publish(room, "update", missing)
+        }
+        const clients = localAwarenessClients(room)
+        if (clients.length) publish(room, "awareness", awarenessProtocol.encodeAwarenessUpdate(room.awareness, clients))
+        return
+      }
+      case "frame":
+        for (const peer of room.peers) peer.send(message.data)
+    }
+  }
+
+  /**
+   * Relays the awareness changes that are not a peer's own message: clients that timed out, and clients that another
+   * instance removed. Awareness removes a client 30 seconds after its last update, so the presence of an instance that
+   * stopped without a goodbye expires on the others.
+   */
+  function watchAwareness(room: RoomBase): void {
+    const awareness = room.awareness
+    awareness.on("update", ({ removed }: { removed: number[] }, origin: unknown) => {
+      if (room.awareness !== awareness || !removed.length) return
+      room.awarenessOwners.releaseRemote(removed)
+      if (origin !== "timeout") return
+      const clients = knownAwarenessClients(awareness, removed)
+      if (!clients.length) return
+      const frame = encodeAwarenessState(awareness, clients)
+      for (const peer of room.peers) peer.send(frame)
+    })
   }
 
   /** The Cloudflare bindings and execution context, or the Durable Object state, in the event's Standard Context. */
@@ -835,18 +1021,24 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function getEventsRoom(definitionName: string): Promise<EventsRoom> {
     const key = JSON.stringify([definitionName, { workspaceEvents: true }])
     return openRoom(key, undefined, async () => {
+      const bus = await sharedBus()
       const document = new Y.Doc()
       const awareness = new awarenessProtocol.Awareness(document)
       awareness.setLocalState(null)
-      return {
+      const room: EventsRoom = {
         awareness,
         awarenessOwners: createRealtimeAwarenessOwners(),
+        bus,
         channel: `vitehub:realtime:${key}`,
         document,
         key,
         kind: "events",
         peers: new Set(),
       }
+      watchAwareness(room)
+      openRooms.set(key, room)
+      requestSync(room)
+      return room
     })
   }
 
@@ -863,13 +1055,20 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   function listen(room: DocumentRoom, document: Y.Doc): void {
-    document.on("update", (update: Uint8Array, origin: unknown) => {
+    document.on("update", (update: Uint8Array, origin: unknown, _document: Y.Doc, transaction: Y.Transaction) => {
       if (room.document !== document) return
       persistRoomUpdate(room, update, origin !== serverOrigin)
       const message = encodeSyncUpdate(update)
       const sender = roomPeer(room, origin)
       if (sender) sender.publish(room.channel, message)
       else for (const peer of room.peers) peer.send(message)
+      if (origin === busOrigin) {
+        // Another instance saves its own status. Its edits make this room dirty too, so a save here loses nothing if
+        // that instance stops.
+        if (!changesOnlyStatus(document, transaction)) markDirty(room, undefined)
+        return
+      }
+      publish(room, "update", update)
       if (origin !== serverOrigin) markDirty(room, sender && room.peerUsers.get(sender))
     })
   }
@@ -878,7 +1077,71 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     room.document = document
     room.awareness = createAwareness(document)
     room.awarenessOwners = createRealtimeAwarenessOwners()
+    watchAwareness(room)
     listen(room, document)
+  }
+
+  /**
+   * The document of a shared room: the shared record when it holds the stored digest, else a new seed that becomes the
+   * record. Instances that open a room at the same time agree on one record, so every instance edits one Yjs history.
+   * `replaced` is true when this instance moved the record to a new epoch.
+   */
+  async function sharedDocument(bus: RealtimeBus, key: string, editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<{ document: Y.Doc, epoch: string, replaced: boolean }> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const record = await bus.readRoom(key)
+      if (record && record.digest === loaded.digest) {
+        const document = new Y.Doc()
+        try {
+          Y.applyUpdate(document, record.state)
+          return { document, epoch: record.epoch, replaced: false }
+        }
+        catch (error) {
+          document.destroy()
+          throw error
+        }
+      }
+      const document = await seedDocument(editor, loaded, guard)
+      const epoch = crypto.randomUUID()
+      if (await bus.writeRoom(key, { epoch, digest: loaded.digest, state: Y.encodeStateAsUpdate(document) }, record?.epoch ?? null)) {
+        return { document, epoch, replaced: !!record }
+      }
+      // Another instance wrote the record first. Read it again.
+      document.destroy()
+    }
+    throw new HTTPError({ status: 503, message: "Realtime instances changed this room at the same time. Connect again." })
+  }
+
+  /**
+   * Takes the saves of other instances into a shared room before it saves: their Yjs state, their digest, and the
+   * stored form that a save with no edits keeps. Returns `false` when the room re-seeded on another instance, after
+   * this room followed it.
+   */
+  async function adoptSharedRecord(room: DocumentRoom, bus: RealtimeBus): Promise<boolean> {
+    const record = await bus.readRoom(room.key)
+    if (!record) return true
+    if (record.epoch !== room.epoch) {
+      await reseedRoom(room, "source-changed", undefined, false, true)
+      return false
+    }
+    if (record.digest === room.digest) return true
+    const saved = new Y.Doc()
+    try {
+      Y.applyUpdate(saved, record.state)
+      const stored = await readRealtimeYDoc(room.editor, saved)
+      if (room.destroyed || room.epoch !== record.epoch) return false
+      Y.applyUpdate(room.document, record.state, busOrigin)
+      room.digest = record.digest
+      room.guard = {
+        clean: { body: keepRealtimeFinalNewline(stored.body, room.guard.finalNewline), fields: stored.fields },
+        finalNewline: room.guard.finalNewline,
+        issues: [],
+        readOnly: false,
+      }
+      return true
+    }
+    finally {
+      saved.destroy()
+    }
   }
 
   async function seedDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<Y.Doc> {
@@ -891,7 +1154,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function getDocumentRoom(definitionName: string, documentId: string, resolved: ResolvedRealtimeDefinition, sql: RealtimeRoomSql | undefined): Promise<DocumentRoom> {
     const key = realtimeRoomKey(definitionName, documentId)
     return openRoom(key, sql, async () => {
-      const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : "memory", definition: definitionName, documentId }
+      const bus = sql ? undefined : await sharedBus()
+      const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : bus?.authority ?? "memory", definition: definitionName, documentId }
       const editor = resolved.editor(context)
       const loaded = await resolved.adapter.load(context)
       const guard = await verifyDocument(editor, loaded)
@@ -910,7 +1174,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       let persistedUpdates = 0
       let dirty = false
       let refreshedFields = false
-      if (restores) {
+      let sharedEpoch: string | undefined
+      let replacedEpoch = false
+      if (bus) {
+        const shared = await sharedDocument(bus, key, editor, loaded, guard)
+        document = shared.document
+        sharedEpoch = shared.epoch
+        replacedEpoch = shared.replaced
+      }
+      else if (restores) {
         document = new Y.Doc()
         try {
           Y.applyUpdate(document, storedState)
@@ -951,6 +1223,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const room: DocumentRoom = {
         awareness: createAwareness(document),
         awarenessOwners: createRealtimeAwarenessOwners(),
+        bus,
         channel: `vitehub:realtime:${key}`,
         context,
         destroyed: false,
@@ -959,7 +1232,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         dirty,
         editor,
         editors: new Map(),
-        epoch: restores && storedEpoch ? storedEpoch : crypto.randomUUID(),
+        epoch: sharedEpoch ?? (restores && storedEpoch ? storedEpoch : crypto.randomUUID()),
         guard,
         held: false,
         writers: new Set(),
@@ -975,9 +1248,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         revision: 0,
         sql,
       }
+      watchAwareness(room)
       listen(room, document)
       if (sql && (!restores || refreshedFields)) persistRoom(room)
       if (dirty) scheduleSave(room)
+      openRooms.set(key, room)
+      // Rooms of other instances at an older epoch follow this one.
+      if (replacedEpoch) publish(room, "reset", new Uint8Array())
+      requestSync(room)
       return room
     })
   }
@@ -1033,6 +1311,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     room.awareness.destroy()
     room.document.destroy()
     rooms.delete(room.key)
+    if (openRooms.get(room.key) === room) openRooms.delete(room.key)
     inactiveMemoryRoomKeys.delete(room.key)
     memoryRoomKeys.delete(room.key)
   }
@@ -1040,6 +1319,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   /** Releases an idle room: durable rooms leave memory; clean memory rooms become reclaimable. */
   function releaseRoom(room: Room): void {
     if (room.peers.size > 0) return
+    if (room.kind === "events" && room.bus) {
+      destroyRoom(room)
+      return
+    }
     if (room.kind === "events") {
       inactiveMemoryRoomKeys.delete(room.key)
       inactiveMemoryRoomKeys.add(room.key)
@@ -1048,6 +1331,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (room.operations > 0 || room.destroyed || room.held) return
     if (room.sql) {
       persistRoom(room)
+      destroyRoom(room)
+      return
+    }
+    // A shared room without unsaved edits opens again from its record and the other instances.
+    if (room.bus && !room.dirty) {
       destroyRoom(room)
       return
     }
@@ -1144,20 +1432,42 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }, wait)
   }
 
-  async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument, preserveEdits = false): Promise<boolean> {
+  /**
+   * `follow` re-seeds a shared room at the epoch that another instance moved its record to. It replaces the document
+   * also after a concurrent edit: a room at an older epoch cannot reach the other instances.
+   */
+  async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument, preserveEdits = false, follow = false): Promise<boolean> {
     const revision = room.revision
     const source = loaded ?? await room.resolved.adapter.load(room.context)
     const guard = await verifyDocument(room.editor, source)
-    const next = await seedDocument(room.editor, source, guard)
+    const stale = () => room.destroyed || (!follow && (room.revision !== revision || (preserveEdits && room.dirty)))
+    let next: Y.Doc
+    let epoch: string
+    let replaced = false
+    if (room.bus) {
+      if (stale()) return false
+      ;({ document: next, epoch, replaced } = await sharedDocument(room.bus, room.key, room.editor, source, guard))
+      if (room.destroyed) {
+        next.destroy()
+        return false
+      }
+    }
+    else {
+      next = await seedDocument(room.editor, source, guard)
+      epoch = crypto.randomUUID()
+    }
     // Verification and seeding are asynchronous. Preserve edits that arrive while they run.
     // A client update can arrive during verification or seeding. The revision
     // guard applies to every reseed, including conflict recovery, so that the
     // live document is never replaced after a concurrent edit.
-    if (room.destroyed || room.revision !== revision || (preserveEdits && room.dirty)) return false
+    if (!room.bus && stale()) {
+      next.destroy()
+      return false
+    }
     const previous = { awareness: room.awareness, document: room.document }
     const peers = [...room.peers]
     // Keep peers and writers tracked until their close callbacks run so the room is released when reset sockets close.
-    room.epoch = crypto.randomUUID()
+    room.epoch = epoch
     room.digest = source.digest
     room.guard = guard
     room.dirty = false
@@ -1170,6 +1480,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     previous.awareness.destroy()
     previous.document.destroy()
     persistRoom(room)
+    if (replaced) publish(room, "reset", new Uint8Array())
+    // Edits that other instances made at this epoch before this room followed it.
+    requestSync(room)
     const reset = encodeRealtimeControl({ type: "reset", epoch: room.epoch, reason })
     for (const peer of peers) {
       terminalPeers.add(peer)
@@ -1181,7 +1494,32 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return true
   }
 
+  /**
+   * Saves of a shared room run one at a time across instances, under the room lock. Each first takes in the saves of
+   * the other instances, so its `ifDigest` is the stored digest, unless the document changed outside the room. After
+   * the save, the record holds the saved state and digest for the next instance.
+   */
   async function saveRoom(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
+    const bus = room.bus
+    if (!bus) return await saveRoomNow(room, reason, force)
+    return await bus.withRoomLock(room.key, async () => {
+      if (!(await adoptSharedRecord(room, bus))) {
+        if (!force) return undefined
+        throw new HTTPError({
+          status: 409,
+          message: "The document re-seeded on another instance. The room was re-seeded.",
+          data: { code: realtimeSourceChangedCode },
+        })
+      }
+      const saved = await saveRoomNow(room, reason, force)
+      if (saved?.digest && saved.digest === room.digest && !room.destroyed) {
+        await bus.writeRoom(room.key, { epoch: room.epoch, digest: room.digest, state: Y.encodeStateAsUpdate(room.document) }, room.epoch)
+      }
+      return saved
+    })
+  }
+
+  async function saveRoomNow(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
     const { adapter, persistence } = room.resolved
     const editor = room.editor
     if (room.guard.readOnly) {
@@ -1296,6 +1634,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   async function refreshRoom(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
+    // A save on another instance changed the stored digest inside the room.
+    if (room.bus && !(await adoptSharedRecord(room, room.bus))) return { digest: room.digest, reseeded: true }
     const revision = room.revision
     const loaded = await room.resolved.adapter.load(room.context)
     // A client may edit while the adapter is loading. Preserve that live edit
@@ -1309,9 +1649,17 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return { digest: room.digest, reseeded }
   }
 
-  /** Refreshes an open room without unsaved edits. A dirty room finds the outside change at its next save. */
-  async function refreshOpenRoom(definitionName: string, documentId: string): Promise<boolean> {
-    const pending = rooms.get(realtimeRoomKey(definitionName, documentId))
+  /**
+   * Refreshes an open room without unsaved edits. A dirty room finds the outside change at its next save. With a bus,
+   * the rooms of the other instances refresh too, unless the call came from the bus.
+   */
+  async function refreshOpenRoom(definitionName: string, documentId: string, fanOut = true): Promise<boolean> {
+    const key = realtimeRoomKey(definitionName, documentId)
+    if (fanOut) {
+      const bus = await sharedBus().catch(() => undefined)
+      await bus?.publish({ type: "refresh", room: key, epoch: "", data: new Uint8Array() }).catch(() => {})
+    }
+    const pending = rooms.get(key)
     const room = pending ? await pending.catch(() => undefined) : undefined
     if (!room || room.kind !== "document" || room.destroyed) return false
     return await enqueue(room, async () => !room.dirty && (await refreshRoom(room)).reseeded)
@@ -1407,8 +1755,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const clients = room.awarenessOwners.release(peer)
       if (clients.length) {
         awarenessProtocol.removeAwarenessStates(room.awareness, clients, peer)
-        peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+        // A client whose first update never applied has no clock, and nobody saw its state.
+        const known = knownAwarenessClients(room.awareness, clients)
+        if (known.length) {
+          const update = awarenessProtocol.encodeAwarenessUpdate(room.awareness, known)
+          peer.publish(room.channel, encodeAwareness(update))
+          publish(room, "awareness", update)
+        }
         room.awareness = compactRealtimeAwareness(room.awareness)
+        watchAwareness(room)
       }
       peer.unsubscribe(room.channel)
       if (room.kind === "document" && room.writers.delete(peer) && room.held) {
@@ -1488,7 +1843,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
         return
       }
-      if (clients.length) peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+      // A client's first update has clock 0, which Yjs does not apply: there is nothing to relay for it yet.
+      const known = knownAwarenessClients(room.awareness, clients)
+      if (!known.length) return
+      const update = awarenessProtocol.encodeAwarenessUpdate(room.awareness, known)
+      peer.publish(room.channel, encodeAwareness(update))
+      publish(room, "awareness", update)
     }
 
     return {
@@ -1568,7 +1928,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
             peer.close(4429, "Workspace change rate limit exceeded.")
             return
           }
-          peer.publish(room.channel, encodeWorkspaceChange(change))
+          const frame = encodeWorkspaceChange(change)
+          peer.publish(room.channel, frame)
+          publish(room, "frame", frame)
           return
         }
         if (messageType === messageQueryAwareness) {

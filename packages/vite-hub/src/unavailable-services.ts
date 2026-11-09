@@ -21,9 +21,7 @@ const services: Record<OptionalService, { label: string, ownerPlugin: string, fi
   realtime: {
     label: "Realtime",
     ownerPlugin: "@vite-hub/realtime/vite",
-    fix: plan => plan.preset === "node"
-      ? "Set `realtime: { authority: \"memory\" }` in vitehub() for one Node.js process."
-      : plan.services.realtime.supported
+    fix: plan => plan.services.realtime.supported
         ? "Set `realtime: true` in vitehub()."
         : "Deploy with the Cloudflare preset and set `realtime: true` in vitehub().",
   },

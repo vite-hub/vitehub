@@ -22,7 +22,10 @@ import unavailable from "./internal/runtime/unavailable.ts"
 
 /** Where a contributed definition runs. */
 export interface RealtimeContributionContext {
-  /** The room authority of this build. Contributions only run when there is one. */
+  /**
+   * Where the rooms of this build live: Durable Objects (`cloudflare`), or the memory of each Node process (`memory`),
+   * also when Node instances share rooms through Postgres or Redis. Contributions only run when there is one.
+   */
   authority: "cloudflare" | "memory"
   /** `.vitehub/nitro/realtime`, for generated definition files. */
   directory: string
@@ -42,8 +45,8 @@ export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
   importBase?: string
   /**
    * Adds definitions owned by another package. It runs only when the build has a room authority (Cloudflare Durable
-   * Objects, or memory in development or with `authority: 'memory'`). Without one, Realtime leaves the contribution
-   * out without an error, so the contributing feature can fall back.
+   * Objects, a Node server, or memory in development). Without one, Realtime leaves the contribution out without an
+   * error, so the contributing feature can fall back.
    */
   contribute?: (context: RealtimeContributionContext) => Promise<RealtimeContribution | undefined> | RealtimeContribution | undefined
 }
@@ -154,12 +157,19 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const provider = getHostingProvider(deploymentPreset)
       const authority = options.authority || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
-      // The authority a contribution may rely on. Configurations that fail below have none.
+      const build = environment?.command === "build"
+      const node = !deploymentPreset || deploymentPreset === "node"
+      // A Node build shares its rooms with the other instances through Postgres or Redis. `vite dev` keeps them in memory.
+      const nodeAuthority = !build || !node ? undefined
+        : authority === "postgres" || authority === "redis" ? authority
+          : authority === "auto" && provider !== "cloudflare" ? "auto" as const : undefined
+      // The authority a contribution may rely on. Configurations that fail below have none. Rooms on Node live in the
+      // memory of each instance, also when they are shared.
       const available: RealtimeContributionContext["authority"] | undefined
         = authority === "cloudflare" ? (!deploymentPreset || deploymentPreset === "cloudflare" ? "cloudflare" : undefined)
           : authority === "auto" && provider === "cloudflare" ? "cloudflare"
-            : authority === "memory" ? (!deploymentPreset || deploymentPreset === "node" ? "memory" : undefined)
-              : environment?.command !== "build" ? "memory" : undefined
+            : authority !== "auto" ? (node ? "memory" : undefined)
+              : !build || nodeAuthority ? "memory" : undefined
       hasRoomAuthority = Boolean(available)
       const contribution = available && options.contribute
         ? await options.contribute({ authority: available, directory, projectRoot: root, serverDirs })
@@ -197,16 +207,36 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
 
       const registryFile = resolve(directory, "registry.mjs")
       const handlerFile = resolve(directory, "handler.ts")
+      const busPlugin = nodeAuthority ? resolve(directory, "bus.mjs") : undefined
       await mkdir(directory, { recursive: true })
       await Promise.all([
         writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
         writeFile(handlerFile, [
           `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
           `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
-          "",
-          "export default createRealtimeHandler(registry)",
+          ...nodeAuthority
+            ? [
+                `import { useRealtimeBus } from ${JSON.stringify(`${importBase}/bus`)}`,
+                "",
+                "// Shares rooms with the other instances of this app. The server picks the bus when it starts.",
+                `export default createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(nodeAuthority)}) })`,
+              ]
+            : ["", "export default createRealtimeHandler(registry)"],
           "",
         ].join("\n")),
+        ...busPlugin
+          ? [writeFile(busPlugin, [
+              `import { closeRealtimeBuses, logRealtimeNodeAuthority } from ${JSON.stringify(`${importBase}/bus`)}`,
+              "",
+              "export default (nitroApp) => {",
+              "  // Prints where the rooms of this server live.",
+              `  logRealtimeNodeAuthority(${JSON.stringify(nodeAuthority)})`,
+              "  // Removes this instance's presence from the other instances, and lets the process exit.",
+              "  nitroApp.hooks.hook(\"close\", () => closeRealtimeBuses())",
+              "}",
+              "",
+            ].join("\n"))]
+          : [],
       ])
 
       if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
@@ -231,13 +261,14 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           "",
         ].join("\n"))
       }
-      else if (environment?.command === "build" && authority === "auto") {
+      else if (build && authority === "auto" && !nodeAuthority) {
         throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
       }
-      else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "memory", preset: deploymentPreset })
+      else if (authority !== "auto" && !node && deploymentPreset) {
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority, preset: deploymentPreset })
       }
-      if (authority === "memory" || (authority === "auto" && environment?.command !== "build" && inspectionAuthority !== "cloudflare")) {
+      if (nodeAuthority) inspectionAuthority = nodeAuthority === "auto" ? "node" : nodeAuthority
+      else if (authority === "memory" || authority === "postgres" || authority === "redis" || (authority === "auto" && !build && inspectionAuthority !== "cloudflare")) {
         inspectionAuthority = "memory"
       }
       nitro.features = { ...nitro.features, websocket: true }
@@ -245,6 +276,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const { mount } = viteHubPageToolsBase(config)
       kit.addHandler({ handler: handlerFile, lazy: true, route: `${mount}/api/_vitehub/realtime/**` })
       if (durablePlugin) kit.addPlugin(durablePlugin)
+      if (busPlugin) kit.addPlugin(busPlugin)
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro

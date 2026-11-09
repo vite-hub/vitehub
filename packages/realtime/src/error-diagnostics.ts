@@ -75,16 +75,28 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Use a Workspace Store that returns file digests, or return `digest` from the document adapter `save()`.",
     },
 
+    REALTIME_MISSING_BUS_URL: {
+      why: ({ authority, variable }: { authority: "postgres" | "redis", variable: "DATABASE_URL" | "REDIS_URL" }) =>
+        `Realtime authority "${authority}" shares rooms through ${authority === "redis" ? "Redis" : "Postgres"}, and ${variable} is ${authority === "postgres" ? "not set to a Postgres URL" : "not set"}.`,
+      fix: "Set REDIS_URL for Redis, or a `postgres://` DATABASE_URL for Postgres, in the server environment. Or set `realtime.authority` to \"auto\".",
+    },
+    REALTIME_ROOM_LOCK_TIMEOUT: {
+      why: "Realtime waited 30 seconds for the save lock of a room, and another instance still holds it.",
+      fix: "Make the document adapter `save()` finish in less than 30 seconds. Realtime tries the save again.",
+    },
+
     // Build errors. The Vite integration throws them when it reads the config.
     REALTIME_AUTHORITY_CONFLICT: {
-      why: ({ authority, preset }: { authority: "cloudflare" | "memory", preset: string }) => authority === "memory"
+      why: ({ authority, preset }: { authority: "cloudflare" | "memory" | "postgres" | "redis", preset: string }) => authority === "memory"
         ? `Realtime authority "memory" is single-process only, and the ${preset} deployment preset runs more than one process.`
-        : `Realtime authority "cloudflare" does not work with the ${preset} deployment preset.`,
-      fix: "Set `realtime.authority` to \"cloudflare\" with a Cloudflare preset, or to \"memory\" for one Node.js process.",
+        : authority === "cloudflare"
+          ? `Realtime authority "cloudflare" does not work with the ${preset} deployment preset.`
+          : `Realtime authority "${authority}" needs a Node.js server, and the ${preset} deployment preset does not run one.`,
+      fix: "Set `realtime.authority` to \"cloudflare\" with a Cloudflare preset. With the Node preset, use \"auto\", \"postgres\", \"redis\", or \"memory\".",
     },
     REALTIME_MISSING_AUTHORITY: {
       why: "Realtime production builds need one room authority, and ViteHub cannot select one for this deployment.",
-      fix: "Deploy with a Cloudflare preset to use Durable Objects, or set `realtime.authority` to \"memory\" for one Node.js process.",
+      fix: "Deploy with a Cloudflare preset to use Durable Objects, or with the Node preset to share rooms through Postgres or Redis.",
     },
   },
 })

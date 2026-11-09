@@ -21,7 +21,7 @@ export interface DeploymentServices {
   browser: SupportedDeploymentServicePolicy<"cloudflare"> | UnsupportedDeploymentServicePolicy
   queue: SupportedDeploymentServicePolicy<"cloudflare" | "local" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
-  realtime: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
+  realtime: SupportedDeploymentServicePolicy<"cloudflare" | "node", "native"> | UnsupportedDeploymentServicePolicy
   sandbox: SupportedDeploymentServicePolicy<"cloudflare" | "vercel"> | UnsupportedDeploymentServicePolicy
 }
 
@@ -107,7 +107,7 @@ const plans = {
       browser: unsupported("The Node preset has no built-in Browser Provider."),
       queue: { adapter: "local", guarantee: "single-host", supported: true },
       rateLimit: { adapter: "memory", guarantee: "process-local", supported: true },
-      realtime: { adapter: "memory", guarantee: "process-local", supported: true },
+      realtime: { adapter: "node", guarantee: "native", supported: true },
       sandbox: unsupported("The Node preset has no built-in isolated Sandbox Provider."),
     },
   },

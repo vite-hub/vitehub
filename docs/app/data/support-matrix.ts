@@ -191,7 +191,7 @@ const serverPrimitives: SupportMatrixGroup = {
     ), "rate-limit"),
     featureRow("realtime", "Authoritative collaborative rooms", cell(
       "package",
-      "Cloudflare Nitro output uses Durable Objects. A single-process Node server can select memory explicitly.",
+      "Cloudflare Nitro output uses Durable Objects. Node servers share rooms through Postgres or Redis.",
       "Host authority",
     )),
     featureRow("sandboxTask", "Isolated command execution", cell(

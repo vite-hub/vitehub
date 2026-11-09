@@ -105,6 +105,7 @@ build packages only the build machine's native binaries.
 | Blob | `fs` under `.vitehub/data/blob` | Local files on one host. |
 | KV | `fs-lite` | Local files on one host. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time. |
 | Rate Limit | `memory` | One process. Resets on restart. |
+| Realtime | `auto`: Redis with `REDIS_URL`, else Postgres with a `postgres://` `DATABASE_URL`, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits are lost only when every instance with the room stops. With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
 | Queue | None | `queue: true` fails the build. |
 | Sandbox | None | `sandboxTask: true` fails the build. |
 

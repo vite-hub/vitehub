@@ -34,8 +34,11 @@ export interface RealtimeUser {
 }
 
 export interface RealtimeDocumentContext {
-  /** Room authority holding the live document: one process (`memory`) or a Durable Object (`cloudflare`). */
-  authority: "cloudflare" | "memory"
+  /**
+   * Room authority holding the live document: one process (`memory`), a Durable Object (`cloudflare`), or rooms that
+   * several Node instances share through Postgres (`postgres`) or Redis (`redis`).
+   */
+  authority: "cloudflare" | "memory" | "postgres" | "redis"
   definition: string
   documentId: string
 }
@@ -208,7 +211,12 @@ export interface DiscoveredRealtimeDefinition {
 }
 
 export interface RealtimeModuleOptions {
-  authority?: "auto" | "cloudflare" | "memory"
+  /**
+   * Where rooms live. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A Node build
+   * picks when the server starts: Redis with `REDIS_URL`, else Postgres with a Postgres `DATABASE_URL`, else memory.
+   * `postgres` and `redis` require their variable. `memory` keeps rooms in one process.
+   */
+  authority?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
   projectRoot?: string
 }
 

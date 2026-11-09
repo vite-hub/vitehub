@@ -32,11 +32,6 @@ describe("feature catalog", () => {
           expect(support.level, `${id} on ${preset}`).not.toBe("native")
           continue
         }
-        // Realtime on Node is supported, but the app must select the memory authority.
-        if (support.level === "explicit") {
-          expect(`${id}:${preset}`).toBe("realtime:node")
-          continue
-        }
         expect(support, `${id} on ${preset}`).toMatchObject({ adapter: policy.adapter, guarantee: policy.guarantee, level: "native" })
       }
     }

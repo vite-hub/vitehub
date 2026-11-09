@@ -91,8 +91,9 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
       if (!(await workspace.capabilities()).conditionalWrites) {
         throw new HTTPError({ status: 501, message: "Realtime saves require a Workspace Store with conditional writes." })
       }
-      if (context.authority === "cloudflare" && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
-        throw new HTTPError({ status: 501, message: "Durable realtime rooms require a durable Workspace Store." })
+      // Each instance has its own memory Store, so shared rooms would save to different copies.
+      if (context.authority !== "memory" && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
+        throw new HTTPError({ status: 501, message: "Durable and shared realtime rooms require a durable Workspace Store." })
       }
       try {
         const current = ifDigest

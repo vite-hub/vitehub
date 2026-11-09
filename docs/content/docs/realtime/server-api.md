@@ -76,9 +76,11 @@ export default defineRealtime({
 | `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
 
-`context` is `{ authority, definition, documentId }`. `authority` is `memory`
-or `cloudflare`, so an adapter can refuse a temporary store behind a durable
-room. `options` is `{ ifDigest, reason, user, editors }`:
+`context` is `{ authority, definition, documentId }`. `authority` is `memory`,
+`cloudflare`, `postgres`, or `redis`, so an adapter can refuse a temporary store
+behind a durable or shared room. With `postgres` or `redis`, several instances
+call `save()` for one room, one at a time, and `ifDigest` is the digest of the
+last save of any instance. `options` is `{ ifDigest, reason, user, editors }`:
 
 - `reason` is `idle`, `leave`, or `request`.
 - `user` is the latest identified editor.
