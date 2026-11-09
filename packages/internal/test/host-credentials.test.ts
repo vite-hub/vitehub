@@ -50,6 +50,13 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     expect(calls()).toEqual([])
   })
 
+  it("cancels a credential CLI at the caller's deadline", async () => {
+    await expect(runHostCli(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      env: {},
+      signal: AbortSignal.timeout(100),
+    })).rejects.toMatchObject({ name: "AbortError" })
+  })
+
   it("leaves account discovery to the env token when no account is set", async () => {
     installFakeWrangler()
     const result = await resolveHostCredentials("cloudflare", { env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
