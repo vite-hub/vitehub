@@ -1,4 +1,4 @@
-import { BinCmdOperator, LangVariant, parseSync, type Stmt, type Word, type WordPart } from "sh-syntax"
+import { BinCmdOperator, LangVariant, parseSync, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
 
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -101,12 +101,11 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
   catch {
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
+  const toIndex = createSourceIndex(command)
   // sh-syntax joins the next line to a comment that ends in a backslash. Bash does not.
-  if (stripLineContinuations(command).commentContinuation) {
+  if (stripLineContinuations(withoutHeredocBodies(file, command, toIndex)).commentContinuation) {
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
-
-  const toIndex = createSourceIndex(command)
   const leaves: StatementLeaf[] = []
   file.stmts.forEach((stmt, index) => {
     flattenStatement(stmt, statementSeparator(file.stmts, index, command, toIndex), toIndex, leaves)
@@ -129,6 +128,19 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
     followsPipe = separator?.kind === "|"
   }
   return segments
+}
+
+function withoutHeredocBodies(file: File, command: string, toIndex: SourceIndex): string {
+  let result = command
+  walk(file, (node) => {
+    if (node.type === "Redirect" && node.hdoc) {
+      const start = toIndex(node.hdoc.start)
+      const end = toIndex(node.hdoc.end)
+      result = result.slice(0, start) + " ".repeat(end - start) + result.slice(end)
+    }
+    return true
+  })
+  return result
 }
 
 interface StatementLeaf {

@@ -189,6 +189,7 @@ describe("@vite-hub/shell workspace inspection", () => {
     "rm README.md <<EOF && cat README.md\nhi\nEOF",
     "cat () { rm README.md; }; cat README.md",
     "cat README.md # note \\\nrm README.md",
+    "cat <<EOF\nit's\nEOF\ncat README.md # note \\\nrm README.md",
   ])("checks every statement in %j before a provider runs it", async (command) => {
     const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
     const exec = vi.fn(async (command: string) => ({ command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }))
@@ -215,6 +216,16 @@ describe("@vite-hub/shell workspace inspection", () => {
       cwd: workspaceMountPoint,
       fs: createReadonlyWorkspaceFs(workspace),
     })).resolves.toMatchObject({ event: "policy_denied" })
+  })
+
+  it("reads heredoc bodies as data, not comments", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat <<'EOF'\n# note \\\nhi\nEOF", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ exitCode: 0, stdout: "# note \\\nhi\n" })
   })
 
   it("removes backslash escapes from unquoted words before path checks", async () => {
