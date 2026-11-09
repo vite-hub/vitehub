@@ -96,6 +96,18 @@ pnpm vite build
 pnpm vitehub inspect definitions --kind rate-limit
 ```
 
+The list shows your limit and where it is:
+
+```text [output/inspect.txt]
+Rate Limits (rate-limit): 1
+  image-upload  server/api/image-upload.post.ts  [require-rate-limit]
+    Limit: 2
+    Window: 1m
+    Enforcement: Best effort
+    Provider failure: Deny
+    Source location: 5:9
+```
+
 ::
 
 ## Next steps

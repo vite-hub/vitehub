@@ -12,7 +12,9 @@ Comments lets your team pin comments on the pages of your site, like notes on a 
 In this tutorial, you add Comments to a Vite app and pin a comment on a page. Then you let your team sign in with GitHub, and you run the app on a Node server.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands in the root folder of the app. You do not need a ViteHub app, a database, or a login of your own.
+> You need Node.js 22.22 or newer, pnpm, and a Vite app with a page to comment on, such as an `index.html` with a heading. Run the commands in the root folder of the app. You do not need a ViteHub app, a database, or a login of your own.
+>
+> Does your app use `vitehub()`, like the app from [Installation](/docs/getting-started/installation)? Then follow [With ViteHub](/docs/comments/with-vite-hub) instead. The `comments()` plugin does not work next to `vitehub()`.
 >
 > The last two steps also need a GitHub repository for the app, and a GitHub account that can create a GitHub App.
 
@@ -25,7 +27,7 @@ Add Comments to your app:
 pnpm add @vite-hub/comments
 ```
 
-Add the `comments()` plugin to `vite.config.ts`:
+Add the `comments()` plugin to `vite.config.ts`. Keep the other plugins of your app. This example app uses Vue, but `comments()` does not need Vue.
 
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
@@ -54,9 +56,9 @@ Start the dev server:
 pnpm vite dev
 ```
 
-Open `http://localhost:5173/?vitehub`. The `?vitehub` part turns on the ViteHub page tools, such as Comments. A pill with the Comments toolbar shows at the bottom of the page. Other pages of the site stay in comment mode until you select **×** in the pill.
+Open `http://localhost:5173/?vitehub`. The `?vitehub` part turns on the ViteHub page tools, such as Comments. A pill named **Comments** shows at the bottom of the page. Select it. The pill becomes the Comments toolbar, and the thread list opens. Other pages of the site stay in comment mode until you select **×** in the pill.
 
-1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first. The browser keeps it for the next pages.
+1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first, and select **Comment**. The browser keeps the name for the next pages.
 2. Click a heading on the page. A comment box opens at that point.
 3. Type a comment, and press <kbd>Enter</kbd>. A numbered pin shows where you clicked.
 4. Select the pin, write a reply, and send it.
@@ -98,9 +100,13 @@ Comments also must know the repository. When you build, it reads the `origin` re
 ::tutorial-step{title="Deploy on Node"}
 ## Deploy on Node
 
-A production build keeps comments in a database that you choose. On Node, the simplest choice is a SQLite file:
+A production build keeps comments in a database that you choose. On Node, the simplest choice is a SQLite file. Set `database` in `vite.config.ts`:
 
-```ts [node/vite.config.ts] fragment
+```ts [node/vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import comments from '@vite-hub/comments/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vue(), comments({ database: 'file:./data/comments.sqlite' })],
 })

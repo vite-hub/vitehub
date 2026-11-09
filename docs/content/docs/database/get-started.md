@@ -158,7 +158,7 @@ The response has your note:
 
 Each POST adds a row with a new ID, and GET returns all rows. Restart the server and send the GET again: the note is still there.
 
-If the route says that the table does not exist, run `pnpm vitehub db migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
+If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub db migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
 
 ::
 

@@ -14,31 +14,29 @@ In this tutorial, you make a package that takes the width and height of an image
 A Sandbox is a separate package project, not another server route. It has its own `package.json`.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, a Vite app, and a Vercel project with Sandbox access. The Sandbox runs on Vercel, not on your computer, so each run can cost money. Run every command from the app root.
+> Use the app from [Installation](/docs/getting-started/installation). You also need a Vercel project with Sandbox access. The Sandbox runs on Vercel, not on your computer, so each run can cost money. Run every command from the app root.
 
 ::tutorial-step{title="Install and choose a provider"}
 ## Install and choose a provider
 
-Add Sandbox, the Vercel Sandbox SDK, and Nitro to your app. Sandbox also needs TypeScript to read your package at build time.
+Add the Sandbox package and the Vercel Sandbox SDK. Sandbox also uses the TypeScript from Installation to read your package at build time.
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/sandbox typescript @vercel/sandbox nitro h3
-pnpm add -D @vite-hub/cli vite
+pnpm add @vite-hub/sandbox @vercel/sandbox
 ```
 
-Add the two plugins to `vite.config.ts`. Keep the other plugins of your app.
+In `vite.config.ts`, set `preset: 'vercel'` and add `sandboxTask: true`. Keep the other options of your app.
 
 ```ts [vite.config.ts]
-import { hubSandboxTask } from '@vite-hub/sandbox/task/vite'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [hubSandboxTask({ provider: 'vercel' }), nitro()],
+  plugins: [vitehub({ preset: 'vercel', sandboxTask: true })],
 })
 ```
 
-- `provider: 'vercel'` runs the Sandbox on Vercel.
+- `preset: 'vercel'` runs the Sandbox on Vercel. The `node` preset has no Sandbox provider, so `sandboxTask: true` fails during configuration with that preset.
 
 Set your Vercel keys in the terminal where you will start the server. Replace the values with the ones of your Vercel project:
 
@@ -48,7 +46,7 @@ export VERCEL_TEAM_ID='your-team-id'
 export VERCEL_PROJECT_ID='your-project-id'
 ```
 
-To use Cloudflare instead, you need more than `provider: 'cloudflare'`. Install `@cloudflare/sandbox` and follow the [Cloudflare host integration](/docs/frameworks-hosts/cloudflare). See [Hosts](/docs/sandbox/hosts) for the steps.
+To use Cloudflare instead, you need more than `preset: 'cloudflare'`. Install `@cloudflare/sandbox` and follow the [Cloudflare host integration](/docs/frameworks-hosts/cloudflare). See [Hosts](/docs/sandbox/hosts) for the steps.
 
 ::
 
@@ -100,7 +98,7 @@ Create `server/api/image-optimizer.post.ts`. This route sends the input to the S
 
 ```ts [server/api/image-optimizer.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runSandboxTask } from '@vite-hub/sandbox/task'
+import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ width: number, height: number }>(event)
@@ -119,13 +117,13 @@ export default defineEventHandler(async (event) => {
 Start the dev server in the terminal where you set the Vercel keys:
 
 ```bash [commands/dev]
-pnpm vite dev
+pnpm dev
 ```
 
 Open a second terminal, and send an image size to the route:
 
 ```bash [commands/request]
-curl -X POST http://localhost:5173/api/image-optimizer \
+curl -X POST http://localhost:3000/api/image-optimizer \
   -H 'content-type: application/json' \
   -d '{"width":1024,"height":768}'
 ```
@@ -146,20 +144,28 @@ This JSON is the response body, not a file that the Sandbox writes. If the run t
 Build the app, and list the Sandbox tasks that ViteHub found:
 
 ```bash [commands/inspect]
-pnpm vite build
-pnpm vitehub inspect definitions --kind sandbox
+pnpm build
+pnpm vitehub inspect definitions --kind sandbox-task
 ```
 
-Stop the dev server. In the terminal where you set the Vercel keys, start the built server:
+The list shows your package:
+
+```text [output/inspect.txt]
+Sandbox Tasks (sandbox-task): 1
+  image-optimizer  server/sandbox-tasks/image-optimizer/index.ts  [server-sandbox-tasks]
+    Kind: Package entry
+```
+
+The `vercel` preset writes the build to `.vercel/output`, not to `.output`, so `pnpm start` does not apply. Stop the dev server. In the terminal where you set the Vercel keys, preview the build on your computer:
 
 ```bash [commands/server]
-node .output/server/index.mjs
+pnpm vite preview --port 4173
 ```
 
-Call the route again from the second terminal. The built server uses port 3000:
+Call the route again from the second terminal. The preview uses port 4173:
 
 ```bash [commands/request-built]
-curl -X POST http://localhost:3000/api/image-optimizer \
+curl -X POST http://localhost:4173/api/image-optimizer \
   -H 'content-type: application/json' \
   -d '{"width":1024,"height":768}'
 ```

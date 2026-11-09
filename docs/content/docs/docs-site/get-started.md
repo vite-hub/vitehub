@@ -32,10 +32,10 @@ Create a folder for the site. Add a `package.json` with the two scripts that Nux
 }
 ```
 
-Install Nuxt, Nuxt UI, Tailwind CSS, and the docs module:
+Install Nuxt 5, Nuxt UI, Tailwind CSS, and the docs module. Nuxt 5 is only in nightly builds for now:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/docs nuxt @nuxt/ui tailwindcss
+pnpm add @vite-hub/docs nuxt@npm:nuxt-nightly@5x @nuxt/ui tailwindcss
 ```
 
 ::
@@ -75,7 +75,7 @@ title: Guide
 icon: i-lucide-book-open
 ```
 
-Add `index.md`. It is the first page of the section, at `/docs/guide`. `navigation.title` is its label in the sidebar:
+Add `index.md`. It is the first page of the section, at `/docs/guide`. In the sidebar, the section name, Guide, links to it. `navigation.title` is its label in page lists, such as the links at the end of each Markdown copy:
 
 ```md [content/docs/guide/index.md]
 ---
@@ -113,7 +113,7 @@ lumen --version
 ```
 ````
 
-- `navigation.order: 1` puts the page first after the Overview.
+- `navigation.order: 1` puts the page first after the section page.
 - `::agent-only` holds text for coding agents. The site does not show it to people.
 - The page heading comes from `title`. Do not start the body with `# Install Lumen`.
 
@@ -146,11 +146,11 @@ pnpm dev
 
 Open `http://localhost:3000/docs/guide/install`. You see:
 
-- The sidebar on the left, with the Guide section, Overview, and Install Lumen.
+- The sidebar on the left, with the Guide section and Install Lumen. Select Guide to open the section page.
 - On a wide screen, the outline on the right, with Check the version.
 - No agent-only text.
 
-Press `⌘K` to search.
+Press `⌘K`, or `Ctrl+K` on Windows and Linux, to search.
 
 Keep the server running. Open a second terminal and read the page as a coding agent does:
 
@@ -174,9 +174,17 @@ Run `lumen --version` to check the install. It prints a version such as `1.4.0`.
 ```sh
 lumen --version
 ```
+
+<!-- vitehub-docs:section-links -->
+## In this section
+
+- [Overview](https://lumen.example.com/raw/docs/guide.md)
+- [Install Lumen](https://lumen.example.com/raw/docs/guide/install.md) (this page)
+
+All pages: [llms.txt](https://lumen.example.com/llms.txt)
 ````
 
-The copy starts with the title as a heading, and it has the agent-only text. Run `curl http://localhost:3000/llms.txt` to see both pages with their descriptions.
+The copy starts with the title as a heading, and it has the agent-only text. At the end, it links the other pages of the section. The links start with `url`. Run `curl http://localhost:3000/llms.txt` to see both pages with their descriptions.
 
 Change the `title` of `install.md` and save. The server restarts, and the sidebar shows the new title. A change to the body shows only when you reload the page.
 
