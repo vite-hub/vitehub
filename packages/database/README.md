@@ -225,7 +225,7 @@ ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdri
 
 Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Workers ignore PG* variables, and Vercel output still needs `connection.url`.
 
-`getPostgresConnectionUrl(name = "default")` from `@vite-hub/database/drizzle` returns the URL that a Postgres Database connects to outside a request: the Hyperdrive binding, then `connection.url`. It returns `undefined` for a Database that is not Postgres, or that connects through PG* variables, and it opens no client. Workflow uses it so that OpenWorkflow keeps its runs in the same database.
+`getPostgresConnectionUrl(name = "default")` from `@vite-hub/database/drizzle` returns the URL that a Postgres Database connects to outside a request: the Hyperdrive binding, then `connection.url`. It returns `undefined` for a Database that is not Postgres, or that connects through PG* variables, throws `DATABASE_MISSING_CONNECTION` when a Postgres Database has no connection, and opens no client. Workflow uses it so that OpenWorkflow keeps its runs in the same database.
 
 `vitehub db generate` writes Drizzle Kit migrations with `dialect: "postgresql"`. `vitehub db migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Query a Postgres Definition through `useDatabase()`; `defineDatabase()` returns only the Definition.
 

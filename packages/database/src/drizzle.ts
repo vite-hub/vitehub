@@ -53,8 +53,9 @@ export const agentDb = createAgentDatabase(databases)
 
 /**
  * The connection URL of the Postgres Database `name`, as its client resolves it outside a request: the Hyperdrive
- * binding, then `connection.url`. It is `undefined` for a Database that is not Postgres, or that connects through PG*
- * environment variables. Use it in a package that opens its own Postgres client, so that it uses the same database.
+ * binding, then `connection.url`. It is `undefined` for a Database that is not Postgres, and for a Postgres Database
+ * that connects through PG* environment variables. It throws `DATABASE_MISSING_CONNECTION` when a Postgres Database
+ * has none of these. Use it in a package that opens its own Postgres client, so that it uses the same database.
  */
 export function getPostgresConnectionUrl(name = "default"): string | undefined {
   if (!Object.hasOwn(databases, name)) return undefined

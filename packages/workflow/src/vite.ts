@@ -94,15 +94,33 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return encodeProviderOutputAliases(config.resolve.alias)
 }
 
+const databaseVitePluginName = "@vite-hub/database/vite"
+
+/** The part of the Database Vite plugin that Workflow reads: its resolved configuration. */
+interface DatabaseVitePlugin {
+  api?: { getConfig?: () => { databases: Record<string, { dialect?: string } | undefined> } | undefined }
+}
+
+function findDatabasePlugin(plugins: readonly unknown[] | undefined): DatabaseVitePlugin | undefined {
+  for (const plugin of plugins ?? []) {
+    if (Array.isArray(plugin)) {
+      const found = findDatabasePlugin(plugin)
+      if (found) return found
+    }
+    // SAFETY: The plugin name identifies the Database integration, whose `api` has this shape.
+    else if (plugin && typeof plugin === "object" && "name" in plugin && plugin.name === databaseVitePluginName) return plugin as DatabaseVitePlugin
+  }
+  return undefined
+}
+
 /**
- * Whether the app has a Postgres Default Database. OpenWorkflow then keeps its runs there. It needs the Database
- * plugin, and reads the Database Definitions without running them.
+ * Whether the Database integration resolved the Default Database on Postgres, with its layers, contributions, and
+ * server directories. OpenWorkflow then keeps its runs there. `undefined` while the Database is not resolved yet.
  */
-async function hasPostgresDefaultDatabase(plugins: readonly { name?: string }[] | undefined, rootDir: string, serverDirs: string[] | undefined): Promise<boolean> {
-  if (!plugins?.some(plugin => plugin.name === "@vite-hub/database/vite")) return false
-  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = await import("@vite-hub/database/config")
-  const definition = discoverDatabaseDefinitions(rootDir, { serverDirs }).find(found => found.name === "default")
-  return definition ? readDatabaseDefinitionDialect(definition.handler) === "postgresql" : false
+function readPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boolean | undefined {
+  if (!plugin) return false
+  const config = plugin.api?.getConfig?.()
+  return config ? config.databases.default?.dialect === "postgresql" : undefined
 }
 
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
@@ -270,7 +288,19 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   }
 
   let devRootDir: string | undefined
+  let databasePlugin: DatabaseVitePlugin | undefined
   let postgresDatabaseImport: string | undefined
+
+  /** The Workflow configuration that the startup plugin installs: a build installs it only without a Provider Output server. */
+  function startupWorkflow(): false | ResolvedWorkflowOptions | undefined {
+    return startupBuild
+      ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
+      : devWorkflow ?? false
+  }
+
+  function postgresDatabaseImportFor(postgres: boolean | undefined): string | undefined {
+    return devWorkflow?.provider === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database/drizzle" : undefined
+  }
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
   let startupBuild = false
@@ -422,12 +452,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         devRootDir = resolveViteHubProjectRoot(config.root, { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         devWorkflow = resolveDevWorkflow()
-        postgresDatabaseImport = devWorkflow?.provider === "openworkflow" && await hasPostgresDefaultDatabase(config.plugins, devRootDir, serverDirs)
-          ? internalOptions.databaseImport ?? "@vite-hub/database/drizzle"
-          : undefined
-        await writeDevRegistry(devRootDir, startupBuild
-          ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
-          : devWorkflow ?? false)
+        databasePlugin = findDatabasePlugin(config.plugins)
+        postgresDatabaseImport = postgresDatabaseImportFor(readPostgresDefaultDatabase(databasePlugin))
+        await writeDevRegistry(devRootDir, startupWorkflow())
       }
     },
     configEnvironment(name, config) {
@@ -489,7 +516,17 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     buildApp: providerOutputEnvironment.buildApp,
     nitro: providerOutputEnvironment.nitro,
-    buildStart() {
+    async buildStart() {
+      // The Database integration can resolve its Definitions after this plugin wrote the startup plugin. Read them again,
+      // and write the startup plugin again when the Default Database moved to or from Postgres.
+      if (devRootDir) {
+        const postgres = readPostgresDefaultDatabase(databasePlugin)
+        const next = postgres === undefined ? postgresDatabaseImport : postgresDatabaseImportFor(postgres)
+        if (next !== postgresDatabaseImport) {
+          postgresDatabaseImport = next
+          await writeDevRegistry(devRootDir, startupWorkflow())
+        }
+      }
       if (shouldSkipProviderOutputEnvironment(this)) return
       const context = buildEnvironment(this)
       rejectedBuilds.delete(context)

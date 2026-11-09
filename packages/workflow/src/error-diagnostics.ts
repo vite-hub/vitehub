@@ -64,6 +64,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "OpenWorkflow uses the Postgres Default Database of the app, but that Database has no connection URL outside a request. It connects through PG* environment variables, which OpenWorkflow cannot read.",
       fix: "Set `connection.url` on the Database Definition, or set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url`.",
     },
+    WORKFLOW_R0037: {
+      why: "OpenWorkflow sets up its Postgres schema on a second connection while this server holds the setup lock on the first. The database gave no second connection in 10 seconds, so the setup could not finish. A pooler with one server connection does this.",
+      fix: "Raise the pool size to 2 or more. Or set up the schema once through a direct connection, then set `workflow.postgres.runMigrations: false`.",
+    },
     WORKFLOW_B0001: dynamicError,
     WORKFLOW_B0002: {
       why: ({ root }: { root: string }) => `[vitehub] Cannot identify the owning Workflow build for ${JSON.stringify(root)} because its environment does not uniquely match a resolved configuration.`,

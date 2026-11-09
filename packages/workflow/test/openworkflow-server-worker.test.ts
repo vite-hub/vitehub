@@ -194,6 +194,20 @@ describe("installOpenWorkflow", () => {
     consoleWarn.mockRestore()
   })
 
+  it("stops trying when only a configuration change can fix the setup", async () => {
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({})
+    fake.state.connectErrors = [Object.assign(new Error("No second connection."), { code: "WORKFLOW_R0037" })]
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const app = createApp()
+
+    await expect(installOpenWorkflow(app)).resolves.toBe(false)
+    expect(app.captureError).toHaveBeenCalledOnce()
+    expect(fake.state.workers).toHaveLength(0)
+    await app.close()
+    consoleError.mockRestore()
+  })
+
   it("stops trying when the server closes", async () => {
     vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)

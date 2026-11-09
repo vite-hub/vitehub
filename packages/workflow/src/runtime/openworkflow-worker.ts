@@ -237,6 +237,17 @@ const bundledOpenWorkflowModules: Readonly<Record<string, () => Promise<unknown>
 }
 
 const openWorkflowStartDelayMs = 500
+/** Errors that a new attempt cannot fix, because the configuration or the database must change first. */
+const permanentSetupErrorCodes = new Set(["WORKFLOW_R0036", "WORKFLOW_R0037"])
+
+function hasPermanentSetupError(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && typeof current === "object" && depth < 8; depth++) {
+    const code: unknown = Reflect.get(current, "code")
+    if (typeof code === "string" && permanentSetupErrorCodes.has(code)) return true
+    current = Reflect.get(current, "cause")
+  }
+  return false
+}
 const openWorkflowStartMaxDelayMs = 30_000
 
 interface ActiveOpenWorkflowInstall {
@@ -284,7 +295,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
  *
  * The worker registers the discovered Workflow Definitions of the registry, which every server of the build has.
  * When the storage is not ready, setup runs again until it works, with a delay that grows to 30 seconds. Each failure
- * is reported. The server keeps serving requests, and queued runs wait in storage until the worker starts.
+ * is reported. A failure that only a configuration change fixes, such as `WORKFLOW_R0037`, stops the retries. The server keeps serving requests, and queued runs wait in storage until the worker starts.
  * The returned promise resolves to `true` when the worker runs, and to `false` when it is off or the server closed
  * first. When the plugin runs again in the same process, as `vite dev` does after a file changes, the previous worker
  * stops taking runs, finishes the runs that it executes on its own backend, and the new one uses the changed definitions.
@@ -350,6 +361,8 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
       }
       catch (error) {
         report(error)
+        // The worker stays off. The error says what to change; the next deploy starts it.
+        if (hasPermanentSetupError(error)) return false
         const wait = Math.min(openWorkflowStartDelayMs * 2 ** (attempt - 1), openWorkflowStartMaxDelayMs)
         console.warn(`[vitehub:workflow] The OpenWorkflow worker did not start (attempt ${attempt}). It tries again in ${wait} ms.`)
         await delay(wait, closing.signal)

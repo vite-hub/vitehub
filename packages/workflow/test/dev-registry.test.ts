@@ -318,31 +318,46 @@ describe("Workflow dev registry", () => {
     expect(generated).toContain("installOpenWorkflow(nitroApp)")
   })
 
-  it.each([
-    ["postgresql", true],
-    ["sqlite", false],
-  ] as const)("passes the %s Default Database URL to OpenWorkflow: %s", async (dialect, uses) => {
+  async function buildWithDatabase(getConfig: () => { databases: Record<string, { dialect?: string }> } | undefined) {
     const projectRoot = await createApp()
-    await mkdir(join(projectRoot, "server/databases"), { recursive: true })
-    await writeFile(join(projectRoot, "server/databases/config.ts"), `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "${dialect}" })\n`)
     const plugin = hubWorkflow({}, { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [{ name: "@vite-hub/database/vite" }], root: projectRoot })
+    // The Database plugin resolves its Definitions, contributions, and layers. Workflow reads that result.
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [[{ api: { getConfig }, name: "@vite-hub/database/vite" }]], root: projectRoot })
+    const generated = () => readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    return { generated, plugin }
+  }
 
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+  it.each([
+    ["postgresql", true],
+    ["sqlite", false],
+  ] as const)("passes the %s Default Database URL to OpenWorkflow: %s", async (dialect, uses) => {
+    const { generated } = await buildWithDatabase(() => ({ databases: { default: { dialect } } }))
+
     if (uses) {
-      expect(generated).toContain(`import { getPostgresConnectionUrl } from "vite-hub/database/drizzle"`)
-      expect(generated).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
+      expect(await generated()).toContain(`import { getPostgresConnectionUrl } from "vite-hub/database/drizzle"`)
+      expect(await generated()).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
     }
     else {
-      expect(generated).not.toContain("getPostgresConnectionUrl")
-      expect(generated).toContain("installOpenWorkflow(nitroApp)")
+      expect(await generated()).not.toContain("getPostgresConnectionUrl")
+      expect(await generated()).toContain("installOpenWorkflow(nitroApp)")
     }
   })
 
-  it("does not read Database Definitions without the Database plugin", async () => {
+  it("reads the Database config again at buildStart when the Database resolves after Workflow", async () => {
+    let databaseConfig: { databases: Record<string, { dialect?: string }> } | undefined
+    const { generated, plugin } = await buildWithDatabase(() => databaseConfig)
+    expect(await generated()).not.toContain("getPostgresConnectionUrl")
+
+    databaseConfig = { databases: { default: { dialect: "postgresql" } } }
+    await (plugin.buildStart as unknown as () => Promise<void>).call({})
+
+    expect(await generated()).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
+  })
+
+  it("does not read Database Definition files without the Database plugin", async () => {
     const projectRoot = await createApp()
     await mkdir(join(projectRoot, "server/databases"), { recursive: true })
     await writeFile(join(projectRoot, "server/databases/config.ts"), `export default { dialect: "postgresql" }\n`)

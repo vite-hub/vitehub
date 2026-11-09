@@ -138,15 +138,29 @@ const openWorkflowMock = vi.hoisted(() => {
       },
     },
   )
-  const postgres = vi.fn((_url: string, _options?: unknown) => ({
-    begin: vi.fn(async (run: (sql: typeof transaction) => Promise<unknown>) => {
-      lockQueries.push("begin")
-      const result = await run(transaction)
-      lockQueries.push("commit")
-      return result
-    }),
-    end: vi.fn(async () => {}),
-  }))
+  // `true` when the probe for a second connection never gets one, as behind a pool of one connection.
+  const probe = { hangs: false }
+  const postgres = vi.fn((_url: string, _options?: unknown) => Object.assign(
+    (strings: TemplateStringsArray) => {
+      lockQueries.push(strings.join("?"))
+      return probe.hangs ? new Promise(() => {}) : Promise.resolve([{ "?column?": 1 }])
+    },
+    {
+      begin: vi.fn(async (run: (sql: typeof transaction) => Promise<unknown>) => {
+        lockQueries.push("begin")
+        try {
+          const result = await run(transaction)
+          lockQueries.push("commit")
+          return result
+        }
+        catch (error) {
+          lockQueries.push("rollback")
+          throw error
+        }
+      }),
+      end: vi.fn(async () => {}),
+    },
+  ))
 
   return {
     cancelWorkflowRun,
@@ -155,6 +169,7 @@ const openWorkflowMock = vi.hoisted(() => {
     lockQueries,
     lockResults,
     postgres,
+    probe,
     newWorker,
     OpenWorkflow,
     runOptions,
@@ -255,6 +270,7 @@ beforeEach(async () => {
   openWorkflowMock.definitions.clear()
   openWorkflowMock.lockQueries.length = 0
   openWorkflowMock.lockResults.length = 0
+  openWorkflowMock.probe.hangs = false
   openWorkflowMock.postgres.mockClear()
   openWorkflowMock.newWorker.mockClear()
   openWorkflowMock.runOptions.length = 0
@@ -1511,13 +1527,7 @@ describe("workflow runtime", () => {
     })
   })
 
-  it.each([
-    ["libsql://db.turso.io", "sqlite"],
-    ["file:.data/app.db", "sqlite"],
-    ["mysql://localhost/app", "sqlite"],
-    ["postgres://localhost/app", "postgres"],
-    ["postgresql://localhost/app", "postgres"],
-  ])("uses DATABASE_URL %s for OpenWorkflow only when it is a Postgres URL", async (url, backend) => {
+  it.each(["postgres://localhost/app", "libsql://db.turso.io", "file:.data/app.db"])("does not use DATABASE_URL %s without a Postgres Default Database", async (url) => {
     process.env.DATABASE_URL = url
     try {
       await getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)
@@ -1525,8 +1535,9 @@ describe("workflow runtime", () => {
     finally {
       delete process.env.DATABASE_URL
     }
-    if (backend === "postgres") expect(openWorkflowMock.connect).toHaveBeenCalledWith(url, expect.anything())
-    else expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".vitehub/data/openworkflow.sqlite.db", expect.anything())
+    // Like Queue and Realtime, Workflow shares the Default Database or an explicit URL, never an ambient one.
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".vitehub/data/openworkflow.sqlite.db", expect.anything())
   })
 
   it("holds an advisory lock while OpenWorkflow sets up its Postgres schema", async () => {
@@ -1541,10 +1552,11 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.lockQueries).toEqual([
       "begin",
       "select pg_try_advisory_xact_lock(hashtextextended(?, 0)) as locked",
+      "select 1",
       "commit",
     ])
-    // OpenWorkflow sets up the schema while the transaction holds the lock.
-    expect(order).toEqual(["connect after 2 lock queries"])
+    // OpenWorkflow sets up the schema while the transaction holds the lock, after the second connection answered.
+    expect(order).toEqual(["connect after 3 lock queries"])
     expect(openWorkflowMock.postgres.mock.results[0]!.value.end).toHaveBeenCalledOnce()
   })
 
@@ -1564,22 +1576,37 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.postgres).toHaveBeenCalledWith("postgres://localhost/wait", expect.objectContaining({ idle_timeout: 1, max: 1 }))
   })
 
-  it("releases the setup lock after 60 seconds and keeps the same setup", async () => {
+  it("holds the setup lock until the setup ends, however long it takes", async () => {
     vi.useFakeTimers()
     let finishSetup!: () => void
     openWorkflowMock.connect.mockImplementationOnce(() => new Promise((resolve) => {
-      // A pool of one connection: the setup gets its connection only when the lock transaction ends.
       finishSetup = () => resolve({ getWorkflowRun: vi.fn(async () => null), stop: vi.fn() })
     }))
-    const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/one" }, provider: "openworkflow" })!)
-    await vi.advanceTimersByTimeAsync(60_000)
+    const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/slow" }, provider: "openworkflow" })!)
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
     vi.useRealTimers()
 
-    // The lock transaction ended without a commit, and the setup still runs.
-    expect(openWorkflowMock.lockQueries).toEqual(["begin", "select pg_try_advisory_xact_lock(hashtextextended(?, 0)) as locked"])
+    // Ten minutes later the lock transaction is still open, so no other server can run the setup.
+    expect(openWorkflowMock.lockQueries.at(-1)).toBe("select 1")
     finishSetup()
     await expect(acquired).resolves.toMatchObject({ backend: expect.anything() })
-    expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
+    expect(openWorkflowMock.lockQueries.at(-1)).toBe("commit")
+  })
+
+  it("stops with WORKFLOW_R0037 before the setup when the pool has no second connection", async () => {
+    vi.useFakeTimers()
+    openWorkflowMock.probe.hangs = true
+    const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/one" }, provider: "openworkflow" })!)
+    const failure = acquired.catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(10_000)
+    vi.useRealTimers()
+
+    const codes: unknown[] = []
+    for (let error: unknown = await failure; error instanceof Error; error = error.cause) codes.push(Reflect.get(error, "code"))
+    expect(codes).toContain("WORKFLOW_R0037")
+    // The lock transaction rolled back, and OpenWorkflow never started a migration.
+    expect(openWorkflowMock.lockQueries.at(-1)).toBe("rollback")
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
   })
 
   it("uses the Postgres Default Database before DATABASE_URL, and the OpenWorkflow URL before both", async () => {

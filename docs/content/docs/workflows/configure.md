@@ -58,7 +58,7 @@ export default defineConfig({
 | `sqlite.namespaceId` | `string` | provider default | OpenWorkflow SQLite namespace id. |
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
 | `worker` | `false` or `{ concurrency }` | started | The OpenWorkflow worker that each Nitro server starts. `false` keeps the server from starting it. |
-| `remote` | `boolean` | `false` | Lets `vite dev` keep OpenWorkflow runs in the Postgres of `OPENWORKFLOW_POSTGRES_URL`, the Postgres Default Database, or `DATABASE_URL`. Without it, `vite dev` uses the local SQLite file. Builds ignore it. |
+| `remote` | `boolean` | `false` | Lets `vite dev` keep OpenWorkflow runs in the Postgres of `OPENWORKFLOW_POSTGRES_URL` or the Postgres Default Database. Without it, `vite dev` uses the local SQLite file. Builds ignore it. |
 | `worker.concurrency` | `number` | `1` | The number of runs that one worker executes at the same time. |
 
 When no provider is configured, ViteHub selects:

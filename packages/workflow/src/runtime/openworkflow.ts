@@ -62,17 +62,6 @@ function getRuntimeEnvNames(value: WorkflowRuntimeEnvDeclarationLike): string[] 
   return value.source?.names ?? (value.source?.name ? [value.source.name] : [])
 }
 
-const postgresUrlPattern = /^postgres(?:ql)?:\/\//i
-
-/**
- * `DATABASE_URL` selects Postgres only when it is a Postgres URL. Apps also set it to a libSQL, SQLite, or MySQL URL
- * for their Database, and OpenWorkflow then keeps its runs in the local SQLite file.
- */
-function readPostgresDatabaseUrl(): string | undefined {
-  const url = readEnv("DATABASE_URL")
-  return url && postgresUrlPattern.test(url) ? url : undefined
-}
-
 function normalizeSqlitePath(path: string): string {
   if (/^(?:libsql:|https?:\/\/)/i.test(path)) {
     throw workflowErrorDiagnostics.WORKFLOW_R0018({ message: `OpenWorkflow SQLite storage requires a local SQLite file path, received ${JSON.stringify(path)}.` })
@@ -114,9 +103,9 @@ export function setOpenWorkflowDatabaseUrl(resolve: (() => string | undefined) |
   databaseUrlResolver = resolve
 }
 
-/** The Postgres URL of the Default Database, or a `DATABASE_URL` that is a Postgres URL when the app has no such Database. */
+/** The Postgres URL of the Default Database, when the app has a Postgres Default Database. */
 function readDatabasePostgresUrl(): string | undefined {
-  if (!databaseUrlResolver) return readPostgresDatabaseUrl()
+  if (!databaseUrlResolver) return undefined
   const url = databaseUrlResolver()?.trim()
   if (!url) throw workflowErrorDiagnostics.WORKFLOW_R0036()
   return url
@@ -176,13 +165,26 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   }
 }
 
-/** How long one server holds the setup lock. After it, the setup continues without the lock. */
-const postgresSetupTimeoutMs = 60_000
 /** How long a server waits for the setup lock that another server holds, before the worker start tries again. */
 const postgresSetupWaitMs = 120_000
+/** How long the server that holds the setup lock waits for the second connection that the OpenWorkflow migration needs. */
+const postgresSecondConnectionTimeoutMs = 10_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms).unref?.())
+}
+
+/** Resolves `true` when `task` settles first, `false` when `ms` passes first. */
+function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    // A rejected probe also got its answer: a database that is down fails the setup next.
+    task.then(() => true, () => true),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), ms)
+      timer.unref?.()
+    }),
+  ]).finally(() => clearTimeout(timer))
 }
 
 /**
@@ -191,12 +193,13 @@ function sleep(ms: number): Promise<void> {
  * aborted transaction. So one server at a time sets up the schema, and the others then find it up to date.
  *
  * OpenWorkflow does not export its migrations, so they cannot run on the connection that holds the lock: they run on a
- * connection that `BackendPostgres.connect()` opens. To keep that from waiting on a full pool:
+ * connection that `BackendPostgres.connect()` opens.
  * - A server tries the lock with `pg_try_advisory_xact_lock` in a short transaction. A server that does not get it
  *   commits at once and tries again later, so a waiting server holds no connection.
- * - The server that gets it holds two connections while OpenWorkflow migrates: the lock transaction and the migration.
- * - When the setup does not finish in 60 seconds, for example because the pool has one connection, the lock transaction
- *   rolls back. That frees its connection, and the same setup then finishes without the lock.
+ * - The server that gets it first checks that it can open a second connection. A pool of one connection, such as a
+ *   pooler with one server connection, cannot run the migration while the lock holds that connection, so the server
+ *   stops with `WORKFLOW_R0037` before the setup starts.
+ * - Then it holds the lock until OpenWorkflow finished the setup.
  * A transaction lock also works through a pooler in transaction mode, such as PgBouncer.
  */
 async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, schema: string, setup: () => Promise<T>): Promise<T> {
@@ -204,31 +207,17 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
   const sql = postgres.default(url, { idle_timeout: 1, max: 1, onnotice: () => {} })
   const key = `vitehub:openworkflow:${schema}`
   const deadline = Date.now() + postgresSetupWaitMs
-  const releaseLock = Symbol("release the setup lock")
   try {
     for (let attempt = 1; ; attempt++) {
-      let running: Promise<T> | undefined
       let result: { value: T } | undefined
-      try {
-        await sql.begin(async (transaction) => {
-          const [lock] = await transaction<{ locked: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) as locked`
-          if (!lock?.locked) return
-          running = setup()
-          let timer: ReturnType<typeof setTimeout> | undefined
-          const timeout = new Promise<typeof releaseLock>((resolve) => {
-            timer = setTimeout(() => resolve(releaseLock), postgresSetupTimeoutMs)
-            timer.unref?.()
-          })
-          const value = await Promise.race([running, timeout]).finally(() => clearTimeout(timer))
-          // Rolling back releases the lock and the connection that the setup may wait for.
-          if (value === releaseLock) throw releaseLock
-          result = { value }
-        })
-      }
-      catch (error) {
-        if (error !== releaseLock || !running) throw error
-        return await running
-      }
+      await sql.begin(async (transaction) => {
+        const [lock] = await transaction<{ locked: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) as locked`
+        if (!lock?.locked) return
+        const probe = postgres.default(url, { max: 1, onnotice: () => {} })
+        const reached = await settlesWithin(probe`select 1`, postgresSecondConnectionTimeoutMs).finally(() => probe.end({ timeout: 0 }))
+        if (!reached) throw workflowErrorDiagnostics.WORKFLOW_R0037()
+        result = { value: await setup() }
+      })
       if (result) return result.value
       if (Date.now() >= deadline) {
         throw new Error(`Another server held the OpenWorkflow schema setup lock for ${postgresSetupWaitMs / 1000} seconds.`)
