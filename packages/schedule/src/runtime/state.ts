@@ -2,12 +2,24 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { createMemoryScheduleRunStore } from "./store.ts"
 
-import type { ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
+import type { ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore, StartedScheduleStore } from "../types.ts"
+
+/** What `startSchedule()` and the started-Schedule tick use. The generated Nitro plugin installs it. */
+export interface StartedScheduleRuntime {
+  /** How far back the first tick after a start runs cron minutes that no tick checked. */
+  catchUpMs: number
+  /** Last minute, in epoch milliseconds, that a tick of this process checked. */
+  checkedThrough?: number
+  /** Schedule Definitions without `cron`, by name. */
+  registry: ScheduleDefinitionRegistry
+  store: StartedScheduleStore
+}
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
 const processDefinitions = new Set<ReadonlyMap<string, ScheduleRegistryDefinition>>()
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
+let startedRuntime: StartedScheduleRuntime | undefined
 const loadedRegistryEntries = new Map<string, ScheduleRegistryDefinition | undefined>()
 const loadingRegistryEntries = new Map<string, {
   promise: Promise<ScheduleRegistryDefinition | undefined>
@@ -53,6 +65,14 @@ export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
 
 export function getScheduleRunStore(): ScheduleRunStore {
   return runStore ??= createMemoryScheduleRunStore()
+}
+
+export function setStartedScheduleRuntime(runtime: StartedScheduleRuntime | undefined): void {
+  startedRuntime = runtime
+}
+
+export function getStartedScheduleRuntime(): StartedScheduleRuntime | undefined {
+  return startedRuntime
 }
 
 export async function loadScheduleDefinition(name: string): Promise<ScheduleRegistryDefinition | undefined> {
@@ -108,6 +128,7 @@ export function resetScheduleRuntime(): void {
   processDefinitions.clear()
   runtimeRegistryVersion++
   runStore = undefined
+  startedRuntime = undefined
   loadedRegistryEntries.clear()
   loadingRegistryEntries.clear()
 }
