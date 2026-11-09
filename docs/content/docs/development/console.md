@@ -448,7 +448,7 @@ The project list and the tokens stay in this browser, in `localStorage` of the C
 - Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
 - Another browser or another Console origin has its own list. Link the projects again there.
 - When the browser does not let the Console store data, such as when storage is full or blocked, the list stays in memory until the page reloads. The Console says so.
-- To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
+- To revoke access, remove the token's hash from `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. A Console that used that token then asks for a new one. See [Give each caller its own token](#give-each-caller-its-own-token).
 
 A project that signs in with the app keeps OAuth tokens in the same entry: an access token that is valid for 15 minutes, and a refresh token that is valid for 7 days. Each refresh gives a new refresh token. The Console refreshes the access token before a request when it expires within a minute. Requests that start at the same time wait for one refresh, and tabs take turns with the Web Locks API so they do not use the same refresh token. In browsers without Web Locks, a short lease in `localStorage` coordinates active tabs. This fallback is best effort: a suspended tab can miss lease renewal and overlap another tab's refresh. When the app refuses a refresh token that another tab already rotated, the Console uses the tokens that the other tab saved. When the project refuses an access token with `error="invalid_token"`, the Console refreshes once and sends the request again. When the refresh fails, the Console removes the tokens and asks you to sign in again. While a sign-in runs, the PKCE verifier and the `state` stay in `sessionStorage` of the tab, under `vitehub-console:oauth-sign-ins`. Each `state` works once. A browser that blocks site data for the Console keeps nothing across the redirect to the app, so the Console does not start a sign-in there and says `This browser blocks site data`. Allow site data for the Console origin, or use `auth: "token"`.
 
@@ -719,7 +719,7 @@ VITEHUB_CONSOLE_TOKEN_SHA256=<hash> node .output/server/index.mjs
 wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256
 ```
 
-Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set or is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
+Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set, or one of its entries is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
 
 The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, with the token, not the hash:
 
@@ -740,8 +740,22 @@ export default defineConsoleAuthorize(({ via }) => {
 ```
 
 ::warning
-The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles. To rotate it, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or redeploy the server. The old token stops working at once.
+The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles.
 ::
+
+### Give each caller its own token
+
+`VITEHUB_CONSOLE_TOKEN_SHA256` takes several hashes with commas between them. Give each caller its own token, such as one for a Console and one for the CLI in CI. Removing one hash then revokes only that caller:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_TOKEN_SHA256=<console hash>,<ci hash> node .output/server/index.mjs
+```
+
+The server compares the token with every hash in the list, so the time of the check does not show which hash matched. Spaces around an entry do not count. An empty entry, or an entry that is not 64 hex characters, refuses every request with `CONSOLE_TOKEN_NOT_CONFIGURED`, and the message gives the position of the entry.
+
+To rotate a token with no downtime, add the hash of the new token to the list and deploy. Give the new token to the caller, then remove the old hash and deploy again. The old token stops working at once.
+
+`vitehub deploy` sets `VITEHUB_CONSOLE_TOKEN_SHA256` to one hash when `vitehub init --console` left a pending link. Hosts do not give a secret back, so it cannot add to a list that is already set. Set the list again after it.
 
 The Console page on the app's own origin cannot send the token yet, so with `auth: 'token'` it opens in its signed-out state. Use the CLI, MCP, or a Console on another origin.
 
