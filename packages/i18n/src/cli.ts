@@ -127,7 +127,7 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
                 message: message.message,
                 ...(message.context ? { context: message.context } : {}),
                 translation: records[id] && isVisible(records[id]) ? records[id].text : "",
-                comments: [`${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`],
+                comments: [...message.comments ?? [], `${expectedComment}${JSON.stringify(records[id]?.text ?? null)}`],
                 origin: message.origins.map((origin) => {
                   const index = origin.lastIndexOf(":")
                   return index === -1 ? [origin] : [origin.slice(0, index), Number(origin.slice(index + 1))]

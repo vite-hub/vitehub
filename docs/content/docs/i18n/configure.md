@@ -226,6 +226,19 @@ pnpm vitehub i18n prune --yes
 
 To add a locale, add it to `i18n.locales`. It starts with every message untranslated.
 
+### Migrate existing PO catalogs
+
+If your app already has `locales/<locale>.po` catalogs, import them after updating ViteHub and before your next development server or production build. ViteHub reads only Diglot records now. Until you import the catalogs, their translations show the source text.
+
+Run this for each translation locale in `i18n.locales`, using its existing PO file:
+
+```bash [Terminal]
+pnpm vitehub i18n import es locales/es.po --by ana
+pnpm vitehub i18n status --json
+```
+
+The old catalogs have no export baseline comments. They can create records without overwriting translations that are already saved. Import exits with `1` if an entry is refused; fix the reported entry before continuing. Keep the old catalogs until every locale imports successfully and you have checked the translations. Commit the new `locales/<locale>/segments/` records, then remove the old PO catalogs. Use `export` for subsequent PO edits so they carry the record baselines.
+
 ## Store translations in a Workspace
 
 By default, translations are files in your repository, and a new translation needs a deploy. To change translations without a deploy, store them in a [Workspace](/docs/workspace) with retained history, such as the Blob and Database store or the GitHub store:
