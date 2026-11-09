@@ -160,15 +160,15 @@ Most changes are options in `nuxt.config.ts`:
 | --- | --- | --- |
 | `dir` | `content` | Folder of Markdown pages. |
 | `base` | `/docs` | URL prefix whose folders are sections. |
-| `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
+| `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo`, `badge` (`{ label, tooltip }`). A `logo` path is a one-color SVG that the theme fills with the text color. `{ light, dark }` shows a colored logo as it is, with `dark` in dark mode. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
-| `socials` | `[]` | Community links in the header on every page, or in its menu on narrow screens. |
+| `socials` | `[]` | Community links at the foot of the docs sidebar and in the header of other pages, or in its menu on narrow screens. |
 | `footer` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy. |
 | `banner` | None | One line above every docs page. |
-| `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link to the header, with the star count when available. |
+| `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link beside the socials, with the star count when available. |
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
@@ -179,6 +179,7 @@ Most changes are options in `nuxt.config.ts`:
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
 | `parser` | None | Path of a module whose default export is `{ plugins }`: more Comark plugins for every page. See [Comark plugins](#comark-plugins). |
+| `examples` | `examples` | Folder, inside `app/`, of the Vue files that `::example{name}` shows. See [Examples](#examples). |
 
 ### Components
 
@@ -186,24 +187,48 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 
 | Component | Part |
 | --- | --- |
-| `AppHeader` | Site header on every page, with search, GitHub, social links, and the color mode button. |
+| `AppHeader` | Site header, with search, GitHub, social links, and the color mode button. On wide screens it hides beside the docs sidebar. |
 | `AppSearch` | The search dialog. |
-| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The section rail, the page sidebar, and its title. |
+| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The section rail, the page sidebar with its brand, search, and title, and the row of links at its foot. |
 | `DocsPage`, `DocsArticle`, `DocsLanding`, `DocsMarkdown` | The page and its layouts. |
-| `DocsHeaderActions` | Empty. Replace it to add items to the site header, before search. |
+| `DocsHeaderActions` | Empty. Replace it to add items to the site header or the desktop sidebar footer. |
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 | `DocsCodePanel`, `DocsCodePre` | The tutorial code panel and code blocks. |
 
-Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
+Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, `::example` and `::examples`, `::correct` and `::incorrect`, `::code-tree`, `::page-list`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
+
+A replacement docs layout or sidebar keeps the site header. Render `<DocsSidebars panel head />` to supply the sidebar controls and hide the desktop header. A replacement `DocsSidebars` can opt in with `data-docs-sidebar-head` on its root after it supplies the brand, badge tooltip, search, and `<DocsAsideFooter />`. The header owns one `DocsHeaderActions` instance and moves it into the mounted footer on wide screens.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
+
+### Examples
+
+`::example` shows a preview and its source, with a Preview and Code switch. Around an `md`, `markdown`, `mdc`, or `comark` code block, the preview is that Markdown, rendered with the same plugins as the page:
+
+`````md
+::example
+````md
+Some **bold** text.
+````
+::
+`````
+
+With `name`, the preview is a Vue file in `app/examples/`, and Code shows its source. `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue`. `height` keeps that many rem for it before its module loads, `flush` shows it edge to edge at that height, and `reset` adds a control that mounts it again. `play` links the example to a playground that opens it.
+
+`::examples` puts several `:::example` blocks in underlined tabs named by their `label`. The examples share one view, so a reader who picks Code keeps reading code from tab to tab. A site that renders the preview itself, as comark-ui does to write `play`, passes a parser plugin named `docs-examples`.
+
+`::correct` and `::incorrect` are examples titled Correct and Incorrect, as on a lint rule's page. Any example takes a `#title` slot that leads its bar, and these two fill it; `title` renames them. Markdown that doesn't parse, such as broken frontmatter on purpose, shows its source alone.
+
+### Code trees and page lists
+
+`::code-tree` shows its code blocks as a project: a file tree beside the open file. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
+
+`::page-list` lists the pages of the page's section under their sidebar groups, with their icons and descriptions, for an Overview. `section` lists another section, and `exclude="Start"` leaves groups out. Put a plain Markdown list inside it: the site doesn't show it, and agents read it in the Markdown copy.
 
 ### Comark plugins
 
 The server parses each page with Comark, and the browser renders the nodes with [comark-ui](https://comark-ui.onmax.me)'s blocks: GitHub callouts (`> [!NOTE]`, and `::note`, `::tip`, `::warning`, `::caution`, `::important`), tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, and the rest. comark-ui's typeset is off, since the design styles the prose. Chips are off too: they turn every web link into a chip and fetch its favicon.
-
-`::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. Put the source in an `md`, `markdown`, `mdc`, or `comark` code fence inside each example. The parser adds the rendered copy as an `example-preview` node before the source. A site's parser can still supply its own preview node. Content without a preview node stays visible.
 
 Comark plugins are functions, so more of them go in a module that `parser` names:
 
@@ -225,7 +250,7 @@ Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console 
 
 ### Design
 
-The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. On docs pages the sidebar holds the brand, search, a rail of sections or groups next to the page list, and a row at its foot with GitHub, the socials, and the color mode button. Other pages, and phones, get a header with the same parts. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.

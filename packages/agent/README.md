@@ -652,6 +652,26 @@ Configured presets use the existing layer rules for capabilities, channels, and 
 
 Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
 
+### Build an Agent from another Agent in code
+
+A package that derives a second Agent at runtime, such as the Babysitter worker in `@vite-hub/presets`, uses three functions from `@vite-hub/agent`:
+
+- `agentSettings(agent)` returns the resolved settings of an Agent Definition, with its `extends` layers applied, in a new object. Nested values, such as `driver` or `channels`, still belong to the Agent: replace a field instead of changing it in place, then pass the result to `defineAgent()`.
+- `withoutForgeAccess(channel)` returns a copy of a Channel without the GitHub access of `github({ app })`. Use it when the new Agent must not receive the host's GitHub token.
+- `activeProviderSandbox(context)` returns the Sandbox that the provider Driver of the current Invocation runs in, or `undefined` when the Driver runs on the host. A Capability uses it to copy files between the host and that Sandbox.
+
+```ts fragment
+import { agentSettings, defineAgent, withoutForgeAccess } from '@vite-hub/agent'
+
+const settings = agentSettings(base)
+if (!settings) throw new TypeError('Expected an Agent Definition.')
+const worker = defineAgent({
+  ...settings,
+  driver: { ...settings.driver, model: 'worker-model' },
+  channels: { github: withoutForgeAccess(settings.channels!.github!) },
+})
+```
+
 
 
 ## Observability
