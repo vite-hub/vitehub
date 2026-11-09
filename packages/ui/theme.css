@@ -194,10 +194,10 @@ a {
 }
 
 /*
- * Items in a list that clips its overflow, such as menu items, options, tabs, and table rows, keep the ring inside. A row
+ * Items in a list that clips its overflow, such as menu items, options, tabs, tab panels, and table rows, keep the ring inside. A row
  * that is a link in a framed list opts in with `data-focus-inset`.
  */
-:where([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="tab"], [role="treeitem"], [role="row"], [role="gridcell"], tr, [data-focus-inset]):focus-visible {
+:where([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="tab"], [role="treeitem"], [role="row"], [role="gridcell"], [role="tabpanel"], tr, [data-focus-inset]):focus-visible {
   outline-offset: -2px;
 }
 
@@ -266,4 +266,19 @@ a {
 
 :where([class*="has-focus-visible:ring-2"]):has(input[aria-invalid="true"]:focus-visible) {
   --tw-ring-color: var(--ui-error);
+}
+
+/*
+ * Parts that draw their own focus where the rules above cannot reach: the file tree of @pierre/trees renders its search
+ * field in shadow DOM and reads these variables, and Comark adds a shadow to its heading anchors.
+ */
+file-tree-container {
+  --trees-focus-ring-color-override: var(--vh-focus);
+  --trees-focus-ring-width-override: 2px;
+  --trees-focus-ring-offset-override: -2px;
+  --trees-selected-focused-border-color-override: var(--vh-focus);
+}
+
+:where(.cl-anchor):focus-visible {
+  box-shadow: none;
 }

@@ -133,7 +133,11 @@ export const vitehubTheme = {
     defaultVariants: {
       size: "sm",
     },
-    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
+    compoundVariants: [
+      { variant: ["outline", "subtle"], class: "focus-visible:ring-2" },
+      // Nuxt UI shrinks small fields to 12px from 768px up. Fields stay 14px, the size of the text beside them.
+      { fixed: false, size: "sm", class: "md:text-sm/4" },
+    ],
     slots: {
       base: "pointer-coarse:text-base",
       leadingIcon: "size-4 opacity-80",
@@ -144,7 +148,11 @@ export const vitehubTheme = {
     defaultVariants: {
       size: "sm",
     },
-    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
+    compoundVariants: [
+      { variant: ["outline", "subtle"], class: "focus-visible:ring-2" },
+      // Nuxt UI shrinks small fields to 12px from 768px up. Fields stay 14px, the size of the text beside them.
+      { fixed: false, size: "sm", class: "md:text-sm/4" },
+    ],
     slots: {
       base: "pointer-coarse:text-base",
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
@@ -154,7 +162,11 @@ export const vitehubTheme = {
     defaultVariants: {
       size: "sm",
     },
-    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
+    compoundVariants: [
+      { variant: ["outline", "subtle"], class: "focus-visible:ring-2" },
+      // Nuxt UI shrinks small fields to 12px from 768px up. Fields stay 14px, the size of the text beside them.
+      { fixed: false, size: "sm", class: "md:text-sm/4" },
+    ],
     slots: {
       base: "pointer-coarse:text-base",
     },
@@ -163,7 +175,10 @@ export const vitehubTheme = {
     defaultVariants: {
       size: "sm",
     },
-    compoundVariants: [{ variant: ["outline", "subtle"], class: { root: "has-focus-visible:ring-2" } }],
+    compoundVariants: [
+      { variant: ["outline", "subtle"], class: { root: "has-focus-visible:ring-2" } },
+      { fixed: false, size: "sm", class: { root: "md:text-sm/4" } },
+    ],
     slots: {
       root: "pointer-coarse:text-base",
     },
@@ -201,7 +216,11 @@ export const vitehubTheme = {
     defaultVariants: {
       size: "sm",
     },
-    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
+    compoundVariants: [
+      { variant: ["outline", "subtle"], class: "focus-visible:ring-2" },
+      // Nuxt UI shrinks small fields to 12px from 768px up. Fields stay 14px, the size of the text beside them.
+      { fixed: false, size: "sm", class: "md:text-sm/4" },
+    ],
     slots: {
       base: "pointer-coarse:text-base",
       leadingIcon: "size-4 opacity-80",
@@ -215,7 +234,11 @@ export const vitehubTheme = {
     defaultVariants: {
       size: "sm",
     },
-    compoundVariants: [{ variant: ["outline", "subtle"], class: "focus-visible:ring-2" }],
+    compoundVariants: [
+      { variant: ["outline", "subtle"], class: "focus-visible:ring-2" },
+      // Nuxt UI shrinks small fields to 12px from 768px up. Fields stay 14px, the size of the text beside them.
+      { fixed: false, size: "sm", class: "md:text-sm/4" },
+    ],
     slots: {
       base: "pointer-coarse:text-base",
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",

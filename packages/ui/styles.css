@@ -2726,11 +2726,10 @@
     padding: 2rem;
   }
 
+  /* The selected activity is a filled row, as selected items are everywhere. Blue marks focus only. */
   [data-slot="invocation"] [data-activity-id][data-selected="true"] {
-    background: color-mix(in oklab, var(--vh-info) 9%, transparent);
+    background: var(--vh-bg-elevated);
     border-radius: calc(var(--vh-radius) * 0.85);
-    outline: 2px solid color-mix(in oklab, var(--vh-info) 42%, transparent);
-    outline-offset: 2px;
     scroll-margin-block: 5rem;
   }
 
