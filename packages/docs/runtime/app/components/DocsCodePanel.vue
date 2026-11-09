@@ -357,8 +357,13 @@ onBeforeUnmount(() => {
     display: none;
   }
 
-  .vh-code-panel-source > :first-child {
-    border-bottom-width: 1px;
+  /* The name bar is the whole block now. The wrapper draws the frame, so the bar drops its bottom rule and takes all
+     four corners, and the copy button is hidden, so "View file" sits at the end. Two classes, so it wins over the
+     scoped style of the bar. */
+  .code-block-wrapper.vh-code-panel-source > :first-child {
+    border-bottom-width: 0;
+    border-radius: inherit;
+    padding-inline-end: 0.375rem;
     cursor: pointer;
     transition:
       background-color 150ms ease,

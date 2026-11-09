@@ -145,7 +145,8 @@ export function docsTheme(siteName: string): DocsThemeUi {
       },
       slots: {
         root: "sticky top-(--ui-header-height) z-10 bg-default overflow-y-auto max-h-[calc(100vh-var(--ui-header-height))] lg:mx-0",
-        container: "flex flex-col pt-14 pb-4",
+        // Nuxt UI draws a dashed rule under the folded outline on phones. Rules are solid in the design system.
+        container: "flex flex-col pt-14 pb-4 border-solid",
         title: "text-sm font-medium text-muted",
       },
     },

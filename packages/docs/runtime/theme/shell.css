@@ -67,6 +67,11 @@ html.dark .shiki span {
   overflow-wrap: anywhere;
 }
 
+/* A lone identifier in a table cell, such as a tool name, stays on one line. The table scrolls sideways instead. */
+.docs-content td > code:only-child {
+  white-space: nowrap;
+}
+
 .docs-content th {
   color: var(--ui-text-highlighted);
   font-weight: 600;

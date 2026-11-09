@@ -8,7 +8,6 @@ type PrimitiveId = (typeof landingPrimitives)[number]["id"];
 const grid = useTemplateRef<HTMLElement>("grid");
 const visible = ref(false);
 const activeId = ref<PrimitiveId | null>(null);
-const focusedId = ref<PrimitiveId | null>(null);
 const indicatorId = `primitive-focus-${useId()}`;
 
 // The last tile spans the columns that are left in its row, so the grid never ends with a hole.
@@ -23,16 +22,6 @@ const lastTileSpans = Object.fromEntries(
 useIntersectionObserver(grid, ([entry]) => {
   visible.value = entry?.isIntersecting ?? false;
 });
-
-function focus(id: PrimitiveId) {
-  focusedId.value = id;
-  activeId.value = id;
-}
-
-function blur() {
-  focusedId.value = null;
-  activeId.value = null;
-}
 </script>
 
 <template>
@@ -42,7 +31,7 @@ function blur() {
         ref="grid"
         class="primitive-grid grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7"
         aria-label="ViteHub APIs"
-        @pointerleave="activeId = focusedId"
+        @pointerleave="activeId = null"
       >
         <li
           v-for="(primitive, index) in landingPrimitives"
@@ -52,9 +41,8 @@ function blur() {
         >
           <NuxtLink
             :to="primitive.to"
+            data-focus-inset
             class="primitive-tile group"
-            @focus="focus(primitive.id)"
-            @blur="blur"
             @pointerenter="activeId = primitive.id"
           >
             <motion.div
@@ -115,11 +103,6 @@ function blur() {
   border-bottom: 1px solid var(--ui-border);
   padding: 1rem 1.25rem;
   background: var(--ui-bg);
-}
-
-/* Lift the focused tile so its neighbors do not cover the focus ring. */
-.primitive-tile:focus-visible {
-  z-index: 1;
 }
 
 .primitive-focus {

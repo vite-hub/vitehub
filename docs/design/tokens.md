@@ -58,6 +58,8 @@ A field without a frame, the document editor          → the caret only
 An element that code focused (tabindex="-1")          → no ring
 ```
 
+A list that scrolls, such as a sidebar or an outline, clips a ring that sits outside. Give its rows `data-focus-inset`, or give the scroll container 4px of inline padding, so the whole ring shows.
+
 ## Media
 
 `--vh-on-media` (white) and `--vh-media-scrim` (black at 50%) for marks over an image or a video, such as a focal point. They do not switch with the color mode, because the image does not.

@@ -45,6 +45,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         v-for="link in siteLinks"
         :key="link.to"
         :to="link.to"
+        data-focus-inset
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
@@ -64,6 +65,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         <NuxtLink
           v-if="entry.home"
           :to="entry.home.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(entry.home.path) }]"
           :aria-current="isActive(entry.home.path) ? 'page' : undefined"
         >
@@ -81,7 +83,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
             class="vh-docs-sidebar-fold"
             :open="holdsCurrent(pageGroup)"
           >
-            <summary class="vh-docs-sidebar-page-group-heading is-nested">
+            <summary data-focus-inset class="vh-docs-sidebar-page-group-heading is-nested">
               <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
               {{ pageGroup.label }}
             </summary>
@@ -89,6 +91,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
               v-for="page in pageGroup.pages"
               :key="page.path"
               :to="page.path"
+              data-focus-inset
               :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
               :aria-current="isActive(page.path) ? 'page' : undefined"
             >
@@ -101,6 +104,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
               v-for="page in pageGroup.pages"
               :key="page.path"
               :to="page.path"
+              data-focus-inset
               :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
               :aria-current="isActive(page.path) ? 'page' : undefined"
             >
@@ -117,6 +121,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         v-for="relatedSection in related"
         :key="relatedSection.id"
         :to="docsSectionHome(relatedSection)"
+        data-focus-inset
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
@@ -131,6 +136,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         v-for="link in startLinks"
         :key="link.to"
         :to="link.to"
+        data-focus-inset
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
@@ -146,7 +152,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         class="vh-docs-sidebar-page-group vh-docs-sidebar-fold"
         :open="holdsCurrent(pageGroup)"
       >
-        <summary class="vh-docs-sidebar-page-group-heading">
+        <summary data-focus-inset class="vh-docs-sidebar-page-group-heading">
           <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
           {{ pageGroup.label }}
         </summary>
@@ -154,6 +160,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -168,6 +175,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -181,6 +189,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
+          data-focus-inset
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
@@ -196,6 +205,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         v-for="relatedSection in related"
         :key="relatedSection.id"
         :to="docsSectionHome(relatedSection)"
+        data-focus-inset
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
@@ -212,6 +222,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         v-for="catalogSection in group.sections"
         :key="catalogSection.id"
         :to="docsSectionHome(catalogSection)"
+        data-focus-inset
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(catalogSection)" class="size-4 shrink-0" />
