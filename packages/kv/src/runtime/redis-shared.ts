@@ -125,3 +125,57 @@ export function createRedisKeyLister(provider: string, scan: (cursor: string, ma
 
   return { dispose: () => continuations.dispose(), listKeys }
 }
+
+interface PortableCursor {
+  /** The SCAN cursor of the batch to read. */
+  cursor: string
+  /** The COUNT of that SCAN, so a repeated SCAN reads the same batch. */
+  count: number
+  /** The last key returned from that batch. The batch is sorted, so the next page starts after it. */
+  after?: string
+}
+
+const maximumScanCount = 10_000
+
+function decodePortableCursor(cursor: string): PortableCursor {
+  try {
+    const value: unknown = JSON.parse(decodeURIComponent(cursor))
+    if (typeof value === "object" && value !== null) {
+      const scan: unknown = Reflect.get(value, "cursor")
+      const count: unknown = Reflect.get(value, "count")
+      const after: unknown = Reflect.get(value, "after")
+      if (typeof scan === "string" && /^\d+$/.test(scan) && Number.isSafeInteger(count) && Number(count) > 0 && Number(count) <= maximumScanCount && (after === undefined || typeof after === "string")) {
+        return { cursor: scan, count: Number(count), ...(after === undefined ? {} : { after }) }
+      }
+    }
+  }
+  catch {}
+  throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
+}
+
+function encodePortableCursor(cursor: PortableCursor): string {
+  return encodeURIComponent(JSON.stringify(cursor))
+}
+
+/**
+ * `listKeys()` over Redis `SCAN` with a cursor that holds all its state, so another server process can read the next
+ * page. When SCAN returns more keys than `limit`, the next page repeats that SCAN and continues after the last key it
+ * returned, in sorted order. Like SCAN itself, a key that changes during the listing can be missed or repeated.
+ */
+export function createPortableRedisKeyLister(provider: string, scan: (cursor: string, match: string, count: number) => Promise<[string, string[]]>) {
+  return async function listKeys({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> {
+    const state = cursor ? decodePortableCursor(cursor) : { cursor: "0", count: Math.min(limit, maximumScanCount) }
+    const [next, found] = await scan(state.cursor, `${escapeRedisGlob(prefix)}*`, state.count)
+    if (next === state.cursor && next !== "0") {
+      throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: `${provider} scan returned a repeated pagination cursor.` })
+    }
+    const after = state.after
+    const batch = [...new Set(found)].sort().filter(key => after === undefined || key > after)
+    if (batch.length > limit) {
+      const keys = batch.slice(0, limit)
+      return { keys, cursor: encodePortableCursor({ cursor: state.cursor, count: state.count, after: keys.at(-1)! }) }
+    }
+    if (next === "0") return { keys: batch }
+    return { keys: batch, cursor: encodePortableCursor({ cursor: next, count: Math.min(limit, maximumScanCount) }) }
+  }
+}

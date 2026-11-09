@@ -62,9 +62,11 @@ Several Node processes share keys only through a shared store. Without a `driver
 2. `database` when the app has a Default Database on Postgres (the `@vite-hub/database` plugin with a `dialect: "postgresql"` Definition).
 3. `fs-lite` in `.vitehub/data/kv` otherwise.
 
-`{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key; a named store uses its name by default.
+`{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key and defaults to `vitehub:kv:<store>`, so a Redis database that other apps use keeps their keys apart. A Redis listing cursor holds its whole state, so another server process can read the next page.
 
 `{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. It works on Postgres and libSQL, not on D1.
+
+Each server process prints the driver that it picked for an inferred store when it starts, and the `kv.list` operation (`vitehub kv list`, the Console) reports the driver of the store. Set the same `REDIS_URL` on every process: a process without it uses another store.
 
 This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`, and of any Node server with `REDIS_URL` to `redis`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
 

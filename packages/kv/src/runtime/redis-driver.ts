@@ -4,7 +4,7 @@ import { normalizeKey } from "unstorage"
 import type { ResolvedRedisKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
-import { createRedisKeyLister, escapeRedisGlob, redisDeleteIfEqualsScript, redisIncrementResult, redisIncrementScript, redisTTLSeconds } from "./redis-shared.ts"
+import { createPortableRedisKeyLister, escapeRedisGlob, redisDeleteIfEqualsScript, redisIncrementResult, redisIncrementScript, redisTTLSeconds } from "./redis-shared.ts"
 
 /** The URL of a store: `env:<NAME>` reads the variable now, so a build never holds the URL of its server. */
 export function resolveRedisUrl(url: string, env: Record<string, string | undefined> = globalThis.process?.env ?? {}): string {
@@ -27,12 +27,14 @@ function ttlMilliseconds(ttl: number): number {
  */
 export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig): KVRuntimeDriver {
   const base = normalizeKey(options.base)
+  // `kv.clear()` deletes every key under the prefix, so a store never runs without one.
+  if (!base) throw new TypeError("A Redis KV store needs a non-empty `base`.")
   // `maxRetriesPerRequest` fails a command after a few reconnect attempts, so a lost server returns an error.
   // `lazyConnect` opens the connection on the first command.
   const client = new Redis(resolveRedisUrl(options.url), { lazyConnect: true, maxRetriesPerRequest: 3 })
-  const prefixed = (key: string) => base ? `${base}:${key}` : key
-  const unprefixed = (key: string) => base && key.startsWith(`${base}:`) ? key.slice(base.length + 1) : key
-  const pattern = (match: string) => base ? `${escapeRedisGlob(base)}:${match}` : match
+  const prefixed = (key: string) => `${base}:${key}`
+  const unprefixed = (key: string) => key.startsWith(`${base}:`) ? key.slice(base.length + 1) : key
+  const pattern = (match: string) => `${escapeRedisGlob(base)}:${match}`
 
   async function scanAll(prefix: string | undefined): Promise<string[]> {
     const keys: string[] = []
@@ -45,7 +47,7 @@ export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig)
     return keys
   }
 
-  const lister = createRedisKeyLister("Redis KV", async (cursor, match, count) => {
+  const listKeys = createPortableRedisKeyLister("Redis KV", async (cursor, match, count) => {
     const [next, keys] = await client.scan(cursor, "MATCH", pattern(match), "COUNT", count)
     return [next, keys.map(unprefixed)]
   })
@@ -83,10 +85,9 @@ export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig)
     },
     incrementItem: async (key, ttl) => redisIncrementResult(await client.eval(redisIncrementScript, 1, prefixed(key), redisTTLSeconds(ttl))),
     deleteIfEqualsItem: async (key, expected) => Number(await client.eval(redisDeleteIfEqualsScript, 1, prefixed(key), expected)) === 1,
-    listKeys: lister.listKeys,
+    listKeys,
     async dispose() {
-      try { await lister.dispose() }
-      finally { client.disconnect() }
+      client.disconnect()
     },
   }
 }

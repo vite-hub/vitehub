@@ -54,7 +54,10 @@ export interface RedisKVStoreConfig {
    * output, so keep passwords in a variable.
    */
   url?: string
-  /** Prefix of every key in Redis. Default: no prefix for the `default` store, `<name>` for a named store. */
+  /**
+   * Prefix of every key in Redis, so the store shares a Redis database with other apps safely. Default
+   * `vitehub:kv:<store>`. An empty value uses the default.
+   */
   base?: string
   /** A Redis store uses the server that `url` points to, in `vite dev` too. */
   remote?: never

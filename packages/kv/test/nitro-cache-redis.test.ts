@@ -51,8 +51,10 @@ describe.runIf(redisUrl)("Nitro cache on an inferred store with REDIS_URL", () =
 
     expect(await storage.getItem("cache:nitro:functions:stars:repo.json")).toMatchObject({ value: 42 })
     expect(await storage.getKeys("cache")).toEqual(["cache:nitro:functions:stars:repo.json"])
-    expect(await redis.get(`${prefix}:nitro:functions:stars:repo.json`)).toContain("\"value\":42")
-    const ttl = await redis.pttl(`${prefix}:nitro:functions:stars:repo.json`)
+    // The inferred store keeps its keys under its own Redis prefix.
+    const redisKey = `vitehub:kv:default:${prefix}:nitro:functions:stars:repo.json`
+    expect(await redis.get(redisKey)).toContain("\"value\":42")
+    const ttl = await redis.pttl(redisKey)
     expect(ttl).toBeGreaterThan(0)
     expect(ttl).toBeLessThanOrEqual(5000)
     expect(await readdir(state.base)).toEqual([])
@@ -64,7 +66,7 @@ describe.runIf(redisUrl)("Nitro cache on an inferred store with REDIS_URL", () =
     await other.dispose()
 
     await storage.clear("cache")
-    expect(await redis.exists(`${prefix}:nitro:functions:stars:repo.json`)).toBe(0)
+    expect(await redis.exists(redisKey)).toBe(0)
     expect(await kv.get(`${prefix}-settings`)).toEqual([undefined, { theme: "dark" }])
     expect(await kv.deleteIfEquals(`${prefix}-settings`, { theme: "dark" })).toEqual([undefined, true])
   })

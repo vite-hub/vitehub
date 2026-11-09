@@ -66,10 +66,10 @@
       "import": "./dist/runtime/nitro-cache.js",
       "default": "./dist/runtime/nitro-cache.js"
     },
-    "./runtime/nitro-close": {
-      "types": "./dist/runtime/nitro-close.d.ts",
-      "import": "./dist/runtime/nitro-close.js",
-      "default": "./dist/runtime/nitro-close.js"
+    "./runtime/nitro-plugin": {
+      "types": "./dist/runtime/nitro-plugin.d.ts",
+      "import": "./dist/runtime/nitro-plugin.js",
+      "default": "./dist/runtime/nitro-plugin.js"
     },
     "./runtime/redis-driver": {
       "types": "./dist/runtime/redis-driver.d.ts",

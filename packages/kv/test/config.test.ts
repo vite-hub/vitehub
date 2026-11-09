@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { normalizeKVOptions, resolveInferredStore, warnVercelKVFallback } from "../src/config.ts"
+import { kvInferredStoreNotice, normalizeKVOptions, resolveInferredStore, warnVercelKVFallback } from "../src/config.ts"
 import { configureCloudflareKV } from "../src/integrations/cloudflare.ts"
 
 describe("normalizeKVOptions", () => {
@@ -41,16 +41,22 @@ describe("normalizeKVOptions", () => {
     expect(normalizeKVOptions(undefined, { env, hosting: "node-server", postgresDatabase: true })?.store.driver).toBe("upstash")
   })
 
+  it("gives every Redis store its own prefix, and never an empty one", () => {
+    expect(normalizeKVOptions({ driver: "redis", base: " " }, { env: {} })?.store).toMatchObject({ base: "vitehub:kv:default" })
+    expect(normalizeKVOptions({ driver: "redis", base: ":" }, { env: {} })?.store).toMatchObject({ base: "vitehub:kv:default" })
+    expect(normalizeKVOptions({ driver: "redis", base: "app/kv" }, { env: {} })?.store).toMatchObject({ base: "app:kv" })
+  })
+
   it("resolves explicit redis and database stores, with a runtime URL and a namespace per store", () => {
     expect(normalizeKVOptions({ stores: {
       default: { driver: "redis" },
       cache: { driver: "redis", url: "env:CACHE_REDIS_URL" },
       sessions: { driver: "database", database: "auth" },
     } }, { env: { REDIS_URL: "redis://build-host:6379" } })).toEqual({
-      store: { base: "", driver: "redis", url: "env:REDIS_URL" },
+      store: { base: "vitehub:kv:default", driver: "redis", url: "env:REDIS_URL" },
       stores: {
-        cache: { base: "cache", driver: "redis", url: "env:CACHE_REDIS_URL" },
-        default: { base: "", driver: "redis", url: "env:REDIS_URL" },
+        cache: { base: "vitehub:kv:cache", driver: "redis", url: "env:CACHE_REDIS_URL" },
+        default: { base: "vitehub:kv:default", driver: "redis", url: "env:REDIS_URL" },
         sessions: { database: "auth", driver: "database", namespace: "sessions" },
       },
     })
@@ -62,7 +68,7 @@ describe("resolveInferredStore", () => {
   const inferredDatabase = { database: "default", driver: "database" as const, inferred: true as const, namespace: "default" }
 
   it("selects Redis when REDIS_URL is set on the server", () => {
-    const redis = { base: "", driver: "redis", url: "env:REDIS_URL" }
+    const redis = { base: "vitehub:kv:default", driver: "redis", url: "env:REDIS_URL" }
     expect(resolveInferredStore(inferredFsLite, { REDIS_URL: "redis://localhost:6379" })).toEqual(redis)
     expect(resolveInferredStore(inferredDatabase, { REDIS_URL: "redis://localhost:6379" })).toEqual(redis)
   })
@@ -75,6 +81,23 @@ describe("resolveInferredStore", () => {
   it("never changes an explicit store", () => {
     const explicit = { base: ".data", driver: "fs-lite" as const }
     expect(resolveInferredStore(explicit, { REDIS_URL: "redis://localhost:6379" })).toBe(explicit)
+  })
+})
+
+describe("kvInferredStoreNotice", () => {
+  const inferred = { database: "default", driver: "database" as const, inferred: true as const, namespace: "default" }
+
+  it("says which driver this process picked for an inferred store, and why", () => {
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379")
+    expect(kvInferredStoreNotice("default", inferred)).toBe("[vitehub] KV store \"default\" uses Redis, because REDIS_URL is set. Every server process needs the same REDIS_URL.")
+    vi.stubEnv("REDIS_URL", "")
+    expect(kvInferredStoreNotice("default", inferred)).toBe("[vitehub] KV store \"default\" uses the table vitehub_kv of the Database \"default\", because REDIS_URL is not set.")
+    expect(kvInferredStoreNotice("default", { base: ".vitehub/data/kv", driver: "fs-lite", inferred: true })).toContain("Other server processes cannot read its keys.")
+    vi.unstubAllEnvs()
+  })
+
+  it("says nothing for an explicit store", () => {
+    expect(kvInferredStoreNotice("default", { base: "vitehub:kv:default", driver: "redis", url: "env:REDIS_URL" })).toBeUndefined()
   })
 })
 

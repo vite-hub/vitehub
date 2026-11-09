@@ -48,7 +48,7 @@ const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = import.meta.url.endsWith(".ts")
   : new URL("./runtime/cloudflare-kv.js", import.meta.url).href
 // Nitro registers middleware by file path. The file is in `dist` after a build and in `src` in this repository.
 const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runtime/cloudflare-request-env.ts" : "./runtime/cloudflare-request-env.js", import.meta.url))
-const KV_NITRO_CLOSE_PLUGIN = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runtime/nitro-close.ts" : "./runtime/nitro-close.js", import.meta.url))
+const KV_NITRO_PLUGIN = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runtime/nitro-plugin.ts" : "./runtime/nitro-plugin.js", import.meta.url))
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
@@ -92,16 +92,15 @@ function hasDatabaseStore(kv: KVViteRuntimeConfig["kv"]): boolean {
   return kvStores(kv).some(store => store.driver === "database")
 }
 
-/**
- * Whether the app has a Default Database on Postgres. It needs the Database plugin, and reads the Database Definitions
- * without running them.
- */
-async function findPostgresDefaultDatabase(plugins: readonly Plugin[] | undefined, root: string): Promise<boolean> {
+/** The part of the Database Vite plugin that KV reads: its resolved configuration. */
+interface DatabaseVitePlugin {
+  api?: { getConfig?: () => { databases: Record<string, { dialect?: string } | undefined> } | undefined }
+}
+
+function findDatabasePlugin(plugins: readonly Plugin[] | undefined): DatabaseVitePlugin | undefined {
   // The Nuxt replay can pass a partial Vite config.
-  if (!plugins?.some(plugin => plugin.name === DATABASE_VITE_PLUGIN_NAME)) return false
-  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = await import("@vite-hub/database/config")
-  const definition = discoverDatabaseDefinitions(root).find(found => found.name === "default")
-  return definition ? readDatabaseDefinitionDialect(definition.handler) === "postgresql" : false
+  // SAFETY: The plugin name identifies the Database integration, whose `api` has this shape.
+  return plugins?.find(plugin => plugin.name === DATABASE_VITE_PLUGIN_NAME) as DatabaseVitePlugin | undefined
 }
 
 function serializeVirtualConfig(config: KVViteRuntimeConfig, databaseImport: string, env?: Record<string, string | undefined>): string {
@@ -135,12 +134,13 @@ function hasCloudflareKVStore(kv: KVViteRuntimeConfig["kv"]): boolean {
 }
 
 /**
- * Registers the Nitro plugin that disposes the stores when the server closes, when a store can hold a Redis
- * connection. Without it, the open connection keeps a Node process alive after a stop signal.
+ * Registers the KV Nitro plugin when a store can use Redis. It prints the driver of each inferred store at boot, and
+ * disposes the stores when the server closes. Without it, the open connection keeps a Node process alive after a stop
+ * signal.
  */
-function configureNitroClosePlugin(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
-  const plugins = (nitro.plugins ?? []).filter(plugin => plugin !== KV_NITRO_CLOSE_PLUGIN)
-  if (hasRedisStore(kv)) plugins.push(KV_NITRO_CLOSE_PLUGIN)
+function configureNitroPlugin(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
+  const plugins = (nitro.plugins ?? []).filter(plugin => plugin !== KV_NITRO_PLUGIN)
+  if (hasRedisStore(kv)) plugins.push(KV_NITRO_PLUGIN)
   if (plugins.length || nitro.plugins) nitro.plugins = plugins
 }
 
@@ -287,7 +287,7 @@ function reconcileNitroCloudflareKV(
   provisionState: ReturnType<typeof readProvisionStateSync>,
 ): void {
   configureNitroCloudflareRequestEnv(target, kv)
-  configureNitroClosePlugin(target, kv)
+  configureNitroPlugin(target, kv)
   const namespaces = target.cloudflare?.wrangler?.kv_namespaces
   if (namespaces?.length && ownedNamespaces.size) {
     for (const owned of ownedNamespaces) {
@@ -318,7 +318,7 @@ function configureNitroCloudflareKV(
 
   const kv = resolveKVViteConfig(config.kv ?? options, input).kv
   configureNitroCloudflareRequestEnv(target, kv)
-  configureNitroClosePlugin(target, kv)
+  configureNitroPlugin(target, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
     configureCloudflareKV(target, kv, provisionState)
@@ -339,10 +339,13 @@ export function hubKv(options?: KVModuleOptions, input: KVViteInput = {}): KVVit
   let command: "build" | "serve" = "build"
   let mode = "development"
   let viteEnv: Record<string, string> | undefined
-  let postgresDatabase = false
+  let databasePlugin: DatabaseVitePlugin | undefined
   const databaseImport = input.databaseImport ?? "@vite-hub/database/drizzle"
+  // The Database integration resolves its Definitions, server directories, layers, and contributions. Its config is
+  // ready after its `configResolved`, which runs after this plugin's, so KV reads it again at `buildStart`.
+  const postgresDatabase = () => databasePlugin?.api?.getConfig?.()?.databases.default?.dialect === "postgresql"
   // `vite dev` keeps a store local unless it sets `remote: true`. Builds ignore `remote`.
-  const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", env: command === "serve" ? viteEnv : undefined, hosting: input.hosting, postgresDatabase })
+  const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", env: command === "serve" ? viteEnv : undefined, hosting: input.hosting, postgresDatabase: postgresDatabase() })
   let nitroOwned = false
   let nitroOptions: NitroCloudflareKVTarget | undefined
   const ownedNitroNamespaces = new Set<{ binding: string, id?: string }>()
@@ -351,7 +354,8 @@ export function hubKv(options?: KVModuleOptions, input: KVViteInput = {}): KVVit
   let runtimeConfig: KVViteRuntimeConfig | undefined
   let configuredOptions = options
   let projectRoot = process.cwd()
-  const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options, resolutionInput())
+  // `configuredOptions` includes a top-level `kv` in the Vite config, which wins over the plugin options.
+  const getConfig = () => runtimeConfig ??= resolveKVViteConfig(configuredOptions, resolutionInput())
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
 
   return {
@@ -367,7 +371,7 @@ export function hubKv(options?: KVModuleOptions, input: KVViteInput = {}): KVVit
     },
     vitehub: {
       inspect: () => {
-        const build = resolveKVViteConfig(configuredOptions, { hosting: input.hosting, postgresDatabase }).kv
+        const build = resolveKVViteConfig(configuredOptions, { hosting: input.hosting, postgresDatabase: postgresDatabase() }).kv
         const dev = resolveKVViteConfig(configuredOptions, { dev: true, env: viteEnv, hosting: input.hosting }).kv
         if (!build || !dev) return
         const file = resolved?.configFile ? relativeDefinitionFile(projectRoot, resolved.configFile) : "vite.config.ts"
@@ -409,7 +413,7 @@ export function hubKv(options?: KVModuleOptions, input: KVViteInput = {}): KVVit
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
-        postgresDatabase = await findPostgresDefaultDatabase(config.plugins, projectRoot)
+        databasePlugin = findDatabasePlugin(config.plugins)
         providerOutput = useProviderOutputCatalog(config)
         runtimeConfig = resolveKVViteConfig(config.kv ?? options, resolutionInput())
         const provisionState = readProvisionStateSync(projectRoot)
@@ -460,6 +464,8 @@ export function hubKv(options?: KVModuleOptions, input: KVViteInput = {}): KVVit
     buildStart: {
       order: "pre",
       handler() {
+        // Resolve again now that the Database integration has resolved its Definitions.
+        runtimeConfig = undefined
         providerOutputGenerations.capture(this, providerOutput)
       },
     },

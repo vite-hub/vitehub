@@ -1,4 +1,5 @@
 import { defu } from "defu"
+import { normalizeKey } from "unstorage"
 
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
@@ -65,10 +66,16 @@ function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}): Resolved
   return defu({ base: trimmed(config.base) }, { driver: "fs-lite" as const, base: ".vitehub/data/kv" })
 }
 
+/** The key prefix of a Redis store without `base`. Every store has one, so a shared Redis keeps other keys apart. */
+export function redisStorePrefix(name: string): string {
+  return `vitehub:kv:${name}`
+}
+
 export function resolveRedisStore(config: Partial<RedisKVStoreConfig>, name: string): ResolvedRedisKVStoreConfig {
+  // An empty prefix would let `kv.clear()` and `kv.keys()` reach every key of the Redis database.
   return {
     driver: "redis",
-    base: trimmed(config.base) ?? (name === "default" ? "" : name),
+    base: normalizeKey(trimmed(config.base)) || redisStorePrefix(name),
     url: trimmed(config.url) ?? `env:${redisUrlEnvName}`,
   }
 }
@@ -180,6 +187,18 @@ export function normalizeKVOptions(
  * The store that an inferred build store uses on this server: `redis` when `REDIS_URL` is set now, else the build
  * store. Explicit stores do not change.
  */
+/**
+ * The line that a server prints at boot for an inferred store: which driver this process uses and why. Processes
+ * with different `REDIS_URL` values use different stores, so each one says what it picked.
+ */
+export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig): string | undefined {
+  if (!("inferred" in store) || !store.inferred) return
+  const runtime = resolveInferredStore(store, globalThis.process?.env ?? {})
+  if (runtime.driver === "redis") return `[vitehub] KV store "${name}" uses Redis, because ${redisUrlEnvName} is set. Every server process needs the same ${redisUrlEnvName}.`
+  if (runtime.driver === "database") return `[vitehub] KV store "${name}" uses the table vitehub_kv of the Database "${runtime.database}", because ${redisUrlEnvName} is not set.`
+  if (runtime.driver === "fs-lite") return `[vitehub] KV store "${name}" uses fs-lite in ${runtime.base}, because ${redisUrlEnvName} is not set. Other server processes cannot read its keys.`
+}
+
 export function resolveInferredStore(store: ResolvedKVStoreConfig, env: Record<string, string | undefined>): ResolvedKVStoreConfig {
   if (!("inferred" in store) || !store.inferred || !readEnv(env, redisUrlEnvName)) return store
   return resolveRedisStore({}, "default")

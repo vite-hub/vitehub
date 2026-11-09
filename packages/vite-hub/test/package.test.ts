@@ -185,7 +185,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/kv/runtime/cloudflare-kv",
   "@vite-hub/kv/runtime/cloudflare-request-env",
   "@vite-hub/kv/runtime/nitro-cache",
-  "@vite-hub/kv/runtime/nitro-close",
+  "@vite-hub/kv/runtime/nitro-plugin",
   "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/redis-driver",
   "@vite-hub/kv/runtime/upstash-driver",

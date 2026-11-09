@@ -1,3 +1,4 @@
+import type { KVDriver } from "./types.ts"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
@@ -262,7 +263,7 @@ type KVCommandResult =
 const targetFields = { key: v.string(), store: v.string() }
 const positiveNumber = v.pipe(v.number(), v.finite(), v.gtValue(0))
 const resultSchemas = {
-  list: v.object({ cursor: v.optional(v.string()), keys: v.array(v.string()), limit: v.pipe(positiveNumber, v.integer()), prefix: v.string(), store: v.string(), stores: v.array(v.string()) }),
+  list: v.object({ cursor: v.optional(v.string()), driver: v.optional(v.picklist(["cloudflare-kv-binding", "database", "deno-kv", "fs-lite", "redis", "upstash"] satisfies KVDriver[])), keys: v.array(v.string()), limit: v.pipe(positiveNumber, v.integer()), prefix: v.string(), store: v.string(), stores: v.array(v.string()) }),
   get: v.pipe(v.object({ ...targetFields, encoding: v.optional(v.literal("base64")), found: v.boolean(), type: v.optional(v.string()), value: v.optional(v.unknown()) }), v.check(result => !result.found || (result.type !== undefined && result.value !== undefined), "found KV values require type and value"), v.check(result => result.encoding !== "base64" || v.is(v.pipe(v.string(), v.regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)), result.value))),
   has: v.object({ ...targetFields, exists: v.boolean() }),
   set: v.object({ ...targetFields, created: v.boolean(), notice: v.optional(v.string()), ttl: v.optional(positiveNumber), type: v.string() }),
@@ -288,7 +289,8 @@ function writeResult(result: KVCommandResult, context: KVCliContext): number {
       if (page.keys.length === 0 && page.cursor) context.stderr.write("No keys on this page.\n")
       else if (page.keys.length === 0) context.stderr.write(`No keys${page.prefix ? ` with prefix ${page.prefix}` : ""} in store ${page.store}.\n`)
       else context.stdout.write(`${page.keys.join("\n")}\n`)
-      // The cursor hint goes to stderr, so stdout stays a plain key list for scripts.
+      // The hints go to stderr, so stdout stays a plain key list for scripts.
+      if (page.driver) context.stderr.write(`Store ${page.store} uses the ${page.driver} driver in this server process.\n`)
       if (page.cursor) context.stderr.write(`More keys exist. Next page: --cursor ${page.cursor}\n`)
       return 0
     }

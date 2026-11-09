@@ -107,7 +107,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file beside the key and links it into place, so other calls see the whole value or none. `fs-lite` never expires keys, so the key stays until you delete it. |
 | `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
 
-`increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
+`increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. A stored value that is not an integer, or that is already `Number.MAX_SAFE_INTEGER`, returns `KV_OPERATION_FAILED` and does not change. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
 
 `deleteIfEquals(key, expected)` deletes the key only when it holds `expected`, in one atomic step, and returns `true` when this call deleted it. Use it to free a token that only its owner may free:
 

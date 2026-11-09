@@ -4,10 +4,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
+import { Redis } from "ioredis"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { kvTable } from "../src/runtime/database.ts"
+import { normalizeKVOptions, resolveInferredStore } from "../src/config.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
@@ -171,6 +173,22 @@ describe.each(targets)("$name", (target) => {
     expect(await stores[0]!.incrementItem!("attempts", 30)).toBe(1)
   })
 
+  it("refuses to increment a value that is not a safe integer, and leaves it unchanged", async () => {
+    const [storage] = await target.stores(1)
+    await storage!.setItem("text", "hello")
+    await storage!.setItem("padded", "05")
+    await storage!.setItem("top", Number.MAX_SAFE_INTEGER)
+    await storage!.setItem("almost", Number.MAX_SAFE_INTEGER - 1)
+
+    await expect(storage!.incrementItem!("text", 30)).rejects.toThrow()
+    await expect(storage!.incrementItem!("padded", 30)).rejects.toThrow()
+    await expect(storage!.incrementItem!("top", 30)).rejects.toThrow()
+    expect(await storage!.getItem("text")).toBe("hello")
+    expect(await storage!.getItem("padded", { type: "text" })).toBe("05")
+    expect(await storage!.getItem("top")).toBe(Number.MAX_SAFE_INTEGER)
+    expect(await storage!.incrementItem!("almost", 30)).toBe(Number.MAX_SAFE_INTEGER)
+  })
+
   it("returns a value to exactly one getAndDelete() caller", async () => {
     const stores = await target.stores(3)
     await stores[0]!.setItem("code", { user: "alice" })
@@ -220,3 +238,75 @@ describe.runIf(redisUrl)("redis URL", () => {
     }
   })
 })
+
+describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
+  // A Redis database of its own, so clearing it here cannot touch the keys of other test files.
+  const url = `${redisUrl}/5`
+  let redis: Redis
+
+  beforeAll(async () => {
+    redis = new Redis(url)
+    await redis.flushdb()
+    cleanups.push(async () => redis.disconnect())
+  })
+
+  it("keeps the default store, a named store, and foreign keys apart", async () => {
+    const config = normalizeKVOptions({ stores: { default: { driver: "redis", url }, sessions: { driver: "redis", url } } }, { env: {} })
+    expect(config?.stores?.default).toMatchObject({ base: "vitehub:kv:default" })
+    expect(config?.stores?.sessions).toMatchObject({ base: "vitehub:kv:sessions" })
+    const defaultStore = track(createHostedKVStorage(config, "default"))
+    const sessions = track(createHostedKVStorage(config, "sessions"))
+    // Keys of another app, such as sessions or BullMQ jobs, in the same Redis database.
+    await redis.set("token", "foreign")
+    await redis.set("bull:emails:1", "job")
+
+    await defaultStore.setItem("sessions:token", "default")
+    await sessions.setItem("token", "named")
+    expect(await defaultStore.getItem("sessions:token")).toBe("default")
+    expect(await sessions.getItem("token")).toBe("named")
+    expect(await defaultStore.getKeys()).toEqual(["sessions:token"])
+    expect(await sessions.getKeys()).toEqual(["token"])
+
+    await sessions.clear()
+    expect(await sessions.getKeys()).toEqual([])
+    expect(await defaultStore.getItem("sessions:token")).toBe("default")
+    await defaultStore.clear()
+    expect(await redis.get("token")).toBe("foreign")
+    expect(await redis.get("bull:emails:1")).toBe("job")
+  })
+
+  it("prefixes the inferred store that REDIS_URL selects", async () => {
+    const store = resolveInferredStore({ base: ".vitehub/data/kv", driver: "fs-lite", inferred: true }, { REDIS_URL: url })
+    expect(store).toMatchObject({ base: "vitehub:kv:default", driver: "redis" })
+    vi.stubEnv("REDIS_URL", url)
+    try {
+      const storage = track(createHostedKVStorage({ store: { base: ".vitehub/data/kv", driver: "fs-lite", inferred: true } }))
+      await storage.setItem("inferred", 1)
+      await storage.clear()
+      expect(await redis.get("token")).toBe("foreign")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("continues a listing on another server process from the cursor alone", async () => {
+    const config = normalizeKVOptions({ driver: "redis", base: `list-${randomUUID()}`, url }, { env: {} })
+    const writer = track(createHostedKVStorage(config))
+    const expected = Array.from({ length: 40 }, (_, index) => `item:${String(index).padStart(2, "0")}`)
+    for (const key of expected) await writer.setItem(key, 1)
+
+    // Each page goes to a new store with its own connection, as a request to another instance does.
+    const keys: string[] = []
+    let cursor: string | undefined
+    do {
+      const reader = track(createHostedKVStorage(config))
+      const page = await reader.listKeys({ limit: 3, ...(cursor ? { cursor } : {}) })
+      expect(page.keys.length).toBeLessThanOrEqual(3)
+      keys.push(...page.keys)
+      cursor = page.cursor
+    } while (cursor)
+    expect([...new Set(keys)].sort()).toEqual(expected)
+  })
+})
+

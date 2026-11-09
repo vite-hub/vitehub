@@ -207,19 +207,25 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     },
     async incrementItem(key, ttl) {
       const ms = ttlMilliseconds(ttl)
-      // One statement: a missing or expired counter starts at 1 with the TTL, a live one keeps its expiry.
+      // One statement: a missing or expired counter starts at 1 with the TTL, and a live one keeps its expiry. The
+      // update runs only when the stored text is a canonical integer below the safe limit, so a failed increment
+      // changes nothing. SQLite casts text such as "hello" to 0, so the text comparison catches it. Postgres
+      // rejects the cast, which also fails the statement without a change.
       const expired = `${table}.expires_at is not null and ${table}.expires_at <= {now}`
-      const [row] = await query(
+      const counter = `cast(${table}.value as bigint)`
+      const rows = await query(
         `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, '1', {now} + cast(? as bigint))
          on conflict (namespace, "key") do update set
-           value = case when ${expired} then '1' else cast(cast(${table}.value as bigint) + 1 as text) end,
+           value = case when ${expired} then '1' else cast(${counter} + 1 as text) end,
            expires_at = case when ${expired} then excluded.expires_at else ${table}.expires_at end
+         where ${expired} or (cast(${counter} as text) = ${table}.value and ${counter} between -9007199254740992 and 9007199254740990)
          returning value`,
         [namespace, key, ms],
       )
-      const counter = Number(row?.value)
-      if (!Number.isSafeInteger(counter)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
-      return counter
+      if (rows.length === 0) throw new TypeError("kv.increment() needs a stored integer below 9007199254740991. The value did not change.")
+      const value = Number(rows[0]!.value)
+      if (!Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
+      return value
     },
     async deleteIfEqualsItem(key, expected) {
       const rows = await query(`delete from ${table} where namespace = ? and "key" = ? and value = ? and ${live} returning "key"`, [namespace, key, expected])
