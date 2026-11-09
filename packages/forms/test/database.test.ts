@@ -2,7 +2,7 @@ import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 import { describe, expect, it } from "vitest"
 
-import { createDrizzleFormsStore, formsTables } from "../src/database.ts"
+import { createDrizzleFormsStore, formsSchema, formsTables } from "../src/database.ts"
 import { createFormsInbox, createMemoryFormsStore } from "../src/index.ts"
 
 import type { FormsStore, FormSubmission } from "../src/index.ts"
@@ -10,7 +10,8 @@ import type { FormsStore, FormSubmission } from "../src/index.ts"
 async function drizzleStore(): Promise<FormsStore> {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${formsTables.join(";\n")};`)
-  return createDrizzleFormsStore(drizzle(client))
+  // The Database of a ViteHub app has the Forms schema, so the store takes a Drizzle Database with any schema.
+  return createDrizzleFormsStore(drizzle(client, { schema: formsSchema }))
 }
 
 function submission(id: string, form: string, createdAt: number): FormSubmission {

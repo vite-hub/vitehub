@@ -12,7 +12,7 @@ export interface FormUser {
 
 /**
  * The part of the page that the sender pointed at: an element, and inside it a W3C text quote of the selected text.
- * It is the shape of a Comments text anchor, so `anchorRange()` of `@vite-hub/comments/client` finds the sentence.
+ * It is the shape of a Comments text anchor, so `resolveAnchor({ kind: "text", ...anchor })` of `@vite-hub/comments/client` finds the sentence.
  * `exact` is empty when the sender pointed at the whole element.
  */
 export interface FormAnchor {
