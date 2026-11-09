@@ -1,6 +1,7 @@
 import virtualSchema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase } from "./runtime/agent.ts"
+import { postgresConnectionUrl } from "./runtime/postgres-connection.ts"
 
 import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "./types.ts"
 
@@ -49,6 +50,17 @@ export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Na
 }
 
 export const agentDb = createAgentDatabase(databases)
+
+/**
+ * The connection URL of the Postgres Database `name`, as its client resolves it outside a request: the Hyperdrive
+ * binding, then `connection.url`. It is `undefined` for a Database that is not Postgres, or that connects through PG*
+ * environment variables. Use it in a package that opens its own Postgres client, so that it uses the same database.
+ */
+export function getPostgresConnectionUrl(name = "default"): string | undefined {
+  if (!Object.hasOwn(databases, name)) return undefined
+  const read: unknown = Reflect.get(databases[name]!.db, postgresConnectionUrl)
+  return typeof read === "function" ? read() : undefined
+}
 
 // SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.
 // The package resolves `#vitehub/database/schema` through its own `imports` field, so an app cannot augment that

@@ -141,6 +141,22 @@ describe("installOpenWorkflow", () => {
     expect(second!.stop).toHaveBeenCalledOnce()
   })
 
+  it("says at boot when runs stay in the SQLite file of this host", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    for (const workflow of [{ provider: "openworkflow", worker: false }, config] satisfies ResolvedWorkflowOptions[]) {
+      setWorkflowRuntimeConfig(workflow)
+      setWorkflowRuntimeRegistry({})
+      const app = createApp()
+      await installOpenWorkflow(app)
+      await app.close()
+    }
+
+    // Only the default file logs. A configured SQLite path is a choice.
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]![0])).toContain("Other server instances do not see them")
+    warn.mockRestore()
+  })
+
   it("does not start a worker with worker: false or another provider", async () => {
     for (const workflow of [{ ...config, worker: false }, { provider: "vercel" }] satisfies ResolvedWorkflowOptions[]) {
       setWorkflowRuntimeConfig(workflow)

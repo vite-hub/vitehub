@@ -318,6 +318,43 @@ describe("Workflow dev registry", () => {
     expect(generated).toContain("installOpenWorkflow(nitroApp)")
   })
 
+  it.each([
+    ["postgresql", true],
+    ["sqlite", false],
+  ] as const)("passes the %s Default Database URL to OpenWorkflow: %s", async (dialect, uses) => {
+    const projectRoot = await createApp()
+    await mkdir(join(projectRoot, "server/databases"), { recursive: true })
+    await writeFile(join(projectRoot, "server/databases/config.ts"), `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "${dialect}" })\n`)
+    const plugin = hubWorkflow({}, { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [{ name: "@vite-hub/database/vite" }], root: projectRoot })
+
+    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    if (uses) {
+      expect(generated).toContain(`import { getPostgresConnectionUrl } from "vite-hub/database/drizzle"`)
+      expect(generated).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
+    }
+    else {
+      expect(generated).not.toContain("getPostgresConnectionUrl")
+      expect(generated).toContain("installOpenWorkflow(nitroApp)")
+    }
+  })
+
+  it("does not read Database Definitions without the Database plugin", async () => {
+    const projectRoot = await createApp()
+    await mkdir(join(projectRoot, "server/databases"), { recursive: true })
+    await writeFile(join(projectRoot, "server/databases/config.ts"), `export default { dialect: "postgresql" }\n`)
+    const plugin = hubWorkflow({}, { hosting: "node-server" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root: projectRoot })
+
+    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")).not.toContain("getPostgresConnectionUrl")
+  })
+
   it.each<[ResolvedWorkflowOptions, ResolvedWorkflowOptions]>([
     [{ provider: "openworkflow" }, { provider: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],
     [{ postgres: { schema: "jobs" }, provider: "openworkflow" }, { postgres: { schema: "jobs" }, provider: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],

@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 
 import { resolveConfigValue } from "../config-value.ts"
+import { postgresConnectionUrl } from "./postgres-connection.ts"
 import { keepOwnClient, trackPostgresClient } from "./request-stats.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -125,6 +126,8 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
   // SAFETY: Every property read forwards to the Drizzle database for the active request or process.
   return new Proxy({} as RuntimePostgresDatabase<TSchema>, {
     get(_, property) {
+      // Other packages that open their own Postgres client read the same connection, such as OpenWorkflow.
+      if (property === postgresConnectionUrl) return () => resolveConnection(false).url
       const instance = getDb()
       const value: unknown = Reflect.get(instance, property)
       // Bind Drizzle methods. Own function values such as the postgres.js `$client` keep their properties.

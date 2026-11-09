@@ -60,6 +60,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0033: dynamicError,
     WORKFLOW_R0034: dynamicError,
     WORKFLOW_R0035: dynamicError,
+    WORKFLOW_R0036: {
+      why: "OpenWorkflow uses the Postgres Default Database of the app, but that Database has no connection URL outside a request. It connects through PG* environment variables, which OpenWorkflow cannot read.",
+      fix: "Set `connection.url` on the Database Definition, or set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url`.",
+    },
     WORKFLOW_B0001: dynamicError,
     WORKFLOW_B0002: {
       why: ({ root }: { root: string }) => `[vitehub] Cannot identify the owning Workflow build for ${JSON.stringify(root)} because its environment does not uniquely match a resolved configuration.`,

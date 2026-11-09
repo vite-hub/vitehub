@@ -1,8 +1,8 @@
 import { onShutdown } from "@vite-hub/runtime/shutdown"
 
-import { detachOpenWorkflowRuntimes, getOpenWorkflowRuntime, registerOpenWorkflowDefinition, setOpenWorkflowImporter } from "./openworkflow.ts"
+import { describeOpenWorkflowStorage, detachOpenWorkflowRuntimes, getOpenWorkflowRuntime, registerOpenWorkflowDefinition, setOpenWorkflowDatabaseUrl, setOpenWorkflowImporter } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
-import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
+import { getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
@@ -58,16 +58,6 @@ async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
   return definitions
 }
 
-function mergeInlineDefinitions(definitions: Map<string, WorkflowDefinition>) {
-  for (const [name, definition] of getInlineWorkflowDefinitions()) {
-    const existing = definitions.get(name)
-    if (existing && existing !== definition) {
-      throw workflowErrorDiagnostics.WORKFLOW_R0016({ message: `Duplicate workflow name "${name}" from inline and discovered definitions.` })
-    }
-    definitions.set(name, definition)
-  }
-}
-
 /** Registers every Workflow Definition of the registry on the OpenWorkflow client, before a worker copies them. */
 async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions) {
   const config = options.config ?? getWorkflowRuntimeConfig()
@@ -82,7 +72,6 @@ async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOption
 
   const runtime = await getOpenWorkflowRuntime(config)
   const definitions = await loadRegistryDefinitions(registry)
-  mergeInlineDefinitions(definitions)
   for (const [name, definition] of definitions) {
     await registerOpenWorkflowDefinition(runtime, name, definition)
   }
@@ -230,6 +219,14 @@ export interface OpenWorkflowWorkerApp extends ShutdownApp {
   captureError?: (error: Error, context: { tags: string[] }) => void
 }
 
+export interface InstallOpenWorkflowOptions {
+  /**
+   * Returns the connection URL of the Postgres Default Database. The generated plugin passes it when the build has
+   * one, and OpenWorkflow then keeps its runs there unless its own storage is configured.
+   */
+  databaseUrl?: () => string | undefined
+}
+
 // Literal specifiers let the server bundler include OpenWorkflow. `.output` has no `node_modules`, so the variable
 // import of the default importer cannot load it there.
 const bundledOpenWorkflowModules: Readonly<Record<string, () => Promise<unknown>>> = {
@@ -292,10 +289,11 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
  * first. When the plugin runs again in the same process, as `vite dev` does after a file changes, the previous worker
  * stops taking runs, finishes the runs that it executes on its own backend, and the new one uses the changed definitions.
  */
-export function installOpenWorkflow(app: OpenWorkflowWorkerApp): Promise<boolean> {
+export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: InstallOpenWorkflowOptions = {}): Promise<boolean> {
   const config = getWorkflowRuntimeConfig()
   if (!config || config.provider !== "openworkflow") return Promise.resolve(false)
   useBundledOpenWorkflow()
+  setOpenWorkflowDatabaseUrl(options.databaseUrl)
 
   const closing = new AbortController()
   let worker: OpenWorkflowWorker | undefined
@@ -333,6 +331,13 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp): Promise<boolean
       const closeRuntimes = detachOpenWorkflowRuntimes()
       void previous.finished().then(closeRuntimes).catch(report)
     }
+    try {
+      logDefaultStorage()
+    }
+    catch (error) {
+      // Invalid storage configuration. Dispatch and the worker setup report it too.
+      report(error)
+    }
     if (closing.signal.aborted || config.worker === false) return false
     for (let attempt = 1; !closing.signal.aborted; attempt++) {
       try {
@@ -352,6 +357,12 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp): Promise<boolean
     }
     return false
   })()
+
+  // Several servers that each keep runs in their own file look like one server that loses runs, so say it at boot.
+  function logDefaultStorage(): void {
+    if (!config || describeOpenWorkflowStorage(config).source !== "default") return
+    console.warn("[vitehub:workflow] OpenWorkflow keeps runs in .vitehub/data/openworkflow.sqlite.db on this host. Other server instances do not see them. To share runs, add a Postgres Default Database, or set OPENWORKFLOW_POSTGRES_URL.")
+  }
 
   onShutdown(app, "workflow.openworkflow-worker", async ({ signal }) => {
     await release()

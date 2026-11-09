@@ -13,6 +13,7 @@ icon: i-lucide-code-2
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
 | `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
 | `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the bound parameter limit of D1. |
+| `getPostgresConnectionUrl` from `@vite-hub/database/drizzle` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |

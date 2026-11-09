@@ -38,7 +38,7 @@ function createWorkflowDevRegistryModule(registryFile: string, definitions: Disc
  * With OpenWorkflow, the plugin also loads OpenWorkflow from the server bundle and starts its worker in this server
  * unless `workflow.worker` is `false`.
  */
-export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName, dev = false): string {
+export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName, dev = false, databaseImport?: string): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   const openWorkflow = workflow !== false && workflow.provider === "openworkflow"
@@ -49,6 +49,7 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
     // Only this import brings the run history into the app, so a build never includes it.
     ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(`${importBase}/runtime/dev-runs`)}`] : []),
     ...(openWorkflow ? [`import { installOpenWorkflow } from ${JSON.stringify(`${importBase}/runtime/openworkflow-worker`)}`] : []),
+    ...(openWorkflow && databaseImport ? [`import { getPostgresConnectionUrl } from ${JSON.stringify(databaseImport)}`] : []),
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
     `export default definePlugin((${openWorkflow ? "nitroApp" : ""}) => {`,
@@ -56,7 +57,9 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
     "  setWorkflowRuntimeRegistry(registry)",
     ...(dev ? ["  enableWorkflowDevRuns()"] : []),
     // OpenWorkflow reads the runtime config and registry, so it is installed after them.
-    ...(openWorkflow ? ["  installOpenWorkflow(nitroApp)"] : []),
+    ...(openWorkflow ? [databaseImport
+      ? "  installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl(\"default\") })"
+      : "  installOpenWorkflow(nitroApp)"] : []),
     "})",
     "",
   ].join("\n")
@@ -81,6 +84,8 @@ async function writeIfChanged(file: string, contents: string): Promise<boolean> 
 }
 
 export interface WorkflowDevRegistryFilesOptions {
+  /** The module that exports `getPostgresConnectionUrl()`, when the app has a Postgres Default Database. */
+  databaseImport?: string
   definitions: DiscoveredWorkflowDefinition[]
   /** True in `vite dev`: the plugin turns on the run history. */
   dev?: boolean
@@ -111,7 +116,7 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   const plugin = resolve(directory, devPluginFile)
   const files: Array<[string, string]> = [
     [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
-    [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase, options.dev)],
+    [plugin, createWorkflowDevPluginModule(options.workflow, options.importBase, options.dev, options.databaseImport)],
   ]
   if (process.env.VITEST) {
     files.push([resolve(directory, workflowTestSetupFile), [

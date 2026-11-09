@@ -1438,6 +1438,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       options.workflow && options.workflow !== true ? options.workflow : {},
       {
       agentImportBase: `${generatedImportBase}/agent`,
+      databaseImport: "vite-hub/database/drizzle",
       hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workflow`,
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),

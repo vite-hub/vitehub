@@ -309,6 +309,17 @@ describe("Postgres runtime", () => {
     schema: { notes },
   }
 
+  it("tells another package its connection URL without opening a client", async () => {
+    const { createPostgresDatabase } = await loadPostgresRuntime()
+    const { postgresConnectionUrl } = await import("../src/runtime/postgres-connection.ts")
+    const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE", url: "postgres://fallback/app" })
+    const read = Reflect.get(db, postgresConnectionUrl) as () => string | undefined
+
+    expect(read()).toBe("postgres://fallback/app")
+    expect(driver.clients).toHaveLength(0)
+    expect(Reflect.get(createPostgresDatabase(definition, { binding: "HYPERDRIVE" }), postgresConnectionUrl)).toBeTypeOf("function")
+  })
+
   it("creates one client per Cloudflare request from the Hyperdrive binding", async () => {
     const { createPostgresDatabase } = await loadPostgresRuntime()
     const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE", url: "postgres://fallback/app" })

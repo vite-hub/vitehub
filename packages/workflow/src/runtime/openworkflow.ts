@@ -94,9 +94,33 @@ async function prepareSqlitePath(path: string, importer: OpenWorkflowImporter): 
   return path
 }
 
+/**
+ * Where the storage came from: `configured` options or environment variables, the Postgres Default `database` of the
+ * app, or the `default` SQLite file.
+ */
+export type OpenWorkflowStorageSource = "configured" | "database" | "default"
+
 type OpenWorkflowStorageConfig =
-  | { backend: "postgres", namespaceId: string, runMigrations?: boolean, schema: string, url: string }
-  | { backend: "sqlite", namespaceId: string, path: string, runMigrations?: boolean }
+  | { backend: "postgres", namespaceId: string, runMigrations?: boolean, schema: string, source: OpenWorkflowStorageSource, url: string }
+  | { backend: "sqlite", namespaceId: string, path: string, runMigrations?: boolean, source: OpenWorkflowStorageSource }
+
+let databaseUrlResolver: (() => string | undefined) | undefined
+
+/**
+ * Makes OpenWorkflow use the Postgres Default Database of the app when no OpenWorkflow storage is configured. The
+ * generated startup plugin installs it when the build has a Postgres Default Database.
+ */
+export function setOpenWorkflowDatabaseUrl(resolve: (() => string | undefined) | undefined): void {
+  databaseUrlResolver = resolve
+}
+
+/** The Postgres URL of the Default Database, or a `DATABASE_URL` that is a Postgres URL when the app has no such Database. */
+function readDatabasePostgresUrl(): string | undefined {
+  if (!databaseUrlResolver) return readPostgresDatabaseUrl()
+  const url = databaseUrlResolver()?.trim()
+  if (!url) throw workflowErrorDiagnostics.WORKFLOW_R0036()
+  return url
+}
 
 function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowStorageConfig {
   if (config.provider !== "openworkflow") {
@@ -126,16 +150,19 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
       namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
       path: normalizeSqlitePath(sqlitePath),
       runMigrations: sqlite.runMigrations,
+      source: "configured",
     }
   }
 
-  const url = explicitPostgresUrl || readEnv("OPENWORKFLOW_POSTGRES_URL") || readPostgresDatabaseUrl()
+  const configuredUrl = explicitPostgresUrl || readEnv("OPENWORKFLOW_POSTGRES_URL")
+  const url = configuredUrl || readDatabasePostgresUrl()
   if (url) {
     return {
       backend: "postgres",
       namespaceId: postgres.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
       runMigrations: postgres.runMigrations,
       schema: postgres.schema || readEnv("OPENWORKFLOW_SCHEMA") || "openworkflow",
+      source: configuredUrl ? "configured" : "database",
       url,
     }
   }
@@ -145,29 +172,69 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
     namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
     path: defaultOpenWorkflowSqlitePath,
     runMigrations: sqlite.runMigrations,
+    source: "default",
   }
 }
 
-/** How long a server waits for another server to set up the OpenWorkflow schema. The worker start retries after it. */
-const postgresSetupLockTimeout = "60s"
+/** How long one server holds the setup lock. After it, the setup continues without the lock. */
+const postgresSetupTimeoutMs = 60_000
+/** How long a server waits for the setup lock that another server holds, before the worker start tries again. */
+const postgresSetupWaitMs = 120_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms).unref?.())
+}
 
 /**
- * OpenWorkflow creates its Postgres schema without a lock, so servers that start together fail with
- * `duplicate key value violates unique constraint`. A transaction holds an advisory lock on the schema name while
- * OpenWorkflow sets it up, so one server does it while the others wait, then find it up to date. A transaction lock
- * also works through a pooler in transaction mode, such as PgBouncer, where a session lock can move to another client.
+ * OpenWorkflow creates its Postgres schema without a lock. When servers start together, all but one fail with
+ * `duplicate key value violates unique constraint`, and OpenWorkflow leaves the failed migration connection open in an
+ * aborted transaction. So one server at a time sets up the schema, and the others then find it up to date.
+ *
+ * OpenWorkflow does not export its migrations, so they cannot run on the connection that holds the lock: they run on a
+ * connection that `BackendPostgres.connect()` opens. To keep that from waiting on a full pool:
+ * - A server tries the lock with `pg_try_advisory_xact_lock` in a short transaction. A server that does not get it
+ *   commits at once and tries again later, so a waiting server holds no connection.
+ * - The server that gets it holds two connections while OpenWorkflow migrates: the lock transaction and the migration.
+ * - When the setup does not finish in 60 seconds, for example because the pool has one connection, the lock transaction
+ *   rolls back. That frees its connection, and the same setup then finishes without the lock.
+ * A transaction lock also works through a pooler in transaction mode, such as PgBouncer.
  */
 async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, schema: string, setup: () => Promise<T>): Promise<T> {
-  const sql = postgres.default(url, { max: 1, onnotice: () => {} })
+  // `idle_timeout` closes the connection between attempts, so a waiting server holds none.
+  const sql = postgres.default(url, { idle_timeout: 1, max: 1, onnotice: () => {} })
+  const key = `vitehub:openworkflow:${schema}`
+  const deadline = Date.now() + postgresSetupWaitMs
+  const releaseLock = Symbol("release the setup lock")
   try {
-    let result: { value: T } | undefined
-    await sql.begin(async (transaction) => {
-      await transaction.unsafe(`set local lock_timeout = '${postgresSetupLockTimeout}'`)
-      await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub:openworkflow:${schema}`}, 0))`
-      result = { value: await setup() }
-    })
-    // SAFETY: `begin()` resolves only after the callback assigned the result.
-    return (result as { value: T }).value
+    for (let attempt = 1; ; attempt++) {
+      let running: Promise<T> | undefined
+      let result: { value: T } | undefined
+      try {
+        await sql.begin(async (transaction) => {
+          const [lock] = await transaction<{ locked: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) as locked`
+          if (!lock?.locked) return
+          running = setup()
+          let timer: ReturnType<typeof setTimeout> | undefined
+          const timeout = new Promise<typeof releaseLock>((resolve) => {
+            timer = setTimeout(() => resolve(releaseLock), postgresSetupTimeoutMs)
+            timer.unref?.()
+          })
+          const value = await Promise.race([running, timeout]).finally(() => clearTimeout(timer))
+          // Rolling back releases the lock and the connection that the setup may wait for.
+          if (value === releaseLock) throw releaseLock
+          result = { value }
+        })
+      }
+      catch (error) {
+        if (error !== releaseLock || !running) throw error
+        return await running
+      }
+      if (result) return result.value
+      if (Date.now() >= deadline) {
+        throw new Error(`Another server held the OpenWorkflow schema setup lock for ${postgresSetupWaitMs / 1000} seconds.`)
+      }
+      await sleep(Math.min(250 * attempt, 2_000))
+    }
   }
   finally {
     await sql.end({ timeout: 5 })
@@ -213,6 +280,14 @@ async function createOpenWorkflowRuntime(
     client,
     workflows: new Map(),
   }
+}
+
+/** The storage that OpenWorkflow uses for `config` now, without credentials. */
+export function describeOpenWorkflowStorage(config: ResolvedWorkflowOptions): { backend: "postgres" | "sqlite", location: string, source: OpenWorkflowStorageSource } {
+  const storage = getOpenWorkflowConfig(config)
+  return storage.backend === "sqlite"
+    ? { backend: "sqlite", location: storage.path, source: storage.source }
+    : { backend: "postgres", location: `schema ${storage.schema}`, source: storage.source }
 }
 
 export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
@@ -416,6 +491,7 @@ export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknow
 
 export async function resetOpenWorkflowRuntime(): Promise<void> {
   openWorkflowImporter = defaultImporter
+  databaseUrlResolver = undefined
   await detachOpenWorkflowRuntimes()()
 }
 

@@ -481,7 +481,7 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
       dev: native("openworkflow", "OpenWorkflow", "The Node preset runs OpenWorkflow and its worker in the dev server, on .vitehub/data/openworkflow.sqlite.db. workflow.remote lets it use the Postgres of DATABASE_URL or OPENWORKFLOW_POSTGRES_URL."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
       node: {
-        ...native("openworkflow", "OpenWorkflow", "OpenWorkflow is the default, and each server runs its worker. Without OPENWORKFLOW_POSTGRES_URL or a Postgres DATABASE_URL at runtime, runs use a SQLite file on one host.", "single-host"),
+        ...native("openworkflow", "OpenWorkflow", "OpenWorkflow is the default, and each server runs its worker. It uses OPENWORKFLOW_POSTGRES_URL, the Postgres Default Database, or a Postgres DATABASE_URL. Without them, runs use a SQLite file on one host.", "single-host"),
         envOverrides: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"].map(env => ({
           env,
           support: native("openworkflow", "OpenWorkflow (Postgres)", `${env} selects Postgres. Several servers can run the worker on the same database, and each run executes once.`),

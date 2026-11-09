@@ -30,8 +30,10 @@ OpenWorkflow resolves storage at runtime in this order:
 
 1. An explicit `sqlite.path` selects SQLite; an explicit `postgres.url` selects Postgres. Configure only one. If its runtime environment declaration is missing or empty, startup fails instead of selecting another store.
 2. With neither option configured, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
-3. Otherwise, `OPENWORKFLOW_POSTGRES_URL` selects Postgres, then `DATABASE_URL` when it starts with `postgres://` or `postgresql://`. A libSQL, SQLite, or MySQL `DATABASE_URL` is not used.
-4. With none of these configured, it uses `.vitehub/data/openworkflow.sqlite.db` relative to the process working directory.
+3. Otherwise, `OPENWORKFLOW_POSTGRES_URL` selects Postgres.
+4. Otherwise, when the app has a Postgres Default Database (`server/databases/config.ts` with `dialect: 'postgresql'`), OpenWorkflow uses the same connection URL as that Database. When that Database connects through PG* environment variables only, startup fails with `WORKFLOW_R0036`, so runs never go to a SQLite file by accident.
+5. Without a Postgres Default Database, `DATABASE_URL` selects Postgres when it starts with `postgres://` or `postgresql://`. A libSQL, SQLite, or MySQL `DATABASE_URL` is not used.
+6. With none of these configured, it uses `.vitehub/data/openworkflow.sqlite.db` relative to the process working directory.
 
 The local SQLite default requires a writable filesystem. Its state survives only while that file remains available; a replacement container or ephemeral function filesystem can lose it. Configure persistent storage before serving production work. Keep staging and production storage or namespaces separate.
 
@@ -52,8 +54,8 @@ export default defineConfig({
 
 - `runWorkflow()` puts the run in storage and returns it with the status `queued`. A worker then executes it.
 - Each server starts the OpenWorkflow worker when it starts. On `SIGTERM`, the worker stops taking runs. A run that does not finish in the [drain budget](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) keeps its lease for 30 seconds. Then another worker takes it.
-- Set a Postgres `DATABASE_URL`, or `OPENWORKFLOW_POSTGRES_URL`, on the server to keep runs in Postgres, in the `openworkflow` schema. Without one of them, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only.
-- Several servers can use the same Postgres database. When they start together, they create the `openworkflow` schema one at a time: each takes a Postgres advisory lock in a transaction, so this also works through PgBouncer in transaction mode. A server waits up to 60 seconds for the lock. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
+- With a Postgres Default Database, OpenWorkflow keeps its runs in that database, in the `openworkflow` schema. Without one, set `OPENWORKFLOW_POSTGRES_URL` or a Postgres `DATABASE_URL`. Without any of them, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only, and the server logs that at boot.
+- Several servers can use the same Postgres database. When they start together, one server at a time creates the `openworkflow` schema. A server tries a Postgres advisory lock in a short transaction, and a server that does not get it waits without a connection. The server that gets it uses two connections for a moment: the lock and the OpenWorkflow migration. When a pooler gives the app one connection, the migration cannot start while the lock holds it, so the lock ends after 60 seconds and the migration then runs without it. Set `postgres.runMigrations: false` after the schema exists to skip this wait. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
 - When the storage is not ready, for example while Postgres starts, the server reports the error and tries again. The delay grows from 0.5 to 30 seconds. The server serves requests meanwhile, and queued runs wait in storage until the worker starts.
 - `vite dev` also starts the worker, so runs complete on your computer. It keeps runs in `.vitehub/data/openworkflow.sqlite.db`, even when `.env` sets `DATABASE_URL`, so a dev server never runs the runs of a shared database with local code. Set `workflow: { remote: true }` to use that database in `vite dev`. When you change a Workflow file, the dev server starts a new worker with the new code.
 
