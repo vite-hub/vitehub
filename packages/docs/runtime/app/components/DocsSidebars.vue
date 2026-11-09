@@ -8,6 +8,11 @@ defineProps<{
   labeled?: boolean
   /** Shows the brand, search, and the links row, for wide screens, which have no site header beside the sidebar. */
   head?: boolean
+  /**
+   * On a page with a collapsible sidebar, shows the button that opens or collapses it. Collapsed, a site with the rail
+   * shows the rail alone and a site without it shows a strip. `panel` is then false.
+   */
+  collapsible?: boolean
 }>()
 
 // A small site has no rail. The panel lists every section with its pages.
@@ -17,9 +22,10 @@ const rail = docsHasRail(useDocsManifest(), config.icons, config.groups, config)
 
 <template>
   <div class="vh-docs-sidebars">
-    <DocsRail v-if="rail" :labeled="labeled" :brand="head" />
+    <DocsRail v-if="rail" :labeled="labeled" :brand="head" :toggle="collapsible ? (panel ? 'hide' : 'show') : undefined" />
+    <DocsSidebarStrip v-else-if="collapsible && !panel" />
     <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': !rail, 'has-head': head }">
-      <DocsAsideLeftTop :brand="head && !rail" :search="head" :title="rail" />
+      <DocsAsideLeftTop :brand="head && !rail" :search="head" :title="rail" :collapsible="collapsible && !rail" />
       <DocsAsideLeftBody />
       <DocsAsideFooter v-if="head" />
     </div>

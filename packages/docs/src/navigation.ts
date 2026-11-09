@@ -401,8 +401,16 @@ export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUr
   return `${docsRawSectionLinksMarker}${blocks.join("\n\n")}\n`
 }
 
-/** Cookie that keeps the navigation open beside code panel tutorials. A host that serves prerendered HTML reads it. */
+/**
+ * Cookie that keeps a collapsed sidebar open after the reader opens it, on every page that starts collapsed. A host
+ * that serves prerendered HTML reads it.
+ */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
+
+/** Whether a docs page starts with its sidebar collapsed: `sidebar: "collapsed"`, or a code panel tutorial that keeps it. */
+export function docsSidebarCollapses(page: Pick<DocsPage, "sidebar" | "codePanel">): boolean {
+  return page.sidebar === "collapsed" || (page.codePanel === true && page.sidebar !== false)
+}
 
 /** Links of the page actions: the Markdown twin and chat tools that read it. */
 export interface DocsMarkdownLinks {
