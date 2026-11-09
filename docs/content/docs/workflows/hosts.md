@@ -30,7 +30,7 @@ OpenWorkflow resolves storage at runtime in this order:
 
 1. An explicit `sqlite.path` selects SQLite; an explicit `postgres.url` selects Postgres. Configure only one. If its runtime environment declaration is missing or empty, startup fails instead of selecting another store.
 2. With neither option configured, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
-3. Otherwise, `OPENWORKFLOW_POSTGRES_URL`, then `DATABASE_URL`, selects Postgres.
+3. Otherwise, `OPENWORKFLOW_POSTGRES_URL` selects Postgres, then `DATABASE_URL` when it starts with `postgres://` or `postgresql://`. A libSQL, SQLite, or MySQL `DATABASE_URL` is not used.
 4. With none of these configured, it uses `.vitehub/data/openworkflow.sqlite.db` relative to the process working directory.
 
 The local SQLite default requires a writable filesystem. Its state survives only while that file remains available; a replacement container or ephemeral function filesystem can lose it. Configure persistent storage before serving production work. Keep staging and production storage or namespaces separate.
@@ -52,10 +52,14 @@ export default defineConfig({
 
 - `runWorkflow()` puts the run in storage and returns it with the status `queued`. A worker then executes it.
 - Each server starts the OpenWorkflow worker when it starts. On `SIGTERM`, the worker stops taking runs. A run that does not finish in the [drain budget](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) keeps its lease for 30 seconds. Then another worker takes it.
-- Set `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` on the server to keep runs in Postgres, in the `openworkflow` schema. Without one of them, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only.
-- Several servers can use the same Postgres database. When they start together, they create the `openworkflow` schema one at a time under a Postgres advisory lock. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
-- When the storage is not ready, for example while Postgres starts, the server tries the setup again 4 times, 0.5 to 4 seconds apart. Then it logs the error and serves requests without a worker.
-- `vite dev` also starts the worker, so runs complete on your computer. When you change a Workflow file, the dev server starts a new worker with the new code.
+- Set a Postgres `DATABASE_URL`, or `OPENWORKFLOW_POSTGRES_URL`, on the server to keep runs in Postgres, in the `openworkflow` schema. Without one of them, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only.
+- Several servers can use the same Postgres database. When they start together, they create the `openworkflow` schema one at a time: each takes a Postgres advisory lock in a transaction, so this also works through PgBouncer in transaction mode. A server waits up to 60 seconds for the lock. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
+- When the storage is not ready, for example while Postgres starts, the server reports the error and tries again. The delay grows from 0.5 to 30 seconds. The server serves requests meanwhile, and queued runs wait in storage until the worker starts.
+- `vite dev` also starts the worker, so runs complete on your computer. It keeps runs in `.vitehub/data/openworkflow.sqlite.db`, even when `.env` sets `DATABASE_URL`, so a dev server never runs the runs of a shared database with local code. Set `workflow: { remote: true }` to use that database in `vite dev`. When you change a Workflow file, the dev server starts a new worker with the new code.
+
+### Which Workflows are durable
+
+Every worker registers the Workflow files that ViteHub discovers, such as `server/workflows/<name>.ts`, when it starts. Any worker can take a run, so only those Workflows go to OpenWorkflow. A Workflow that code creates while the server runs, such as `createWorkflow('name', handler)` or an Agent Workflow, runs inline in the request process instead. It is not durable, its run has `metadata.mode` set to `"inline"`, and the server logs a warning the first time. Move the Workflow to a file in `server/workflows/` to make it durable.
 
 ### Run the worker in its own process
 

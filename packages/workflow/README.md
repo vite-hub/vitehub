@@ -27,7 +27,7 @@ Then install the dependency required by the selected provider:
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`.
 
-On Node and Docker, ViteHub selects OpenWorkflow when `provider` is not set, also in `vite dev` with the `node` preset. OpenWorkflow reads its storage at runtime. Set `workflow.sqlite.path` or `workflow.postgres.url` to select the storage yourself. An explicit value takes precedence over ambient storage environment variables. Without it, `OPENWORKFLOW_SQLITE_PATH` selects SQLite, then `OPENWORKFLOW_POSTGRES_URL` or `DATABASE_URL` selects Postgres. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`.
+On Node and Docker, ViteHub selects OpenWorkflow when `provider` is not set, also in `vite dev` with the `node` preset. OpenWorkflow reads its storage at runtime. Set `workflow.sqlite.path` or `workflow.postgres.url` to select the storage yourself. An explicit value takes precedence over ambient storage environment variables. Without it, `OPENWORKFLOW_SQLITE_PATH` selects SQLite, then `OPENWORKFLOW_POSTGRES_URL` selects Postgres, then `DATABASE_URL` when it is a `postgres://` or `postgresql://` URL. `vite dev` keeps runs in the local SQLite file unless `workflow.remote` is `true`, so a dev server never runs the runs of a shared database. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`.
 
 The former `workflow.database` option was never connected to Named Databases. It now rejects instead of silently selecting fallback storage. Replace it with `workflow.sqlite.path` or `workflow.postgres.url`.
 
@@ -106,9 +106,9 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 ### Run an OpenWorkflow worker
 
-`runWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. It loads OpenWorkflow from the server bundle and starts one worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database. ViteHub holds a Postgres advisory lock while OpenWorkflow sets up its schema, so servers that start together do not fail with `duplicate key value violates unique constraint`. OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it. When setup fails, the server tries it again up to 4 times. `installOpenWorkflow()` resolves to `true` when the worker runs.
+`runWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. It loads OpenWorkflow from the server bundle and starts one worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database. ViteHub holds a Postgres advisory lock in a transaction while OpenWorkflow sets up its schema, so servers that start together do not fail with `duplicate key value violates unique constraint`. The transaction lock also works through PgBouncer in transaction mode, and waits at most 60 seconds. OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it. When setup or the worker start fails, the server reports the error and tries again, with a delay that grows to 30 seconds, until it works or the server closes. `installOpenWorkflow()` resolves to `true` when the worker runs.
 
-A worker copies the Workflow Definitions when it starts. When the server registers a new definition later, such as an inline `createWorkflow()` or an Agent Workflow, it replaces its worker. In `vite dev`, a changed Workflow file also replaces the worker.
+Every worker registers the discovered Workflow Definitions of the build registry when it starts, and any worker can claim a run. So OpenWorkflow runs only those definitions. A definition that code registers later, such as an inline `createWorkflow(name, handler)` or an Agent Workflow, runs inline in the request process, with `metadata.mode` set to `"inline"` and a warning. In `vite dev`, a changed Workflow file replaces the worker; the old backend stays open until the old worker finishes its runs.
 
 Set `workflow: { worker: false }` to keep the servers from starting a worker. Then start one worker in a separate long-lived process:
 
@@ -121,7 +121,7 @@ installWorkflowRuntime();
 const worker = await startOpenWorkflowWorker();
 ```
 
-Keep this process running while it should consume queued runs, and do not start a worker per request. A separate worker executes only the definitions that it loads, so a run of an inline definition that only the web server registers waits there. `startOpenWorkflowWorker()` installs `SIGINT` and `SIGTERM` handlers. If the host owns shutdown, await `worker.stop()` from its shutdown hook.
+Keep this process running while it should consume queued runs, and do not start a worker per request. A separate worker executes the discovered definitions that it loads from the same registry. `startOpenWorkflowWorker()` installs `SIGINT` and `SIGTERM` handlers. If the host owns shutdown, await `worker.stop()` from its shutdown hook.
 
 ## Start and inspect a run
 

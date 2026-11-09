@@ -71,6 +71,12 @@ describe("workflow config", () => {
     expect(normalizeWorkflowOptions({ provider: "openworkflow" }, { hosting: "vercel" })).toEqual({ provider: "openworkflow" })
   })
 
+  it("accepts remote for OpenWorkflow in vite dev", () => {
+    expect(normalizeWorkflowOptions({ remote: true }, { hosting: "node-server" })).toEqual({ provider: "openworkflow", remote: true })
+    expect(normalizeWorkflowOptions({ remote: false }, { hosting: "node-server" })).toEqual({ provider: "openworkflow" })
+    expect(() => normalizeWorkflowOptions({ remote: "yes" } as never, { hosting: "node-server" })).toThrow(/workflow\.remote/)
+  })
+
   it("accepts worker: false to keep the server from starting the worker", () => {
     expect(normalizeWorkflowOptions({ worker: false }, { hosting: "node-server" })).toEqual({
       provider: "openworkflow",

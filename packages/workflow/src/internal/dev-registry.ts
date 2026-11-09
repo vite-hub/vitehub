@@ -4,6 +4,8 @@ import { dirname, relative, resolve } from "node:path"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createWorkflowRegistryContents, workflowPackageName } from "./vite-build.ts"
 
+import { defaultOpenWorkflowSqlitePath } from "./openworkflow-defaults.ts"
+
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../types.ts"
 
 // Provider servers install the discovered Workflow registry in production. In
@@ -40,6 +42,7 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   const openWorkflow = workflow !== false && workflow.provider === "openworkflow"
+  const runtimeConfig = dev && workflow !== false ? localDevWorkflowOptions(workflow) : workflow
   return [
     "import { definePlugin } from \"nitro\"",
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
@@ -49,7 +52,7 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
     `export default definePlugin((${openWorkflow ? "nitroApp" : ""}) => {`,
-    `  setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`,
+    `  setWorkflowRuntimeConfig(${JSON.stringify(runtimeConfig)})`,
     "  setWorkflowRuntimeRegistry(registry)",
     ...(dev ? ["  enableWorkflowDevRuns()"] : []),
     // OpenWorkflow reads the runtime config and registry, so it is installed after them.
@@ -57,6 +60,17 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
     "})",
     "",
   ].join("\n")
+}
+
+/**
+ * `vite dev` stays local: without `remote: true` or configured storage, OpenWorkflow uses the local SQLite file, not
+ * the Postgres of `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL`. A dev server must not run the runs of a shared database
+ * with local code.
+ */
+function localDevWorkflowOptions(workflow: ResolvedWorkflowOptions): ResolvedWorkflowOptions {
+  if (workflow.provider !== "openworkflow" || workflow.remote === true) return workflow
+  if (workflow.postgres?.url !== undefined || workflow.sqlite?.path !== undefined) return workflow
+  return { ...workflow, sqlite: { ...workflow.sqlite, path: defaultOpenWorkflowSqlitePath } }
 }
 
 async function writeIfChanged(file: string, contents: string): Promise<boolean> {

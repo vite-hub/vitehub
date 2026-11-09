@@ -311,8 +311,26 @@ describe("Workflow dev registry", () => {
     await (hook.handler as unknown as ConfigHook)(config, { command, mode: command === "build" ? "production" : "development" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    expect(generated).toContain('setWorkflowRuntimeConfig({"provider":"openworkflow"})')
+    // A build reads its storage at runtime. `vite dev` keeps runs in the local SQLite file.
+    expect(generated).toContain(command === "build"
+      ? 'setWorkflowRuntimeConfig({"provider":"openworkflow"})'
+      : 'setWorkflowRuntimeConfig({"provider":"openworkflow","sqlite":{"path":".vitehub/data/openworkflow.sqlite.db"}})')
     expect(generated).toContain("installOpenWorkflow(nitroApp)")
+  })
+
+  it.each<[ResolvedWorkflowOptions, ResolvedWorkflowOptions]>([
+    [{ provider: "openworkflow" }, { provider: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],
+    [{ postgres: { schema: "jobs" }, provider: "openworkflow" }, { postgres: { schema: "jobs" }, provider: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],
+    // `remote: true` lets `vite dev` use DATABASE_URL or OPENWORKFLOW_POSTGRES_URL.
+    [{ provider: "openworkflow", remote: true }, { provider: "openworkflow", remote: true }],
+    // Configured storage is used as configured.
+    [{ postgres: { url: "postgres://localhost/dev" }, provider: "openworkflow" }, { postgres: { url: "postgres://localhost/dev" }, provider: "openworkflow" }],
+    [{ provider: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }, { provider: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }],
+  ])("keeps OpenWorkflow in vite dev on local storage unless remote is set: %j", (workflow, installed) => {
+    const code = createWorkflowDevPluginModule(workflow, "vite-hub/workflow", true)
+    expect(code).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(installed)})`)
+    // A build uses the configuration as it is.
+    expect(createWorkflowDevPluginModule(workflow, "vite-hub/workflow")).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`)
   })
 
   it("keeps the run history out of the import graph of every published runtime entry", async () => {

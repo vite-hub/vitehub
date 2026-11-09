@@ -61,6 +61,11 @@ export type OpenWorkflowWorkerOption = false | OpenWorkflowWorkerOptions
 export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
   provider: "openworkflow"
+  /**
+   * `vite dev` keeps runs in the local SQLite file, even when `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` is set.
+   * `true` lets it use that storage, so the dev server can run the runs of a shared database. Builds ignore it.
+   */
+  remote?: boolean
   sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOption
 }
@@ -68,6 +73,8 @@ export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
 export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
   provider?: undefined
+  /** See `OpenWorkflowProviderOptions.remote`. */
+  remote?: boolean
   sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOption
 }

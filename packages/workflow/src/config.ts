@@ -160,6 +160,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     const postgres = normalizeOpenWorkflowPostgresOptions(options.postgres)
     const sqlite = normalizeOpenWorkflowSqliteOptions(options.sqlite)
     const worker = normalizeOpenWorkflowWorkerOptions(options.worker)
+    const remote = readBoolean(options.remote, "workflow.remote")
 
     if (postgres?.url && sqlite?.path) {
       throw workflowErrorDiagnostics.WORKFLOW_C0012({ message: "`workflow.postgres.url` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage." })
@@ -170,6 +171,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
         ...(postgres ? { postgres } : {}),
         ...(sqlite ? { sqlite } : {}),
         ...(worker !== undefined ? { worker } : {}),
+        ...(remote === true ? { remote } : {}),
       },
       shared,
       { provider: "openworkflow" as const },

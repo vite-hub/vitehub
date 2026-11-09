@@ -6,6 +6,7 @@ import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provi
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { defaultOpenWorkflowSqlitePath } from "../internal/openworkflow-defaults.ts"
 
 type OpenWorkflowModule = typeof import("openworkflow")
 type NodeFsModule = typeof import("node:fs")
@@ -25,13 +26,10 @@ type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
 // importer from a string: workerd blocks code generation when the module loads during a request.
 const defaultImporter: OpenWorkflowImporter = specifier => import(/* @vite-ignore */ specifier)
 let openWorkflowImporter = defaultImporter
-const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
 
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
   client: OpenWorkflowClient
-  /** Called after a new Workflow Definition is registered on the client. */
-  definitionListeners: Set<() => void>
   workflows: Map<string, OpenWorkflowRunnable>
 }
 
@@ -62,6 +60,17 @@ function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined
 
 function getRuntimeEnvNames(value: WorkflowRuntimeEnvDeclarationLike): string[] {
   return value.source?.names ?? (value.source?.name ? [value.source.name] : [])
+}
+
+const postgresUrlPattern = /^postgres(?:ql)?:\/\//i
+
+/**
+ * `DATABASE_URL` selects Postgres only when it is a Postgres URL. Apps also set it to a libSQL, SQLite, or MySQL URL
+ * for their Database, and OpenWorkflow then keeps its runs in the local SQLite file.
+ */
+function readPostgresDatabaseUrl(): string | undefined {
+  const url = readEnv("DATABASE_URL")
+  return url && postgresUrlPattern.test(url) ? url : undefined
 }
 
 function normalizeSqlitePath(path: string): string {
@@ -120,7 +129,7 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
     }
   }
 
-  const url = explicitPostgresUrl || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
+  const url = explicitPostgresUrl || readEnv("OPENWORKFLOW_POSTGRES_URL") || readPostgresDatabaseUrl()
   if (url) {
     return {
       backend: "postgres",
@@ -139,25 +148,28 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   }
 }
 
+/** How long a server waits for another server to set up the OpenWorkflow schema. The worker start retries after it. */
+const postgresSetupLockTimeout = "60s"
+
 /**
  * OpenWorkflow creates its Postgres schema without a lock, so servers that start together fail with
- * `duplicate key value violates unique constraint "pg_type_typname_nsp_index"`. A session advisory lock on the
- * schema name lets one process set it up while the others wait, then find it up to date.
+ * `duplicate key value violates unique constraint`. A transaction holds an advisory lock on the schema name while
+ * OpenWorkflow sets it up, so one server does it while the others wait, then find it up to date. A transaction lock
+ * also works through a pooler in transaction mode, such as PgBouncer, where a session lock can move to another client.
  */
 async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, schema: string, setup: () => Promise<T>): Promise<T> {
   const sql = postgres.default(url, { max: 1, onnotice: () => {} })
-  const key = `vitehub:openworkflow:${schema}`
   try {
-    await sql`select pg_advisory_lock(hashtextextended(${key}, 0))`
-    try {
-      return await setup()
-    }
-    finally {
-      await sql`select pg_advisory_unlock(hashtextextended(${key}, 0))`
-    }
+    let result: { value: T } | undefined
+    await sql.begin(async (transaction) => {
+      await transaction.unsafe(`set local lock_timeout = '${postgresSetupLockTimeout}'`)
+      await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub:openworkflow:${schema}`}, 0))`
+      result = { value: await setup() }
+    })
+    // SAFETY: `begin()` resolves only after the callback assigned the result.
+    return (result as { value: T }).value
   }
   finally {
-    // Closing the session also releases the lock when the unlock query fails.
     await sql.end({ timeout: 5 })
   }
 }
@@ -199,7 +211,6 @@ async function createOpenWorkflowRuntime(
   return {
     backend,
     client,
-    definitionListeners: new Set(),
     workflows: new Map(),
   }
 }
@@ -275,18 +286,7 @@ export async function registerOpenWorkflowDefinition(
     }, openWorkflowDefinition)
   })
   runtime.workflows.set(name, workflow)
-  for (const listener of runtime.definitionListeners) listener()
   return workflow
-}
-
-/**
- * Calls `listener` each time a new Workflow Definition is registered on this runtime. An OpenWorkflow worker copies
- * the definitions when it is created, so a worker must be replaced to run a definition registered later, such as an
- * inline `createWorkflow()` or an Agent Workflow. Returns a function that removes the listener.
- */
-export function watchOpenWorkflowDefinitions(runtime: OpenWorkflowRuntime, listener: () => void): () => void {
-  runtime.definitionListeners.add(listener)
-  return () => runtime.definitionListeners.delete(listener)
 }
 
 function normalizeOpenWorkflowStatus(status: unknown): WorkflowRunStatus {
@@ -415,9 +415,21 @@ export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknow
 }
 
 export async function resetOpenWorkflowRuntime(): Promise<void> {
+  openWorkflowImporter = defaultImporter
+  await detachOpenWorkflowRuntimes()()
+}
+
+/**
+ * Starts a new runtime cache, so the next acquisition opens a fresh backend. Returns a function that closes the
+ * backends of the old cache. Call it after the work that still uses them, such as a stopping worker, finishes.
+ */
+export function detachOpenWorkflowRuntimes(): () => Promise<void> {
   const closing = runtimes
   runtimes = new Map()
-  openWorkflowImporter = defaultImporter
+  return () => closeOpenWorkflowRuntimes(closing)
+}
+
+async function closeOpenWorkflowRuntimes(closing: Map<string, Promise<OpenWorkflowRuntime>>): Promise<void> {
   const settled = await Promise.allSettled(closing.values())
   const fulfilled = settled.flatMap(entry => entry.status === "fulfilled"
     ? [entry.value]

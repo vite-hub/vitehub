@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition, resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
+import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { installOpenWorkflow } from "../src/runtime/openworkflow-worker.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
@@ -15,7 +15,9 @@ interface FakeWorker {
 
 const fake = vi.hoisted(() => {
   const state = {
+    backendStops: 0,
     connectErrors: [] as Error[],
+    startErrors: [] as Error[],
     workers: [] as FakeWorker[],
   }
 
@@ -31,7 +33,10 @@ const fake = vi.hoisted(() => {
       const worker: FakeWorker = {
         definitions: [...this.definitions],
         options,
-        start: vi.fn(async () => {}),
+        start: vi.fn(async () => {
+          const error = state.startErrors.shift()
+          if (error) throw error
+        }),
         stop: vi.fn(async () => {}),
       }
       state.workers.push(worker)
@@ -42,7 +47,7 @@ const fake = vi.hoisted(() => {
   const connect = () => {
     const error = state.connectErrors.shift()
     if (error) throw error
-    return { stop: () => {} }
+    return { stop: () => { state.backendStops++ } }
   }
 
   return { connect, OpenWorkflow, state }
@@ -75,7 +80,9 @@ async function flush(): Promise<void> {
 const config: ResolvedWorkflowOptions = { provider: "openworkflow", sqlite: { path: ":memory:" }, worker: { concurrency: 4 } }
 
 beforeEach(async () => {
+  fake.state.backendStops = 0
   fake.state.connectErrors.length = 0
+  fake.state.startErrors.length = 0
   fake.state.workers.length = 0
   resetWorkflowRuntime()
   await resetOpenWorkflowRuntime()
@@ -105,52 +112,30 @@ describe("installOpenWorkflow", () => {
     expect(app.captureError).not.toHaveBeenCalled()
   })
 
-  it("replaces the worker when the process registers a new definition later", async () => {
-    setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({})
-    const app = createApp()
-
-    installOpenWorkflow(app)
-    await flush()
-    expect(fake.state.workers).toHaveLength(1)
-
-    // An inline `createWorkflow()` or an Agent Workflow registers its definition when it first dispatches a run.
-    await registerOpenWorkflowDefinition(await getOpenWorkflowRuntime(config), "agent", { handler: async () => "ok" })
-    await flush()
-
-    const [first, second] = fake.state.workers
-    expect(fake.state.workers).toHaveLength(2)
-    expect(second!.definitions).toEqual(["agent"])
-    expect(second!.start).toHaveBeenCalledOnce()
-    expect(first!.stop).toHaveBeenCalledOnce()
-
-    await app.close()
-    expect(second!.stop).toHaveBeenCalledOnce()
-
-    // A closed server does not start a worker again.
-    await registerOpenWorkflowDefinition(await getOpenWorkflowRuntime(config), "late", { handler: async () => "ok" })
-    await flush()
-    expect(fake.state.workers).toHaveLength(2)
-  })
-
-  it("replaces the worker with the changed definitions when the startup plugin runs again", async () => {
+  it("keeps the old backend until the old worker finishes when the startup plugin runs again", async () => {
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "v1" } }) })
-    installOpenWorkflow(createApp())
-    await flush()
+    await expect(installOpenWorkflow(createApp())).resolves.toBe(true)
+    const [first] = fake.state.workers
+    let finishOldRuns!: () => void
+    first!.stop.mockImplementation(() => new Promise<void>(resolve => { finishOldRuns = resolve }))
 
     // `vite dev` runs the plugin again in the same process after a file changes.
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "v2" } }), added: async () => ({ default: { handler: async () => "new" } }) })
     const app = createApp()
-    installOpenWorkflow(app)
-    await flush()
+    await expect(installOpenWorkflow(app)).resolves.toBe(true)
 
-    const [first, second] = fake.state.workers
-    expect(fake.state.workers).toHaveLength(2)
+    const second = fake.state.workers[1]
     expect(first!.stop).toHaveBeenCalledOnce()
     // A fresh client registers every definition again, so the new worker runs the changed code.
     expect(second!.definitions).toEqual(["added", "welcome"])
     expect(second!.start).toHaveBeenCalledOnce()
+    // The old worker still executes a run on the old backend.
+    await flush()
+    expect(fake.state.backendStops).toBe(0)
+    finishOldRuns()
+    await flush()
+    expect(fake.state.backendStops).toBe(1)
 
     await app.close()
     expect(second!.stop).toHaveBeenCalledOnce()
@@ -160,54 +145,59 @@ describe("installOpenWorkflow", () => {
     for (const workflow of [{ ...config, worker: false }, { provider: "vercel" }] satisfies ResolvedWorkflowOptions[]) {
       setWorkflowRuntimeConfig(workflow)
       setWorkflowRuntimeRegistry({})
-      installOpenWorkflow(createApp())
+      await expect(installOpenWorkflow(createApp())).resolves.toBe(false)
     }
-    await flush()
     expect(fake.state.workers).toHaveLength(0)
   })
 
-  it("tries the setup again and starts the worker when it succeeds later", async () => {
+  it("tries again until the setup and the worker start work, and reports each failure", async () => {
     vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({})
-    // Another server holds the schema setup, or Postgres is still starting.
-    fake.state.connectErrors = [new Error("connection refused"), new Error("connection refused")]
-    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const app = createApp()
-
-    const started = installOpenWorkflow(app)
-    await vi.advanceTimersByTimeAsync(2_000)
-
-    await expect(started).resolves.toBe(true)
-    expect(consoleWarn).toHaveBeenCalledTimes(2)
-    expect(fake.state.workers).toHaveLength(1)
-    expect(fake.state.workers[0]!.start).toHaveBeenCalledOnce()
-    expect(app.captureError).not.toHaveBeenCalled()
-    vi.useRealTimers()
-    await app.close()
-    consoleWarn.mockRestore()
-  })
-
-  it("reports a worker that cannot start without crashing the server", async () => {
-    vi.useFakeTimers()
-    setWorkflowRuntimeConfig(config)
-    setWorkflowRuntimeRegistry({})
-    fake.state.connectErrors = Array.from({ length: 5 }, () => new Error("database is locked"))
+    // Postgres is down for a while, then a worker fails to start once.
+    fake.state.connectErrors = Array.from({ length: 8 }, () => new Error("connection refused"))
+    fake.state.startErrors = [new Error("start failed")]
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const app = createApp()
 
     const started = installOpenWorkflow(app)
-    await vi.advanceTimersByTimeAsync(10_000)
+    // 0.5, 1, 2, 4, 8, 16, 30, 30, and 30 seconds.
+    await vi.advanceTimersByTimeAsync(122_000)
 
-    // Setup runs 5 times, 0.5, 1, 2, and 4 seconds apart.
-    await expect(started).resolves.toBe(false)
-    expect(consoleWarn).toHaveBeenCalledTimes(4)
-    expect(app.captureError).toHaveBeenCalledOnce()
-    expect(app.captureError.mock.calls[0]![1]).toEqual({ tags: ["vitehub-workflow"] })
-    expect(fake.state.workers).toHaveLength(0)
+    await expect(started).resolves.toBe(true)
+    expect(app.captureError).toHaveBeenCalledTimes(9)
+    expect(consoleWarn.mock.calls.map(call => String(call[0]).match(/in (\d+) ms/)?.[1])).toEqual(["500", "1000", "2000", "4000", "8000", "16000", "30000", "30000", "30000"])
+    // The worker that failed to start is not used. The next attempt creates a new one.
+    expect(fake.state.workers).toHaveLength(2)
+    expect(fake.state.workers[1]!.start).toHaveBeenCalledOnce()
     vi.useRealTimers()
     await app.close()
+    expect(fake.state.workers[1]!.stop).toHaveBeenCalledOnce()
+    consoleError.mockRestore()
+    consoleWarn.mockRestore()
+  })
+
+  it("stops trying when the server closes", async () => {
+    vi.useFakeTimers()
+    setWorkflowRuntimeConfig(config)
+    setWorkflowRuntimeRegistry({})
+    fake.state.connectErrors = Array.from({ length: 100 }, () => new Error("connection refused"))
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = createApp()
+
+    const started = installOpenWorkflow(app)
+    await vi.advanceTimersByTimeAsync(2_000)
+    const attempts = app.captureError.mock.calls.length
+    // Closing ends the wait for the next attempt at once.
+    await app.close()
+
+    await expect(started).resolves.toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(app.captureError.mock.calls.length).toBe(attempts)
+    expect(fake.state.workers).toHaveLength(0)
+    vi.useRealTimers()
     consoleError.mockRestore()
     consoleWarn.mockRestore()
   })

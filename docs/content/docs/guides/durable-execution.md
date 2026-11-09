@@ -60,7 +60,7 @@ Cloudflare reads `limit` as the number of retries, as its [retry documentation](
 
 An inline run executes the handler in the current process. After the response, ViteHub keeps it alive with the host's `waitUntil()` when the host has one. The steps run in order, but nothing saves their results, and a thrown error fails the run with no retry. ViteHub keeps the result of a completed inline run in memory for five minutes, up to 1,024 runs. A restart loses it. When ViteHub finds no Cloudflare Workflow binding on the request, it also runs the Workflow inline.
 
-On Node or Docker, ViteHub selects OpenWorkflow, and each server runs its worker. It keeps runs in Postgres when `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` is set, else in `.vitehub/data/openworkflow.sqlite.db`. That SQLite file is lost when a container file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) before production.
+On Node or Docker, ViteHub selects OpenWorkflow, and each server runs its worker. It keeps runs in Postgres when `OPENWORKFLOW_POSTGRES_URL`, or a Postgres `DATABASE_URL`, is set, else in `.vitehub/data/openworkflow.sqlite.db`. `vite dev` always uses that SQLite file unless you set `workflow.remote`. Only discovered Workflow files are durable; `createWorkflow(name, handler)` runs inline. That SQLite file is lost when a container file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) before production.
 
 ## Build the checkout Workflow in ViteHub
 
