@@ -121,8 +121,11 @@ describe("handleFormRequest", () => {
 
   it("checks authorize with the identified user", async () => {
     const form = defineForm({ schema: v.object({ text: v.string() }), authorize: ({ user }) => user?.id === "ada" })
-    const anonymous = services()
+    // A refused sender uses no rate budget.
+    const rateLimit = vi.fn(async () => ({ allowed: true }))
+    const anonymous = services({ rateLimit })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), anonymous.all)).status).toBe(401)
+    expect(rateLimit).not.toHaveBeenCalled()
     const grace = services({ identify: () => ({ id: "grace" }) })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), grace.all)).status).toBe(403)
     const ada = services({ identify: () => ({ id: "ada", name: "Ada" }) })
@@ -177,6 +180,10 @@ describe("handleFormRequest", () => {
     expect(await store.list()).toHaveLength(1)
     const wrong = await handleFormRequest("contact", contact, post({ email: "x", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
     expect(wrong.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+    // Every other failure also goes back to the page, such as the rate limit.
+    const limited = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), { ...all, rateLimit: async () => ({ allowed: false }) })
+    expect(limited.status).toBe(303)
+    expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=error")
   })
 
   it("reads multipart form data", async () => {
