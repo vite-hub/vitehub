@@ -55,6 +55,33 @@ describe("one-entry-imports", () => {
     expect(after("server/a.ts")).toBe("import { env } from \"vite-hub/env\"\nimport type { SecretEnv } from \"vite-hub/env\"\n")
   })
 
+  it.each([
+    "src/components/Upload.tsx",
+    "app/utils/upload.ts",
+    "src/lib/upload.ts",
+    "upload.client.ts",
+    "shared/signatures.ts",
+  ])("keeps signature imports browser-safe in %s", async (file) => {
+    const { after, run } = await migrate({
+      [file]: "import { detectContentType } from 'vite-hub/blob/content-type'\nexport { detectContentType as detect } from '@vite-hub/blob/content-type'\n",
+    })
+    expect(after(file)).toBe("import { detectContentType } from 'vite-hub/blob/client'\nexport { detectContentType as detect } from '@vite-hub/blob/client'\n")
+    expect(run.result.followUps).toEqual([])
+  })
+
+  it.each([
+    "export * from 'vite-hub/env/server'",
+    "export type * from '@vite-hub/env/server'",
+    "export * as serverEnv from 'vite-hub/env/server'",
+    "import * as serverEnv from '@vite-hub/env/server'",
+  ])("reports the omitted Env server contract in %s", async (code) => {
+    const { run } = await migrate({ "server/barrel.ts": `${code}\n` })
+    const messages = run.result.followUps.map(followUp => followUp.message).join("\n")
+    for (const name of ["runWithCloudflareEnv", "createServerEnvManagement", "deriveSecret", "ViteHubContext", "EnvAccessContext"]) {
+      expect(messages).toContain(name)
+    }
+  })
+
   it("moves imports in import types and declare module", async () => {
     const { after } = await migrate({
       "types.d.ts": "declare module \"vite-hub/env/server\" {}\nexport type T = import(\"vite-hub/env/presets\").TypesafeEnvOptions\n",

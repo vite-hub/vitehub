@@ -99,6 +99,8 @@ The codemod moves each import of a subpath that ViteHub folded into one entry. I
 
 The same moves apply to the `@vite-hub/*` paths. The report lists strings that name an old path, such as aliases and test stubs, and `env/server` names that the Env root does not export, such as `runWithCloudflareEnv`. When an app moves to `nitro/task` and lists neither `nitro` nor `nuxt` in `package.json`, the report asks to add `nitro`.
 
+For `blob/content-type`, only explicit server files use the Blob root. Browser, shared, and unclassified files use `blob/client`, which also works on the server. Env server barrel and namespace migrations report every omitted name for manual review of downstream uses.
+
 ## Check real apps
 
 `test/real-world/projects.json` pins open source Nuxt apps that use the supported modules. The runner clones each app outside the repository, installs it when its codemod loads app code, runs the migration, and checks which codemods ran and what the report says:

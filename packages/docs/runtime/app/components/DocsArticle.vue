@@ -76,8 +76,8 @@ const mobileTocUi = {
         class="docs-content vh-article-body !px-0 !pb-16"
         :class="{ 'docs-tutorial-content': tutorial }"
       >
-        <!-- Articles show code with its file name bar, which the tutorial code panel reads. -->
-        <DocsMarkdown :document="response.document" :components="{ pre: DocsCodePre }" />
+        <!-- Code is comark-ui's code block, except beside a code panel, which reads the file name bar of DocsCodePre. -->
+        <DocsMarkdown :document="response.document" :components="hasCodePanel ? { pre: DocsCodePre } : undefined" />
         <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
       </UPageBody>
 

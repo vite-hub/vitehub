@@ -120,15 +120,11 @@ function isServerFile(file: string): boolean {
   return segments.includes("server") || /^server\b/.test(name) || /\.server\.[^/]+$/.test(name)
 }
 
-/** Browser code: a Vue file, or a Nuxt app file outside `server/`. */
-function isClientFile(file: string): boolean {
-  return !isServerFile(file) && (file.endsWith(".vue") || /^(?:app\/)?(?:components|composables|layouts|middleware|pages|plugins|stores)\//.test(file))
-}
-
 /** The path that replaces `from` in `file`, or undefined when `from` did not move. */
 function movedTo(from: string, file: string): string | undefined {
   if (from === taskPath) return taskValuesPath
-  return (isClientFile(file) ? clientMoves.get(from) : undefined) ?? movedPaths.get(from)
+  // The signature helper is portable. Keep shared and unclassified files safe for browser consumers.
+  return (!isServerFile(file) ? clientMoves.get(from) : undefined) ?? movedPaths.get(from)
 }
 
 /**
@@ -276,8 +272,11 @@ function rewriteBlock(context: FileContext): boolean {
 /** `env/server` also had names for generated code that the Env root does not export. */
 function reportPrivateEnvNames(context: FileContext, from: string, statement: Node) {
   if (!/^(?:@vite-hub|vite-hub)\/env\/server$/.test(from)) return
-  if (statement.type === "ExportAllDeclaration") return
   const specifiers = "specifiers" in statement && Array.isArray(statement.specifiers) ? statement.specifiers as Node[] : []
+  if (statement.type === "ExportAllDeclaration" || specifiers.some(specifier => specifier.type === "ImportNamespaceSpecifier" || specifier.type === "ExportNamespaceSpecifier")) {
+    followUp(context, statement, `The Env root omits these server exports; review downstream uses: ${[...privateEnvServerNames.values()].join(" ")}`)
+    return
+  }
   for (const specifier of specifiers) {
     const name = specifier.type === "ImportSpecifier"
       ? importedName(specifier)

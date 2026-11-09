@@ -116,6 +116,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/forms": true,
   "@vite-hub/gateways": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
@@ -1468,7 +1469,22 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent())
+  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: options.contentImportBase ?? "vite-hub/content" }))
+  // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, and the user
+  // with Auth. Inert without the folder, and absent without its package.
+  if (ownerModules.formsVite) plugins.push(ownerModules.formsVite.hubForms({
+    database: Boolean(options.database),
+    email: Boolean(options.email),
+    auth: Boolean(options.auth),
+    imports: {
+      runtime: "vite-hub/forms/runtime",
+      database: "vite-hub/forms/database",
+      databases: "vite-hub/database/drizzle",
+      email: "vite-hub/email/server",
+      auth: "vite-hub/auth/server",
+      standard: "vite-hub/runtime",
+    },
+  }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
@@ -1482,7 +1498,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   else if (options.comments === false) plugins.push(commentsOffPlugin())
-  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite) plugins.push(optionalOwnerEntriesPlugin())
+  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
