@@ -4,11 +4,18 @@ import { delimiter, join } from "node:path"
 import { createBuilder } from "vite"
 import { describe, expect, it } from "vitest"
 
+import { createFormsHandler } from "@vite-hub/forms/runtime"
+import { getStandardContext } from "@vite-hub/runtime"
+
 import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli } from "./support/content-cms.ts"
+
+// The generated handler passes `getStandardContext` as the Forms context, so its result must fit. The client address
+// is in `runtime`.
+const _standardContext: NonNullable<Parameters<typeof createFormsHandler>[0]["context"]> = getStandardContext
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
 describe("Forms in a built Nitro 3 app", () => {
@@ -68,7 +75,8 @@ describe("Forms in a built Nitro 3 app", () => {
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
         return body.value
       }
-      // The handler installs the inbox when the server starts, so the Console reads it before any submission.
+      // The handler installs the inbox when the server starts, so server code reads it before any submission.
+      expect(await (await server.fetch("/inbox")).json()).toEqual([])
       expect(await call("forms.list", {})).toEqual([])
       const send = (body: unknown, headers: Record<string, string> = {}) => server.fetch("/api/_vitehub/forms/contact", {
         body: JSON.stringify(body),
