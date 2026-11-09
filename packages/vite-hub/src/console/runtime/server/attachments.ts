@@ -1,6 +1,7 @@
 import * as v from "valibot"
 import { createMessage } from "@vite-hub/agent"
 import { getConsoleBlob } from "./blob.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { isConsoleAttachmentPendingCleanup, consoleAttachmentPrefix as prefix, legacyConsoleAttachmentPrefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "./attachment-cleanup.ts"
 import type { ImagePart } from "@vite-hub/agent"
 
@@ -12,7 +13,7 @@ export { consoleAttachmentRequestBytes } from "./limits.ts"
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
 
 function error(statusCode: number, message: string): Error {
-  return Object.assign(new Error(message), { statusCode, statusMessage: message })
+  return consoleHttpError(statusCode, new Error(message))
 }
 
 /** Roll back new objects if input reconstruction fails before the Agent owns them. */
