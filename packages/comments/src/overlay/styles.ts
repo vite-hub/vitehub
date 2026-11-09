@@ -94,7 +94,7 @@ export const overlayStyles = `
 [data-draft="true"] > [data-slot="comment-layer-popover"] { --popover-width: 300px; border-radius: 6px 18px 18px 18px; }
 [data-slot="comment-layer-popover"][data-preview="true"] { --popover-width: 18rem; animation: none; }
 [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
-  left: auto; right: min(calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
+  left: auto; right: clamp(calc(var(--vh-comment-x, 0px) + 12px - 100vw), calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
 }
 [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
   top: auto; bottom: calc(-28px - var(--pin-y)); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;

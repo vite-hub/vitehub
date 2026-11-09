@@ -159,11 +159,15 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.setViewportSize({ width: 390, height: 720 })
     if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
     await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
-    await page.mouse.click(200, 30)
-    await composer.waitFor({ timeout: 5000 })
-    const card = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").boundingBox()
-    assert.ok(card.x >= 0 && card.x + card.width <= 390, `the card is at ${card.x}..${card.x + card.width}`)
-    await page.keyboard.press("Escape")
+    // In the middle and near the right edge, where the card opens on the left of the spot.
+    for (const x of [200, 380]) {
+      await page.mouse.click(x, 30)
+      await composer.waitFor({ timeout: 5000 })
+      const card = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").boundingBox()
+      assert.ok(card.x >= 0 && card.x + card.width <= 390, `at x ${x} the card is at ${card.x}..${card.x + card.width}`)
+      await page.keyboard.press("Escape")
+      await composer.waitFor({ state: "detached", timeout: 5000 })
+    }
     await page.setViewportSize({ width: 1024, height: 720 })
   })
 
