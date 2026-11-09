@@ -516,6 +516,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           throw error
         })
         synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
+        // A new file creates the tables, indexes, and triggers below, each in its own commit. Under the default FULL
+        // setting, each of those commits syncs the WAL to disk.
+        await prepareWrite()
       }
       if (maxSize !== false) {
         const databases = await client.execute("PRAGMA database_list")

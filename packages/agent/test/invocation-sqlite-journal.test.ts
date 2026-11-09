@@ -170,6 +170,9 @@ describe("SQLite invocation journal", () => {
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
     expect(sql).toContain("PRAGMA journal_mode = WAL")
+    // The schema of a new file commits once per statement, so it already runs with NORMAL.
+    expect(sql.indexOf("PRAGMA synchronous = NORMAL")).toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
+    expect(sql.indexOf("PRAGMA synchronous = NORMAL")).toBeLessThan(sql.findIndex(statement => statement.startsWith("CREATE TABLE")))
     // synchronous is per connection, so every write sets it on the connection it borrows.
     recording.statements.length = 0
     await store.update("run", { observation: step(1), timestamp: at(1) })
