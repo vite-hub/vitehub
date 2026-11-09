@@ -827,10 +827,10 @@ function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, schemaTyp
   return `{\n${fields.join("\n")}\n${prefix}}`
 }
 
-/** The output type of a Standard Schema export, read from its `~standard.types` without a dependency on `@standard-schema/spec`. */
+/** Infer the output from optional Standard Schema type metadata, falling back to unknown when it is absent. */
 function schemaOutputType(specifier: string, exportName: string, schemaTypes: ServerSchemaTypes): string {
   const module = schemaModuleTypeSpecifier(schemaTypes.modules[specifier] ?? specifier, schemaTypes.outputPath)
-  return `NonNullable<typeof import(${JSON.stringify(module)})[${JSON.stringify(exportName)}]["~standard"]["types"]>["output"]`
+  return `typeof import(${JSON.stringify(module)})[${JSON.stringify(exportName)}] extends { readonly "~standard": { readonly types?: { readonly output: infer Output } | undefined } } ? Output : unknown`
 }
 
 function isOptionalServerValue(value: EnvRuntimeRegistryValue): boolean {

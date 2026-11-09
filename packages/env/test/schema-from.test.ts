@@ -26,6 +26,13 @@ export const apiUrl = z.url().refine(value => value.startsWith("https://"), "Use
 export const retries = z.coerce.number().int().min(1).max(5)
 export const tags = z.string().transform(value => value.split(",").map(tag => tag.trim()))
 export const token = z.string().min(20)
+export const withoutMetadata = {
+  "~standard": {
+    version: 1 as const,
+    vendor: "test",
+    validate: (value: unknown) => ({ value: String(value).toUpperCase() }),
+  },
+}
 export const notASchema = { parse: () => "nope" }
 `
 
@@ -44,6 +51,7 @@ else {
     tags: serverEnv.tags,
     token: String(serverEnv.token),
     tokenLength: serverEnv.token.unseal().length,
+    withoutMetadata: serverEnv.withoutMetadata,
   }))
 }
 `
@@ -54,6 +62,9 @@ const serverEnv = useServerEnv()
 export const retries: number = serverEnv.retries
 export const tags: string[] = serverEnv.tags
 export const token: string = serverEnv.token.unseal()
+export const withoutMetadata: unknown = serverEnv.withoutMetadata
+// @ts-expect-error A schema without type metadata has an unknown output.
+export const wrongWithoutMetadata: string = serverEnv.withoutMetadata
 // @ts-expect-error The schema output is a number, not a string.
 export const wrong: string = serverEnv.retries
 `
@@ -112,6 +123,7 @@ beforeAll(async () => {
     retries: env({ default: "2", schema: env.schemaFrom("./env.schema.ts", "retries") }),
     tags: env({ schema: env.schemaFrom("./env.schema.ts", "tags") }),
     token: env({ secret: true, schema: env.schemaFrom("./env.schema.ts", "token") }),
+    withoutMetadata: env({ default: "metadata-free", schema: env.schemaFrom("./env.schema.ts", "withoutMetadata") }),
   })
 }, 60_000)
 
@@ -129,6 +141,7 @@ describe("env.schemaFrom()", () => {
       tags: ["alpha", "beta"],
       token: "<redacted>",
       tokenLength: syntheticToken.length,
+      withoutMetadata: "METADATA-FREE",
     })
   })
 
@@ -174,11 +187,12 @@ describe("env.schemaFrom()", () => {
       ["env.server.retries", "available"],
       ["env.server.tags", "available"],
       ["env.server.token", "invalid"],
+      ["env.server.withoutMetadata", "defaulted"],
     ])
     expect(result.output).not.toContain(shortToken)
   })
 
-  it("generates types from the schema output", async () => {
+  it("generates schema output types and falls back to unknown without metadata", async () => {
     const generated = await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")
     expect(generated).toContain(`typeof import("../../env.schema.js")["retries"]`)
     const program = createProgram({
@@ -186,11 +200,11 @@ describe("env.schemaFrom()", () => {
         module: ModuleKind.ESNext,
         moduleResolution: ModuleResolutionKind.Bundler,
         noEmit: true,
-        skipLibCheck: true,
+        skipLibCheck: false,
         strict: true,
         target: ScriptTarget.ES2022,
       },
-      rootNames: [join(root, "consumer.ts"), join(root, ".vitehub", "types", "env.d.ts")],
+      rootNames: [join(root, "consumer.ts"), join(root, ".vitehub", "types", "env.d.ts"), join(root, ".vitehub", "env", "server.d.ts")],
     })
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }, 30_000)
