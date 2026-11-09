@@ -24,11 +24,10 @@ test("the idle overlay leaves the page usable", { timeout: 120_000 }, async (t) 
     server: { host: "127.0.0.1", port, strictPort: true },
   })
   await server.listen()
+  // Register each cleanup before the next step can fail, so a failed launch does not keep the server open.
+  t.after(() => server.close())
   const browser = await chromium.launch()
-  t.after(async () => {
-    await browser.close()
-    await server.close()
-  })
+  t.after(() => browser.close())
   const page = await browser.newPage({ viewport: { width: 1024, height: 720 } })
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
