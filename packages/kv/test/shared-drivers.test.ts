@@ -189,6 +189,28 @@ describe.each(targets)("$name", (target) => {
     expect(await storage!.incrementItem!("almost", 30)).toBe(Number.MAX_SAFE_INTEGER)
   })
 
+  it("restarts an expired counter at 1, also when the expired value is not an integer", async () => {
+    const [storage] = await target.stores(1)
+    await storage!.setItem("expired-text", "hello", { ttl: 0.5 })
+    await storage!.setItem("expired-huge", "99999999999999999999", { ttl: 0.5 })
+    await storage!.setItem("expired-top", Number.MAX_SAFE_INTEGER, { ttl: 0.5 })
+    await sleep(800)
+
+    expect(await storage!.incrementItem!("expired-text", 30)).toBe(1)
+    expect(await storage!.incrementItem!("expired-huge", 30)).toBe(1)
+    expect(await storage!.incrementItem!("expired-top", 30)).toBe(1)
+    expect(await storage!.incrementItem!("expired-text", 30)).toBe(2)
+  })
+
+  it("refuses a live value beyond the bigint range without a cast error", async () => {
+    const [storage] = await target.stores(1)
+    await storage!.setItem("huge", "99999999999999999999")
+    await storage!.setItem("negative", -5)
+    await expect(storage!.incrementItem!("huge", 30)).rejects.toThrow(/stored integer|safe integer/)
+    expect(await storage!.getItem("huge", { type: "text" })).toBe("99999999999999999999")
+    expect(await storage!.incrementItem!("negative", 30)).toBe(-4)
+  })
+
   it("returns a value to exactly one getAndDelete() caller", async () => {
     const stores = await target.stores(3)
     await stores[0]!.setItem("code", { user: "alice" })
