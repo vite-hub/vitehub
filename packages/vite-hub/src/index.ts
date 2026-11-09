@@ -428,8 +428,8 @@ export interface ViteHubOptions {
 /** Queue options of `vitehub()`. Cloudflare and Vercel use their own Queues, so only the `node` preset reads them. */
 export interface ViteHubQueueOptions {
   /**
-   * `postgres` keeps the jobs in a Postgres table that every instance shares. It reads `QUEUE_POSTGRES_URL`, else
-   * `DATABASE_URL`, when the server starts. `local` keeps them in files of one server process.
+   * `postgres` keeps the jobs in a Postgres table that every instance shares, on the connection of the Default
+   * Database. `QUEUE_POSTGRES_URL` overrides it on the server. `local` keeps them in files of one server process.
    */
   provider?: NodeQueueProvider
 }
@@ -1395,7 +1395,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     const nodeProvider = configuredNodeQueueProvider(options.queue, plan.preset)
     const queueOptions = plan.preset === "node" ? (nodeProvider ? { provider: nodeProvider } : {}) : { provider: plan.services.queue.adapter }
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue(queueOptions, { importBase: "vite-hub/queue" })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue(queueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
   }
   if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {

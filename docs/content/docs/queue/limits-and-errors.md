@@ -105,11 +105,11 @@ A direct Vercel client from `createQueueClient()` needs a `topic`. `getQueue()` 
 
 ### QUEUE_POSTGRES_INVALID_URL
 
-`QUEUE_POSTGRES_URL` or `DATABASE_URL` holds a URL that is not a `postgres://` or `postgresql://` URL. When `DATABASE_URL` points to libSQL, set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs.
+`QUEUE_POSTGRES_URL` is set, and its value is not a `postgres://` or `postgresql://` URL. Set it to the Postgres URL of the jobs, or remove it to use the connection of the Default Database.
 
-### QUEUE_POSTGRES_MISSING_URL
+### QUEUE_POSTGRES_MISSING_CONNECTION
 
-The postgres provider reads `QUEUE_POSTGRES_URL`, else `DATABASE_URL`, when the server starts, and neither is set. Set one of them on the server. The build does not keep the URL.
+The postgres provider has no connection. It uses the connection of the Default Database when the build found it on Postgres, and `QUEUE_POSTGRES_URL` otherwise. Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server.
 
 ### QUEUE_PROVIDER_MISMATCH
 
@@ -188,7 +188,7 @@ The local provider is the Queue Provider of the Node preset when the app has no 
 
 ## Postgres delivery
 
-The postgres provider keeps the jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It reads the URL from `QUEUE_POSTGRES_URL`, else `DATABASE_URL`, when the server starts. It follows the rules of [Local delivery](#local-delivery) for retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency`, with these differences:
+The postgres provider keeps the jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the connection of the Default Database, so it reads the same variable or URL as the Database. `QUEUE_POSTGRES_URL` on the server overrides it. It follows the rules of [Local delivery](#local-delivery) for retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency`, with these differences:
 
 - The first server that starts creates the table and its indexes under a transaction lock, so servers that start at the same time do not race.
 - A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so two instances do not take the same job. A send wakes all workers at once with `NOTIFY`. Without a notification, a worker checks for due jobs every second.

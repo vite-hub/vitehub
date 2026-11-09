@@ -174,9 +174,11 @@ interface LocalQueueModuleProviderOptions extends QueueSharedOptions {
 /**
  * The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database. Every server process
  * that runs the app takes jobs from the table, so the jobs survive a restart and spread over all instances.
- * It reads the connection URL at runtime from `QUEUE_POSTGRES_URL`, else from `DATABASE_URL`.
+ * It uses the connection of the Default Database. `QUEUE_POSTGRES_URL` overrides it at runtime.
  */
 export interface PostgresQueueProviderOptions extends QueueSharedOptions {
+  /** The Database whose Postgres connection Queue uses. The build sets `default` when the Default Database is on Postgres. */
+  database?: string
   provider: "postgres"
   /** Queue Definition that receives the jobs. `getQueue()` sets it. */
   queue?: string
@@ -184,6 +186,11 @@ export interface PostgresQueueProviderOptions extends QueueSharedOptions {
 
 interface PostgresQueueModuleProviderOptions extends QueueSharedOptions {
   provider: "postgres"
+}
+
+/** Postgres options after resolution. The build adds `database` when the Default Database is on Postgres. */
+export interface ResolvedPostgresQueueOptions extends PostgresQueueModuleProviderOptions {
+  database?: string
 }
 
 export type QueueProviderOptions =
@@ -211,7 +218,7 @@ export interface ResolvedLocalQueueOptions extends LocalQueueModuleProviderOptio
 export type ResolvedQueueOptions =
   | CloudflareQueueModuleProviderOptions
   | ResolvedLocalQueueOptions
-  | PostgresQueueModuleProviderOptions
+  | ResolvedPostgresQueueOptions
   | VercelQueueModuleProviderOptions
 
 export interface QueueJob<TPayload = unknown> {
@@ -460,9 +467,10 @@ export interface QueueJobStore {
   readonly provider: "local" | "postgres"
   /**
    * Runs the newest stored job with this message ID now. A dead job gets a new set of attempts. A pending job keeps
-   * its attempts and does not wait for its delay or retry delay. A running job is not changed.
+   * its attempts and does not wait for its delay or retry delay. A running job is not changed. `duplicate`: a newer
+   * live job holds the `idempotencyKey` of the dead job.
    */
-  retry: (id: string) => Promise<LocalQueueJob | "missing" | "running">
+  retry: (id: string) => Promise<LocalQueueJob | "duplicate" | "missing" | "running">
   readonly rules: LocalQueueDeliveryRules
   status: () => Promise<LocalQueueStatus>
 }

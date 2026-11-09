@@ -13,7 +13,7 @@ export type QueueRuntimeClientFactory = (options: QueueRuntimeProviderOptions) =
 let runtimeConfig: false | QueueRuntimeOptions | undefined
 let runtimeClientFactory: QueueRuntimeClientFactory | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
-let jobStore: (() => QueueJobStore) | undefined
+let jobStore: (() => Promise<QueueJobStore> | QueueJobStore) | undefined
 
 const queueEventStorage = new AsyncLocalStorage<unknown>()
 let queueEventDefaults: unknown
@@ -34,12 +34,12 @@ export function setQueueRuntimeConfig(config: false | QueueRuntimeOptions | unde
  * The stored jobs of a provider that does not keep them in this package's process state. The generated server sets it
  * for the postgres provider, so the Queue operations read jobs without importing the Postgres driver.
  */
-export function setQueueRuntimeJobStore(store: (() => QueueJobStore) | undefined): void {
+export function setQueueRuntimeJobStore(store: (() => Promise<QueueJobStore> | QueueJobStore) | undefined): void {
   jobStore = store
 }
 
-export function getQueueRuntimeJobStore(): QueueJobStore | undefined {
-  return jobStore?.()
+export async function getQueueRuntimeJobStore(): Promise<QueueJobStore | undefined> {
+  return await jobStore?.()
 }
 
 export function getQueueRuntimeConfig(): false | QueueRuntimeOptions | undefined {

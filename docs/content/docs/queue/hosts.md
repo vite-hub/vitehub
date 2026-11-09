@@ -24,7 +24,7 @@ With `preset: 'node'` and no Postgres Database, the built server uses the local 
 
 ## Run on several Node instances
 
-With `preset: 'node'` and a Postgres Default Database, the build uses the postgres provider. Each server process reads `QUEUE_POSTGRES_URL`, else `DATABASE_URL`, when it starts, and takes due jobs from the `vitehub_queue_jobs` table. All instances share the jobs, so a job that instance A accepts can run on instance B. `pnpm dev` keeps the jobs in `.vitehub/data/queue` with the same retry rules, so development needs no Postgres. [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery) lists the rules.
+With `preset: 'node'` and a Postgres Default Database, the build uses the postgres provider. Each server process uses the connection of the Default Database, and takes due jobs from the `vitehub_queue_jobs` table. `QUEUE_POSTGRES_URL` on the server overrides the connection. All instances share the jobs, so a job that instance A accepts can run on instance B. `pnpm dev` keeps the jobs in `.vitehub/data/queue` with the same retry rules, so development needs no Postgres. [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery) lists the rules.
 
 `vitehub queue list` shows `provider: "postgres"`, the table and its database without the password, and `durability: "shared"`. The `queue jobs` commands and the Console read and change the jobs in Postgres, so any instance shows the jobs of all instances.
 

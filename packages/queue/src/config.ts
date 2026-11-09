@@ -11,15 +11,16 @@ export interface QueueResolutionInput {
   hosting?: string
   /**
    * The app has a Default Database on Postgres. On a Node server without `queue.provider`, Queue then picks the
-   * `postgres` provider, so every instance shares the jobs. The Queue Vite plugin finds it in the Database Definitions.
+   * `postgres` provider on the connection of that Database, so every instance shares the jobs. The Queue Vite plugin
+   * reads it from the resolved config of the Database integration.
    */
   postgresDatabase?: boolean
 }
 
 const knownProviders = new Set(["cloudflare", "local", "postgres", "vercel"])
 
-/** The variables that the postgres provider reads at runtime for its connection URL, in order. */
-export const postgresQueueUrlVariables = ["QUEUE_POSTGRES_URL", "DATABASE_URL"] as const
+/** The variable that overrides the connection of the postgres provider at runtime. */
+export const postgresQueueUrlVariable = "QUEUE_POSTGRES_URL"
 
 /** Default directory of the local provider, next to the KV `fs-lite` store in `.vitehub/data/kv`. */
 export const defaultLocalQueueBase = ".vitehub/data/queue"
@@ -57,7 +58,8 @@ function resolveProvider(options: Record<string, unknown>, hosting: string, post
 
   const resolved = provider || inferProvider(hosting, postgresDatabase)
 
-  if (resolved === "postgres") return defu(shared, { provider: "postgres" as const })
+  // The jobs use the connection of the Default Database, so they live where the app's data lives.
+  if (resolved === "postgres") return defu(postgresDatabase ? { database: "default" } : {}, shared, { provider: "postgres" as const })
 
   if (resolved === "local") {
     const base = readOwnOption(options, "base")

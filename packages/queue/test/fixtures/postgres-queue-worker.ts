@@ -28,7 +28,7 @@ const engine = createPostgresQueueEngine({
   pollIntervalMs: 200,
   queues: () => ["jobs"],
   table,
-  url,
+  connection: { url },
   workerId: worker,
 })
 

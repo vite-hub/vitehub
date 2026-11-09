@@ -92,7 +92,7 @@ export async function listQueues(): Promise<QueueListResult> {
   const names = listQueueDefinitionNames()
   if (config?.provider === "local" || config?.provider === "postgres") {
     const status = config.provider === "postgres"
-      ? await getQueueRuntimeJobStore()?.status()
+      ? await (await getQueueRuntimeJobStore())?.status()
       : await (await import("../internal/runtime/local-client.ts")).getLocalQueueStatus(config)
     if (status) {
       const empty = { dead: 0, pending: 0, running: 0 }
@@ -146,7 +146,7 @@ async function localJobs(): Promise<QueueJobStore> {
     throw new QueueOperationError("Queue is disabled in this runtime.", 409, "QUEUE_DISABLED", "Add `hubQueue()` to the Vite config and do not set `queue: false`.")
   }
   const store = config?.provider === "postgres"
-    ? getQueueRuntimeJobStore()
+    ? await getQueueRuntimeJobStore()
     : config ? (await import("../internal/runtime/local-client.ts")).useLocalQueueEngine(config) : undefined
   if (!store) {
     throw new QueueOperationError(`The ${config?.provider ?? "configured"} queue provider does not let the app read its jobs. Only the local and postgres providers store jobs that ViteHub can list.`, 409, "QUEUE_JOBS_UNAVAILABLE", "Run the app with `vite dev`, which runs every job in the dev server, or on a Node server with the local or postgres provider. Read hosted jobs in the Cloudflare or Vercel dashboard.")
@@ -174,6 +174,7 @@ export async function retryQueueJob(id: string): Promise<{ job: LocalQueueJob }>
   const result = await (await localJobs()).retry(id)
   if (result === "missing") throw jobNotFound()
   if (result === "running") throw new QueueOperationError("The job is running now.", 409, "QUEUE_JOB_RUNNING", "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.")
+  if (result === "duplicate") throw new QueueOperationError("A newer pending or running job has the idempotency key of this dead job, so the dead job cannot run again.", 409, "QUEUE_JOB_DUPLICATE", "Wait for the newer job to end, or remove the dead job with `vitehub queue jobs clear --state dead`.")
   return { job: result }
 }
 

@@ -66,12 +66,14 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Set `queue.provider` to the provider of the deployment preset, and build again.",
     },
     QUEUE_POSTGRES_INVALID_URL: {
-      why: ({ variable }: { variable: string }) => `The postgres queue provider needs a Postgres URL in ${variable}, and the value is not a \`postgres://\` or \`postgresql://\` URL.`,
-      fix: "Set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs. It takes precedence over `DATABASE_URL`.",
+      why: ({ variable }: { variable: string }) => `${variable} is set, and its value is not a \`postgres://\` or \`postgresql://\` URL.`,
+      fix: "Set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs, or remove it to use the connection of the Default Database.",
     },
-    QUEUE_POSTGRES_MISSING_URL: {
-      why: "The postgres queue provider reads its connection URL from `QUEUE_POSTGRES_URL` or `DATABASE_URL`, and neither is set.",
-      fix: "Set `DATABASE_URL` or `QUEUE_POSTGRES_URL` on the server to a `postgres://` URL. ViteHub reads it when the server starts, not at build time.",
+    QUEUE_POSTGRES_MISSING_CONNECTION: {
+      why: ({ database }: { database?: string }) => database
+        ? `The postgres queue provider uses the connection of the Database "${database}", and that Database has no Postgres client in this runtime.`
+        : "The postgres queue provider has no connection: the build found no Postgres Default Database, and `QUEUE_POSTGRES_URL` is not set.",
+      fix: "Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server to the Postgres URL of the jobs.",
     },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",

@@ -129,7 +129,7 @@ The server logs the directory and this durability once when it starts. `vitehub 
 
 ## Run jobs on several Node servers
 
-The postgres provider keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The server reads the URL from `QUEUE_POSTGRES_URL`, else `DATABASE_URL`, when it starts. The build does not keep it.
+The postgres provider keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `provider: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
 
 ```ts
 // vite.config.ts

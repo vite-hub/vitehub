@@ -116,14 +116,10 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "@vite-hub/database": "workspace:*",
     "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
-    "@vite-hub/database": {
-      "optional": true
-    },
     "postgres": {
       "optional": true
     },

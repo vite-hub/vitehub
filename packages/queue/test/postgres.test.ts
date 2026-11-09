@@ -5,6 +5,11 @@ import { resolve } from "node:path"
 import postgres from "postgres"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 
+import { defineDatabase } from "@vite-hub/database"
+import { createPostgresDatabase } from "@vite-hub/database/runtime/postgres"
+
+import { closePostgresQueues, createPostgresQueueRuntimeClient, resolvePostgresQueueConnection, startPostgresQueue } from "../src/internal/runtime/postgres-client.ts"
+import { getQueueRuntimeJobStore, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 import { createPostgresQueueClient, createPostgresQueueEngine } from "../src/providers/postgres.ts"
 
 import type { ChildProcess } from "node:child_process"
@@ -34,7 +39,7 @@ function engine(options: Partial<PostgresQueueEngineOptions> & { handler?: (job:
     missing: queue => new Error(`No Queue Definition ${queue}`),
     pollIntervalMs: 100,
     queues: () => options.handler ? ["jobs"] : [],
-    url: url!,
+    connection: { url: url! },
     ...options,
   })
   engines.push(created)
@@ -86,6 +91,27 @@ afterAll(async () => {
   if (!sql) return
   for (const name of tables) await sql`drop table if exists ${sql(name)}`
   await sql.end()
+})
+
+describe("postgres Queue connection", () => {
+  const postgresDatabases = async () => ({ default: { db: { $client: postgres("postgres://user:secret@db.internal:5432/app") } } })
+
+  it("uses the client of the Database, and QUEUE_POSTGRES_URL overrides it", async () => {
+    const { connection } = await resolvePostgresQueueConnection({ database: "default" }, postgresDatabases, { DATABASE_URL: "postgres://other/unrelated" })
+    expect("client" in connection).toBe(true)
+    expect(await resolvePostgresQueueConnection({ database: "default" }, postgresDatabases, { QUEUE_POSTGRES_URL: "postgres://jobs/queue" }))
+      .toMatchObject({ connection: { url: "postgres://jobs/queue" } })
+  })
+
+  it("does not read DATABASE_URL", async () => {
+    await expect(resolvePostgresQueueConnection({}, undefined, { DATABASE_URL: "postgres://other/unrelated" }))
+      .rejects.toMatchObject({ code: "QUEUE_POSTGRES_MISSING_CONNECTION" })
+    // A SQLite Database has no postgres.js client.
+    await expect(resolvePostgresQueueConnection({ database: "default" }, async () => ({ default: { db: {} } }), {}))
+      .rejects.toMatchObject({ code: "QUEUE_POSTGRES_MISSING_CONNECTION" })
+    await expect(resolvePostgresQueueConnection({ database: "default" }, postgresDatabases, { QUEUE_POSTGRES_URL: "libsql://jobs" }))
+      .rejects.toMatchObject({ code: "QUEUE_POSTGRES_INVALID_URL" })
+  })
 })
 
 describe.skipIf(!url)("postgres Queue provider", () => {
@@ -185,6 +211,54 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     await until(() => consumer.jobs(), jobs => jobs.length === 0)
     expect(attempts.at(-1)).toBe(1)
     expect(await consumer.retry(id)).toBe("missing")
+  })
+
+  it("runs jobs on the connection of a Database whose URL comes from another variable", async () => {
+    const saved = { DATABASE_URL: process.env.DATABASE_URL, QUEUE_POSTGRES_URL: process.env.QUEUE_POSTGRES_URL }
+    tables.push("vitehub_queue_jobs")
+    // An unrelated DATABASE_URL on a closed port: Queue must not use it.
+    process.env.DATABASE_URL = "postgres://nobody:nothing@127.0.0.1:1/unrelated"
+    delete process.env.QUEUE_POSTGRES_URL
+    process.env.VITEHUB_TEST_QUEUE_DATABASE_URL = url
+    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_QUEUE_DATABASE_URL" } } }, dialect: "postgresql", schema: {} })
+    const db = createPostgresDatabase(definition, { binding: "DB" })
+    const ran: QueueJob[] = []
+    setQueueRuntimeRegistry({ jobs: async () => ({ handler: (job: QueueJob) => void ran.push(job) }) })
+    try {
+      startPostgresQueue({ database: "default", provider: "postgres" }, async () => ({ default: { db } }))
+      const client = await createPostgresQueueRuntimeClient({ database: "default", provider: "postgres", queue: "jobs" })
+      const [error] = await client.send({ n: 1 })
+      expect(error).toBeUndefined()
+      await client.send({ n: 2 }, { delaySeconds: 60 })
+      await until(async () => ran.length, count => count === 1, 10_000)
+      expect(ran[0]?.payload).toEqual({ n: 1 })
+      // The Drizzle client returns timestamps as text. The job list still has ISO times.
+      const store = await getQueueRuntimeJobStore()
+      expect(store?.base).toBe(`postgres://${new URL(url!).hostname}:${new URL(url!).port}${new URL(url!).pathname} (table vitehub_queue_jobs)`)
+      const [pending] = await store!.jobs()
+      expect(pending?.availableAt).toBe(new Date(pending!.availableAt).toISOString())
+      expect(Date.parse(pending!.availableAt) - Date.now()).toBeGreaterThan(50_000)
+    }
+    finally {
+      await closePostgresQueues()
+      setQueueRuntimeRegistry(undefined)
+      Object.assign(process.env, saved)
+      if (saved.DATABASE_URL === undefined) delete process.env.DATABASE_URL
+      if (saved.QUEUE_POSTGRES_URL === undefined) delete process.env.QUEUE_POSTGRES_URL
+      // The Database owns its client. Queue leaves it open.
+      await expect(db.execute("select 1")).resolves.toBeDefined()
+      await Reflect.get(db, "$client").end()
+    }
+  })
+
+  it("reports a dead job whose idempotency key a newer live job holds", async () => {
+    const consumer = engine({ handler: () => { throw new Error("boom") }, retryDelayMs: () => 50, table: table() })
+    await consumer.start()
+    const client = createPostgresQueueClient(consumer, "jobs")
+    const [, dead] = await client.send({}, { idempotencyKey: "order-1" })
+    await until(() => consumer.jobs({ state: "dead" }), jobs => jobs.length === 1)
+    await client.send({}, { delaySeconds: 60, idempotencyKey: "order-1" })
+    expect(await consumer.retry(dead!.messageId!)).toBe("duplicate")
   })
 
   it("clears pending and dead jobs, and keeps running jobs", async () => {

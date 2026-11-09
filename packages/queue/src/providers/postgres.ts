@@ -29,9 +29,17 @@ const listLimit = 1000
 
 type DeliveryError = QueueDeliveryErrorDetails
 
+/** A postgres.js client. */
+export type PostgresQueueSql = postgres.Sql
+
+/**
+ * Where the jobs are. `client` borrows the postgres.js client of the app's Database, which keeps owning it. `url` opens
+ * a client that the engine owns and closes.
+ */
+export type PostgresQueueConnection = { client: PostgresQueueSql } | { url: string }
+
 export interface PostgresQueueEngineOptions {
-  /** The connection URL. `createPostgresQueueRuntimeClient()` reads it from `QUEUE_POSTGRES_URL` or `DATABASE_URL`. */
-  url: string
+  connection: PostgresQueueConnection
   /** `vite dev` sets this. A stored job error then keeps the message and stack of a plain `Error`. */
   development?: boolean
   /** Milliseconds that `close()` waits for running jobs. Defaults to 10 seconds. */
@@ -54,7 +62,7 @@ export interface PostgresQueueEngineOptions {
 
 export interface PostgresQueueEngine extends QueueJobStore {
   readonly provider: "postgres"
-  /** Stops taking jobs, waits up to `drainTimeoutMs` for the running jobs, and closes the connections. */
+  /** Stops taking jobs, waits up to `drainTimeoutMs` for the running jobs, and closes the connections it opened. */
   close: () => Promise<void>
   /** Inserts the jobs in one transaction and returns their message IDs. A job with the key of a live job returns its ID. */
   enqueue: (queue: string, entries: readonly LocalQueueEntry[]) => Promise<string[]>
@@ -63,10 +71,11 @@ export interface PostgresQueueEngine extends QueueJobStore {
   readonly workerId: string
 }
 
+// Times are ISO strings: the Drizzle client of a Database returns timestamps as Postgres text, not as `Date`.
 interface JobRow {
   attempts: number
-  created_at: Date
-  failed_at: Date | null
+  created_at: string
+  failed_at: string | null
   id: string
   idempotency_key: string | null
   last_error: DeliveryError | null
@@ -76,30 +85,34 @@ interface JobRow {
   no_payload?: boolean
   payload?: unknown
   queue: string
-  run_at: Date
+  run_at: string
   status: "dead" | "pending" | "running"
 }
 
 const identifier = /^[a-z_][a-z\d_]{0,62}$/
 
-/** The URL without its password, for logs, `vitehub queue list`, and the Console. */
-export function describePostgresQueueLocation(url: string, table: string): string {
-  try {
-    const parsed = new URL(url)
-    return `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}${parsed.pathname} (table ${table})`
-  }
-  catch {
-    return `Postgres (table ${table})`
-  }
+/** Returns `true` for a postgres.js client, such as the `$client` of a Postgres Database. */
+export function isPostgresQueueSql(value: unknown): value is PostgresQueueSql {
+  return typeof value === "function"
+    && ["begin", "end", "listen", "unsafe"].every(name => typeof Reflect.get(value, name) === "function")
 }
+
+/** The host, port, and database of the client without credentials, for logs, `vitehub queue list`, and the Console. */
+export function describePostgresQueueLocation(sql: PostgresQueueSql, table: string): string {
+  const { database, host, port } = sql.options
+  const hosts = host.map((name, index) => `${name}${port[index] ? `:${port[index]}` : ""}`).join(",")
+  return `postgres://${hosts}/${database} (table ${table})`
+}
+
+const iso = (date: string) => new Date(date).toISOString()
 
 function toJobSummary(row: JobRow): LocalQueueJob {
   return {
     attempts: row.attempts,
-    availableAt: row.run_at.toISOString(),
-    enqueuedAt: row.created_at.toISOString(),
+    availableAt: iso(row.run_at),
+    enqueuedAt: iso(row.created_at),
     ...(row.last_error ? { error: row.last_error } : {}),
-    ...(row.failed_at ? { failedAt: row.failed_at.toISOString() } : {}),
+    ...(row.failed_at ? { failedAt: iso(row.failed_at) } : {}),
     id: row.message_id,
     queue: row.queue,
     // A claim that ran out belongs to a stopped worker. The next claim takes the job again.
@@ -117,10 +130,13 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   const drainTimeoutMs = options.drainTimeoutMs ?? postgresQueueDrainTimeoutMs
   const workerId = options.workerId ?? `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
   const channel = table
-  const base = describePostgresQueueLocation(options.url, table)
+  const ownsClient = "url" in options.connection
   // Postgres prints a notice for each `if not exists` that skips. The jobs need no notices.
-  const sql = postgres(options.url, { onnotice: () => {} })
+  const sql = "url" in options.connection ? postgres(options.connection.url, { onnotice: () => {} }) : options.connection.client
+  const base = describePostgresQueueLocation(sql, table)
   const t = sql(table)
+  // `to_json()` writes a timestamp in ISO 8601, whatever parsers the client has.
+  const times = sql`to_json(run_at) #>> '{}' as run_at, to_json(created_at) #>> '{}' as created_at, to_json(failed_at) #>> '{}' as failed_at`
 
   const running = new Map<string, Promise<void>>()
   const runningPerQueue = new Map<string, number>()
@@ -246,7 +262,7 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
         for update skip locked
         limit ${limit}
       )
-      returning id, message_id, queue, payload, payload is null as no_payload, attempts, status, run_at, created_at, failed_at, last_error, idempotency_key, true as locked`
+      returning id, message_id, queue, payload, payload is null as no_payload, attempts, status, ${times}, last_error, idempotency_key, true as locked`
   }
 
   function start(row: JobRow) {
@@ -323,7 +339,7 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     }
   }
 
-  const columns = sql`id, message_id, queue, attempts, status, run_at, created_at, failed_at, last_error, idempotency_key,
+  const columns = sql`id, message_id, queue, attempts, status, ${times}, last_error, idempotency_key,
     (status = 'running' and locked_until >= now()) as locked`
 
   async function findJob(id: string, payload: boolean): Promise<JobRow | undefined> {
@@ -367,7 +383,8 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
       clearTimeout(drainTimer)
       if (running.size) console.warn(`[vitehub:queue] The postgres provider stopped with ${running.size} running job${running.size === 1 ? "" : "s"}. Another instance runs ${running.size === 1 ? "it" : "them"} again in ${lockSeconds} s.`)
       await unlisten?.().catch(() => {})
-      await sql.end({ timeout: 5 })
+      // A borrowed client belongs to the Database, which keeps using it.
+      if (ownsClient) await sql.end({ timeout: 5 })
     },
     async enqueue(queue, entries) {
       // Check every job before one is stored, so a send that breaks a rule stores nothing.
@@ -421,11 +438,19 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
       const row = await findJob(id, false)
       if (!row) return "missing"
       if (row.locked) return "running"
-      const [updated] = row.status === "dead"
-        ? await sql<JobRow[]>`update ${t} set status = 'pending', attempts = 0, last_error = null, failed_at = null,
-            run_at = now(), updated_at = now() where id = ${row.id} and status = 'dead' returning ${columns}`
-        : await sql<JobRow[]>`update ${t} set run_at = now(), updated_at = now()
-            where id = ${row.id} and not (status = 'running' and locked_until >= now()) returning ${columns}`
+      let updated: JobRow | undefined
+      try {
+        [updated] = row.status === "dead"
+          ? await sql<JobRow[]>`update ${t} set status = 'pending', attempts = 0, last_error = null, failed_at = null,
+              run_at = now(), updated_at = now() where id = ${row.id} and status = 'dead' returning ${columns}`
+          : await sql<JobRow[]>`update ${t} set run_at = now(), updated_at = now()
+              where id = ${row.id} and not (status = 'running' and locked_until >= now()) returning ${columns}`
+      }
+      catch (error) {
+        // A newer live job holds the idempotency key of this dead job.
+        if (error instanceof postgres.PostgresError && error.code === "23505") return "duplicate"
+        throw error
+      }
       if (!updated) return "running"
       await notify(row.queue)
       return toJobSummary(updated)

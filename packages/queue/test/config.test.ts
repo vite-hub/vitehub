@@ -41,8 +41,9 @@ describe("normalizeQueueOptions", () => {
 
 
   it("infers the postgres provider on Node from a Postgres Default Database", () => {
-    expect(normalizeQueueOptions(undefined, { hosting: "node-server", postgresDatabase: true })).toEqual({ provider: "postgres" })
-    expect(normalizeQueueOptions({ cache: false }, { hosting: "node-server", postgresDatabase: true })).toEqual({ cache: false, provider: "postgres" })
+    // The jobs use the connection of the Default Database.
+    expect(normalizeQueueOptions(undefined, { hosting: "node-server", postgresDatabase: true })).toEqual({ database: "default", provider: "postgres" })
+    expect(normalizeQueueOptions({ cache: false }, { hosting: "node-server", postgresDatabase: true })).toEqual({ cache: false, database: "default", provider: "postgres" })
     expect(normalizeQueueOptions(undefined, { hosting: "node-server" })).toEqual({ base: ".vitehub/data/queue", provider: "local" })
     // `resolveQueueHosting()` passes the provider of a Node server as its hosting.
     expect(normalizeQueueOptions(undefined, { hosting: "postgres" })).toEqual({ provider: "postgres" })
@@ -51,6 +52,7 @@ describe("normalizeQueueOptions", () => {
   it("keeps an explicit provider over the Postgres Database", () => {
     expect(normalizeQueueOptions({ provider: "local" }, { hosting: "node-server", postgresDatabase: true })).toEqual({ base: ".vitehub/data/queue", provider: "local" })
     expect(normalizeQueueOptions({ provider: "postgres" }, { hosting: "node-server" })).toEqual({ provider: "postgres" })
+    expect(normalizeQueueOptions({ provider: "postgres" }, { hosting: "node-server", postgresDatabase: true })).toEqual({ database: "default", provider: "postgres" })
   })
 
   it("does not infer postgres on hosts with their own Queue", () => {
