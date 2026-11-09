@@ -69,6 +69,10 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
       expect(image).toBe("https://lumen.example.com/own.png")
       expect(existsSync(join(root, ".output/public/_og"))).toBe(false)
     }
+    // The comark-ui stylesheet is in the first HTML, and the static host serves it.
+    const stylesheet = /<link[^>]* href="(\/_docs\/comark-[0-9a-f]{10}\.css)"/.exec(install)?.[1]
+    expect(stylesheet).toBeDefined()
+    expect(existsSync(join(root, ".output/public", stylesheet!))).toBe(true)
     expect.soft(install).toContain("\"@type\":\"WebSite\"")
     expect(install).toContain("\"@type\":\"WebPage\"")
     expect(install).toContain("\"@type\":[\"Article\",\"TechArticle\"]")
