@@ -1,0 +1,90 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import * as v from "valibot"
+import { describe, expect, it } from "vitest"
+
+import { defineForm } from "../src/index.ts"
+import { createFormsHandler, installedForms, memoryFormRateLimit } from "../src/runtime.ts"
+import { discoverForms, renderFormsHandler } from "../src/vite.ts"
+
+function app(files: Record<string, string>): string {
+  const root = mkdtempSync(join(tmpdir(), "vitehub-forms-"))
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(root, path, ".."), { recursive: true })
+    writeFileSync(join(root, path), content)
+  }
+  return root
+}
+
+describe("discoverForms", () => {
+  it("finds server/forms/<name> files, sorted, without declarations", () => {
+    const root = app({ "server/forms/contact.ts": "", "server/forms/bug-report.mjs": "", "server/forms/types.d.ts": "", "server/forms/nested/x.ts": "" })
+    expect(discoverForms(root).map(form => form.name)).toEqual(["bug-report", "contact"])
+    expect(discoverForms(app({}))).toEqual([])
+  })
+
+  it("rejects names that are not a route segment and duplicates", () => {
+    expect(() => discoverForms(app({ "server/forms/Contact Us.ts": "" }))).toThrow("lowercase letters, digits, and dashes")
+    expect(() => discoverForms(app({ "server/forms/contact.ts": "", "server/forms/contact.mjs": "" }))).toThrow("Two files define the form \"contact\"")
+  })
+})
+
+describe("renderFormsHandler", () => {
+  it("imports only the services the app has", () => {
+    const forms = [{ name: "contact", file: "/app/server/forms/contact.ts" }]
+    const imports = { runtime: "vite-hub/forms/runtime", database: "vite-hub/forms/database", databases: "vite-hub/database/drizzle", email: "vite-hub/email/server", auth: "vite-hub/auth/server", standard: "vite-hub/runtime" }
+    const bare = renderFormsHandler(forms, { imports })
+    expect(bare).not.toContain("databases")
+    expect(bare).not.toContain("email")
+    expect(bare).toContain("import form0 from \"/app/server/forms/contact.ts\"")
+    const full = renderFormsHandler(forms, { imports, database: true, email: true, auth: true })
+    expect(full).toContain("import { databases } from \"vite-hub/database/drizzle\"")
+    expect(full).toContain("sendEmail: message => email.send(message),")
+    expect(full).toContain("getAuthForRequest(request)")
+  })
+})
+
+describe("createFormsHandler", () => {
+  const contact = defineForm({ schema: v.object({ message: v.string() }), rateLimit: { limit: 2, window: "1m" } })
+  const post = (name: string, address = "1.1.1.1") => {
+    const request = new Request(`https://site.test/api/_vitehub/forms/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "Hi" }) })
+    return { request, address }
+  }
+
+  it("routes by the last path segment, limits each address, and installs the inbox", async () => {
+    let address = "1.1.1.1"
+    const handler = createFormsHandler({ forms: { contact }, context: () => ({ clientAddress: address }) })
+    expect((await handler.fetch(post("missing").request)).status).toBe(404)
+    expect((await handler.fetch(post("contact").request)).status).toBe(201)
+    expect((await handler.fetch(post("contact").request)).status).toBe(201)
+    expect((await handler.fetch(post("contact").request)).status).toBe(429)
+    address = "2.2.2.2"
+    expect((await handler.fetch(post("contact").request)).status).toBe(201)
+    const installed = installedForms()
+    expect(installed?.names).toEqual(["contact"])
+    const [, listed] = await installed!.inbox.list()
+    expect(listed).toHaveLength(3)
+  })
+
+  it("throws the email error so the handler logs it", async () => {
+    const form = defineForm({ schema: v.object({ message: v.string() }), store: false, notify: { email: { to: "a@b.c" } } })
+    const handler = createFormsHandler({ forms: { form }, sendEmail: async () => [new Error("down"), undefined] })
+    expect((await handler.fetch(post("form").request)).status).toBe(502)
+  })
+})
+
+it("memoryFormRateLimit opens a new window after the old one ends", () => {
+  let now = 0
+  const limit = memoryFormRateLimit(() => now)
+  const policy = { limit: 1, window: "1s" }
+  expect(limit("k", policy).allowed).toBe(true)
+  expect(limit("k", policy)).toEqual({ allowed: false, retryAfter: 1 })
+  now = 1000
+  expect(limit("k", policy).allowed).toBe(true)
+})
+
+it("createFormsHandler rejects a file that does not default-export defineForm()", () => {
+  expect(() => createFormsHandler({ forms: { contact: { schema: {} } } })).toThrow("server/forms/contact must default-export defineForm")
+})

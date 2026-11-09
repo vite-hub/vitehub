@@ -41,6 +41,16 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -64,6 +74,14 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22.18.0"
