@@ -1,18 +1,16 @@
 ---
 title: Runtime events
-description: Reference runtime event, policy, approval, stream, and usage records across ViteHub packages.
+description: The event, policy, approval, stream, and usage records that ViteHub packages share.
 navigation.order: 57
 navigation.group: Runtime and output
 icon: i-lucide-activity
 ---
 
-Runtime events describe what happened across package boundaries.
-The Runtime Package owns Trace Events, Policy Decisions, Approval Requests, runtime capability handles, and wait-until behavior carried through [Runtime Context](/docs/reference/runtime-context).
+Runtime events record what happened across ViteHub packages. `@vite-hub/runtime` owns them, with capability handles and wait-until behavior. [Runtime Context](/docs/reference/runtime-context) carries them.
 
 ## Trace Event
 
-`TraceEvent` is the shared observability event shape.
-It can describe policy, approval, capability, error, lifecycle, or run activity.
+`TraceEvent` is the shared event shape for logs and traces. It describes policy, approval, capability, error, lifecycle, or run activity.
 
 ```ts [@vite-hub/runtime]
 interface TraceEvent {
@@ -36,72 +34,64 @@ interface TraceEvent {
 }
 ```
 
-`activity` separates work performed by an Agent from ViteHub runtime work and places it in a stable lifecycle phase. For example, Workspace materialization is `vitehub/setup`, an Agent tool call is `agent/execution`, and posting the result is `agent/delivery`. Trace logs also expose these values as `vitehub.activity.owner` and `vitehub.activity.phase` attributes for ordinary telemetry consumers.
+`activity` says who did the work, the Agent or ViteHub, and in which phase. For example, writing Workspace files is `vitehub/setup`, a tool call is `agent/execution`, and posting the result is `agent/delivery`. Trace logs also show them as `vitehub.activity.owner` and `vitehub.activity.phase` attributes.
 
-Use the tagged `payload` field when an event needs structured detail. Payload visibility is an explicit producer decision:
+Use the tagged `payload` field for structured detail. The code that emits the event must choose its visibility:
 
 | Visibility | Trace behavior |
 | --- | --- |
-| `public` | Retains `value` in metadata and content traces. Use only for data that is safe in every configured trace sink. |
-| `summary` | Retains only the supplied `summary`; no raw value is accepted. |
-| `redacted` | Records that a payload was intentionally redacted. |
-| `private` | Records only the private visibility marker. This is also the fallback for malformed payload descriptors. |
+| `public` | Keeps `value` in metadata and content traces. Use only for data that is safe in every trace sink. |
+| `summary` | Keeps only the `summary`. It accepts no raw value. |
+| `redacted` | Records that the payload was hidden on purpose. |
+| `private` | Records only the private marker. Malformed payloads fall back to this. |
 
-The payload contract is independent of `attributes`. Existing attribute content remains metadata-only by default and still requires the existing content policy to opt a trusted sink into inputs or outputs.
+`payload` does not change `attributes`, which stay metadata-only by default. A trusted sink still needs the content policy to get inputs or outputs.
 
-Attribute projection reads own data properties without invoking getters. In metadata mode, this also applies to nested objects and array entries: content keys are recorded as omitted, and other accessors are skipped. Content mode keeps nested attribute values unchanged.
+ViteHub reads only own data properties of attributes and never calls getters. In metadata mode, this applies to nested objects and arrays too: content keys are recorded as omitted, and other accessors are skipped. Content mode keeps nested values as they are.
 
 ## Runtime lifecycle hooks
 
-Runtime lifecycle hooks are host-provided callbacks for observing shared runtime behavior.
-They do not replace package-owned hooks such as Agent Finish Hooks.
+The host calls these hooks to let you observe the runtime. They do not replace package hooks such as Agent Finish Hooks.
 
 | Hook | Payload |
 | --- | --- |
-| `request` | Runtime Host Context before work starts. |
+| `request` | Runtime Host Context before work. |
 | `approval` | Approval Request and runtime context. |
 | `trace` | Trace Event and runtime context. |
 | `error` | Error and runtime context. |
-| `finish` | Runtime Host Context after work finishes. |
+| `finish` | Runtime Host Context after work. |
 
 ## Policy and approvals
 
-Policy Decisions are runtime outcomes, not generic booleans.
-An Approval Request is created only when policy requires external approval.
-An omitted policy resolves to `allow`.
+A Policy Decision is one of four outcomes, not a boolean. ViteHub creates an Approval Request only when the policy needs outside approval. No policy means `allow`.
 
 | Value | Meaning |
 | --- | --- |
 | `allow` | Continue the operation. |
 | `deny` | Stop the operation. |
-| `require-approval` | Stop until an Approval Decision permits execution. |
-| `retryable-failure` | Treat the operation as failed but retryable. |
+| `require-approval` | Stop until an Approval Decision allows it. |
+| `retryable-failure` | Fail, but allow a retry. |
 
 ## Agent stream events
 
-Agent stream output is package-owned Agent behavior.
-The current event stream includes text deltas, data parts, tool input and result events, progress events, approval events, errors, finish events, and usage events.
+`@vite-hub/agent` owns the Agent stream. It sends these events:
 
 | Event family | Use |
 | --- | --- |
-| `text-delta` | Stream assistant text. |
-| `tool-call` and `tool-result` | Represent model-facing tool execution. `tool-result.durationMs` can report elapsed tool time. |
-| `progress` | Represent non-tool runtime progress such as `workspace.prepare`. |
-| `approval-request` and `approval-decision` | Represent approval-shaped tool policy. |
-| `data-agent-input` | Carries provider questions as `{ requestId, questions, status: "requested" }`; replies use `{ requestId, answers }`. |
-| `error` | Represent recoverable or terminal stream errors. |
-| `finish` | Mark completion. |
-| `usage` | Carry an Agent Usage Record when an Agent Driver reports usage. |
+| `text-delta` | Assistant text. |
+| `tool-call` and `tool-result` | A model tool call. `tool-result.durationMs` can report tool time. |
+| `progress` | Progress outside tools, such as `workspace.prepare`. |
+| `approval-request` and `approval-decision` | A tool policy that needs approval. |
+| `data-agent-input` | Provider questions as `{ requestId, questions, status: "requested" }`. Replies use `{ requestId, answers }`. |
+| `error` | Recoverable or terminal stream errors. |
+| `finish` | The run is done. |
+| `usage` | An Agent Usage Record, when the Driver reports usage. |
 
 ## Agent Usage Record
 
-Agent Usage Records normalize usage across model-backed, provider-backed, and custom-run-backed Agent Drivers when usage exists.
-Token fields appear only when the provider reports them or ViteHub can derive them safely.
-The record keeps canonical model identity, execution provider, and transport separate. It preserves provider-reported cost or carries a best-effort estimate when the Usage Capability can match catalog pricing.
+An Agent Usage Record gives usage in one shape for every Agent Driver (the backend that runs the Agent), when the Driver reports usage. Token fields appear only when the provider reports them or ViteHub can derive them safely. Model, execution provider, and transport are separate fields. Cost is the provider's cost, or a best-effort estimate when the Usage Capability matches catalog pricing.
 
-Streams can carry the full Agent Usage Record through `{ type: "usage", usageRecord }`.
-At finish time, read the normalized Agent Usage Record from `event.invocation.usage` in an Agent Finish Hook or `context.invocation.usage` in a Channel Delivery finish effect.
-Applications format that data when a product surface needs text, UI, notes, billing records, or comments.
+Streams send it as `{ type: "usage", usageRecord }`. At the end, read it from `event.invocation.usage` in an Agent Finish Hook, or `context.invocation.usage` in a Channel Delivery finish effect. Your app formats it for text, UI, notes, billing, or comments.
 
 ## Related
 
