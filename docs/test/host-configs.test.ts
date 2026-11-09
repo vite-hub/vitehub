@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { hostConfigs } from "../app/data/host-configs";
 import { changedLines, configHost, pickerHosts, rewriteHostConfig } from "../app/utils/host-config";
 import type { HostConfigs } from "../app/utils/host-config";
+import { frameworks } from "../app/utils/framework";
 
 const docsRoot = resolve(import.meta.dirname, "../content/docs");
 
@@ -17,22 +18,26 @@ const landings = readdirSync(docsRoot, { withFileTypes: true })
     const source = readFileSync(resolve(docsRoot, entry.name, "index.md"), "utf8");
     const match = source.match(/^ {2}:::code-tree\{feature="(\w+)"\}\n([\s\S]*?)^ {2}:::$/m);
     if (!match) return [];
-    const blocks = [...match[2]!.matchAll(/^ {2}```\w+ \[(.+)\]\n([\s\S]*?)^ {2}```$/gm)].map((block) => ({
-      code: block[2]!.split("\n").map((line) => line.slice(2)).join("\n").trimEnd(),
-      path: block[1]!,
-    }));
-    return [{ blocks, feature: match[1] as FeatureId, slug: entry.name }];
+    return frameworks.map((framework) => {
+      const view = match[2]!.replace(/^ {2}::::framework\{name="([^"]+)"\}\n([\s\S]*?)^ {2}::::$/gm,
+        (_, name: string, content: string) => name === framework ? content : "");
+      const blocks = [...view.matchAll(/^ {2}```\w+ \[(.+)\]\n([\s\S]*?)^ {2}```$/gm)].map((block) => ({
+        code: block[2]!.split("\n").map((line) => line.slice(2)).join("\n").trimEnd(),
+        path: block[1]!,
+      }));
+      return { blocks, feature: match[1] as FeatureId, framework, slug: entry.name };
+    });
   });
 
 describe("host configs of the primitive heroes", () => {
   it("finds the heroes that opt in", () => {
-    expect(landings.map((landing) => landing.slug).sort()).toEqual(
+    expect([...new Set(landings.map((landing) => landing.slug))].sort()).toEqual(
       ["blob", "database", "email", "kv", "queue", "rate-limit", "realtime", "sandbox", "schedule"],
     );
-    expect(Object.keys(hostConfigs).sort()).toEqual(landings.map((landing) => landing.feature).sort());
+    expect(Object.keys(hostConfigs).sort()).toEqual([...new Set(landings.map((landing) => landing.feature))].sort());
   });
 
-  describe.each(landings)("$slug", ({ blocks, feature }) => {
+  describe.each(landings)("$slug ($framework)", ({ blocks, feature }) => {
     const configs = hostConfigs[feature]!;
     const config = blocks.find((block) => configHost(block.code));
     const authored = configHost(config?.code ?? "")!;
