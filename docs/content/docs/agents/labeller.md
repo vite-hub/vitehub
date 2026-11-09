@@ -96,7 +96,7 @@ export default defineSchedule({
 
 `cleanupLabeller()` searches `label:"<label>" older_than:<days>d -is:starred -in:trash` for each rule and returns the matching message IDs. It moves them to Trash only when you pass `apply: true` and the Agent has `dryRun: false`. Otherwise the result is a preview. `trashEnabled` does not affect cleanup; it gates only the `trash` action of rules and labels.
 
-Each run moves at most 500 messages per rule, so a large backlog takes several runs. `manual: true` lets `vitehub schedule run cleanup` start a run now. To use the rules with another Gmail Channel, call `cleanupGmailChannel(channel, { rules, apply })` from `vite-hub/agent/channels`.
+Each run moves at most 500 messages per rule, so a large backlog takes several runs. `manual: true` lets `vitehub schedule run cleanup` start a run now.
 
 ## Label older mail
 

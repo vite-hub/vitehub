@@ -355,24 +355,20 @@ pnpm vitehub channels replay --agent labeller --channel gmail --query "in:inbox 
 
 See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `replayChannel()`, cursors, and `--force`.
 
-## Clean up old mail
+## Call the Gmail API
 
-`cleanupGmailChannel()` moves labelled mail older than a number of days to Trash. Starred mail stays. Without `apply: true`, it only returns the matching message IDs. Each run moves at most 500 messages per rule, so call it from a daily [Schedule](/docs/schedule):
+`gmailClient(channel)` returns the Gmail REST client of a Channel, with the same credentials. Use it for a request that the Channel does not make, such as a search. Paths are relative to `users/me/`:
 
-```ts [server/schedules/cleanup.ts]
-import { defineSchedule } from 'vite-hub/schedule'
-import { cleanupGmailChannel } from 'vite-hub/agent/channels'
+```ts [server/api/old-promotions.get.ts]
+import { gmailClient } from 'vite-hub/agent/channels'
 import { inbox } from '../lib/inbox'
 
-export default defineSchedule({
-  cron: '0 4 * * *',
-  async handler() {
-    await cleanupGmailChannel(inbox, {
-      apply: true,
-      rules: { promotions: { label: 'Promotions', olderThan: 14 } },
-    })
+export default {
+  async fetch() {
+    const gmail = await gmailClient(inbox)
+    return Response.json(await gmail({ method: 'GET', path: 'messages', query: { q: 'label:Promotions older_than:14d' } }))
   },
-})
+}
 ```
 
-The [Labeller preset](/docs/agents/labeller#clean-up-old-mail) declares these rules in its `cleanup` option.
+To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/agents/labeller#clean-up-old-mail) and its `cleanup` option.
