@@ -97,13 +97,11 @@ export const overlayStyles = `
 }
 [data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
 
-/* Areas: the one being drawn and the ones that threads point at. A resolved area is dashed and faint. */
-.area, [data-slot="comment-layer-area"] {
+/* The area that a drag in comment mode draws. The areas of threads are in areaStyles, under the page's floating controls. */
+[data-slot="comment-layer-area"] {
   position: fixed; box-sizing: border-box; border: 1.5px solid var(--ui-text-highlighted); border-radius: 3px;
-  background: color-mix(in oklab, var(--ui-text-highlighted) 6%, transparent); pointer-events: none; transition: background-color 120ms ease-out;
+  background: color-mix(in oklab, var(--ui-text-highlighted) 14%, transparent); pointer-events: none;
 }
-.area[data-status="active"], [data-slot="comment-layer-area"] { background: color-mix(in oklab, var(--ui-text-highlighted) 14%, transparent); }
-.area[data-status="resolved"] { border-style: dashed; border-color: var(--ui-text-muted); background: none; opacity: .6; }
 
 /* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. */
 .selection-bar {
@@ -176,4 +174,20 @@ export const documentStyles = `
 ::highlight(vitehub-comment-active) { background-color: rgb(128 128 128 / 34%); }
 html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 [data-vitehub-editing] { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 2px; }
+`
+
+/**
+ * The areas that threads point at, in their own element at z-index 0 of the page: over its text, under its own
+ * floating controls, such as a menu button, which a box must not cross. A resolved area is dashed and faint.
+ */
+export const areaStyles = `
+:host { all: initial; position: fixed; inset: 0; z-index: 0; pointer-events: none; --ink: #171717; --muted: #737373; }
+:host(.dark) { --ink: #fafafa; --muted: #a3a3a3; }
+.area {
+  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 3px;
+  background: color-mix(in oklab, var(--ink) 6%, transparent); transition: background-color 120ms ease-out;
+}
+.area[data-status="active"] { background: color-mix(in oklab, var(--ink) 14%, transparent); }
+.area[data-status="resolved"] { border-style: dashed; border-color: var(--muted); background: none; opacity: .6; }
+@media (prefers-reduced-motion: reduce) { .area { transition: none; } }
 `

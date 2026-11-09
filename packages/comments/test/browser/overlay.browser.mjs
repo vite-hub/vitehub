@@ -67,7 +67,8 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${port}/`)
-  await page.locator("vitehub-tool").getByRole("button", { name: /^Comment/ }).first().waitFor()
+  // Until the session answers, the pill shows a busy "Comments" button. The comment layer mounts with the listeners.
+  await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
   const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
 
   await t.test("a click on the site's own button reaches it", async () => {
@@ -83,7 +84,9 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
 
   await t.test("selected text gets a Comment bar, and the comment keeps the quote highlighted", async () => {
     const box = await page.locator("#first").boundingBox()
-    await drag(page, { x: box.x + 2, y: box.y + 10 }, { x: box.x + box.width * 0.6, y: box.y + 10 })
+    // Only text inside the <strong>, so the pin has to find the paragraph's gutter.
+    const strong = await page.locator("#first strong").boundingBox()
+    await drag(page, { x: box.x + 2, y: box.y + 10 }, { x: strong.x + strong.width * 0.8, y: box.y + 10 })
     assert.match(await page.evaluate(() => getSelection().toString()), /^Most of you/)
     const bar = page.locator("vitehub-comments .selection-bar")
     await bar.waitFor({ timeout: 5000 })
@@ -117,7 +120,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.waitFor({ timeout: 5000 })
     await composer.fill("This paragraph is too long")
     await composer.press("Enter")
-    await page.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelector(".area"), undefined, { timeout: 5000 })
+    await page.waitForFunction(() => document.querySelector("vitehub-comment-areas")?.shadowRoot.querySelector(".area"), undefined, { timeout: 5000 })
     const threads = await api.threads()
     assert.equal(threads.length, 2)
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))

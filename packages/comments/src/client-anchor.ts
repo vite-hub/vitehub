@@ -313,6 +313,16 @@ interface TextResolution {
   score: number
 }
 
+/** The nearest block around an element, such as the paragraph around a `<strong>`: its right edge is the pin's gutter. */
+function blockOf(element: Element): Element {
+  const view = ownerDocument(element)?.defaultView
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const display = view?.getComputedStyle(node).display ?? "block"
+    if (!display.startsWith("inline") && display !== "contents") return node
+  }
+  return element
+}
+
 /** The space between a text block and its 28px pin, as in Drop. */
 const PIN_GUTTER = 8
 /** The room that a pin takes right of its spot at the screen's edge: the pin and 2px. */
@@ -346,7 +356,8 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
   // As in Drop, the pin sits in the gutter right of the quote's block, level with the quote's last line, so it covers
   // no text. It stays on screen when the block reaches the right edge.
   const view = ownerDocument(element)?.defaultView
-  const x = Math.min(Math.max(own.left + own.width, last.left + last.width) + PIN_GUTTER, (view?.innerWidth ?? Infinity) - PIN_ROOM)
+  const block = boxOf(blockOf(element))
+  const x = Math.min(Math.max(block.left + block.width, last.left + last.width) + PIN_GUTTER, (view?.innerWidth ?? Infinity) - PIN_ROOM)
   const y = last.top + last.height / 2
   return {
     position: { clipped: isClipped(element, x, y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },

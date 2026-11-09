@@ -4,7 +4,7 @@ import { fieldElementOf } from "../anchor.ts"
 import { normalizeCommentPage } from "../page.ts"
 import { api } from "./api.ts"
 import { hostIsDark, mountOverlay } from "./app.ts"
-import { documentStyles, pillBarStyles } from "./styles.ts"
+import { areaStyles, documentStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { Mode, OverlayControl } from "./app.ts"
@@ -24,6 +24,8 @@ class CommentsOverlay extends HTMLElement {
   /** The page tools context that started the overlay. */
   context?: ViteHubPageToolContext
   private readonly documentStyle = style(documentStyles)
+  /** The areas of threads, under the page's floating controls. See `areaStyles`. */
+  private readonly areas = document.createElement("vitehub-comment-areas")
   private readonly toolbar = document.createElement("div")
   private control?: OverlayControl
   private mode: Mode = "view"
@@ -56,6 +58,11 @@ class CommentsOverlay extends HTMLElement {
     this.followTheme()
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())
+    const areaRoot = this.areas.shadowRoot ?? this.areas.attachShadow({ mode: "open" })
+    areaRoot.replaceChildren(style(areaStyles))
+    this.areas.setAttribute("data-comments-ui", "")
+    document.documentElement.append(this.areas)
+    this.cleanups.push(() => this.areas.remove())
 
     const [error, session] = await api.session(normalizeCommentPage(location.pathname))
     const allowed = this.active && !error && session.can.read
@@ -66,14 +73,27 @@ class CommentsOverlay extends HTMLElement {
       host: this,
       ...(this.context ? { context: this.context } : {}),
       ...(bar ? { toolbar: this.toolbar } : {}),
+      areas: areaRoot,
       ...(error ? { failure: error } : { session }),
       onMode: (mode) => {
         this.mode = mode
         this.restoreDocumentState()
       },
       exit: () => this.context?.exit(),
+      prompt: this.context?.open !== false,
     })
-    if (!allowed) return
+    if (!allowed) {
+      // Someone who may sign in, or switch accounts, keeps the tool's button, as before it loaded. Pressing it says how.
+      if (bar && session && this.active && !this.context?.open && (session.signIn || session.signOut)) {
+        const launch = document.createElement("button")
+        launch.type = "button"
+        launch.textContent = this.context?.tool.label ?? "Comments"
+        launch.addEventListener("click", () => this.control?.promptAccess())
+        this.toolbar.replaceChildren(launch)
+        bar.hidden = false
+      }
+      return
+    }
     this.listen()
     this.context?.onOpen(() => this.control?.showPanel())
     this.context?.beforeExit(() => !this.control?.hasUnsentComment() || window.confirm("Turn off tools without sending your comment?"))
@@ -94,6 +114,7 @@ class CommentsOverlay extends HTMLElement {
       const dark = hostIsDark()
       this.style.colorScheme = dark ? "dark" : "light"
       this.classList.toggle("dark", dark)
+      this.areas.classList.toggle("dark", dark)
       this.dataset.theme = dark ? "dark" : "light"
     }
     apply()

@@ -51,6 +51,8 @@ export interface OverlayAppOptions {
   context?: ViteHubPageToolContext
   /** The tool's segment of the pill, where the toolbar goes. */
   toolbar?: HTMLElement
+  /** Where the areas of threads go, under the page's floating controls. Without it they stay in the overlay. */
+  areas?: ShadowRoot
   /** The answer of `/session`. Undefined when it failed: `failure` says why. */
   session?: CommentsSession
   failure?: CommentsApiError
@@ -58,6 +60,11 @@ export interface OverlayAppOptions {
   onMode: (mode: Mode) => void
   /** Turns the page tools off on every page. */
   exit: () => void
+  /**
+   * Whether to say at once why the person cannot comment, because they opened the tool. Without it, a page load stays
+   * quiet until `promptAccess()`.
+   */
+  prompt?: boolean
 }
 
 export type Mode = "view" | "comment" | "edit"
@@ -82,6 +89,8 @@ export interface OverlayControl {
   layout: () => void
   /** The selection of the page changed, so the bar over selected text shows, moves, or goes. */
   selectionChanged: () => void
+  /** Says why the person cannot comment, such as **Sign in with GitHub**, when they cannot. */
+  promptAccess: () => void
   editMode: () => boolean
   editElement: () => HTMLElement | undefined
   startEdit: (element: HTMLElement) => Promise<void>
@@ -166,6 +175,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
+  /** The text a first-time guest selected before the name card took the focus, so the comment starts on it after. */
+  let namedQuote: Range | undefined
   const guest = ref(readGuest())
   const tick = ref(0)
   const known = shallowRef<readonly CommentUser[]>([])
@@ -259,6 +270,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (next === "comment") {
       if (!canComment) return
       if (needsName.value) {
+        namedQuote = undefined
         naming.value = true
         return
       }
@@ -337,6 +349,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     guest.value = saveGuest(name)
     naming.value = false
     void joinRoom(true)
+    const quote = namedQuote
+    namedQuote = undefined
+    if (quote?.startContainer.isConnected) {
+      const selection = getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(quote)
+      if (commentOnSelection()) return
+    }
     setMode("comment")
   }
 
@@ -380,6 +400,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const selection = pageSelection()
     if (!selection) return false
     if (needsName.value) {
+      namedQuote = selection.getRangeAt(0).cloneRange()
       naming.value = true
       return true
     }
@@ -493,7 +514,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors" }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
-          nodes.push(h("div", { class: "areas" }, areas()))
+          nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
           const bar = selected.value
           if (bar && !state.draft.value) {
             const below = bar.top < 56
@@ -633,7 +654,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const app = createApp(Overlay)
   registerStandaloneUI(app)
   app.mount(root)
-  if (session && !session.can.read) denied(session)
+  if (session && !session.can.read) {
+    if (options.prompt !== false) denied(session)
+  }
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
 
   const hasUnsentComment = () => [shadow, panelTarget.value?.getRootNode()].some(node =>
@@ -678,6 +701,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (selected.value) trackSelection()
     },
     selectionChanged: trackSelection,
+    promptAccess: () => {
+      if (session && !session.can.read) denied(session)
+    },
     editMode: () => editing.value,
     editElement: () => edit.element,
     startEdit: element => edit.start(element),
