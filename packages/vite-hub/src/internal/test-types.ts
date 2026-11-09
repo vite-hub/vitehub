@@ -64,6 +64,7 @@ export interface TestEmailMessage {
 export interface TestScheduleContext {
   id: string
   attemptId?: string
+  payload?: unknown
   idempotencyKey: string
   runId?: string
   scheduleId?: string
@@ -73,7 +74,7 @@ export interface TestScheduleContext {
 }
 
 export interface TestScheduleDefinition {
-  cron: string
+  cron?: string
   handler(context: TestScheduleContext): unknown
   timeZone?: string
   options?: { manual?: boolean }
