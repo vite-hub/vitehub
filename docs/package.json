@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
-    "@comark/vue": "0.8.1",
+    "@comark/vue": "0.9.0",
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
