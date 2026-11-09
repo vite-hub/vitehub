@@ -549,8 +549,9 @@ describe("ViteHub Nuxt integration", () => {
         setup(pluginBuild) {
           pluginBuild.onResolve({ filter: /^vite-hub\// }, async (args) => {
             for (const plugin of plugins) {
-              if (typeof plugin.resolveId !== "function") continue
-              await Reflect.apply(plugin.resolveId, {}, [args.path, args.importer, { ssr: true, isEntry: false }])
+              const resolveId = typeof plugin.resolveId === "function" ? plugin.resolveId : plugin.resolveId?.handler
+              if (!resolveId) continue
+              await Reflect.apply(resolveId, {}, [args.path, args.importer, { ssr: true, isEntry: false }])
             }
           })
         },
@@ -838,6 +839,34 @@ describe("ViteHub Nuxt integration", () => {
     expect(blobLoad).toHaveBeenCalledWith("\0#vitehub/blob/config", { ssr: true })
     expect(blobResolveId.mock.contexts[0]).toBe(context)
     expect(blobLoad.mock.contexts[0]).toBe(context)
+  })
+
+  it("keeps the hook filters of replayed Nitro resolvers", async () => {
+    const filter = { id: /^\0?#vitehub\/kv\/config$/ }
+    mocks.vitehub.mockReturnValue([{
+      load: { filter, handler: () => "export const kv = {}" },
+      name: "@vite-hub/kv/vite",
+      resolveId: { filter, handler: () => "\0#vitehub/kv/config" },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    await viteHubNuxtModule({ kv: true }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
+    expect(resolver?.resolveId).toEqual({ filter, handler: expect.any(Function) })
+    expect(resolver?.load).toEqual({ filter, handler: expect.any(Function) })
+  })
+
+  it("does not replay runtime resolvers when Nuxt builds Nitro in a Vite environment", async () => {
+    mocks.vitehub.mockReturnValue([{ load: () => undefined, name: "@vite-hub/kv/vite", resolveId: () => undefined }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: true } })
+    await viteHubNuxtModule({ kv: true }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+
+    expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
   })
 
   it.each([
