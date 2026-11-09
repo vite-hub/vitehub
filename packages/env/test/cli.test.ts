@@ -153,7 +153,7 @@ async function createStageFixture(): Promise<string> {
   await mkdir(join(root, "server"), { recursive: true })
   // The provider reveals which region value won without printing it.
   await writeFile(join(root, "server", "region-provider.mjs"), [
-    "import { defineEnvProvider } from \"@vite-hub/env/provider\"",
+    "import { defineEnvProvider } from \"@vite-hub/env\"",
     "export default defineEnvProvider({",
     "  read: ({ env }) => ({ regionToken: env.region === \"process-region\" ? \"process-won\" : undefined }),",
     "})",

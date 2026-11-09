@@ -43,7 +43,7 @@ Point `glob()` at the project's files and deploy anywhere:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
   sources: {

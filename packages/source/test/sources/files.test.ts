@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { createSource } from "../../src/index.ts"
-import { files } from "../../src/files.ts"
+import { createSource, files } from "../../src/index.ts"
 
 describe("@vite-hub/source files()", () => {
   it("serves held files by path below base, without a file system", async () => {

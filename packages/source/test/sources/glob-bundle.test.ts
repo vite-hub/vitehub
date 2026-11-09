@@ -6,8 +6,7 @@ import { parseAst } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
-import { files } from "../../src/files.ts"
-import { glob } from "../../src/glob.ts"
+import { files, glob } from "../../src/index.ts"
 import { BUNDLED_GLOB_ID, collectBundledGlob, findGlobCalls, loadBundledGlob, renderBundledGlob, rewriteGlobCalls } from "../../src/internal/bundle-glob.ts"
 import { resolveGlobInput } from "../../src/sources/glob.ts"
 import { hubSource } from "../../src/vite.ts"
@@ -91,9 +90,9 @@ describe("glob() bundled by the build", () => {
 
   it("generates a module that loads the same bytes, text and binary", async () => {
     const root = await project()
-    const id = BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "vite-hub/source/files", input: "content/docs/**/*" }))
+    const id = BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "vite-hub/source", input: "content/docs/**/*" }))
     const { code, watched } = await loadBundledGlob(id, root)
-    expect(code.split("\n")[0]).toBe(`import { files } from "vite-hub/source/files"`)
+    expect(code.split("\n")[0]).toBe(`import { files } from "vite-hub/source"`)
     expect(code).toContain(`"index.md": text("# Home\\n")`)
     expect(code).toMatch(/"logo\.png": bytes\("[\w+/=]+"\)/)
     expect(watched).toContain(join(root, "content/docs/index.md"))
@@ -110,7 +109,7 @@ describe("glob() calls in a module", () => {
     const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
     const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ build: { ssr: true } }, { command: "build", mode: "production" })
-    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
   })
@@ -121,7 +120,7 @@ describe("glob() calls in a module", () => {
     const config = plugin.config as (config: { build: { ssr: boolean }, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ build: { ssr: true } }, { command: "build", mode: "production" })
     await config({ build: { ssr: false }, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "serve", mode: "development" })
-    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
   })
@@ -131,13 +130,13 @@ describe("glob() calls in a module", () => {
     const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
     const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ build: { ssr: false } }, { command: "serve", mode: "development" })
-    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
     expect(transform.call({ parse }, code, "/project/server/content.ts", { ssr: true })).toBeUndefined()
   })
 
   it("finds calls by the names glob was imported under, with literal options", () => {
     const calls = findGlobCalls(parse(`
-      import { glob, glob as g } from "vite-hub/source/glob"
+      import { glob, glob as g } from "vite-hub/source"
       import { glob as other } from "./not-vitehub"
       const dir = "docs"
       export const a = glob("content/docs/**/*.md")
@@ -146,18 +145,18 @@ describe("glob() calls in a module", () => {
       export const d = other("x/**")
     `))
     expect(calls.map(call => [call.input, call.filesModule])).toEqual([
-      ["content/docs/**/*.md", "vite-hub/source/files"],
-      [{ cwd: "docs", include: ["**/*.md"], dot: true }, "vite-hub/source/files"],
-      [undefined, "vite-hub/source/files"],
+      ["content/docs/**/*.md", "vite-hub/source"],
+      [{ cwd: "docs", include: ["**/*.md"], dot: true }, "vite-hub/source"],
+      [undefined, "vite-hub/source"],
     ])
   })
 
   it("swaps calls with literal options for their bundled module and leaves the others", () => {
-    const code = `import { glob } from "@vite-hub/source/glob"\nconst dir = "docs"\nexport const a = glob("docs/**/*.md")\nexport const b = glob({ cwd: dir, include: "*" })\n`
+    const code = `import { glob } from "@vite-hub/source"\nconst dir = "docs"\nexport const a = glob("docs/**/*.md")\nexport const b = glob({ cwd: dir, include: "*" })\n`
     const output = rewriteGlobCalls(code, findGlobCalls(parse(code)))
     expect(output).toContain(`export const a = __vitehubGlob0\n`)
     expect(output).toContain(`export const b = glob({ cwd: dir, include: "*" })`)
-    expect(output.split("\n")[0]).toBe(`import __vitehubGlob0 from ${JSON.stringify(BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "@vite-hub/source/files", input: "docs/**/*.md" })))};`)
+    expect(output.split("\n")[0]).toBe(`import __vitehubGlob0 from ${JSON.stringify(BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "@vite-hub/source", input: "docs/**/*.md" })))};`)
   })
 
   it("ignores modules that do not import glob from ViteHub", () => {
@@ -172,7 +171,7 @@ describe("files()", () => {
 })
 
 it("renders an empty match as an empty Source", async () => {
-  const code = renderBundledGlob("vite-hub/source/files", {})
+  const code = renderBundledGlob("vite-hub/source", {})
   const body = code.split("\n").slice(1).join("\n").replace("export default ", "return ")
   const source = new Function("files", body)(files) as FileSource<string>
   await expect(source.getKeys({ rootDir: "/" })).resolves.toEqual([])

@@ -1158,8 +1158,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     : hubEnv({
         ...options.env,
         runtimeImports: {
-          secret: "vite-hub/env/secret",
-          server: "vite-hub/env/server",
+          secret: "vite-hub/env",
+          server: "vite-hub/_internal/env/internal/server",
           ...options.env?.runtimeImports,
         },
       })
@@ -1353,7 +1353,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(emailVite, "email").hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,
-      runtimeEnvImport: "vite-hub/env/server",
+      runtimeEnvImport: "vite-hub/_internal/env/internal/server",
       workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
     } as EmailVitePluginOptions))
   }

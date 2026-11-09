@@ -113,10 +113,10 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"debug\": boolean")
     expect(types).toContain("\"port\": number")
     expect(types).toContain("\"optionalLabel\": string | undefined")
-    expect(types).toContain("\"githubToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(types).toContain("\"githubToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     expect(types).toContain("\"dryRun\": boolean")
     expect(types).toContain("\"mode\": \"draft\" | \"send\"")
-    expect(types).toContain("\"pin\": import(\"@vite-hub/env/secret\").SecretEnv<number>")
+    expect(types).toContain("\"pin\": import(\"@vite-hub/env\").SecretEnv<number>")
     expect(types).toContain("\"retries\"?: number")
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("\"pin\": SecretEnv<number>")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export interface PublicEnv")
@@ -380,18 +380,18 @@ describe("Vite plugin", () => {
     const types = await readFile(join(root, ".vitehub/types/env.d.ts"), "utf8")
     expect(types).toContain("declare module \"#vitehub/env/public\"")
     expect(types).toContain("declare module \"#vitehub/env/server\"")
-    expect(types).toContain("import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(types).toContain("import(\"@vite-hub/env\").SecretEnv<string>")
     expect(types).toContain("export interface PublicEnv")
     expect(types).toContain("export interface ServerEnv")
     expect(types).toContain("\"appName\": string")
     expect(types).toContain("\"app\": {")
     expect(types).toContain("\"name\": \"Telegram Audio\"")
-    expect(types).toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
-    expect(types).toContain("\"optionalSecret\"?: import(\"@vite-hub/env/secret\").SecretEnv<string>")
-    expect(types).toContain("\"optionalToken\"?: import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(types).toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
+    expect(types).toContain("\"optionalSecret\"?: import(\"@vite-hub/env\").SecretEnv<string>")
+    expect(types).toContain("\"optionalToken\"?: import(\"@vite-hub/env\").SecretEnv<string>")
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("usePublicEnv(): PublicEnv")
-    expect(types).toContain("useServerEnv(event?: import(\"@vite-hub/env/server\").ViteHubContext): ServerEnv")
+    expect(types).toContain("useServerEnv(event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): ServerEnv")
     expect(types).toContain("runWithServerEnv")
     expect(types).not.toContain("serverEnv")
     expect(types).not.toContain("buildConfig")
@@ -402,11 +402,11 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("useServerEnv")
     await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export function usePublicEnv(): PublicEnv")
     const serverModuleTypes = await readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")
-    expect(serverModuleTypes).toContain("import type { SecretEnv } from \"@vite-hub/env/secret\"")
+    expect(serverModuleTypes).toContain("import type { SecretEnv } from \"@vite-hub/env\"")
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
-    expect(serverModuleTypes).toContain("export function useServerEnv(event?: import(\"@vite-hub/env/server\").ViteHubContext): ServerEnv")
-    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/server\").ViteHubContext): Promise<string>")
+    expect(serverModuleTypes).toContain("export function useServerEnv(event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): ServerEnv")
+    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined
@@ -490,7 +490,7 @@ describe("Vite plugin", () => {
 
     const serverModule = await readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")
     expect(serverModule).toContain('from "#app/env/server"')
-    expect(serverModule).not.toContain('from "@vite-hub/env/server"')
+    expect(serverModule).not.toContain('from "@vite-hub/env/internal/server"')
     const generated = await import(pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href)
     expect(await generated.loadServerEnv()).toEqual({ token: "ok" })
     expect((await generated.manageServerEnv(new Request("http://localhost"))).status).toBe(503)
@@ -531,7 +531,7 @@ describe("Vite plugin", () => {
     ].join("\n"), "utf8")
     const runtimeFacadePath = join(root, "env-runtime.mjs")
     await writeFile(runtimeFacadePath, [
-      `export { createServerEnvManagement, describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/server.js", import.meta.url).href)}`,
+      `export { createServerEnvManagement, describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/internal/server.js", import.meta.url).href)}`,
       ``,
     ].join("\n"), "utf8")
 
@@ -947,7 +947,7 @@ describe("Vite plugin", () => {
       root: join(root, "app"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -958,7 +958,7 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } export interface ViteHubContext { readonly "~standard": { readonly req: Request } } }\n', "utf8")
+    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/internal/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } export interface ViteHubContext { readonly "~standard": { readonly req: Request } } }\n', "utf8")
     const packageJsonPath = join(appRoot, "package.json")
     const packageJson = JSON.stringify({
       imports: {
@@ -1043,7 +1043,7 @@ describe("Vite plugin", () => {
       root: join(root, "frontend"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "frontend", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -1070,7 +1070,7 @@ describe("Vite plugin", () => {
       root: join(root, "app"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -1096,7 +1096,7 @@ describe("Vite plugin", () => {
       root: join(root, "app"),
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": import(\"@vite-hub/env\").SecretEnv<string>")
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 

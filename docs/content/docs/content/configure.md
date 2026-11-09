@@ -34,7 +34,7 @@ Plugin options are evaluated when the runtime is created. Recreate or rebuild th
 | Registered Source name | Opens `useSource(name)` for each load. |
 | Reader factory `() => reader` | Calls the factory for each load. |
 | Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
-| `glob()` from `vite-hub/source/glob` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
+| `glob()` from `vite-hub/source` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
 Each item's public path comes from its `path`, or from its key. Items need `content` or `data`. ViteHub serializes structured `data` as JSON before Comark parses it.
@@ -393,7 +393,7 @@ pnpm add comark-content
 import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
 	plugins: [sqliteFullTextSearch({ database: sqlite() })],

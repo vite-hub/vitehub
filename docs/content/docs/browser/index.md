@@ -51,7 +51,7 @@ icon: i-lucide-monitor
   import { defineEventHandler } from 'h3'
   import {
     runBrowserAction,
-  } from 'vite-hub/browser/actions'
+  } from 'vite-hub/browser'
 
   // One call, no browser file needed
   export default defineEventHandler(() => {

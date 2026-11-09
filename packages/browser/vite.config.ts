@@ -11,7 +11,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      "src/actions.ts",
       "src/index.ts",
       "src/internal/chromium.ts",
       "src/internal/chromium.workerd.ts",

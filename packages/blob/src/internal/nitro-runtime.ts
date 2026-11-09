@@ -101,7 +101,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   ])]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
-    `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
+    `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("index")))}`,
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {

@@ -420,7 +420,7 @@ describe("hubBrowser", () => {
     await writeFile(
       join(root, "server.ts"),
       [
-        `import { runBrowserContent } from "@vite-hub/browser/actions"`,
+        `import { runBrowserContent } from "@vite-hub/browser"`,
         `export async function render() { return await runBrowserContent("https://example.com") }`,
         "",
       ].join("\n"),
@@ -438,9 +438,7 @@ describe("hubBrowser", () => {
       logLevel: "silent",
       plugins: [hubBrowser({ binding: "CODE_BROWSER", engine: "chromium" })],
       resolve: {
-        alias: {
-          "@vite-hub/browser/actions": join(import.meta.dirname, "../dist/actions.js"),
-        },
+        alias: [{ find: /^@vite-hub\/browser$/, replacement: join(import.meta.dirname, "../dist/index.js") }],
       },
       root,
     })

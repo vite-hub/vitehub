@@ -15,7 +15,7 @@ Use these imports and methods to read Sources from server code and expose them t
 | `defineSource`, `defineSources`, `createSource`, `combineSources`, `splitSource` from `vite-hub/source` | Define loaders, open managed readers, combine keyed readers, and split items into parts. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
-| `file` from `vite-hub/source/file`, `glob` from `vite-hub/source/glob`, `markdown` from `vite-hub/source/markdown`, `github` from `vite-hub/source/github`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each subpath also exports its option types. |
+| `file`, `files`, `glob`, `markdown`, and `github` from `vite-hub/source`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each entry also exports the option types of its loaders. `mcpResources` has its own entry because it loads the MCP SDK. |
 | `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
 | `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Consume a Collection from Vue and detect access errors. |
@@ -58,9 +58,7 @@ export default defineEventHandler(async () => {
 Register Sources only when callers need lookup by name. Direct `createSource()` calls do not need registration.
 
 ```ts [server/sources.ts]
-import { defineSources, registerSources } from 'vite-hub/source'
-import { file } from 'vite-hub/source/file'
-import { github } from 'vite-hub/source/github'
+import { defineSources, registerSources, file, github } from 'vite-hub/source'
 
 export const sources = defineSources({
   readme: file('README.md'),
@@ -105,8 +103,7 @@ For typed name lookup, declare `ViteHubSourceMap` entries as `typeof` the matchi
 Use `splitSource()` when one file holds many items, such as the sections of a Markdown file or the rows of a CSV file. `split()` receives one item of the parent Source and returns its parts. Each part is an item of the new Source, with the key `<parent key>#<part key>`.
 
 ```ts [server/sections.ts]
-import { createSource, splitSource } from 'vite-hub/source'
-import { glob } from 'vite-hub/source/glob'
+import { createSource, splitSource, glob } from 'vite-hub/source'
 
 export const sections = splitSource({
   source: glob({ cwd: 'docs', include: '**/*.md' }),

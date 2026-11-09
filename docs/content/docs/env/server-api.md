@@ -13,7 +13,7 @@ icon: i-lucide-code-2
 | `env` from `@vite-hub/env` or `@vite-hub/env/vite` | Declare Env values and Env Sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect operational Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
-| `defineEnvProvider` from `@vite-hub/env/provider` | Define a read-only runtime provider for external Env storage. |
+| `defineEnvProvider` from `@vite-hub/env` | Define a read-only runtime provider for external Env storage. |
 | `loadServerEnv` from `#vitehub/env/server` | Load one immutable Server Env snapshot, including provider-backed values. |
 | `describeServerEnv` from `#vitehub/env/server` | List declaration metadata without reading host values or calling providers. |
 | `inspectServerEnv` from `#vitehub/env/server` | Inspect status-only Server Env metadata without returning values. |
@@ -21,11 +21,11 @@ icon: i-lucide-code-2
 | `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
 | `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
 | `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
-| `SecretEnv` from `@vite-hub/env` or `@vite-hub/env/secret` | Represent Secret Env values that redact by default. |
-| `resolveServerEnv` from `@vite-hub/env` or `@vite-hub/env/server` | Resolve a server env registry manually. |
-| `openWorkflowEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Use the OpenWorkflow env preset. |
-| `typesafeEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Declare the Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver), `llmGate()`, and `llmRoute()` use by default. |
-| `parseSchema` from `@vite-hub/env` or `@vite-hub/env/schema` | Parse Standard Schema-compatible values. |
+| `SecretEnv` from `@vite-hub/env` | Represent Secret Env values that redact by default. |
+| `resolveServerEnv` from `@vite-hub/env` | Resolve a server env registry manually. |
+| `openWorkflowEnv` from `@vite-hub/env` | Use the OpenWorkflow env preset. |
+| `typesafeEnv` from `@vite-hub/env` | Declare the Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver), `llmGate()`, and `llmRoute()` use by default. |
+| `parseSchema` from `@vite-hub/env` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime
 
@@ -92,8 +92,8 @@ export default defineConfig({
 The provider reads all requested keys once. It receives a frozen snapshot containing only literal and host-backed Server Env values, so a Kubernetes or Cloudflare secret can authenticate the external store without importing `#vitehub/env/server` recursively.
 
 ```ts [server/env/credentials.ts]
-import { defineEnvProvider } from '@vite-hub/env/provider'
-import type { SecretEnv } from '@vite-hub/env/secret'
+import { defineEnvProvider } from '@vite-hub/env'
+import type { SecretEnv } from '@vite-hub/env'
 
 export default defineEnvProvider<{
   credentialsGatewayKey: SecretEnv<string>

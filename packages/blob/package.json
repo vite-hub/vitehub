@@ -51,11 +51,6 @@
       "import": "./dist/config.js",
       "default": "./dist/config.js"
     },
-    "./content-type": {
-      "types": "./dist/content-type.d.ts",
-      "import": "./dist/content-type.js",
-      "default": "./dist/content-type.js"
-    },
     "./drivers/akamai": {
       "types": "./dist/drivers/akamai.d.ts",
       "default": "./dist/drivers/akamai.js"
@@ -136,11 +131,6 @@
       "import": "./dist/drivers/vercel.js",
       "default": "./dist/drivers/vercel.js"
     },
-    "./ensure": {
-      "types": "./dist/ensure.d.ts",
-      "import": "./dist/ensure.js",
-      "default": "./dist/ensure.js"
-    },
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js",
@@ -155,11 +145,6 @@
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
       "default": "./dist/operations.js"
-    },
-    "./reference": {
-      "types": "./dist/reference.d.ts",
-      "import": "./dist/reference.js",
-      "default": "./dist/reference.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",

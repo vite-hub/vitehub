@@ -1269,7 +1269,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ]))
       await Promise.all([
         writeFile(join(appDir, "index.ts"), `
-          import { runBrowserContent } from "@vite-hub/browser/actions"
+          import { runBrowserContent } from "@vite-hub/browser"
           export async function load() {
             return await runBrowserContent("https://example.com")
           }
@@ -1446,7 +1446,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       await run("pnpm", ["run", "typecheck"], appDir)
       const generatedEnvTypes = await readFile(join(appDir, ".vitehub/env/server.d.ts"), "utf8")
-      expect(generatedEnvTypes).toContain('import("vite-hub/env/server").EnvAccessContext')
+      expect(generatedEnvTypes).toContain('import("vite-hub/_internal/env/internal/server").EnvAccessContext')
       expect(generatedEnvTypes).not.toContain('import("@vite-hub/env/bridge")')
       await writeFile(join(appDir, "env-typecheck.json"), JSON.stringify({
         compilerOptions: {
@@ -1610,7 +1610,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(authTypes).toContain("namespace ViteHub")
       expect(authServerTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
-      expect(envServer).toContain("vite-hub/env/server")
+      expect(envServer).toContain("vite-hub/_internal/env/internal/server")
       expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
 
       expect(existsSync(join(vercelFunctionsRoot, "__queue.func/index.mjs"))).toBe(false)
@@ -1665,7 +1665,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(authServerTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(emailTemplate).toContain("Welcome")
-      expect(envServer).toContain("vite-hub/env/server")
+      expect(envServer).toContain("vite-hub/_internal/env/internal/server")
       expect(workflowRegistry).toContain("vite-hub/_internal/agent")
       expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")

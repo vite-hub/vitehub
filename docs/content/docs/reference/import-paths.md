@@ -81,15 +81,13 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
-| `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, and the `image()` and `file()` Blob reference schemas. |
-| `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()` and `createMultipartUploader()`. |
-| `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
+| `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, `ensureBlob()`, `detectContentType()`, and the `image()` and `file()` Blob reference schemas. |
+| `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()`, `createMultipartUploader()`, and `detectContentType()`. |
 | `vite-hub/blob/media` | Browser-safe media helpers: `responsiveImage()`, `imageVariantUrl()`, `parseImageVariant()`, and `probeImage()`. |
 | `vite-hub/blob/vue` | Vue upload composables: `useUpload()` and `useMultipartUpload()`. |
-| `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, and named Browser runs. |
+| `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, named Browser runs, and Browser Run actions (`runBrowserAction()`, `runBrowserContent()`). |
 | `vite-hub/web-container` | Boot and mount a WebContainer in the browser, run app commands, read preview readiness and status, and export snapshots. Re-exports `@vite-hub/web-container`. |
 | `vite-hub/web-container/connect` | Static connection-provider metadata and credential-to-process environment mapping with `defineConnect()` and `connectEnv()`. Re-exports `@vite-hub/web-container/connect`. |
-| `vite-hub/browser/actions` | ViteHub Browser actions backed by Cloudflare Browser Run. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the bundle report of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
@@ -98,21 +96,16 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, `vite-hub/comments/realtime`, `vite-hub/comments/runtime`, and `vite-hub/comments/runtime/auth` | Pin anchors for the browser, the Comments tables, and the presence room, API handler, Nitro plugin, and Auth session reader that generated output imports. |
 | `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
 | `vite-hub/page/pill.js` | The page pill of ViteHub's page tools as a classic browser script that declares `ViteHubPagePill`, for a page script of your own to paste in as text, for example with a Vite `?raw` import. It has no module exports. |
-| `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions, the Google preset with typed Gmail Operations, and runtime access. |
+| `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions and `createConnectionsHandler()` (the management and OAuth routes that the Console mounts), the Google preset with typed Gmail Operations, and runtime access. |
 | `vite-hub/connections/chatgpt` | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
-| `vite-hub/connections/agent` and `vite-hub/connections/http` | Agent primitive handle, and the management and OAuth routes that the Console mounts. |
+| `vite-hub/connections/agent` | Agent primitive handle. |
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
-| `vite-hub/env` | Env Declaration helpers and authoring types. |
-| `vite-hub/env/http` | Authenticated HTTP adapter for declared Env Bridge credentials. |
-| `vite-hub/env/auth` | Env Bridge authentication adapters |
-| `vite-hub/env/bridge` | Runtime credential replacement, scoped grants, and durable activity. |
-| `vite-hub/env/database` | Encrypted Env Bridge storage on ViteHub SQLite/Drizzle databases. |
-| `vite-hub/env/provider` | Define read-only runtime providers for application-owned external Env storage. |
+| `vite-hub/env` | Env Declaration helpers, presets, `defineEnvProvider()`, `parseSchema()`, `SecretEnv`, and server-only Env access (`resolveServerEnv()`, `loadServerEnv()`, `inspectServerEnv()`). |
+| `vite-hub/env/bridge` | Runtime credential replacement, scoped grants, durable activity, the authentication adapter `createEnvAuthenticator()`, and the management handler `createEnvBridgeHandler()`. |
+| `vite-hub/env/database` | Encrypted Env Bridge storage on ViteHub SQLite/Drizzle databases. A separate entry because it loads the optional `drizzle-orm` peer. |
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
-| `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
-| `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
 | `vite-hub/env/seal` | AES-GCM `seal`, `unseal`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. |
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
@@ -132,13 +125,9 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
 | `vite-hub/shell/providers/just-bash` | Just Bash Shell provider. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
-| `vite-hub/task` | Nitro `defineTask()` and `runTask()` for `server/tasks/` files. |
 | `vite-hub/test` | `setupViteHubTest()` for app tests: local backends for KV, Blob, Database, Queue, Email, and Rate Limit, Server Env values, and Channel deliveries. See [Testing](/docs/development/testing). |
-| `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, and Collections (`defineCollection`, `array`, `table`). |
+| `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, Collections (`defineCollection`, `array`, `table`), and the built-in loaders `file()`, `files()`, `glob()`, `markdown()`, and `github()`. `files()` is the Source that `glob()` becomes in a server build. |
 | `vite-hub/source/client` and `vite-hub/source/server` | Vue Collection pagination and the H3 Collection route adapter. |
-| `vite-hub/source/file`, `vite-hub/source/glob`, and `vite-hub/source/markdown` | Local file implementations, loaded only when selected. |
-| `vite-hub/source/files` | `files()`, the Source that `glob()` becomes in a server build, with the matched files bundled at build time. |
-| `vite-hub/source/github` | GitHub Source implementation, loaded only when selected. |
 | `vite-hub/source/mcp` | MCP Resources implementation with its private SDK closure. |
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
@@ -193,13 +182,11 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
 | `@vite-hub/auth/mcp` | Auth Package | MCP OAuth helpers for manual hosts, with the optional `@better-auth/oauth-provider` peer. |
 | `@vite-hub/auth/runtime/server` | Auth Package | Lightweight Auth resolver registration and lazy access middleware for framework integrations. |
-| `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, and Blob reference schemas. |
+| `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, `ensureBlob()`, `detectContentType()`, and Blob reference schemas. |
 | `@vite-hub/blob/client` | Blob Package | Framework-neutral browser upload helpers. |
-| `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
 | `@vite-hub/blob/media` | Blob Package | Browser-safe media helpers for responsive images and variant URLs. |
 | `@vite-hub/blob/vue` | Blob Package | Vue upload composables. |
-| `@vite-hub/browser` | Browser Package | Browser Definitions, invocation-scoped sessions, and low-level Browser Client lifecycle. |
-| `@vite-hub/browser/actions` | Browser Package | ViteHub Browser actions backed by Cloudflare Browser Run. |
+| `@vite-hub/browser` | Browser Package | Browser Definitions, invocation-scoped sessions, Browser Run actions, and low-level Browser Client lifecycle. |
 | `@vite-hub/browser/controllers/cdp` and `@vite-hub/browser/controllers/playwright` | Browser Package | Raw CDP and Playwright Browser Session controllers. |
 | `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definitions, sessions, and built-in runtime selection. |
@@ -212,7 +199,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/comments/realtime` and `@vite-hub/comments/runtime` | Comments Package | The presence room definition, the Comments API handler, and the Nitro plugin that generated output imports. |
 | `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
 | `@vite-hub/connections/chatgpt` | Connections Package | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
-| `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
+| `@vite-hub/connections/server` and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, and the Agent primitive handle. `createConnectionsHandler()` comes from `@vite-hub/connections`. |
 | `@vite-hub/comments/client`, `@vite-hub/comments/rpc`, `@vite-hub/comments/server`, and `@vite-hub/comments/database/postgres` | Comments Package | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
 | `@vite-hub/comments/operations` | Comments Package | The `comments.*` operations. The framework distribution imports them for you. |
 | `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
@@ -229,12 +216,9 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `@vite-hub/database` and `@vite-hub/database/drizzle` | Database Package | Database Definition helpers and generated `useDatabase()` access to a Drizzle database and schema. |
-| `@vite-hub/env` | Env Package | Env Declaration helpers. |
-| `@vite-hub/env/auth` | Env Package | Env Bridge authentication adapters. |
-| `@vite-hub/env/http` | Env Package | Authenticated HTTP adapter for declared credentials. |
-| `@vite-hub/env/bridge` | Env Package | Runtime credential replacement, scoped grants, and durable activity. |
+| `@vite-hub/env` | Env Package | Env Declaration helpers, presets, `defineEnvProvider()`, `parseSchema()`, `SecretEnv`, and server-only Env access. |
+| `@vite-hub/env/bridge` | Env Package | Runtime credential replacement, scoped grants, durable activity, `createEnvAuthenticator()`, and `createEnvBridgeHandler()`. |
 | `@vite-hub/env/database` | Env Package | Encrypted SQLite/Drizzle storage for Env Bridge. |
-| `@vite-hub/env/provider` | Env Package | Define read-only runtime providers for application-owned external Env storage. |
 | `@vite-hub/env/seal` | Env Package | AES-GCM helpers in the Env Bridge database store format. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |

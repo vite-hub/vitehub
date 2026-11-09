@@ -58,8 +58,8 @@ const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 const defaultRuntimeImports = {
-  secret: "@vite-hub/env/secret",
-  server: "@vite-hub/env/server",
+  secret: "@vite-hub/env",
+  server: "@vite-hub/env/internal/server",
 }
 let envVitePluginSequence = 0
 const developmentSecretLocks = new Map<string, Promise<{ secret: string, generated: boolean, envKey: string }>>()

@@ -7,7 +7,7 @@ const contentFiles: PrimitiveProjectFile[] = [
     content: `import sqlite from "comark-content/database/sqlite-node"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { defineContent } from "vite-hub/content"
-import { glob } from "vite-hub/source/glob"
+import { glob } from "vite-hub/source"
 
 export const content = defineContent({
   plugins: [sqliteFullTextSearch({ database: sqlite() })],

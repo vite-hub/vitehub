@@ -105,7 +105,7 @@ For files shared by public link, add `serve.anonymous: true`. Then signed-out re
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 
 ```ts
-import { detectContentType } from "@vite-hub/blob/content-type"
+import { detectContentType } from "@vite-hub/blob"
 
 const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
 if (detected !== file.type) throw new Error("File content does not match its declared type")

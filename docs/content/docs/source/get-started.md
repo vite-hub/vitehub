@@ -41,7 +41,7 @@ export default defineConfig({
 `cwd: 'docs'` makes Source keys relative to that directory. The glob includes Markdown files; the key below is `intro.md`, without the `docs/` prefix.
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```

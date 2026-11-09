@@ -46,7 +46,7 @@ A read-only Source has no `url` until you give it one with `contentSource(input,
 
 ```ts [server/content.ts]
 import { contentSource, defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
   source: contentSource(glob({ cwd: 'content', include: 'guides/*.md' }), { url: '/:id' }),

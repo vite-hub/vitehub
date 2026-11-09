@@ -23,7 +23,7 @@ export const SourceLanding = {
           path: "server/api/docs.get.ts",
           language: "typescript",
           content:
-            'import { defineEventHandler } from "nitro/h3"\nimport { createSource } from "vite-hub/source"\nimport { glob } from "vite-hub/source/glob"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
+            'import { defineEventHandler } from "nitro/h3"\nimport { createSource, glob } from "vite-hub/source"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
         },
         { path: "docs/intro.md", language: "markdown", content: "# Introduction\n\nRead this content through Source." },
       ],
@@ -42,7 +42,7 @@ export const SourceLanding = {
           path: "server/api/docs.get.ts",
           language: "typescript",
           content:
-            'import { defineEventHandler } from "nitro/h3"\nimport { createSource } from "vite-hub/source"\nimport { glob } from "vite-hub/source/glob"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
+            'import { defineEventHandler } from "nitro/h3"\nimport { createSource, glob } from "vite-hub/source"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
         },
         { path: "docs/intro.md", language: "markdown", content: "# Introduction\n\nRead this content through Source." },
       ],
@@ -61,7 +61,7 @@ export const SourceLanding = {
           path: "server/api/docs.get.ts",
           language: "typescript",
           content:
-            'import { defineEventHandler } from "h3"\nimport { createSource } from "vite-hub/source"\nimport { glob } from "vite-hub/source/glob"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
+            'import { defineEventHandler } from "h3"\nimport { createSource, glob } from "vite-hub/source"\n\nexport default defineEventHandler(async () => {\n  const docs = glob({ cwd: "docs", include: "**/*.md" })\n  return createSource(docs).read("intro.md")\n})',
         },
         { path: "docs/intro.md", language: "markdown", content: "# Introduction\n\nRead this content through Source." },
       ],

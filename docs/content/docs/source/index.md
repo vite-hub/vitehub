@@ -10,8 +10,7 @@ icon: i-lucide-folder-input
 ::product-hero{tagline="Read files from your project, GitHub, or your own data with one reader, and turn lists into paged API routes." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::product-files
   ```ts [server/sources/docs.ts]
-  import { github } from 'vite-hub/source/github'
-  import { glob } from 'vite-hub/source/glob'
+  import { github, glob } from 'vite-hub/source'
 
   // Markdown files from your docs folder
   export const docs = glob({

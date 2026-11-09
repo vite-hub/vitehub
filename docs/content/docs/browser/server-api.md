@@ -13,8 +13,8 @@ Browser Definitions are the default path. Use Browser actions for one stateless 
 | Import | Use |
 | --- | --- |
 | `defineBrowser`, `runBrowser` from `vite-hub/browser` | Declare and run Browser Definitions. |
-| `runBrowserAction`, `runBrowserContent` from `vite-hub/browser/actions` | Run one stateless Browser Run action. |
-| `isBrowserAvailable` from `vite-hub/browser` or `vite-hub/browser/actions` | Check whether this build enables Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
+| `runBrowserAction`, `runBrowserContent` from `vite-hub/browser` | Run one stateless Browser Run action. |
+| `isBrowserAvailable` from `vite-hub/browser` | Check whether this build enables Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
 | `createBrowser` from `vite-hub/browser` | Create a low-level Browser Client. |
 | `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run provider. |
 | `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium provider for trusted Node hosts. |
@@ -43,7 +43,7 @@ Libraries and custom Vite compositions import the same APIs from `@vite-hub/brow
 Use a Browser action directly when the operation does not need a page session:
 
 ```ts [server/render-og.ts]
-import { runBrowserContent } from 'vite-hub/browser/actions'
+import { runBrowserContent } from 'vite-hub/browser'
 
 const html = await runBrowserContent('https://example.com')
 ```

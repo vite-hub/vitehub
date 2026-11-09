@@ -28,11 +28,11 @@ export interface GlobCall {
   end: number
   /** The call's options, or undefined when they are not literals and the files stay on disk. */
   input?: GlobInput
-  /** Where `files()` comes from, next to the `glob` the app imported (`vite-hub/source/files`, say). */
+  /** Where `files()` comes from: the module the app imported `glob` from (`vite-hub/source`, say). */
   filesModule: string
 }
 
-const GLOB_MODULE = /^(?:@vite-hub|vite-hub)\/source\/glob$/
+const GLOB_MODULE = /^(?:@vite-hub|vite-hub)\/source$/
 const OPTION_KEYS = new Set(["cwd", "dot", "followSymlinks", "ignore", "include", "keyCache", "prefix"])
 
 function isNode(value: unknown): value is Node {
@@ -85,7 +85,7 @@ export function findGlobCalls(program: Node): GlobCall[] {
     if (typeof source !== "string" || !GLOB_MODULE.test(source)) continue
     for (const specifier of statement.specifiers as Node[]) {
       const name = (specifier.imported as Node | undefined)?.name ?? (specifier.imported as Node | undefined)?.value
-      if (specifier.type === "ImportSpecifier" && name === "glob") imported.set((specifier.local as Node).name as string, source.replace(/\/glob$/, "/files"))
+      if (specifier.type === "ImportSpecifier" && name === "glob") imported.set((specifier.local as Node).name as string, source)
     }
   }
   if (imported.size === 0) return []

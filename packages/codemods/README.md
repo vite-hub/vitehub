@@ -36,6 +36,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 
 ## `nuxt-safe-runtime-config`
 
@@ -81,6 +82,22 @@ The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `ser
 Jobs with six-field crons, computed times or time zones, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. A computed module time zone keeps each job that does not override it with a literal. The report also lists `runOnInit`, which Schedule does not have.
 
 Jobs that map to the same Schedule name all stay unchanged, including names from existing files with another source extension or an `index` file. Configuration and module options must be object literals with explicit, unique property names. Opaque option objects, spreads, dynamic keys, or accessors stop the migration without edits; jobs with such options stay with `nuxt-cron`. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective preset or jobs directory is computed, or the preset is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
+
+## `one-entry-imports`
+
+The codemod moves each import of a subpath that ViteHub folded into one entry. It rewrites `import`, `export ... from`, `import()`, `import("...").Type`, `declare module`, and `vi.mock()` paths, and joins a moved import with an import of the new path in the same file.
+
+| Old path | New path |
+| --- | --- |
+| `vite-hub/source/{file,files,github,glob,markdown}` | `vite-hub/source` |
+| `vite-hub/env/{presets,provider,schema,secret,server}` | `vite-hub/env` |
+| `vite-hub/env/{auth,http}` | `vite-hub/env/bridge` |
+| `vite-hub/blob/{content-type,ensure,reference}` | `vite-hub/blob`, or `vite-hub/blob/client` for `content-type` in browser code |
+| `vite-hub/browser/actions` | `vite-hub/browser` |
+| `vite-hub/connections/http` | `vite-hub/connections` |
+| `vite-hub/task` | `nitro/task`, and `nitro/types` for the task types |
+
+The same moves apply to the `@vite-hub/*` paths. The report lists strings that name an old path, such as aliases and test stubs, and `env/server` names that the Env root does not export, such as `runWithCloudflareEnv`. When an app moves to `nitro/task` and lists neither `nitro` nor `nuxt` in `package.json`, the report asks to add `nitro`.
 
 ## Check real apps
 

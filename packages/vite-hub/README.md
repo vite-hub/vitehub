@@ -155,7 +155,7 @@ A task is a [Nitro task](https://nitro.build/docs/tasks) in `server/tasks/`. Use
 ```ts
 // server/tasks/db/seed.ts
 import { useDatabase } from "vite-hub/database/drizzle";
-import { defineTask } from "vite-hub/task";
+import { defineTask } from "nitro/task";
 
 export default defineTask({
   meta: { description: "Add one demo note" },

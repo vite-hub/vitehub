@@ -43,7 +43,7 @@ The `docs` Source reads Markdown under the project's `docs` directory.
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const content = defineContent({
   sources: {
