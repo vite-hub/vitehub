@@ -4,7 +4,7 @@ description: Render an AI SDK message list that follows streaming output and kee
 seo.title: Chat message list component for Vue
 navigation.order: 20
 navigation.group: Chat
-icon: i-ph-chat-circle-text-light
+icon: i-lucide-message-circle-code
 ---
 
 `Chat` is the default Console conversation surface. It renders AI SDK `UIMessage[]` as a scrollable message log, follows a live reply while the reader is at the end, and leaves the reader in place when they scroll back through the run. Pair it with [`PromptInput`](/docs/ui/prompt-input) when the view accepts input.

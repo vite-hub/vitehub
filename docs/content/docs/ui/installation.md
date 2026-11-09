@@ -23,7 +23,7 @@ The package is pre-1.0. Pin its version and review changes before you upgrade.
 | `@ai-sdk/vue`                              | `useChat()` and other Vue transport helpers. Optional when the app supplies its own state. |
 | `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `@vite-hub/ui/headless`. |
 | `vite` and `@vitejs/plugin-vue`           | The `@vite-hub/ui/vite` plugin.                           |
-| `@iconify-json/lucide`, `@iconify-json/ph` | The Nuxt module. It adds the component icons to the `@nuxt/icon` client bundle. |
+| `@iconify-json/lucide` | The Nuxt module. It adds the component icons to the `@nuxt/icon` client bundle. |
 
 `@nuxt/ui` and `vite` are optional peers, so an application that only uses the headless entry point does not install them.
 
@@ -32,7 +32,7 @@ The package is pre-1.0. Pin its version and review changes before you upgrade.
 Install the package and its peers:
 
 ```bash [commands/install-nuxt]
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Add the module to `nuxt.config.ts`:

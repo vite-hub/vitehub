@@ -3,7 +3,7 @@ title: Copy Button
 description: "Copy a command, an ID, or a link with one button that confirms in place and announces the result."
 navigation.order: 16
 navigation.group: Parts
-icon: i-ph-copy-light
+icon: i-lucide-copy
 ---
 
 `CopyButton` copies text to the clipboard. After a copy it shows a check for 2 seconds and tells screen readers "Copied". It is a Nuxt UI `UButton` with the theme defaults: neutral, ghost, and icon-only unless you give it a label.
@@ -27,6 +27,14 @@ Pass the text as `value`. Name an icon-only button with `aria-label`, so a scree
 <template>
   <CopyButton value="pnpm add vite-hub" aria-label="Copy the install command" />
   <CopyButton :value="runId" label="Copy run ID" size="xs" />
+</template>
+```
+
+Pass `icon` when the copied text has its own icon, such as a link. The check still shows after a copy:
+
+```vue
+<template>
+  <CopyButton :value="pageUrl" icon="i-lucide-link" label="Copy link" variant="outline" />
 </template>
 ```
 
@@ -59,8 +67,9 @@ const items = [{
 
 ## Features
 
-- The icon swaps from `copy` to `copyCheck` of Nuxt UI's `appConfig.ui.icons`, so the button follows the theme. The label stays the same, so the button does not change size.
+- The icon swaps from `copy`, or the `icon` prop, to `copyCheck` of Nuxt UI's `appConfig.ui.icons`, so the button follows the theme. The label stays the same, so the button does not change size.
 - The button announces "Copied" or "Copy failed" through a polite live region. Inside a dialog, the region is in the dialog, so the screen reader still reads it.
+- Outside a secure context, such as a dev server on a LAN address, the clipboard API is missing or refuses. The button then copies with the older `document.execCommand("copy")`.
 - A clipboard that the browser blocks does not throw. The button keeps the copy icon, announces "Copy failed", and emits `error`.
 - A function `value` that returns a promise copies through a `ClipboardItem` where the browser has one, so Safari accepts the write after the click.
 
@@ -80,6 +89,7 @@ Renders a Nuxt UI `UButton` with `data-slot="copy-button"`, and `data-copied` fo
 | ----------- | ------------------------------------------------------ | --------- | ------------------------------------------------------------------------ |
 | `value`     | `string \| (() => string \| Promise<string>)`          | Required  | The text to copy, or a function that returns it.                         |
 | `label`     | `string`                                               |           | A visible label. Without one, the button shows only the icon.            |
+| `icon`      | `string`                                               |           | The icon before a copy, such as `i-lucide-link`. Defaults to the theme's `copy` icon. |
 | `ariaLabel` | `string`                                               |           | The accessible name. Defaults to the label, or "Copy".                   |
 | `size`      | `"xs" \| "sm" \| "md" \| "lg" \| "xl"`                 |           | The button size. Defaults to the theme size, `sm`.                       |
 | `variant`   | `"ghost" \| "outline" \| "soft" \| "subtle" \| "solid" \| "link"` | `"ghost"` | The button variant. Use `outline` beside a primary action.     |

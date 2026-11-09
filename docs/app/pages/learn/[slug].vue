@@ -156,7 +156,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         <aside class="vh-run-mobile" aria-labelledby="vh-run-mobile-title">
           <p id="vh-run-mobile-title" class="text-sm text-highlighted">This tutorial has a live workspace. Open it on a desktop to edit and run the code.</p>
           <div class="mt-3 flex flex-wrap gap-2">
-            <CopyButton :value="`${site.url}${route.fullPath}`" label="Copy link" variant="outline" />
+            <CopyButton :value="`${site.url}${route.fullPath}`" icon="i-lucide-link" label="Copy link" variant="outline" />
             <UButton variant="outline" icon="i-lucide-download" label="Download starter" :to="starter" external download />
           </div>
         </aside>

@@ -3,7 +3,7 @@ title: Message
 description: "Lay out one conversation turn with an avatar, a header, content, and a footer."
 navigation.order: 10
 navigation.group: Parts
-icon: i-ph-chat-centered-text-light
+icon: i-lucide-message-square-text
 ---
 
 `Message` is one row of a conversation. It aligns the turn to the start or the end and holds an avatar, a header, the content, and a footer. Put a [Bubble](/docs/ui/bubble), a [Trace](/docs/ui/trace), or any other content inside `MessageContent`. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Message](https://ui.shadcn.com/docs/components/message).
@@ -120,7 +120,7 @@ Action buttons in `MessageFooter` often show only an icon. Give each one an `ari
 
 ```vue
 <MessageFooter>
-  <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-copy-light" aria-label="Copy" />
+  <UButton color="neutral" variant="ghost" size="sm" square icon="i-lucide-copy" aria-label="Copy" />
 </MessageFooter>
 ```
 
@@ -130,7 +130,7 @@ The parts do not announce new messages. Put the conversation in an element with 
 
 ```vue
 <Marker role="status">
-  <MarkerIcon><UIcon name="i-ph-circle-dashed-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-circle-dashed" /></MarkerIcon>
   <MarkerContent>Checking the logs</MarkerContent>
 </Marker>
 ```

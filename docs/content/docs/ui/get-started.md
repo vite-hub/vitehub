@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, pnpm, and a Nuxt application. Run the commands 
 Install the UI package and its Nuxt peers. Add the module to your existing Nuxt config, keeping the modules your app already uses.
 
 ```bash [commands/install]
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Register the module in `nuxt.config.ts`:

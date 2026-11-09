@@ -4,7 +4,7 @@ description: Build an AI Discord bot with a ViteHub Agent. Create the app in the
 navigation.title: Discord AI bot
 navigation.order: 5
 navigation.group: Chat bots
-icon: i-simple-icons-discord
+icon: i-lucide-bot
 ---
 
 To build an AI Discord bot with ViteHub, create an application in the Discord Developer Portal, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, then run the app with the `node` preset. The Node server opens the Discord Gateway connection when it starts, and the Agent answers direct messages and messages that mention the bot.

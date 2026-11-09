@@ -3,7 +3,7 @@ title: Diff
 description: "Render unified patches, file comparisons, parsed diffs, and merge conflicts with Pierre."
 navigation.order: 37
 navigation.group: Agent work
-icon: i-ph-file-code-light
+icon: i-lucide-file-code
 ---
 
 The diff components are Vue adapters for Pierre's `@pierre/diffs` views. They use Nuxt UI backgrounds, borders, radius, typography, and semantic colors. Pierre owns parsing, syntax highlighting, selection, and rendering. Use them to review the changes an Agent made.

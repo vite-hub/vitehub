@@ -113,7 +113,7 @@ function download() {
       <aside class="vh-playground-mobile" aria-labelledby="vh-playground-mobile-title">
         <p id="vh-playground-mobile-title" class="text-sm text-highlighted">The playground runs a ViteHub app in a desktop browser. Open this page on a desktop to edit and run the code.</p>
         <div class="mt-3 flex flex-wrap gap-2">
-          <CopyButton :value="`${site.url}${route.fullPath}`" label="Copy link" variant="outline" />
+          <CopyButton :value="`${site.url}${route.fullPath}`" icon="i-lucide-link" label="Copy link" variant="outline" />
           <UButton variant="outline" icon="i-lucide-download" label="Download files" @click="download" />
         </div>
       </aside>

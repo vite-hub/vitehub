@@ -3,7 +3,7 @@ title: Bubble
 description: "Frame message text in one of seven Bubble variants, align it to a side, group Bubbles, and attach reactions."
 navigation.order: 11
 navigation.group: Parts
-icon: i-ph-chat-circle-light
+icon: i-lucide-message-circle
 ---
 
 `Bubble` frames the text of a turn. Seven variants cover the current user, the assistant, quiet notes, and errors. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Bubble](https://ui.shadcn.com/docs/components/bubble). Colors come from the Nuxt UI tokens of your app.
@@ -166,7 +166,7 @@ When reactions are interactive, use buttons. Give an icon-only button an `aria-l
 
 ```vue
 <BubbleReactions>
-  <UButton color="neutral" variant="ghost" size="xs" square icon="i-ph-thumbs-up-light" aria-label="Thumbs up" />
+  <UButton color="neutral" variant="ghost" size="xs" square icon="i-lucide-thumbs-up" aria-label="Thumbs up" />
 </BubbleReactions>
 ```
 

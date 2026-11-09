@@ -3,7 +3,7 @@ title: Status
 description: "Show the state of a run, a connection, or a document as a colored dot and a short label."
 navigation.order: 17
 navigation.group: Parts
-icon: i-ph-circle-light
+icon: i-lucide-circle
 ---
 
 `Status` shows a state as a 6px dot and a label, as [Geist's Status Dot](https://vercel.com/geist/status-dot). The dot takes the color of the tone. The label keeps the color of the text around it, so color is never the only signal.

@@ -23,7 +23,7 @@ Size `sm` is the default. Use `xs` in dense rows and `md` only in a form's submi
 
 ## Copy
 
-`CopyButton` from `@vite-hub/ui` for every control that copies text. It is a ghost `UButton` with the theme's `copy` icon, swaps to `copyCheck` for 2 seconds, and announces "Copied". Give an icon-only one an `aria-label` that names the thing. A menu item or a toast action that copies uses `useCopy()` from the same entry and confirms with a toast. Never call `navigator.clipboard` in a component.
+`CopyButton` from `@vite-hub/ui` for every control that copies text. It is a ghost `UButton` with the theme's `copy` icon, swaps to `copyCheck` for 2 seconds, and announces "Copied". Give an icon-only one an `aria-label` that names the thing. Pass `icon` for a resting icon of its own, such as `i-lucide-link` for a link; the check still shows after a copy. A menu item or a toast action that copies uses `useCopy()` from the same entry and confirms with a toast. Never call `navigator.clipboard` in a component.
 
 ```vue
 <CopyButton :value="run.id" size="xs" aria-label="Copy run ID" />
@@ -70,7 +70,11 @@ Filter a list (All / Errors / Warnings)?                           → UTabs wit
 
 ## Card and list
 
-`UCard` for a framed group of related content with a header or footer. `UPageCard` for a link to another page with an icon, a title, and a description. A list of rows is not a set of cards: use a `divide-y divide-default` list with `hover:bg-elevated` rows.
+`UCard` for a framed group of related content with a header or footer. `UPageCard` in a `UPageGrid` for a link to another page with an icon, a title, and a description; the card draws one ring in its own shape. A list of rows is not a set of cards: use a `divide-y divide-default` list with `hover:bg-elevated` rows. The landing primitive grid is a hairline grid and stays hand-built.
+
+## Alert
+
+`UAlert` for a notice inside a page or a panel: a failed load, a missing permission, a setting that blocks the next step. The theme makes it compact and neutral. Pass `color="error"` or `color="warning"` only when the notice is that status. A page that has nothing to show uses `UEmpty`, not an alert.
 
 ## Empty state
 
@@ -78,8 +82,29 @@ Filter a list (All / Errors / Warnings)?                           → UTabs wit
 
 ## Floating surfaces
 
-`UDropdownMenu` for actions, `UPopover` for content, `UTooltip` for a label of an icon-only control, `UModal` for a task that blocks the page. The theme gives them the 12px radius, the floating surface, and the layered shadow. Menus and tooltips do not animate.
+`UDropdownMenu` for actions, `UPopover` for content, `UTooltip` for a label of an icon-only control, `UModal` for a task that blocks the page. The theme gives them the 12px radius, the floating surface, and the layered shadow, and dialogs are 448px wide. Menus and tooltips do not animate. Only a dialog that shows a diff or a picker sets a wider `content`.
 
 ## Keyboard keys
 
 `UKbd` for every shortcut. Size `sm` beside 12px text, `md` beside 14px text.
+
+## Icons
+
+Lucide (`i-lucide-*`) for every interface icon, and the ViteHub set (`i-vitehub-*`) for primitives. Brand logos come from Simple Icons (`i-simple-icons-*`). Never mix in another icon set.
+
+## Console parts
+
+The Console builds its pages from a few parts in `packages/vite-hub/src/console/runtime/components`. Use them before you write markup:
+
+```
+A heading inside a page, with a count or actions     → ConsoleSection
+Label and value pairs                                → ConsolePropertyList
+Numbers side by side (totals, sizes, counts)         → ConsoleStatGrid
+A list of events with Refresh and Load older         → ConsoleActivityFeed
+Confirm a change, or a destructive action            → ConsoleConfirm
+A loading, error, or empty section                   → ConsoleState
+Inline code, a name, or a path                       → ConsoleCodeText
+A time, a duration, a number, a size, or initials    → client/format.ts
+```
+
+Times and numbers are formatted in English, the language of the Console, so a table reads the same for every user.

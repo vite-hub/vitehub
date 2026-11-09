@@ -3,7 +3,7 @@ title: Trace
 description: "Show the steps an Agent takes as compact lines that can expand into detail."
 navigation.order: 14
 navigation.group: Parts
-icon: i-ph-path-light
+icon: i-lucide-route
 ---
 
 `Trace` lists the steps of an Agent turn: thoughts, searches, commands, tool calls, sources, and plan steps. Each `TraceLine` has an icon, a title, an optional description, and a status. Wrap a line in `TraceCollapsible` to show its output when the reader expands it. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Trace](https://ui.shadcn.com/docs/components/trace).
@@ -33,7 +33,7 @@ import { Trace, TraceIcon, TraceLine, TraceTitle } from "@vite-hub/ui";
 <template>
   <Trace>
     <TraceLine>
-      <TraceIcon><UIcon name="i-ph-magnifying-glass-light" /></TraceIcon>
+      <TraceIcon><UIcon name="i-lucide-search" /></TraceIcon>
       <TraceTitle>Searched for minimumReleaseAge</TraceTitle>
     </TraceLine>
   </Trace>
@@ -48,7 +48,7 @@ Wrap the line in a `TraceCollapsible` to show more detail when it expands:
     <TraceCollapsible>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
           <TraceTitle>Ran node --version</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -169,7 +169,7 @@ Wrap the `TraceLine` in a link. For a new tab, use an arrow icon and add "(opens
         Nuxt docs
         <span class="sr-only"> (opens in a new tab)</span>
       </TraceTitle>
-      <TraceIcon><UIcon name="i-ph-arrow-up-right-light" /></TraceIcon>
+      <TraceIcon><UIcon name="i-lucide-arrow-up-right" /></TraceIcon>
     </TraceLine>
   </a>
 </template>
@@ -190,7 +190,7 @@ Wrap the `TraceLine` in a button and put the button in the trigger slot of a Nux
     <button type="button">
       <TraceLine>
         <TraceTitle>Searched the web for cache keys</TraceTitle>
-        <TraceIcon><UIcon name="i-ph-caret-right-light" /></TraceIcon>
+        <TraceIcon><UIcon name="i-lucide-chevron-right" /></TraceIcon>
       </TraceLine>
     </button>
     <template #body>...</template>
@@ -266,13 +266,13 @@ Show tool parts from the AI SDK. Map the state of the part to the title and the 
 <template>
   <Trace>
     <TraceLine>
-      <TraceIcon><UIcon name="i-ph-magnifying-glass-light" /></TraceIcon>
+      <TraceIcon><UIcon name="i-lucide-search" /></TraceIcon>
       <TraceTitle>Searched for minimumReleaseAge</TraceTitle>
     </TraceLine>
     <TraceCollapsible>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
           <TraceTitle>Ran node --version</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>

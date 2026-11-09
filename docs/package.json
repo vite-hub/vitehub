@@ -43,7 +43,6 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@iconify-json/lucide": "catalog:ui",
-    "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
     "@takumi-rs/core": "catalog:nuxt",
