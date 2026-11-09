@@ -168,7 +168,9 @@ line shows the store and where its state lives.
 | `process` | Memory of this process. A restart loses it, and other processes do not see it. |
 
 Each primitive reports the driver that it uses in this server, so a driver
-that an environment variable selects at boot shows correctly. Run
+that an environment variable or the Default Database selects at boot shows
+correctly. Agent state, the Agent Invocation journal, and Workspace files
+report too. Run
 `vitehub durability list` to read the same report from the dev server. It is
 the `durability.list` [operation](/docs/development/operations). On a
 deployment, `--url` works when the app enables the Console, with credentials

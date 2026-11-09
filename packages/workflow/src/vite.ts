@@ -432,7 +432,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           ...(options.provider === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: typeof options.postgres.url === "string" ? "set" : options.postgres.url } : {}),
           ...(options.provider === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
         }
-        return [{ export: "workflowDurability", input, module: durabilityModuleFile(import.meta.url) }]
+        return [{ export: "workflowDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "workflow" }]
       },
       // The Console, `vitehub workflow`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: "@vite-hub/workflow/operations" }],

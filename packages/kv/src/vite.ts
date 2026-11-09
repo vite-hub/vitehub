@@ -318,8 +318,16 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
       durability: () => {
         const kv = getConfig().kv
         if (!kv) return []
-        const stores = Object.fromEntries(Object.entries({ default: kv.store, ...kv.stores }).map(([name, store]) => [name, { driver: store.driver, ...("base" in store && store.base ? { base: store.base } : {}) }]))
-        return [{ export: "kvDurability", input: { stores }, module: durabilityModuleFile(import.meta.url) }]
+        const stores = Object.fromEntries(Object.entries({ default: kv.store, ...kv.stores }).map(([name, store]) => {
+          const database: unknown = Reflect.get(store, "database")
+          return [name, {
+            driver: store.driver,
+            ...("base" in store && store.base ? { base: store.base } : {}),
+            ...(typeof database === "string" ? { database } : {}),
+            ...(Reflect.get(store, "inferred") === true ? { inferred: true } : {}),
+          }]
+        }))
+        return [{ export: "kvDurability", input: { stores }, module: durabilityModuleFile(import.meta.url), primitive: "kv" }]
       },
       inspect: () => {
         const build = resolveKVViteConfig(configuredOptions, { hosting: input.hosting }).kv

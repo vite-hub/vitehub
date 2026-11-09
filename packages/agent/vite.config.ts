@@ -47,6 +47,7 @@ export default defineConfig({
       "src/ai-sdk.ts",
       "src/capabilities.ts",
       "src/channels.ts",
+      "src/durability.ts",
       "src/index.ts",
       "src/internal/workspace/internal/runtime/hosted.ts",
       "src/internal/workspace/internal/runtime/hosted-vercel-blob.ts",

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { checkDurability, formatDurabilityTable, getDurabilityReport, readInstanceCount } from "../src/durability.ts"
+import { checkDurability, classifySqliteUrl, collectDurability, formatDurabilityTable, getDurabilityReport, readInstanceCount, resolveDurabilityValue, sqliteUrlInput } from "../src/durability.ts"
 
 import type { Durability } from "../src/durability.ts"
 
@@ -73,4 +73,59 @@ describe("checkDurability", () => {
   it("only records the report when it does not enforce", () => {
     expect(checkDurability([kv], { enforce: false, env: { VITEHUB_INSTANCES: "2" }, log: false }).problems).toEqual([kv])
   })
+})
+
+describe("collectDurability", () => {
+  it("runs a reporter that another one finds first, once, whatever the order", () => {
+    const runs: string[] = []
+    const reports = collectDurability([
+      { primitive: "rate-limit", report: ({ find }) => { runs.push("rate-limit"); return [{ ...rateLimit, scope: find("kv")!.scope }] } },
+      { primitive: "kv", report: () => { runs.push("kv"); return [kv, cache] } },
+    ], {})
+    expect(runs).toEqual(["rate-limit", "kv"])
+    expect(reports.map(report => [report.primitive, report.name, report.scope])).toEqual([
+      ["rate-limit", undefined, "host"],
+      ["kv", undefined, "host"],
+      ["kv", "cache", "shared"],
+    ])
+  })
+
+  it("finds a named store, and nothing for a primitive that is off", () => {
+    collectDurability([
+      {
+        primitive: "queue",
+        report: ({ find }) => {
+          expect(find("kv", "cache")).toBe(cache)
+          expect(find("database")).toBeUndefined()
+          return []
+        },
+      },
+      { primitive: "kv", report: () => [kv, cache] },
+    ], {})
+  })
+})
+
+describe("classifySqliteUrl", () => {
+  it.each([
+    ["file:.vitehub/data/database/sqlite.db", "sqlite", "host"],
+    ["file:///var/lib/app/state.db", "sqlite", "host"],
+    [":memory:", "sqlite", "process"],
+    ["libsql://app.turso.io", "libsql", "shared"],
+    ["https://app.turso.io", "libsql", "shared"],
+    ["remote", "libsql", "shared"],
+  ])("classifies %s", (url, store, scope) => {
+    expect(classifySqliteUrl(url)).toMatchObject({ store, scope })
+  })
+
+  it("keeps file URLs and hides remote ones", () => {
+    expect(sqliteUrlInput("file:data.db")).toBe("file:data.db")
+    expect(sqliteUrlInput("libsql://app.turso.io?authToken=secret")).toBe("remote")
+  })
+})
+
+it("resolves env declarations the way the runtime does", () => {
+  const value = { source: { name: "A", names: ["A", "B"] }, default: "fallback" }
+  expect(resolveDurabilityValue(value, { B: " b " })).toBe("b")
+  expect(resolveDurabilityValue(value, {})).toBe("fallback")
+  expect(resolveDurabilityValue(" x ", {})).toBe("x")
 })

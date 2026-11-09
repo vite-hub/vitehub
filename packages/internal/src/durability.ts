@@ -1,3 +1,4 @@
+import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
 
 /**
@@ -6,6 +7,8 @@ import { fileURLToPath } from "node:url"
  * `Durability` lines of `@vite-hub/runtime/durability`.
  */
 export interface DurabilityContribution {
+  /** The primitive that the reporter describes, such as `kv`. Other reporters find its result by this id. */
+  primitive: string
   /** The absolute file of the reporter module. */
   module: string
   export: string
@@ -26,25 +29,35 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Object(value) === value && !Array.isArray(value)
 }
 
-/** The durability reporters of the resolved Vite plugins, in plugin order. */
+/** The durability reporters of the Vite plugins, in plugin order. Nested plugin lists are read too. */
 export function collectDurabilityContributions(plugins: readonly unknown[]): DurabilityContribution[] {
   const collected: DurabilityContribution[] = []
-  for (const plugin of plugins) {
-    if (!isObject(plugin) || !isObject(plugin.vitehub)) continue
+  const visit = (plugin: unknown): void => {
+    if (Array.isArray(plugin)) {
+      for (const item of plugin) visit(item)
+      return
+    }
+    if (!isObject(plugin) || !isObject(plugin.vitehub)) return
     const durability = plugin.vitehub.durability
-    if (!(durability instanceof Function)) continue
+    if (!(durability instanceof Function)) return
     const entries: unknown = durability()
-    if (!Array.isArray(entries)) continue
+    if (!Array.isArray(entries)) return
     for (const entry of entries as unknown[]) {
-      if (isObject(entry) && typeof entry.module === "string" && typeof entry.export === "string") {
-        collected.push({ module: entry.module, export: entry.export, input: entry.input })
+      if (isObject(entry) && typeof entry.primitive === "string" && typeof entry.module === "string" && typeof entry.export === "string") {
+        collected.push({ primitive: entry.primitive, module: entry.module, export: entry.export, input: entry.input })
       }
     }
   }
+  visit(plugins)
   return collected
 }
 
 /** The `durability` module next to the Vite plugin module at `importMetaUrl`, in source and in `dist`. */
 export function durabilityModuleFile(importMetaUrl: string): string {
   return fileURLToPath(new URL(importMetaUrl.endsWith(".ts") ? "./durability.ts" : "./durability.js", importMetaUrl))
+}
+
+/** The file of a reporter module that a package exports, such as `@vite-hub/workspace/durability`, resolved from `importMetaUrl`. */
+export function resolveDurabilityModule(importMetaUrl: string, specifier: string): string {
+  return createRequire(importMetaUrl).resolve(specifier)
 }

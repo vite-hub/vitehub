@@ -401,6 +401,8 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/realtime/vite",
   "vite-hub/optional-owner-imports",
   "vite-hub/cloudflare-sh-syntax",
+  // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
+  "vite-hub/durability",
   "vite-hub/unavailable-services",
 ])
 

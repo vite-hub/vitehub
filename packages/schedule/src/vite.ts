@@ -974,7 +974,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   inspectable.vitehub = {
     // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron.
     durability: () => options.runtime?.driver === "process"
-      ? [{ export: "scheduleDurability", input: { driver: "process" }, module: durabilityModuleFile(import.meta.url) }]
+      ? [{ export: "scheduleDurability", input: { driver: "process" }, module: durabilityModuleFile(import.meta.url), primitive: "schedule" }]
       : [],
     // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: "@vite-hub/schedule/operations" }],

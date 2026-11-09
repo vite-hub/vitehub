@@ -9,6 +9,7 @@ import { resolve } from "pathe"
 import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, generatedQueueTestSetup, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
+import type { NormalizedQueueOptions } from "./internal/vite-build.ts"
 import { inspectQueueDefinitions, inspectQueueResources } from "./inspect.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
@@ -213,6 +214,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
   let localDevelopment = false
   let preview = false
   let nitroQueue: QueueModuleOptions | undefined = queue
+  // The Queue config of the generated Nitro plugin, which the durability report describes.
+  let writtenQueue: NormalizedQueueOptions | undefined
   let nuxtConfiguredDefinitions: DiscoveredQueueDefinition[] | undefined
   let nuxtProjectRoot: string | undefined
   let resolveNuxtDefinitions: (() => DiscoveredQueueDefinition[]) | undefined
@@ -240,10 +243,12 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
     name: "@vite-hub/queue/vite",
     vitehub: {
       durability: () => {
-        const resolvedQueue = nitroQueue === false ? undefined : normalizeQueueOptions(queue, { hosting })
-        if (!resolvedQueue?.provider) return []
-        const base = "base" in resolvedQueue && typeof resolvedQueue.base === "string" ? { base: resolvedQueue.base } : {}
-        return [{ export: "queueDurability", input: { provider: resolvedQueue.provider, ...base }, module: durabilityModuleFile(import.meta.url) }]
+        const resolvedQueue = writtenQueue ?? (nitroQueue === false ? undefined : normalizeQueueOptions(queue, { hosting }))
+        if (!resolvedQueue || !resolvedQueue.provider) return []
+        const base: unknown = Reflect.get(resolvedQueue, "base")
+        const database: unknown = Reflect.get(resolvedQueue, "database")
+        const input = { provider: resolvedQueue.provider, ...(typeof base === "string" ? { base } : {}), ...(typeof database === "string" ? { database } : {}) }
+        return [{ export: "queueDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "queue" }]
       },
       // The Console, `vitehub queue`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: "@vite-hub/queue/operations" }],
@@ -299,7 +304,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
           const nuxtState = { nuxtConfiguredDefinitions, nuxtProjectRoot, resolveNuxtDefinitions }
           nuxtStates.set(root, nuxtState)
           if (state) Object.assign(state, nuxtState)
-          await writeQueueNitroIntegration(projectRoot, nitroQueue, hosting, cloudflareQueues, definitions, localDevelopment, internalOptions.importBase)
+          writtenQueue = await writeQueueNitroIntegration(projectRoot, nitroQueue, hosting, cloudflareQueues, definitions, localDevelopment, internalOptions.importBase)
           return configuredNitro
         },
       },
@@ -340,7 +345,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : queue
       validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
       localDevelopment = config.command === "serve" && !preview
-      await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions, localDevelopment, internalOptions.importBase)
+      writtenQueue = await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions, localDevelopment, internalOptions.importBase)
       buildStates.set(config, {
         configuredDefinitions,
         nuxtConfiguredDefinitions,
@@ -364,7 +369,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
         && (/\/server\/queues\//.test(file) || nuxtServerQueueDirs.some(dir => file.startsWith(dir)))
       if (!/\.queue\.(?:c|m)?[jt]s$/i.test(file) && !isDirectoryDefinition) return
       resolved = context.server.config
-      await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, resolveNuxtDefinitions?.(), localDevelopment, internalOptions.importBase)
+      writtenQueue = await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, resolveNuxtDefinitions?.(), localDevelopment, internalOptions.importBase)
     },
     buildEnd(error) {
       // SAFETY: Vite's environment config has the resolved config used to record this build state.

@@ -24,11 +24,91 @@ export interface Durability {
   fix?: string
 }
 
+/** What a reporter reads at boot besides the configuration of its own primitive. */
+export interface DurabilityContext {
+  /** The server environment. A driver that an environment variable selects at boot reads it here. */
+  env: Record<string, string | undefined>
+  /**
+   * The report of another primitive in this server, such as the Database that a KV store keeps its rows in. `name`
+   * defaults to the default store. `undefined` when that primitive is off.
+   */
+  find: (primitive: string, name?: string) => Durability | undefined
+}
+
 /**
- * A primitive's durability reporter. The build passes the resolved configuration of the primitive as `input`, and the
- * server passes its environment, so a driver that the environment selects at boot reports correctly.
+ * A primitive's durability reporter. The build passes the resolved configuration of the primitive as `input`. The
+ * server passes a context with its environment and the other reports, so a driver that the environment or the Default
+ * Database selects at boot reports correctly.
  */
-export type DurabilityReporter<Input> = (input: Input, env: Record<string, string | undefined>) => readonly Durability[]
+export type DurabilityReporter<Input> = (input: Input, context: DurabilityContext) => readonly Durability[]
+
+/** One primitive's reporter, with its configuration already applied. */
+export interface DurabilityEntry {
+  primitive: string
+  report: (context: DurabilityContext) => readonly Durability[]
+}
+
+/**
+ * Runs every reporter once, in order. A reporter that calls `context.find()` runs the reporter of that primitive first,
+ * so the order of the entries does not matter.
+ */
+export function collectDurability(entries: readonly DurabilityEntry[], env: Record<string, string | undefined>): Durability[] {
+  const results = new Map<DurabilityEntry, readonly Durability[]>()
+  const running = new Set<DurabilityEntry>()
+  const run = (entry: DurabilityEntry): readonly Durability[] => {
+    const done = results.get(entry)
+    if (done) return done
+    // A cycle reports nothing for the primitive that is still running.
+    if (running.has(entry)) return []
+    running.add(entry)
+    const reports = entry.report(context)
+    running.delete(entry)
+    results.set(entry, reports)
+    return reports
+  }
+  const context: DurabilityContext = {
+    env,
+    find: (primitive, name = "default") => entries
+      .filter(entry => entry.primitive === primitive)
+      .flatMap(run)
+      .find(report => (report.name ?? "default") === name),
+  }
+  return entries.flatMap(entry => [...run(entry)])
+}
+
+/**
+ * Where a SQLite or libSQL URL keeps its data: `:memory:` in this process, `libsql:`, `http(s):`, or `ws(s):` on a
+ * remote server, and anything else, such as `file:`, on this host.
+ */
+export function classifySqliteUrl(url: string): Pick<Durability, "reason" | "scope" | "store"> {
+  if (url === ":memory:" || url === "file::memory:") return { store: "sqlite", scope: "process", reason: "SQLite in the memory of this process." }
+  if (url === "remote" || /^(?:libsql|https?|wss?):/i.test(url)) return { store: "libsql", scope: "shared", reason: "A remote libSQL server." }
+  return { store: "sqlite", scope: "host", reason: `The SQLite file ${url.replace(/^file:(?:\/\/)?/, "")} on this host.` }
+}
+
+/**
+ * Hides a remote URL before the build writes it into the server: a `file:` or `:memory:` URL stays, and any other URL
+ * becomes `remote`, which `classifySqliteUrl()` reads as a remote server.
+ */
+export function sqliteUrlInput(url: string): string {
+  return url.startsWith("file:") || url === ":memory:" ? url : "remote"
+}
+
+/** A configuration value that can name runtime environment variables, as the Database and Workflow options do. */
+export type DurabilityConfigValue = string | {
+  default?: unknown
+  source?: { name?: string, names?: readonly string[] }
+}
+
+/** Reads a configuration value the same way the runtime does: the first set environment variable, then the default. */
+export function resolveDurabilityValue(value: DurabilityConfigValue | undefined, env: Record<string, string | undefined>): string | undefined {
+  if (typeof value !== "object") return value?.trim() || undefined
+  for (const name of value.source?.names ?? (value.source?.name ? [value.source.name] : [])) {
+    const resolved = env[name]?.trim()
+    if (resolved) return resolved
+  }
+  return typeof value.default === "string" ? value.default.trim() || undefined : undefined
+}
 
 /** The durability of the running server, as `vitehub durability list` shows it. */
 export interface DurabilityReport {

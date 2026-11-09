@@ -152,6 +152,7 @@ const lowLevelOwnerExports = new Set([
 
 const generatedRuntimeOwnerExports = new Set([
   // The generated durability boot plugin of a Node server imports each primitive's reporter by file.
+  "@vite-hub/agent/durability",
   "@vite-hub/blob/durability",
   "@vite-hub/database/durability",
   "@vite-hub/kv/durability",
@@ -160,6 +161,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/realtime/durability",
   "@vite-hub/schedule/durability",
   "@vite-hub/workflow/durability",
+  "@vite-hub/workspace/durability",
   "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/registry",

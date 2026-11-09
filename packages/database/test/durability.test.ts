@@ -12,7 +12,7 @@ describe("databaseDurability", () => {
         { dialect: "postgresql", name: "billing" },
         { dialect: "sqlite", http: true, name: "edge" },
       ],
-    }, { EVENTS_URL: "libsql://events.turso.io" })
+    }, { env: { EVENTS_URL: "libsql://events.turso.io" }, find: () => undefined })
     expect(reports).toMatchObject([
       { primitive: "database", store: "sqlite", scope: "host", reason: "The SQLite file .vitehub/data/database/sqlite.db on this host." },
       { name: "events", store: "libsql", scope: "shared" },

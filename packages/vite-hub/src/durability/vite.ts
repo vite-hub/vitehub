@@ -20,12 +20,13 @@ export interface DurabilityPluginOptions {
  */
 export function renderDurabilityReporters(contributions: readonly DurabilityContribution[], options: { dev: boolean, instances?: number }): string {
   return [
+    "import { collectDurability } from 'vite-hub/runtime/durability'",
     ...contributions.map((contribution, index) => `import { ${contribution.export} as reporter${index} } from ${JSON.stringify(contribution.module)}`),
     "",
     "export function durabilityReports(env) {",
-    "  return [",
-    ...contributions.map((contribution, index) => `    ...reporter${index}(${JSON.stringify(contribution.input)}, env),`),
-    "  ]",
+    "  return collectDurability([",
+    ...contributions.map((contribution, index) => `    { primitive: ${JSON.stringify(contribution.primitive)}, report: context => reporter${index}(${JSON.stringify(contribution.input)}, context) },`),
+    "  ], env)",
     "}",
     "",
     // The dev server only records the report, for `vitehub durability list`.
@@ -68,6 +69,7 @@ export function viteHubDurabilityPlugin(options: DurabilityPluginOptions = {}): 
       config(_config, env) {
         dev = env.command !== "build"
       },
+      // The Nuxt adapter replays this hook with its own plugin list.
       configResolved(config) {
         plugins = config.plugins
       },

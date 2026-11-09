@@ -148,7 +148,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     // regardless of plugin registration order.
     enforce: "pre",
     vitehub: {
-      durability: () => [{ export: "rateLimitDurability", input: { provider }, module: durabilityModuleFile(import.meta.url) }],
+      durability: () => [{ export: "rateLimitDurability", input: { provider }, module: durabilityModuleFile(import.meta.url), primitive: "rate-limit" }],
       // The Console, `vitehub rate-limit`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "rateLimitOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).rateLimitOperations, module: "@vite-hub/rate-limit/operations" }],
       cli: async () => {

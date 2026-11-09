@@ -446,7 +446,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           // Only SQLite needs the URL, to tell a local file from a remote libSQL server. A Postgres URL can hold a password.
           ...(database.dialect === "sqlite" && database.connection?.url !== undefined ? { url: database.connection.url } : {}),
         }))
-        return [{ export: "databaseDurability", input: { databases }, module: durabilityModuleFile(import.meta.url) }]
+        return [{ export: "databaseDurability", input: { databases }, module: durabilityModuleFile(import.meta.url), primitive: "database" }]
       },
       cli: async () => {
         const db = resolvedOptions()

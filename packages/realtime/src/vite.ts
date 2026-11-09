@@ -133,7 +133,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
     vitehub: {
       // Without a room authority the build fails or Realtime is unavailable, so there is no state to report.
       durability: () => hasRoomAuthority
-        ? [{ export: "realtimeDurability", input: { authority: inspectionAuthority === "cloudflare" ? "cloudflare" : "memory" }, module: durabilityModuleFile(import.meta.url) }]
+        ? [{ export: "realtimeDurability", input: { authority: inspectionAuthority }, module: durabilityModuleFile(import.meta.url), primitive: "realtime" }]
         : [],
       inspect: () => ({
         definitions: [{

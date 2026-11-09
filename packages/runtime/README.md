@@ -332,13 +332,19 @@ interface Durability {
 ```
 
 A primitive's Vite plugin contributes a reporter through `vitehub.durability`:
-a module, an export, and the resolved configuration as JSON. A Node server built
-with ViteHub calls each reporter at boot with `process.env`, then calls
-`checkDurability()`. It prints one line per primitive, records the report for
-`getDurabilityReport()` and `vitehub durability list`, and throws
-`RUNTIME_R0017` when `VITEHUB_INSTANCES` (or `node.instances`) is greater than 1
-and a primitive is `host` or `process` scoped. A new driver reports itself in
-its owner package's `durability.ts`.
+the primitive id, a module, an export, and the resolved configuration as JSON.
+A Node server built with ViteHub calls each reporter at boot as
+`reporter(input, context)`. `context.env` is `process.env`, so a driver that an
+environment variable selects at boot, such as `REDIS_URL`, reports correctly.
+`context.find(primitive, name)` returns the report of another primitive, such
+as the Database that a KV store or the Queue keeps its rows in.
+`classifySqliteUrl()` tells a local SQLite file from a remote libSQL server.
+
+The server then calls `checkDurability()`. It prints one line per primitive,
+records the report for `getDurabilityReport()` and `vitehub durability list`,
+and throws `RUNTIME_R0017` when `VITEHUB_INSTANCES` (or `node.instances`) is
+greater than 1 and a primitive is `host` or `process` scoped. A new driver
+reports itself in its owner package's `durability.ts`.
 
 ### Developer diagnostics
 

@@ -8,6 +8,7 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { resolveDurabilityModule } from "@vite-hub/internal/durability"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, resolveWorkspaceDefinitionModule } from "../../build/assets.ts"
@@ -27,6 +28,7 @@ import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevComma
 import { isWorkspaceStore } from "../../storage/provider.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { CollectedWorkspaceContribution } from "../../build/contributions.ts"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
@@ -1618,7 +1620,7 @@ export interface WorkspaceVitePluginAPI {
 }
 
 interface WorkspaceCliContributingPlugin {
-  vitehub?: ViteHubInspectionPluginMetadata & { cli?: () => unknown | Promise<unknown>, operations?: readonly OperationContributionEntry[] }
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { cli?: () => unknown | Promise<unknown>, operations?: readonly OperationContributionEntry[] }
 }
 
 const setWorkspacePluginHosting: unique symbol = Symbol("vitehub.workspace.setHosting")
@@ -1873,6 +1875,21 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       })
     },
     vitehub: {
+      durability: () => {
+        if (!resolvedOptions) return []
+        const store = publicOptions ? publicOptions.store : undefined
+        const module = resolveDurabilityModule(import.meta.url, "@vite-hub/workspace/durability")
+        if (isWorkspaceStore(store)) return [{ export: "workspaceDurability", input: { custom: true }, module, primitive: "workspace" }]
+        const configuredRoot: unknown = Reflect.get(resolvedOptions.store, "root")
+        const root = typeof configuredRoot === "string" ? resolve(projectRoot ?? process.cwd(), configuredRoot) : resolvedOptions.root
+        const relativeRoot = projectRoot ? relative(projectRoot, root) : root
+        const input = {
+          ...(store === undefined ? { inferred: true } : {}),
+          provider: resolvedOptions.store.provider,
+          root: relativeRoot && !relativeRoot.startsWith("..") ? relativeRoot : root,
+        }
+        return [{ export: "workspaceDurability", input, module, primitive: "workspace" }]
+      },
       // The Console, `vitehub workspace history|refs|show`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: "@vite-hub/workspace/operations" }],
       cli: async () => {

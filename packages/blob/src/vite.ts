@@ -470,7 +470,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         const config = getConfig().blob
         if (!config) return []
         const stores = Object.fromEntries(Object.entries({ default: config.store, ...config.stores }).map(([name, store]) => [name, { driver: store.driver, ...("base" in store && typeof store.base === "string" ? { base: store.base } : {}) }]))
-        return [{ export: "blobDurability", input: { stores }, module: durabilityModuleFile(import.meta.url) }]
+        return [{ export: "blobDurability", input: { stores }, module: durabilityModuleFile(import.meta.url), primitive: "blob" }]
       },
       // The Console, `vitehub blob`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: "@vite-hub/blob/operations" }],
