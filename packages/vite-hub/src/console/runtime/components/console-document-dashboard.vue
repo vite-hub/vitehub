@@ -282,6 +282,7 @@ async function publishAll(): Promise<void> {
                 <RouterLink
                   :to="entry.change.state === 'deleted' ? collectionRoute(entry.collection.name) : documentRoute(entry.collection.name, entry.change.id)"
                   class="vitehub-dashboard-row"
+                  data-focus-inset
                 >
                   <Status class="vitehub-dashboard-row__status" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
                   <span class="vitehub-dashboard-row__title flex items-center gap-2">

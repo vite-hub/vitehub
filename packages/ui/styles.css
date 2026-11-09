@@ -2179,7 +2179,7 @@
     font-weight: 500;
   }
 
-  :is([data-slot="comment-reply-time"], [data-slot="comment-reply-edited"], [data-slot="comment-reply-actor"]) {
+  :is([data-slot="comment-reply-time"], [data-slot="comment-reply-edited"]) {
     color: var(--vh-muted);
     font-size: 0.75rem;
   }

@@ -59,6 +59,8 @@ const UEmpty = defineComponent({
   props: { description: String, title: String },
   setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.body?.(), slots.actions?.()]),
 })
+// Renders the tooltip content next to its trigger, so a test can read what the tooltip lists.
+const UTooltip = defineComponent({ setup: (_props, { slots }) => () => [slots.default?.(), slots.content && h("div", { role: "tooltip" }, slots.content())] })
 interface Column { id?: string, accessorKey?: string }
 const UTable = defineComponent({
   props: { columns: { type: Array as PropType<Column[]>, required: true }, data: { type: Array as PropType<ConnectionInspection[]>, required: true }, empty: String },
@@ -95,7 +97,7 @@ async function render(connections: ConnectionInspection[], counts: Record<string
     managementBase: "/_vitehub/connections", searchBase: "/search", sectionsBase: "/sections",
   })
   app.component("UButton", UButton).component("UEmpty", UEmpty).component("UIcon", Passthrough)
-    .component("UTooltip", Passthrough).component("UInput", Passthrough).component("UDashboardNavbar", Passthrough)
+    .component("UTooltip", UTooltip).component("UInput", Passthrough).component("UDashboardNavbar", Passthrough)
     .component("UDashboardPanel", UDashboardPanel).component("UTable", UTable).component("USlideover", USlideover)
   app.mount(root)
   await vi.waitFor(() => expect(root.querySelector("[role=status]")?.textContent ?? "").not.toContain("Loading"))
@@ -107,6 +109,8 @@ async function render(connections: ConnectionInspection[], counts: Record<string
       actions: [...element.querySelectorAll("[data-column=action] [data-button]")].map(button => button.getAttribute("data-button")),
       // Each status is a Status from @vite-hub/ui: a dot with the tone, then the label.
       statuses: [...element.querySelectorAll("[data-column=status] [data-slot=status]")].map(status => `${status.getAttribute("data-tone")}:${status.textContent?.trim()}`),
+      // The pending approvals and missing scopes sit on the status line as one count button.
+      notices: [...element.querySelectorAll("[data-column=status] button")].map(button => button.getAttribute("aria-label")),
       element,
       text: (column: string) => element.querySelector(`[data-column=${column}]`)?.textContent ?? "",
     }
@@ -147,7 +151,8 @@ describe("Console Connections rows", () => {
     expect(row("calendar").actions).toEqual(["Reconnect"])
     expect(row("calendar").statuses).toEqual(["error:Reconnect required"])
     expect(row("gmail").actions).toEqual(["Reconnect"])
-    expect(row("gmail").statuses).toEqual(["success:Connected", "warning:1 missing scope"])
+    expect(row("gmail").statuses).toEqual(["success:Connected"])
+    expect(row("gmail").notices).toEqual(["Review 1 notice for gmail"])
     expect(row("old").actions).toEqual(["Connect"])
 
     expect(row("posthog").actions).toEqual(["Set key"])
@@ -179,20 +184,37 @@ describe("Console Connections rows", () => {
     expect(details?.getAttribute("data-tab")).toBe("details")
   })
 
-  it("shows missing scopes and pending approvals only when they exist", async () => {
+  it("keeps missing scopes and pending approvals on the status line, only when they exist", async () => {
     const { app, root, row } = await render([
       connection({ name: "drop", account: { id: "github-22072217" }, status: "connected" }),
       connection({ name: "posthog", credential: "api-key" }),
       connection({ name: "gmail", status: "connected", account: { email: "ada@example.com", id: "1" } }),
-    ], { drop: 0, gmail: 2, posthog: 0 })
+      connection({ name: "calendar", status: "reauth_required", scopes: { declared: ["a", "b"], granted: [], missing: ["a", "b"] } }),
+      connection({ name: "docs", status: "connected", scopes: { declared: ["a"], granted: [], missing: ["a"] } }),
+    ], { calendar: 1, drop: 0, gmail: 2, posthog: 0 })
     unmount = () => app.unmount()
     expect(root.querySelector("table")?.textContent).not.toMatch(/None|\b0\b/)
     expect(row("posthog").text("account")).toBe("")
-    const review = row("gmail").element.querySelector("[data-button='2 pending approvals']")
-    expect(review?.getAttribute("aria-label")).toBe("Review 2 pending approvals for gmail")
+    expect(row("drop").notices).toEqual([])
+    expect(row("posthog").notices).toEqual([])
+    expect(row("calendar").statuses).toEqual(["error:Reconnect required"])
+    expect(row("calendar").notices).toEqual(["Review 3 notices for calendar"])
+    expect(row("calendar").element.querySelector("[data-column=status] button")?.textContent).toBe("3")
+    expect([...row("calendar").element.querySelectorAll("[role=tooltip] li")].map(item => item.textContent))
+      .toEqual(["1 pending approval", "2 missing scopes"])
+
+    const review = row("gmail").element.querySelector("[data-column=status] button")
+    expect(review?.textContent).toBe("2")
+    expect(review?.getAttribute("aria-label")).toBe("Review 2 notices for gmail")
     review?.dispatchEvent(new (page().MouseEvent)("click"))
     await nextTick()
     expect(root.querySelector("[data-details]")?.getAttribute("data-tab")).toBe("approvals")
+
+    // Missing scopes alone open the details tab, which lists them.
+    row("docs").element.querySelector("[data-column=status] button")?.dispatchEvent(new (page().MouseEvent)("click"))
+    await nextTick()
+    expect(root.querySelector("[data-details]")?.getAttribute("data-details")).toBe("docs")
+    expect(root.querySelector("[data-details]")?.getAttribute("data-tab")).toBe("details")
   })
 
   it("explains that Connections come from code", async () => {

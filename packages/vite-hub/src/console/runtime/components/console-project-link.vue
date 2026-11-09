@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from "vue";
+import { useRouter } from "vue-router";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
+import { cancelConsoleOpen, finishConsoleOpen, useConsoleOpenRequest } from "../client/open-link";
 import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 import ConsoleCodeText from "./console-code-text.vue";
 
 const open = defineModel<boolean>("open", { required: true });
 const persistent = useConsoleProjects().persistent;
+const router = useRouter();
 
-const url = ref("");
+// An `/open` link of a project that this browser did not link fills in its URL.
+const openRequest = useConsoleOpenRequest();
+const url = ref(openRequest.value?.target.url ?? "");
 const busy = ref(false);
 const problem = shallowRef<ConsoleProjectProblem>();
 // After the project asks for a token, the dialog shows the token step for that project.
@@ -22,6 +28,8 @@ const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }
 const tokenProblem = computed<ConsoleProjectProblem | undefined>(() => problem.value ?? (tokenStep.value?.rejected
   ? { title: "The token is not correct", message: consoleTokenRefused(consoleProjectHost(tokenStep.value.target)) }
   : undefined));
+// A project with `auth: "app"` signs the Console in on its own sign-in page.
+const oauthStep = shallowRef<{ target: ConsoleProjectTarget, resourceMetadata: string }>();
 // A touch screen keeps its keyboard closed until the person taps a field. There the dialog itself takes focus, so a
 // screen reader starts inside it and no button shows a focus ring.
 const autofocus = !("ontouchstart" in window);
@@ -36,12 +44,17 @@ const content = autofocus ? {} : {
 let check: AbortController | undefined;
 
 watch(open, (value) => {
-  if (value) return;
+  if (value) {
+    if (openRequest.value) url.value = openRequest.value.target.url;
+    return;
+  }
   check?.abort();
   check = undefined;
+  cancelConsoleOpen();
   url.value = "";
   problem.value = undefined;
   tokenStep.value = undefined;
+  oauthStep.value = undefined;
   busy.value = false;
 });
 
@@ -62,10 +75,11 @@ async function link(token?: string): Promise<void> {
     if (result.kind === "linked") {
       // The first project opens in place, so the dialog closes first.
       open.value = false;
-      switchConsoleProject(result.project.id);
+      if (!finishConsoleOpen(result.project, path => { void router.push(path); })) switchConsoleProject(result.project.id);
       return;
     }
     if (result.kind === "token") tokenStep.value = { target: result.target, rejected: result.rejected };
+    else if (result.kind === "oauth") oauthStep.value = { target: result.target, resourceMetadata: result.resourceMetadata };
     else problem.value = result.problem;
     busy.value = false;
   }
@@ -78,6 +92,7 @@ async function link(token?: string): Promise<void> {
 
 function back(): void {
   tokenStep.value = undefined;
+  oauthStep.value = undefined;
   problem.value = undefined;
 }
 </script>
@@ -86,16 +101,21 @@ function back(): void {
   <!-- The top stays in place and the dialog grows down, so an answer below the field moves nothing above it. -->
   <UModal
     v-model:open="open"
-    :title="tokenStep ? 'Enter the Console token' : 'Link project'"
+    :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? 'Enter the Console token' : 'Link project'"
     :content="content"
     :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
     <template #description>
-      <ConsoleCodeText v-if="tokenStep" :text="`${consoleProjectHost(tokenStep.target)} uses \`auth: &quot;token&quot;\`.`" />
+      <template v-if="oauthStep">{{ consoleProjectHost(oauthStep.target) }} signs you in on its own page.</template>
+      <ConsoleCodeText v-else-if="tokenStep" :text="`${consoleProjectHost(tokenStep.target)} uses \`auth: &quot;token&quot;\`.`" />
       <ConsoleCodeText v-else text="Open a ViteHub app in this Console. The app must list this Console in `console.origins`." />
     </template>
     <template #body>
-      <div v-if="tokenStep" class="grid gap-3">
+      <div v-if="oauthStep" class="grid gap-3">
+        <ConsoleProjectOAuth :target="oauthStep.target" :resource-metadata="oauthStep.resourceMetadata" />
+        <UButton variant="link" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" @click="back" />
+      </div>
+      <div v-else-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
           :problem="tokenProblem"

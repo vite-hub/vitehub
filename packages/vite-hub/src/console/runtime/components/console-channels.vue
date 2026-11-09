@@ -28,6 +28,8 @@ interface ChannelRow {
   conversations: boolean;
   provider: string;
   retention: Retention;
+  simulated: boolean;
+  simulator?: string;
 }
 
 interface ThreadRow {
@@ -143,6 +145,8 @@ async function loadChannels(): Promise<void> {
       conversations: entry.conversations === true,
       provider: text(entry.provider) ?? "",
       retention: parseRetention(entry.retention),
+      simulated: entry.simulated === true,
+      simulator: text(entry.simulator),
     }));
     error.value = undefined;
   } catch (failure) {
@@ -331,19 +335,24 @@ onBeforeUnmount(() => {
           </template>
           <UEmpty v-else-if="!channels.length" variant="naked" size="xs" icon="i-lucide-message-square" title="No Channels yet" description="Add a Channel to an Agent, such as Slack or Teams, to see its threads here." />
           <template v-else>
-            <button
+            <div
               v-for="entry in channels"
               :key="`${entry.agent}/${entry.channel}`"
-              type="button"
-              class="vitehub-console__section-link shrink-0 text-start"
-              :aria-current="entry === selected && !selectedThread ? 'true' : undefined"
-              @click="select({ agent: entry.agent, channel: entry.channel })"
+              class="flex shrink-0 items-center"
             >
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm">{{ entry.agent }} · {{ entry.channel }}</span>
-                <span class="block truncate text-xs text-muted">{{ entry.provider }}{{ entry.retention.durable ? " · durable" : " · provider window" }}</span>
-              </span>
-            </button>
+              <button
+                type="button"
+                class="vitehub-console__section-link min-w-0 flex-1 text-start"
+                :aria-current="entry === selected && !selectedThread ? 'true' : undefined"
+                @click="select({ agent: entry.agent, channel: entry.channel })"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm">{{ entry.agent }} · {{ entry.channel }}</span>
+                  <span class="block truncate text-xs text-muted">{{ entry.provider }}{{ entry.simulated ? " (simulated)" : entry.retention.durable ? " · durable" : " · provider window" }}</span>
+                </span>
+              </button>
+              <a v-if="entry.simulator" :href="entry.simulator" :aria-label="`Open ${entry.agent} · ${entry.channel} chat page`" class="shrink-0 px-2 text-xs text-muted hover:text-default">Chat page</a>
+            </div>
           </template>
 
           <template v-if="selected">

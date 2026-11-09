@@ -2,7 +2,7 @@ import { useRuntimeConfig, useStorage } from "#imports"
 
 import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsAppPath, docsManifestPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
+import { docsAppPath, docsIndexedPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
 
@@ -29,7 +29,8 @@ const source: AgentContentSource = {
     const isDocs = (path: string) => isDocsPath(path, manifest.base)
     // Docs pages come first, then pages outside the base, each in URL order. llms.txt groups them in this order.
     const rank = (path: string) => isDocs(path) ? 0 : 1
-    return docsManifestPages(manifest)
+    // A page with `seo.index: false` keeps its raw copy, but llms.txt does not list it.
+    return docsIndexedPages(manifest)
       // nuxt-agent-discovery lists the home page itself, first.
       .filter(page => page.path !== "/")
       .map(page => ({ route: page.path, title: page.sourceTitle, description: page.description ?? undefined, section: isDocs(page.path) ? "Docs" : "Pages" }))

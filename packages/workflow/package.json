@@ -56,6 +56,11 @@
       "import": "./dist/runtime/cloudflare-vite.js",
       "default": "./dist/runtime/cloudflare-vite.js"
     },
+    "./runtime/dev-runs": {
+      "types": "./dist/runtime/dev-runs.d.ts",
+      "import": "./dist/runtime/dev-runs.js",
+      "default": "./dist/runtime/dev-runs.js"
+    },
     "./runtime/execute": {
       "types": "./dist/runtime/execute.d.ts",
       "import": "./dist/runtime/execute.js",

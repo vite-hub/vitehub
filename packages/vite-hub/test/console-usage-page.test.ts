@@ -101,7 +101,7 @@ const stubs = {
 async function mount() {
   const root = document.createElement("div")
   document.body.append(root)
-  const app = createApp(Usage, { base: "/api/_vitehub/console/usage" })
+  const app = createApp(Usage, { base: "/_vitehub/api/usage" })
   for (const [name, component] of Object.entries(stubs)) app.component(name, component)
   app.mount(root)
   await vi.waitFor(() => expect(root.querySelector("[data-tab]")).not.toBeNull())

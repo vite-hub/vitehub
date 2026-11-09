@@ -120,7 +120,7 @@ describe("landing page", () => {
     // Geist radii only (docs/design/tokens.md): no square, 2px, 16px, or arbitrary corners.
     expect(source).not.toMatch(/rounded-(?:none|sm|2xl|3xl|\[)|999px/);
     expect(source).toContain('aria-label="ViteHub APIs"');
-    expect(source).toContain("MotionConfig");
+    expect(source).toContain("useSharedIndicator");
     expect(source).toContain("prefers-reduced-motion");
     expect(source).toMatch(/<pre|<code/);
     expect(source).not.toMatch(/vitehub-backplane\.webp|server-primitives\.webp|agents\.webp/);

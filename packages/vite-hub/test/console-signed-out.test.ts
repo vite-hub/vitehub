@@ -110,7 +110,7 @@ describe("signed-out Console", () => {
     mocks.requestConsole.mockResolvedValue({ auth: true, sections: ["kv"] })
     mocks.getSession.mockResolvedValue({ data: { session: { id: "session" }, user: { name: "Ada" } } })
     mocks.signOut.mockResolvedValue({})
-    const { app, buttons, click } = mount(ConsoleRail, { sectionsBase: `/sign-out-${encodeURIComponent(signInPage)}/api/_vitehub/console/sections` })
+    const { app, buttons, click } = mount(ConsoleRail, { sectionsBase: `/sign-out-${encodeURIComponent(signInPage)}/_vitehub/api/sections` })
     try {
       await vi.waitFor(() => expect(buttons()).toContain("Sign out"))
       const cacheKey = "vitehub.console.documents:/documents:content"

@@ -1,14 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-const themeUrl = new URL("../../packages/docs/runtime/theme/shell.css", import.meta.url);
+const themeUrl = new URL("../../packages/docs/runtime/theme/design.css", import.meta.url);
 
 describe("docs search overlay", () => {
   it("anchors expanding desktop results below the viewport top", async () => {
     const css = await readFile(themeUrl, "utf8");
     const desktopRule = css.match(/\.vh-docs-search-modal \{(?<body>[^}]+)\}/)?.groups?.body;
 
-    expect(desktopRule).toContain("top: 248px !important;");
+    expect(desktopRule).toContain("top: 4.5rem !important;");
     expect(desktopRule).toContain("translate: -50% 0 !important;");
   });
 

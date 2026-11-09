@@ -82,7 +82,10 @@ const runtimeEntries = [
   "src/console/runtime/client/publish.ts",
   "src/console/runtime/client/mcp.ts",
   "src/console/runtime/client/mcp-client.ts",
+  "src/console/runtime/client/new-project.ts",
+  "src/console/runtime/client/open-link.ts",
   "src/console/runtime/client/operation-view.ts",
+  "src/console/runtime/client/pending-links.ts",
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/project.ts",
   "src/console/runtime/client/project-link.ts",
@@ -101,6 +104,10 @@ const runtimeEntries = [
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
   "src/console/runtime/skills.ts",
+  // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
+  "src/console/runtime/server/access-policy.ts",
+  "src/console/runtime/server/development.ts",
+  "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
   "src/console/runtime/server/client.get.ts",
@@ -132,7 +139,8 @@ const runtimeEntries = [
 ];
 
 const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
-const configurationOwners = /^@vite-hub\/(?:agent|auth|comments|connections|database|realtime|schedule|workspace)(?:\/|$)/;
+// Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
   const matches = readdirSync(consoleAssetRoot)
@@ -245,6 +253,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-project-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-oauth.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -363,6 +375,8 @@ export default defineConfig({
         },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/document-cache.ts", to: "dist/console/runtime/client" },
+        // The copied invocation helpers import the formatters as TypeScript.
+        { from: "src/console/runtime/client/format.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
@@ -484,6 +498,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/live"];
           delete exports["./console/runtime/client/mcp-client"];
           delete exports["./console/runtime/client/mcp"];
+          delete exports["./console/runtime/client/open-link"];
           delete exports["./console/runtime/client/operation-view"];
           delete exports["./console/runtime/client/media"];
           delete exports["./console/runtime/client/media-library"];
@@ -491,6 +506,8 @@ export default defineConfig({
           delete exports["./console/runtime/client/presence"];
           delete exports["./console/runtime/client/preview"];
           delete exports["./console/runtime/client/publish"];
+          delete exports["./console/runtime/client/new-project"];
+          delete exports["./console/runtime/client/pending-links"];
           delete exports["./console/runtime/client/problem"];
           delete exports["./console/runtime/client/project"];
           delete exports["./console/runtime/client/project-link"];
@@ -534,6 +551,10 @@ export default defineConfig({
           delete exports["./console/runtime/server/mcp-discovery"];
           delete exports["./console/runtime/server/mcp-authorization-server"];
           delete exports["./console/runtime/server/mcp-metadata"];
+          delete exports["./console/runtime/server/access-policy"];
+          delete exports["./console/runtime/server/development"];
+          delete exports["./console/runtime/server/operation-contributions"];
+          delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/page.get"];
           delete exports["./console/runtime/server/page-session"];
           delete exports["./console/runtime/server/page-tool"];
@@ -559,6 +580,7 @@ export default defineConfig({
             "./console/documents": "./dist/console/runtime/server/documents.js",
             "./console/env": "./dist/console/runtime/server/env.js",
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
+            "./console/operations": "./dist/console/runtime/server/operation-contributions.js",
             "./console/sections": "./dist/console/runtime/server/sections.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },

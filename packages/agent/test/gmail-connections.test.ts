@@ -8,7 +8,8 @@ import { google } from "../../connections/src/google.ts"
 import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { createDatabaseConnectionStore } from "../../connections/src/store.ts"
 import { gmail } from "../src/capabilities/gmail.ts"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { agentInvocationTraceIdContextKey } from "../src/trace.ts"
 
 import type { AgentToolDefinition } from "../src/types.ts"
@@ -138,7 +139,7 @@ it("rejects a caller-selected Connection identity on an unnamed public Agent inv
         return await execute(context.tools?.gmail_search, { max: 5, query: "in:inbox" })
       } },
     })
-    await expect(runAgent(agent, {
+    await expect(runAgentWithContext(agent, {
       agentIdentity: { name: "labeller" },
       runtime: "unknown", memo: (_key, fn) => fn(), waitUntil: () => {},
       capabilities: { connections: { runtime: () => test.runtime } },

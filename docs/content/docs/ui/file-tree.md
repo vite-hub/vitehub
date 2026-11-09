@@ -13,7 +13,7 @@ icon: i-lucide-network
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/file-tree`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/file-tree`:
 
 ```ts
 import { FileTree } from "@vite-hub/ui";
@@ -104,7 +104,7 @@ Other attributes go to the tree element. The component exposes `getModel()` thro
 
 Creates a Pierre `FileTree` model.
 
-```ts
+```ts fragment
 function useFileTree(options: FileTreeOptions): FileTreeModel;
 
 interface FileTreeOptions extends Omit<PierreFileTreeOptions, "paths"> {
@@ -118,7 +118,7 @@ Common options are `initialExpansion`, `initialSelectedPaths`, `search`, `gitSta
 
 Returns the selected paths of a model.
 
-```ts
+```ts fragment
 function useFileTreeSelection(model: FileTreeModel): ShallowRef<readonly string[]>;
 ```
 

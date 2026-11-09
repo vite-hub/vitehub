@@ -8,7 +8,8 @@ import {
   useDocumentPointerDown,
 } from "../internal/comment-outside.ts";
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
-import { displayName, toPerson } from "../internal/comment-person.ts";
+import { displayName, writerName, writerPerson } from "../internal/comment-person.ts";
+import { messagesSinceResolved } from "../internal/comment-status.ts";
 import { timeAgo } from "../internal/format.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
@@ -222,9 +223,8 @@ export const CommentReply = defineComponent({
         [
           h("div", { "data-slot": "comment-reply-content" }, [
             h("div", { "data-slot": "comment-reply-header" }, [
-              h(AvatarStack, { "aria-hidden": "true", people: [toPerson(message.author)], size: "sm" }),
-              h("span", { "data-slot": "comment-reply-author" }, displayName(message.author)),
-              message.actor ? h("span", { "data-slot": "comment-reply-actor" }, `via ${message.actor.name ?? message.actor.id}`) : null,
+              h(AvatarStack, { "aria-hidden": "true", people: [writerPerson(message)], size: "sm" }),
+              h("span", { "data-agent": message.actor ? "true" : undefined, "data-slot": "comment-reply-author" }, writerName(message)),
               h(
                 "time",
                 { "data-slot": "comment-reply-time", datetime: new Date(message.createdAt).toISOString(), title: new Date(message.createdAt).toLocaleString() },
@@ -283,6 +283,14 @@ export const CommentReply = defineComponent({
     };
   },
 });
+
+/** "Resolved by Ana", as a line across the thread. */
+const resolvedMarker = (thread: CommentThreadModel) =>
+  h(Marker, { key: "resolved", variant: "separator" }, () =>
+    h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
+  );
+
+export { messagesSinceResolved, repliedSinceResolved } from "../internal/comment-status.ts";
 
 // The thread of one pin: the comment and its replies, a reply box, Resolve or Reopen, and Close.
 // With `preview` it is the hover card of a pin: the comment, the reply count, and no controls.
@@ -422,6 +430,9 @@ export const CommentThread = defineComponent({
     return () => {
       const { thread } = props;
       const resolved = thread.status === "resolved";
+      const later = messagesSinceResolved(thread);
+      // A reply since the thread was resolved asks for a look: Resolve again marks it seen.
+      const resolvable = !resolved || later.length > 0;
       const first = thread.messages[0];
       const quote = thread.anchor.kind === "text" ? thread.anchor.exact : undefined;
       if (props.preview) {
@@ -443,10 +454,10 @@ export const CommentThread = defineComponent({
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             !allowed("resolve") ? null : h(UButton, {
-              "aria-label": resolved ? "Reopen" : "Resolve",
+              "aria-label": resolvable ? "Resolve" : "Reopen",
               color: "neutral",
-              icon: resolved ? "i-lucide-rotate-ccw" : "i-lucide-check",
-              onClick: () => void act(resolved ? props.onReopen : props.onResolve),
+              icon: resolvable ? "i-lucide-check" : "i-lucide-rotate-ccw",
+              onClick: () => void act(resolvable ? props.onResolve : props.onReopen),
               size: "xs",
               variant: "ghost",
             }),
@@ -457,7 +468,9 @@ export const CommentThread = defineComponent({
             props.detached
               ? h("p", { "data-slot": "comment-thread-detached", role: "status" }, "The place of this comment is no longer on the page.")
               : null,
-            ...thread.messages.map((message, index) =>
+            ...thread.messages.flatMap((message, index) => [
+              // The marker sits where the thread was resolved, so a later reply shows below it.
+              resolved && message === later[0] ? resolvedMarker(thread) : null,
               h(CommentReply, {
                 attachmentUrl: props.attachmentUrl,
                 confirmDelete: index === 0,
@@ -471,12 +484,8 @@ export const CommentThread = defineComponent({
                 user: user.value,
                 users: users.value,
               }, replySlots()),
-            ),
-            resolved
-              ? h(Marker, { variant: "separator" }, () =>
-                  h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
-                )
-              : null,
+            ]),
+            resolved && later.length === 0 ? resolvedMarker(thread) : null,
             slots.after ? h("div", { "data-slot": "comment-thread-after" }, slots.after({ thread })) : null,
           ]),
           !allowed("reply") && (failure.value ?? props.error)

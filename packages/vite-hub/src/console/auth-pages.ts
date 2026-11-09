@@ -1,20 +1,22 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext, installStandardContext } from "@vite-hub/runtime/h3"
+import { H3Event } from "h3"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
 import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-page.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
-import { consoleRequestURL } from "./runtime/server/request.ts"
+import { consolePublicURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
+import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 import type { ConsoleUser } from "./auth-types.ts"
-import type { ViteHubContext } from "@vite-hub/runtime"
 
-export const consoleAuthBasePath = "/api/_vitehub/console/auth"
+export const consoleAuthBasePath = "/_vitehub/api/auth"
 
 function escapeHTML(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
@@ -216,6 +218,8 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   const development = isConsoleDevelopmentBuild()
   const signOutPath = authBasePath === consoleAuthBasePath ? consoleAuthPath(mountBaseURL, `${authBasePath}/sign-out`) : `${authBasePath}/sign-out`
   const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
+  const claimPath = authBasePath === consoleAuthBasePath ? consoleAuthPath(mountBaseURL, `${authBasePath}/vitehub/admin-claim`) : `${authBasePath}/vitehub/admin-claim`
+  const claimLiteral = JSON.stringify(claimPath).replaceAll("<", "\\u003c")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
   const signedOutLiteral = JSON.stringify(signedOutPath).replaceAll("<", "\\u003c")
   const nonce = crypto.randomUUID()
@@ -239,6 +243,34 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
         button.disabled = false;
       }
     });
+    // An app with VITEHUB_ADMIN_CLAIM answers this route. Without it, the form stays hidden.
+    const claim = document.getElementById("claim");
+    const claimError = document.getElementById("claim-error");
+    fetch(${claimLiteral} + "/status", { credentials: "same-origin" })
+      .then(response => response.ok ? response.json() : undefined)
+      .then(status => { if (status && status.available === true) claim.hidden = false; })
+      .catch(() => {});
+    claim.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = claim.querySelector("button");
+      submit.disabled = true;
+      claimError.hidden = true;
+      try {
+        const response = await fetch(${claimLiteral}, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code: claim.elements.code.value }),
+        });
+        if (response.ok) return window.location.reload();
+        const body = await response.json().catch(() => undefined);
+        claimError.textContent = body && typeof body.message === "string" ? body.message : "Could not use the code. Try again.";
+      } catch {
+        claimError.textContent = "Could not use the code. Try again.";
+      }
+      claimError.hidden = false;
+      submit.disabled = false;
+    });
   `
   const page = `<!doctype html>
 <html lang="en">
@@ -248,6 +280,10 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>Access denied · ViteHub Console</title>
     <style>${consoleStandaloneStyles}
+      #claim { padding-top: 1rem; border-top: 1px solid var(--ui-border); }
+      .field { display: flex; gap: .5rem; }
+      .field input { flex: 1; min-width: 0; font-family: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .05em; text-transform: uppercase; }
+      .field button { flex: none; }
     </style>
   </head>
   <body>
@@ -256,8 +292,17 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
       <h1>Access denied</h1>
       <p>This account cannot access the ViteHub Console.</p>
       <div class="stack">
-        <button type="button">Switch account</button>
-        <p role="alert" hidden>Could not sign out. Try again.</p>
+        <button type="button" id="switch">Switch account</button>
+        <p role="alert" id="switch-error" hidden>Could not sign out. Try again.</p>
+        <form id="claim" hidden>
+          <label for="claim-code">Claim code</label>
+          <p class="note">If you ran <code>vitehub auth claim</code>, enter its code to get the admin role.</p>
+          <div class="field">
+            <input id="claim-code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="XXXX-XXXX-XXXX-XXXX">
+            <button type="submit">Claim</button>
+          </div>
+          <p role="alert" id="claim-error" hidden></p>
+        </form>
       </div>
     </main>
     <script nonce="${nonce}">${script}</script>
@@ -292,7 +337,7 @@ export interface ConsoleAppAuthInstance extends ConsoleSessionReader {
 export type ConsoleAppAuthResolver = (
   request: Pick<Request, "headers" | "url">,
   runtimeOptions?: { baseURL?: string },
-  event?: ViteHubContext,
+  event?: ConsoleRequestEvent,
 ) => ConsoleAppAuthInstance | Promise<ConsoleAppAuthInstance>
 
 /** Use the app's configured social providers and session without a second Auth Definition or client. */
@@ -301,11 +346,12 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
   authBasePath: (event: object) => Promise<string>
 } {
   async function requestAuth(event: object) {
-    const request = toEventRequest(event)
-    const url = consoleRequestURL({ req: request })
+    // Request-only callers need a response target before Auth can read Standard Context.
+    const authEvent = "~standard" in event || "res" in event || "node" in event ? event : new H3Event(toEventRequest(event))
+    installStandardContext(authEvent)
+    const request = getStandardContext(authEvent).req
+    const url = consolePublicURL(request)
     const authRequest = { headers: request.headers, url: url.href }
-    // SAFETY: Nitro installs Standard Context; Auth also adapts standalone H3 events on first use.
-    const authEvent = event as ViteHubContext
     let auth = await resolveAuth(authRequest, undefined, authEvent)
     let context = await auth.$context
     // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
@@ -478,12 +524,12 @@ export async function readConsoleSessionUser(auth: ConsoleSessionReader, request
 
 /** The app Auth access routes that protect the Console, and the Auth functions that check them. */
 export interface ConsoleAppAuthAccessOptions {
-  getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader | Promise<ConsoleSessionReader>
+  getAuthForRequest: (request: Request, runtimeOptions: undefined, event: ConsoleRequestEvent) => ConsoleSessionReader | Promise<ConsoleSessionReader>
   /** `console.impersonation`. An impersonation session then never opens the Console. */
   impersonation?: boolean
-  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
+  requireAuthAccessRoutes: (event: ConsoleRequestEvent, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
   /** Rejects a request without a session. Used for a Console path that no access route matches. */
-  requireSession: (event: object) => Promise<Response | undefined>
+  requireSession: (event: ConsoleRequestEvent) => Promise<Response | undefined>
   routes: readonly { authorize: boolean, index: number, method?: string, route: string }[]
 }
 
@@ -492,15 +538,15 @@ export interface ConsoleAppAuthAccessOptions {
  * works for an H3 2 event and for an H3 1 event such as Nuxt 4's, which has no `url`.
  */
 export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions): {
-  check: (event: object) => Promise<Response | undefined>
-  user: (event: object) => Promise<ConsoleUser | undefined>
+  check: (event: ConsoleRequestEvent) => Promise<Response | undefined>
+  user: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined>
 } {
   // One session read per request serves the impersonation check and the user reader.
   const sessions = new WeakMap<object, Promise<unknown>>()
-  function readSession(event: object): Promise<unknown> {
+  function readSession(event: ConsoleRequestEvent): Promise<unknown> {
     let session = sessions.get(event)
     if (!session) {
-      const request = toEventRequest(event)
+      const request = getStandardContext(event).req
       session = Promise.resolve(options.getAuthForRequest(request, undefined, event)).then(auth => auth.api.getSession({ headers: request.headers })).catch((error: unknown) => {
         // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`. The access
         // routes then send the browser to sign in.
@@ -519,7 +565,7 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
           status: 403,
         })
       }
-      const request = toEventRequest(event)
+      const request = getStandardContext(event).req
       const path = consoleEventPath(event, request)
       const method = request.method.toUpperCase()
       const matched = options.routes.filter((route) => {

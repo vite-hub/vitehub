@@ -6,6 +6,7 @@ import { computed } from "vue";
 import { consoleProblem } from "../client/problem";
 import { consoleSignInURL } from "../client/sign-in";
 import { consolePrimitives } from "../sections";
+import ConsoleCodeText from "./console-code-text.vue";
 
 /**
  * One Console state: an error, an empty list, or a primitive that is not configured.
@@ -106,8 +107,8 @@ const fix = computed(() => {
     :color="alertColor"
   >
     <template v-if="problem?.why || description || fix || $slots.default" #description>
-      <p v-if="problem?.why || description" class="text-pretty">{{ problem?.why ?? description }}</p>
-      <p v-if="fix" class="text-pretty">{{ fix }}</p>
+      <p v-if="problem?.why || description" class="text-pretty"><ConsoleCodeText :text="problem?.why ?? description ?? ''" /></p>
+      <p v-if="fix" class="text-pretty"><ConsoleCodeText :text="fix" /></p>
       <slot />
     </template>
     <template v-if="stateActions.length || problem" #actions>
@@ -133,8 +134,8 @@ const fix = computed(() => {
     class="min-h-0 flex-1"
   >
     <template v-if="problem?.why || description || fix" #description>
-      <p v-if="problem?.why || description" class="text-pretty">{{ problem?.why ?? description }}</p>
-      <p v-if="fix" class="text-pretty text-default">{{ fix }}</p>
+      <p v-if="problem?.why || description" class="text-pretty"><ConsoleCodeText :text="problem?.why ?? description ?? ''" /></p>
+      <p v-if="fix" class="text-pretty text-default"><ConsoleCodeText :text="fix" /></p>
     </template>
     <template #body>
       <!-- Extra content for the state, such as a code example for an empty state. -->

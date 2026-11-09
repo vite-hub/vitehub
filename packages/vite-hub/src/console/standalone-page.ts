@@ -80,6 +80,8 @@ export const consoleStandaloneStyles = `
       button:disabled { opacity: .5; cursor: wait; }
       .link { height: auto; padding: 0; background: none; color: var(--ui-text-muted); font-size: .8125rem; font-weight: 400; text-decoration: underline; text-underline-offset: 3px; }
       @media (hover: hover) { .link:hover { color: var(--ui-text-highlighted); opacity: 1; } }
+      /* Touch screens: 44px targets. A text link grows its tap area only. */
+      @media (pointer: coarse) { a.button, button:not(.link), input { height: auto; min-height: 2.75rem; } .link { position: relative; } .link::after { content: ""; position: absolute; inset: -.75rem -.5rem; } }
       .panel { border: 1px solid var(--ui-border); border-radius: .375rem; }
       .row { display: flex; align-items: center; gap: .75rem; padding: .625rem .75rem; min-width: 0; }
       .row + .row { border-top: 1px solid var(--ui-border); }
