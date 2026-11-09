@@ -11,7 +11,7 @@ import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
-import { hubKv } from "@vite-hub/kv/vite";
+import { hubKV } from "@vite-hub/kv/vite";
 import { hubQueue } from "@vite-hub/queue/vite";
 import { hubRateLimit } from "@vite-hub/rate-limit/vite";
 import { hubWorkflow } from "@vite-hub/workflow/vite";
@@ -86,7 +86,7 @@ describe("CLI documentation contract", () => {
       { vitehub: { cli: createCmsCliContributor() } },
       hubEnv(),
       emailPlugin,
-      hubKv(),
+      hubKV(),
       hubQueue(),
       hubRateLimit(),
       schedulePlugin,

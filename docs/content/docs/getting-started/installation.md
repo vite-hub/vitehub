@@ -272,7 +272,7 @@ to retain it across deployments.
 
 Install an `@vite-hub/*` owner package directly when you build a library or
 configure a standalone integration. For example, `@vite-hub/kv` exposes
-`hubKv()` from `@vite-hub/kv/vite`. In that setup, you own the server entry and
+`hubKV()` from `@vite-hub/kv/vite`. In that setup, you own the server entry and
 host integration.
 
 Owner packages are also the smallest install. For a Blob and Queue app with

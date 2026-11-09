@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
-import { hubKv } from "@vite-hub/kv/vite"
+import { hubKV } from "@vite-hub/kv/vite"
 import { H3 } from "h3"
 import { desc } from "drizzle-orm"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -51,7 +51,7 @@ import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation }
 import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
 import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
 import type { AgentInvocationsDefault } from "../src/_internal/agent/invocations.ts"
-import { console as consoleRuntime } from "../src/console/server.ts"
+import { agentConsole as consoleRuntime } from "../src/console/server.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
 import invocationCapabilitiesHandlerRoute from "../src/console/runtime/server/invocation-capabilities.get.ts"
@@ -968,7 +968,7 @@ describe("Agent invocation console", () => {
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKv({ driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" })
+      const kvPlugin = hubKV({ driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" })
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)

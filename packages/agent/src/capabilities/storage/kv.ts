@@ -72,7 +72,7 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
         execute: ({ key, operation, value }) => {
           assertString(key, "kv_edit key")
           if (operation === "put") return storageValue(method<(key: string, value: unknown) => MaybePromise<unknown>>(store, "kv", "set")(key, value))
-          if (operation === "delete") return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "del")(key))
+          if (operation === "delete") return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "delete")(key))
           throw agentDiagnostics.AGENT_R0225({ message: `[vitehub] Unsupported kv_edit operation: ${String(operation)}` })
         },
         icon: "i-lucide-key-round",

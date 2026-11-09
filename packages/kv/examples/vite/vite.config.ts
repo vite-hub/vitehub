@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
-import { hubKv } from "@vite-hub/kv/vite"
+import { hubKV } from "@vite-hub/kv/vite"
 
 export default defineConfig({
   appType: "custom",
@@ -10,5 +10,5 @@ export default defineConfig({
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },
-  plugins: [hubKv()],
+  plugins: [hubKV()],
 })

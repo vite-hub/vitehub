@@ -35,7 +35,7 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
 | `KV_INVALID_TTL` | `increment()`, `setIfAbsent()` | |
-| `KV_KEY_TOO_LONG` | `del()`, `get()`, `has()`, `set()` | |
+| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
 | `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
 | `KV_UNSUPPORTED_OPERATION` | `getAndDelete()`, `increment()`, `setIfAbsent()` | |
@@ -108,7 +108,7 @@ The `deno-kv` driver needs `Deno.openKv()`. Run on Deno with KV enabled, or sele
 
 ### KV_DISABLED
 
-The runtime has no KV configuration. Add `hubKv()` to the Vite config, and do not set `kv: false`.
+The runtime has no KV configuration. Add `hubKV()` to the Vite config, and do not set `kv: false`.
 
 ### KV_INVALID_CONFIG
 

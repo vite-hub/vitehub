@@ -78,7 +78,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     // Config errors. ViteHub throws them when code first uses the database, because the code or the deployment must change.
     DATABASE_DISABLED: {
       why: "Database is not configured in this runtime.",
-      fix: "Add `hubDb()` to the Vite config and do not set `database: false`.",
+      fix: "Add `hubDatabase()` to the Vite config and do not set `database: false`.",
     },
     DATABASE_INVALID_D1_HTTP_URL: {
       why: ({ database }: { database: string }) => `\`cloudflare.http.url\` of the database "${database}" is not an HTTP or HTTPS URL.`,

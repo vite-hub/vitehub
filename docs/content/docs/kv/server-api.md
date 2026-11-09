@@ -12,7 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `kv` from `@vite-hub/kv` | Read and write the Default KV Store or a named KV Store. |
 | `disposeKVStores` from `@vite-hub/kv` | Dispose all cached stores from an application shutdown hook. |
-| `hubKv` from `@vite-hub/kv/vite` | Register KV runtime configuration. |
+| `hubKV` from `@vite-hub/kv/vite` | Register KV runtime configuration. |
 | `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve KV Vite runtime config manually. |
 
 All KV driver, store, module, and storage types are exported from `@vite-hub/kv`.
@@ -58,7 +58,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` when code only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. It has no `set()`, `setIfAbsent()`, `del()`, `clear()`, `increment()`, or `getAndDelete()`, so calling them is a type error, and they are absent at runtime. The Default KV Store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` when code only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. It has no `set()`, `setIfAbsent()`, `delete()`, `clear()`, `increment()`, or `getAndDelete()`, so calling them is a type error, and they are absent at runtime. The Default KV Store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
@@ -119,7 +119,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Atomically writes a value only when the key has none. Returns `true` when this call wrote it. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on Upstash. |
-| `kv.del(key)` | Deletes one key. |
+| `kv.delete(key)` | Deletes one key. |
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |

@@ -9,7 +9,7 @@ const kvModule = vi.hoisted(() => ({
       store.set(key, value)
       return [null, undefined]
     },
-    del: async (key: string) => {
+    delete: async (key: string) => {
       store.delete(key)
       return [null, undefined]
     },

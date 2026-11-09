@@ -42,7 +42,7 @@ async function derive(args: string[], context: SecretCliContext): Promise<number
     context.stdout.write([
       `Usage: ${deriveUsage}`,
       "",
-      "Print the secret that deriveSecret(<purpose>) returns for VITEHUB_SECRET (or NUXT_APP_SECRET).",
+      "Print the secret that deriveSecret(<purpose>) returns for VITEHUB_SECRET.",
       "For example, `vitehub secret derive vitehub:dispatch` prints the VITEHUB_DISPATCH_KEY of a deployment.",
       "",
     ].join("\n"))

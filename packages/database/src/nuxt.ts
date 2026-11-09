@@ -25,7 +25,7 @@ import { assertDefinitionD1Resources, hasRemoteDefinitionRuntime, usesD1HttpOnly
 import { assertMigrateOnStartSupported, migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
-import { hubDb as hubDbVite } from "./vite.ts"
+import { hubDatabase as hubDatabaseVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
 import type { CollectedDatabaseContribution, CollectedDatabaseContributions } from "./contributions.ts"
@@ -103,7 +103,7 @@ interface ResolvedDatabaseNuxtD1Options {
   viteOptions: DBModulePublicOptions
 }
 
-export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNuxtModule {
+export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNuxtModule {
   // SAFETY: This callback receives both required module metadata methods below before it is returned to Nuxt.
   const module = async function viteHubDatabaseNuxtModule(inlineOptions, nuxt) {
     // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the options this integration reads.
@@ -253,7 +253,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         paths[databaseDrizzleImport] ??= [databaseDrizzleTypes]
       })
       hook("nitro:config", async (config) => {
-        // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app. Nuxt
+        // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDatabase()` in a Vite app. Nuxt
         // modules add them to `nuxt.options.vite.plugins` during setup, so this hook sees them after every module ran.
         contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, {
           projectRoot: root,
@@ -652,7 +652,7 @@ function resolveDatabaseNuxtD1Options(
 function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]) {
   const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : []
   if (!plugins.some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/database/vite")) {
-    viteConfig.plugins = [hubDbVite(resolveDatabaseViteOptions(options, serverDirs)), ...plugins] satisfies Plugin[]
+    viteConfig.plugins = [hubDatabaseVite(resolveDatabaseViteOptions(options, serverDirs)), ...plugins] satisfies Plugin[]
   }
 }
 

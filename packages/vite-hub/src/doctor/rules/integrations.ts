@@ -463,13 +463,6 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
               fix: helper,
             }), { range: ctx.range(node) })
           }
-          const reference = r.callee(node)
-          if (reference?.module === "blob" && reference.name === "blob" && reference.path.length === 1 && reference.path[0] === "delete") {
-            ctx.report(diagnostics.VHUB0032({
-              why: "`blob.delete()` is the NuxtHub name. ViteHub Blob has no `delete` method, so the call fails at runtime.",
-              fix: "Call `blob.del()`. It returns an `[error]` tuple: `const [error] = await blob.del(pathname)`.",
-            }), { range: ctx.range(node) })
-          }
           return
         }
         const source = moduleSpecifier(node)

@@ -135,7 +135,7 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
   }
   const config = await getConfig?.({ strict: false })
   if (!config?.databaseNames.length) {
-    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`.\n")
+    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
     return 1
   }
   const names = parsed.database ? [parsed.database] : config.databaseNames
@@ -295,7 +295,7 @@ async function runDrizzleKit(
       // `usesD1Http()` is false for every generate, but its type guard narrows `database` to undefined after it.
       const migrationsDir = run.database?.migrationsDir
       if (!migrationsDir) {
-        context.stderr.write("[vitehub] --schema-snapshot needs a resolved Database config. Run the command in a project that uses `hubDb()`.\n")
+        context.stderr.write("[vitehub] --schema-snapshot needs a resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
         return 1
       }
       const snapshot = await writeSchemaSnapshot(context, { bin: drizzleKitBin, configFile: resolve(projectRoot, configFile), migrationsDir: resolve(projectRoot, migrationsDir), projectRoot })
@@ -368,7 +368,7 @@ async function checkPendingMigrations(
   const { readMigrationPlan } = await import("./internal/migration-plan.ts")
   const [error, plan] = database
     ? await readMigrationPlan({ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) }, { env: context.env ?? process.env, projectRoot })
-    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`." }), undefined]
+    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined]
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub db migrate --allow-data-loss`.\n")

@@ -81,7 +81,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.e2e) {
-    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandboxTask }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
+    const [{ hubBlob }, { hubDatabase }, { hubKV }, { hubQueue }, { hubSchedule }, { hubSandboxTask }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
       import("@vite-hub/blob/vite"),
       import("@vite-hub/database/vite"),
       import("@vite-hub/kv/vite"),
@@ -119,10 +119,10 @@ export default defineConfig(async () => {
       plugins: [
         hubQueue(),
         hubSchedule(),
-        hubKv(),
+        hubKV(),
         hubWorkflow(),
         hubBlob(),
-        hubDb(),
+        hubDatabase(),
         hubSandboxTask(),
         hubWorkspace(),
         createViteE2EComposer({
@@ -183,7 +183,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.schedule) {
-    const [{ hubKv }, { hubSchedule }] = await Promise.all([
+    const [{ hubKV }, { hubSchedule }] = await Promise.all([
       import("@vite-hub/kv/vite"),
       import("@vite-hub/schedule/vite"),
     ])
@@ -194,7 +194,7 @@ export default defineConfig(async () => {
         ssr: true,
       },
       kv: {},
-      plugins: [hubSchedule(), hubKv()],
+      plugins: [hubSchedule(), hubKV()],
     }
   }
 
@@ -208,10 +208,10 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.db) {
-    const { hubDb } = await import("@vite-hub/database/vite")
+    const { hubDatabase } = await import("@vite-hub/database/vite")
     return {
       ...baseConfig,
-      plugins: [hubDb()],
+      plugins: [hubDatabase()],
     }
   }
 
@@ -224,14 +224,14 @@ export default defineConfig(async () => {
     }
   }
 
-  const [{ hubKv }, { hubQueue }] = await Promise.all([
+  const [{ hubKV }, { hubQueue }] = await Promise.all([
     import("@vite-hub/kv/vite"),
     import("@vite-hub/queue/vite"),
   ])
 
   return {
     ...baseConfig,
-    plugins: [hubQueue(), hubKv()],
+    plugins: [hubQueue(), hubKV()],
     kv: {},
     queue: {},
   }

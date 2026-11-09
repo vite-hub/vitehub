@@ -26,7 +26,7 @@ describe("fs-lite", () => {
     await storage.dispose()
   })
 
-  it("keeps a value that set() wrote and writes again after del()", async () => {
+  it("keeps a value that set() wrote and writes again after delete()", async () => {
     const storage = createHostedKVStorage({ store: { driver: "fs-lite", base } })
     await storage.setItem("invite", "first")
 

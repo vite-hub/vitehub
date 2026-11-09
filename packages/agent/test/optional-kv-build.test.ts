@@ -41,10 +41,10 @@ it.each([
     await writeFile(builder, [
       `import { build } from ${JSON.stringify(import.meta.resolve("vite"))}`,
       `import { hubAgent } from ${JSON.stringify(pathToFileURL(resolve(import.meta.dirname, "../dist/vite.js")).href)}`,
-      `import { hubKv } from ${JSON.stringify(import.meta.resolve("@vite-hub/kv/vite"))}`,
+      `import { hubKV } from ${JSON.stringify(import.meta.resolve("@vite-hub/kv/vite"))}`,
       `await build({`,
       `  root: ${JSON.stringify(root)}, configFile: false, logLevel: "silent", agent: false,`,
-      `  plugins: [hubAgent(), ${mode === "absent" ? "" : "hubKv()"}],`,
+      `  plugins: [hubAgent(), ${mode === "absent" ? "" : "hubKV()"}],`,
       `  kv: ${JSON.stringify(mode === "disabled" ? false : { driver: "fs-lite", base: join(root, "kv") })},`,
       `  ssr: { noExternal: true },`,
       `  build: { ssr: ${ssr ? JSON.stringify(entry) : "false"}, outDir: "dist", minify: false,`,

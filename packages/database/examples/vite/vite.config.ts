@@ -1,7 +1,7 @@
 import { defineConfig } from "vite"
 import { nitro } from "nitro/vite"
 
-import { hubDb } from "@vite-hub/database/vite"
+import { hubDatabase } from "@vite-hub/database/vite"
 
 export default defineConfig({
   nitro: {
@@ -9,7 +9,7 @@ export default defineConfig({
     serverEntry: "./src/server.ts",
   },
   plugins: [
-    hubDb(),
+    hubDatabase(),
     nitro(),
   ],
 })

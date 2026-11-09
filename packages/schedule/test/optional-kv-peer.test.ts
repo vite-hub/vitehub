@@ -217,7 +217,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
       const values = new Map()
       const injected = createKVScheduleRunStore({
         kvStore: {
-          del: key => values.delete(key),
+          delete: key => values.delete(key),
           get: key => values.get(key),
           has: key => values.has(key),
           keys: base => [...values.keys()].filter(key => !base || key.startsWith(base)),

@@ -6,7 +6,7 @@
       { "label": "imports KV from ViteHub", "files": "^server/.*\\.ts$", "pattern": "from ['\"](?:vite-hub/kv|@vite-hub/kv)['\"]" },
       { "label": "reads the [error, value] tuple from kv.get", "files": "^server/.*\\.ts$", "pattern": "\\[\\s*\\w+\\s*,\\s*\\w+\\s*\\]\\s*=\\s*await\\s+kv\\.get" },
       { "label": "checks the kv.set error slot", "files": "^server/.*\\.ts$", "pattern": "\\[\\s*\\w+\\s*\\]\\s*=\\s*await\\s+kv\\.set" },
-      { "label": "registers KV in the Vite config", "files": "^vite\\.config\\.ts$", "pattern": "hubKv\\(|vitehub\\(\\s*\\{[^}]*\\bkv\\b" }
+      { "label": "registers KV in the Vite config", "files": "^vite\\.config\\.ts$", "pattern": "hubKV\\(|vitehub\\(\\s*\\{[^}]*\\bkv\\b" }
     ]
   },
   {

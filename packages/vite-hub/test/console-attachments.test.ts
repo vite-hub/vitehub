@@ -100,10 +100,10 @@ it("removes a rejected upload when Blob serving is not configured", async () => 
 it("surfaces a rejected upload's cleanup failure", async () => {
   const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
   setBlobRuntimeConfig({ store: { driver: "fs", base } })
-  const cleanupError = blobError("BLOB_OPERATION_FAILED", "del", "default")
+  const cleanupError = blobError("BLOB_OPERATION_FAILED", "delete", "default")
   installConsoleBlob(base, {
     ...blob,
-    async del() { return [cleanupError, undefined] },
+    async delete() { return [cleanupError, undefined] },
   })
 
   await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ errors: [expect.objectContaining({ statusCode: 503 }), cleanupError] })
@@ -159,16 +159,16 @@ it("attempts every rollback even when one deletion fails", async () => {
   const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
   setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
   const failure = new Error("Upload interrupted")
-  const cleanupError = blobError("BLOB_OPERATION_FAILED", "del", "default")
+  const cleanupError = blobError("BLOB_OPERATION_FAILED", "delete", "default")
   let writes = 0
   let deletions = 0
   const del = vi.fn(async (path: string | string[]) => {
     if (++deletions === 1) throw cleanupError
-    return blob.del(path)
+    return blob.delete(path)
   })
   installConsoleBlob(base, {
     ...blob,
-    del,
+    delete: del,
     async put(path, bytes, options) {
       if (++writes === 2) throw failure
       return blob.put(path, bytes, options)
@@ -202,7 +202,7 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
   installConsoleBlob(base, blob)
   const retained = await upload(`data:image/png;base64,${png}`)
   const failure = blobError("BLOB_OPERATION_FAILED", "head", "default")
-  const cleanupError = blobError("BLOB_OPERATION_FAILED", "del", "default")
+  const cleanupError = blobError("BLOB_OPERATION_FAILED", "delete", "default")
   let reads = 0
   let deletions = 0
   installConsoleBlob(base, {
@@ -211,9 +211,9 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
       if (++reads === 2) return [failure, undefined]
       return blob.head(path)
     },
-    async del(path) {
+    async delete(path) {
       if (typeof path === "string" && path.startsWith("_vitehub/console/attachments/") && ++deletions === 1 && failCleanup) return [cleanupError, undefined]
-      return blob.del(path)
+      return blob.delete(path)
     },
   })
   const input = storeConsoleInputMessage("test", { files: [

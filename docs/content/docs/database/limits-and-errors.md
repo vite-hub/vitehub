@@ -85,7 +85,7 @@ One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store lar
 
 ### DATABASE_DISABLED
 
-Code imported `@vite-hub/database/drizzle`, but the runtime has no Database configuration. Add `hubDb()` to the Vite config, and do not set `database: false`.
+Code imported `@vite-hub/database/drizzle`, but the runtime has no Database configuration. Add `hubDatabase()` to the Vite config, and do not set `database: false`.
 
 ### DATABASE_INVALID_D1_HTTP_URL
 

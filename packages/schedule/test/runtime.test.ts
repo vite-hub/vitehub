@@ -12,7 +12,7 @@ function createTestKVStore(): ScheduleKVStorage {
   const data = new Map<string, unknown>()
 
   return {
-    async del(key) {
+    async delete(key) {
       data.delete(key)
     },
     async get(key) {
@@ -35,7 +35,7 @@ function createColonKVStore(): ScheduleKVStorage {
   const store = createTestKVStore()
   const normalize = (key: string) => key.replaceAll("/", ":")
   return {
-    del: key => store.del(normalize(key)),
+    delete: key => store.delete(normalize(key)),
     get: key => store.get(normalize(key)),
     has: key => store.has(normalize(key)),
     keys: base => store.keys(base === undefined ? undefined : normalize(base)),
@@ -652,7 +652,7 @@ describe("KV Schedule Run Store", () => {
       await store.createAttempt({ id: `legacy/opaque%_${index}`, runId: index < 2 ? "target" : "other",
         createdAt, startedAt: createdAt, updatedAt: createdAt, status: "running" })
     }
-    for (const key of await kvStore.keys("attempt-tests/custom/schedule-run-attempt-index/")) await kvStore.del(key)
+    for (const key of await kvStore.keys("attempt-tests/custom/schedule-run-attempt-index/")) await kvStore.delete(key)
     if (!indexAvailable) {
       const set = kvStore.set.bind(kvStore)
       vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
@@ -736,7 +736,7 @@ describe("KV Schedule Run Store", () => {
     }
     if (kind === "kv") {
       // The bounded legacy fallback must apply the same filter after backfilling.
-      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index/")) await kvStore.del(key)
+      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index/")) await kvStore.delete(key)
     }
     expect((await store.listRuns({ scheduleId: "daily", idPrefix: "srun_static_", limit: 1 })).map(run => run.id)).toEqual(["srun_static_newer"])
     expect((await store.listRuns({ idPrefix: "srun_static_" })).map(run => run.id)).toEqual(["srun_static_other", "srun_static_newer", "srun_static_older"])
@@ -770,7 +770,7 @@ describe("KV Schedule Run Store", () => {
           createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
       }
     }
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
+    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.delete(key)
     if (!indexAvailable) {
       const set = kvStore.set.bind(kvStore)
       vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
@@ -855,7 +855,7 @@ describe("KV Schedule Run Store", () => {
           status: "failed", attemptCount: 1, error: { name: "Error", message: "retained" }, response })
       }
     }
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
+    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.delete(key)
     if (!indexAvailable) {
       const set = kvStore.set.bind(kvStore)
       vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
@@ -902,7 +902,7 @@ describe("KV Schedule Run Store", () => {
           createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
       }
     }
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
+    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.delete(key)
     const keys = vi.spyOn(kvStore, "keys")
     const get = vi.spyOn(kvStore, "get")
     const queries = ["alpha", "beta"].map(scheduleId => ({ scheduleId, limit: 1 }))
@@ -927,7 +927,7 @@ describe("KV Schedule Run Store", () => {
     const run = await store.createRun({ id: "legacy-external", scheduleId: "alpha", target: "report",
       scheduledAt: new Date("2026-01-01T00:00:00Z"), createdAt: new Date("2026-01-01T00:00:00Z"),
       updatedAt: new Date("2026-01-01T00:00:00Z"), status: "pending", attemptCount: 0 })
-    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
+    for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.delete(key)
     const set = kvStore.set.bind(kvStore)
     vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
       if (key.includes("/schedule-run-index/")) throw new Error("index unavailable")
@@ -938,7 +938,7 @@ describe("KV Schedule Run Store", () => {
     const externalStore = createKVScheduleRunStore({ kvStore })
     await externalStore.updateRun(run.id, { status: "succeeded", updatedAt: new Date("2026-01-02T00:00:00Z") })
     expect((await store.listRuns({ scheduleId: "alpha" }))[0]).toMatchObject({ id: run.id, status: "succeeded" })
-    await kvStore.del((await kvStore.keys("vitehub:schedule/schedule-runs"))[0]!)
+    await kvStore.delete((await kvStore.keys("vitehub:schedule/schedule-runs"))[0]!)
     expect(await store.listRuns({ scheduleId: "alpha" })).toEqual([])
   })
 
@@ -967,7 +967,7 @@ describe("KV Schedule Run Store", () => {
     expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id)).toEqual(ids)
     if (kind === "kv") {
       // Existing records remain readable when they predate the index.
-      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
+      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.delete(key)
       expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id).sort()).toEqual(ids.toSorted())
     }
   })

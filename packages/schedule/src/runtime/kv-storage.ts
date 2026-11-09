@@ -1,5 +1,5 @@
 export interface ScheduleKVStorage {
-  del(key: string): boolean | Promise<boolean> | Promise<void> | void
+  delete(key: string): boolean | Promise<boolean> | Promise<void> | void
   get<T = unknown>(key: string): Promise<T | null | undefined> | T | null | undefined
   has(key: string): boolean | Promise<boolean>
   keys(base?: string): Promise<string[]> | string[]
@@ -7,7 +7,7 @@ export interface ScheduleKVStorage {
 }
 
 interface ViteHubKVStorage {
-  del(key: string): Promise<readonly [unknown, unknown]>
+  delete(key: string): Promise<readonly [unknown, unknown]>
   get<T = unknown>(key: string): Promise<readonly [unknown, T | null | undefined]>
   has(key: string): Promise<readonly [unknown, boolean | undefined]>
   keys(base?: string): Promise<readonly [unknown, string[] | undefined]>
@@ -16,8 +16,8 @@ interface ViteHubKVStorage {
 
 export function createScheduleKVStorage(kvStore: ViteHubKVStorage): ScheduleKVStorage {
   return {
-    async del(key) {
-      const [error] = await kvStore.del(key)
+    async delete(key) {
+      const [error] = await kvStore.delete(key)
       if (error) throw error
     },
     async get<T = unknown>(key: string) {

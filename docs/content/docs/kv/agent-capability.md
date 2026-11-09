@@ -53,7 +53,7 @@ When the Agent Invocation resolves its tools, the Capability reads the `kv` runt
 - `kv_read` accepts exactly one of `key` or `prefix`. It fails when the input has both or neither.
 - `kv_read` with `key` returns the value from `get(key)`.
 - `kv_read` with `prefix` returns the key names from `keys(prefix)`. It does not return values, and it does not limit the number of keys.
-- `kv_edit` with `operation: 'put'` calls `set(key, value)`. With `operation: 'delete'`, it calls `del(key)`.
+- `kv_edit` with `operation: 'put'` calls `set(key, value)`. With `operation: 'delete'`, it calls `delete(key)`.
 
 When the KV handle returns an `[error, value]` tuple, the tool throws the error or returns the value.
 

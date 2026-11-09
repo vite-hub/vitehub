@@ -96,7 +96,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "del" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
+export type KVOperation = "clear" | "delete" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
@@ -148,7 +148,7 @@ export interface KVListPage {
  */
 export interface KVStorage {
   clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
-  del(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
+  delete(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Reads a value or returns `null`. Without `options.type`, a string value is parsed as JSON, so `"123"` reads back as `123`.
    * `{ type: "text" }` returns the stored text, and `json`, `bytes`, `stream`, and `blob` convert it to that type.

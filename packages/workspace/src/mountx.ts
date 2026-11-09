@@ -109,7 +109,7 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
   return storage as unknown as Parameters<typeof createUnstorageDriver>[0]
 }
 
-export function createWorkspaceDriver(
+export function createMountxDriver(
   session: WorkspaceSession,
   options: WorkspaceMountXDriverOptions = {},
 ): FsDriver {

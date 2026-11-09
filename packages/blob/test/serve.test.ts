@@ -371,7 +371,7 @@ describe("Blob response transforms", () => {
   it("does not serve a cached derivative after the source is deleted", async () => {
     const first = event()
     await storage.serve(first, "private/original", options)
-    await storage.del("private/original")
+    await storage.delete("private/original")
     const [error] = await storage.serve(event({ "if-none-match": first.res.headers.get("etag")! }), "private/original", options)
     expect(error?.code).toBe("BLOB_NOT_FOUND")
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -385,7 +385,7 @@ describe("Blob response transforms", () => {
     await storage.serve(second, "private/original", options)
     expect(second.res.headers.get("etag")).toBe(first.res.headers.get("etag"))
     expect(run).toHaveBeenCalledTimes(1)
-    await storage.del("private/original")
+    await storage.delete("private/original")
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     expect(cache?.blobs).toHaveLength(0)
   })
@@ -502,7 +502,7 @@ describe("Blob response transforms", () => {
       } },
     })
     await ready
-    await storage.del("private/original")
+    await storage.delete("private/original")
     finish()
     await pending
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -521,7 +521,7 @@ describe("Blob response transforms", () => {
     })
     const pending = storage.serve(event(), "private/original", options)
     await ready
-    await storage.del("private/original")
+    await storage.delete("private/original")
     finish()
     await pending
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -653,7 +653,7 @@ describe("Blob response transforms", () => {
     await storage.serve(event(), "private/original", options)
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "list").mockRejectedValue(new Error("cache listing unavailable"))
-    const [error] = await storage.del("private/original")
+    const [error] = await storage.delete("private/original")
     expect(error).toBeUndefined()
     expect(await driver.head("private/original")).toBeNull()
     expect(warning).toHaveBeenCalledOnce()

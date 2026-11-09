@@ -9,8 +9,8 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import handler from "../src/console/runtime/server/mcp.ts"
 
 const storage = vi.hoisted(() => ({
-  kv: { list: vi.fn(), store: vi.fn(), get: vi.fn(), has: vi.fn(), set: vi.fn(), del: vi.fn() },
-  blob: { list: vi.fn(), store: vi.fn(), get: vi.fn(), head: vi.fn(), put: vi.fn(), del: vi.fn() },
+  kv: { list: vi.fn(), store: vi.fn(), get: vi.fn(), has: vi.fn(), set: vi.fn(), delete: vi.fn() },
+  blob: { list: vi.fn(), store: vi.fn(), get: vi.fn(), head: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }))
 
 // Use the owners' real operation schemas and runtime readers against provider stubs.
@@ -89,7 +89,7 @@ describe("storage MCP tools", () => {
     installConsoleSections("/storage-mcp", ["blob"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content", "blob:archive"] }) })
     const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)
-    expect(names.filter(name => name.startsWith("blob_")).sort()).toEqual(["blob_del", "blob_get", "blob_head", "blob_list", "blob_media", "blob_put", "blob_variants"])
+    expect(names.filter(name => name.startsWith("blob_")).sort()).toEqual(["blob_delete", "blob_get", "blob_head", "blob_list", "blob_media", "blob_put", "blob_variants"])
 
     const listed = await rpc("tools/call", { name: "blob_list", arguments: { store: "archive" } })
     expect(listed.result.structuredContent).toMatchObject({ store: "archive", stores: ["archive"] })
@@ -107,7 +107,7 @@ describe("storage MCP tools", () => {
       ["blob_list", {}],
       ["blob_get", { pathname: "a.txt" }],
       ["blob_put", { pathname: "a.txt", data: btoa("hi") }],
-      ["blob_del", { pathname: "a.txt", store: "default" }],
+      ["blob_delete", { pathname: "a.txt", store: "default" }],
     ] as const) {
       const refused = (await rpc("tools/call", { name, arguments: arguments_ })).result
       expect(refused).toMatchObject({ isError: true, structuredContent: { error: { code: "CONSOLE_ACCESS_DENIED" } } })
@@ -118,7 +118,7 @@ describe("storage MCP tools", () => {
     expect(storage.blob.head).not.toHaveBeenCalled()
     expect(storage.blob.get).not.toHaveBeenCalled()
     expect(storage.blob.put).not.toHaveBeenCalled()
-    expect(storage.blob.del).not.toHaveBeenCalled()
+    expect(storage.blob.delete).not.toHaveBeenCalled()
   })
 
   it("keeps a read-only store grant from writing", async () => {

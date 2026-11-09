@@ -402,13 +402,13 @@ pnpm add mountx@0.0.2
 ```
 
 ```ts fragment
-import { createWorkspaceDriver } from "@vite-hub/workspace/mountx"
+import { createMountxDriver } from "@vite-hub/workspace/mountx"
 import { mount } from "mountx/auto"
 
 const session = await workspace.startSession()
 
 try {
-  const mounted = await mount(createWorkspaceDriver(session), "/tmp/vitehub-docs")
+  const mounted = await mount(createMountxDriver(session), "/tmp/vitehub-docs")
 
   try {
     // Programs can now use /tmp/vitehub-docs as an ordinary directory.

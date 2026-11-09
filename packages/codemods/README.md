@@ -36,6 +36,27 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `renamed-apis` | An app from the ViteHub names that this release renamed, such as `hubDb` and `kv.del()` |
+
+## `renamed-apis`
+
+ViteHub renamed some APIs. `renamed-apis` rewrites the code of an app that uses ViteHub:
+
+| Old | New |
+| --- | --- |
+| `hubDb` from `@vite-hub/database/vite` or `@vite-hub/database/nuxt` | `hubDatabase` |
+| `hubKv` from `@vite-hub/kv/vite` | `hubKV` |
+| `createWorkspaceDriver` from `@vite-hub/workspace/mountx` | `createMountxDriver` |
+| `console` from `vite-hub/console/server` | `agentConsole` |
+| `kv.del()`, `blob.del()`, `kv.store(name).del()` | `.delete()` |
+| `deriveSecret(purpose, event)` | `deriveSecret(purpose, { event })` |
+| `"kv.del"`, `"blob.del"`, `"kv_del"`, and `"blob_del"` strings, such as operation names and Console MCP tool names in a client | `"kv.delete"`, `"blob.delete"`, `"kv_delete"`, and `"blob_delete"` |
+
+The codemod renames the uses of an import too, and the names in `const { hubKv } = await import("@vite-hub/kv/vite")`. When a file declares the same name again, it renames only the import and lists the file. The report lists what the codemod cannot change: a `.del()` call on another value in a file that imports `kv` or `blob`, a `deriveSecret()` call with a root secret, `package.json` scripts that call `vitehub kv del` or `vitehub blob del`, and env and Wrangler files that set `NUXT_APP_SECRET` without `VITEHUB_SECRET`. ViteHub no longer reads `NUXT_APP_SECRET`. The codemod never prints or copies a secret value.
+
+```sh
+npx @vite-hub/codemods renamed-apis [dir] [--dry-run]
+```
 
 ## `nuxt-safe-runtime-config`
 

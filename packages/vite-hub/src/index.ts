@@ -1342,7 +1342,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(connectionsVite, "connections").hubConnections(connectionsOptions))
   }
   else if (connectionsVite) plugins.push(connectionsVite.hubConnectionsTypesCleanup())
-  if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
+  if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDatabase(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
   }
@@ -1360,10 +1360,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
   // The cache can enable KV through Vite's top-level config after plugin construction.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
-    // hubKv() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
-    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, options.kv ? { hosting: plan.nitroPreset } : {}))
+    // hubKV() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKV(configuredKV, options.kv ? { hosting: plan.nitroPreset } : {}))
   }
-  else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
+  else if (kvVite) plugins.push(kvVite.hubKVOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }

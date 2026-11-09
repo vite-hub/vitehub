@@ -17,7 +17,7 @@ import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult
 export type KVCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface KVCliOptions {
-  /** Asks whether `del` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
+  /** Asks whether `delete` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
   confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
 }
@@ -65,7 +65,7 @@ const kvCommands: readonly KVCommand[] = [
   { description: "Print the value of one key.", key: true, name: "get", options: [] },
   { description: "Check if a key exists. The exit code is 0 when it exists and 1 when it does not.", key: true, name: "has", options: [] },
   { description: "Write the value of one key.", key: true, name: "set", options: ["ttl", "json-value"], value: true },
-  { description: "Delete one key.", key: true, name: "del", options: [] },
+  { description: "Delete one key.", key: true, name: "delete", options: [] },
 ]
 
 const optionUsage: Record<KVCliOption, string> = {
@@ -88,7 +88,7 @@ function commandUsage(command: KVCommand): string {
   const key = command.key ? " <key>" : ""
   const value = command.value ? " <value|@file>" : ""
   const options = command.options.map(option => ` ${optionUsage[option]}`).join("")
-  return `vitehub kv ${command.name}${key}${value}${options} [--store <name>] [--json]${command.name === "del" ? " [--yes]" : ""} [--url <url>]`
+  return `vitehub kv ${command.name}${key}${value}${options} [--store <name>] [--json]${command.name === "delete" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -103,7 +103,7 @@ function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): vo
     ...command.options.map(option => optionHelp[option]),
     "  --store <name>      KV store. Defaults to `default`.",
     "  --json              Print JSON.",
-    ...(command.name === "del" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
+    ...(command.name === "delete" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
@@ -148,7 +148,7 @@ function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
       parsed.json = true
       continue
     }
-    if (command.name === "del" && (arg === "--yes" || arg === "-y")) {
+    if (command.name === "delete" && (arg === "--yes" || arg === "-y")) {
       parsed.yes = true
       continue
     }
@@ -257,7 +257,7 @@ type KVCommandResult =
   | { operation: "get", value: KVDevGetResult }
   | { operation: "has", value: KVDevHasResult }
   | { operation: "set", value: KVDevSetResult }
-  | { operation: "del", value: KVDevDeleteResult }
+  | { operation: "delete", value: KVDevDeleteResult }
 
 const targetFields = { key: v.string(), store: v.string() }
 const positiveNumber = v.pipe(v.number(), v.finite(), v.gtValue(0))
@@ -266,7 +266,7 @@ const resultSchemas = {
   get: v.pipe(v.object({ ...targetFields, encoding: v.optional(v.literal("base64")), found: v.boolean(), type: v.optional(v.string()), value: v.optional(v.unknown()) }), v.check(result => !result.found || (result.type !== undefined && result.value !== undefined), "found KV values require type and value"), v.check(result => result.encoding !== "base64" || v.is(v.pipe(v.string(), v.regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)), result.value))),
   has: v.object({ ...targetFields, exists: v.boolean() }),
   set: v.object({ ...targetFields, created: v.boolean(), notice: v.optional(v.string()), ttl: v.optional(positiveNumber), type: v.string() }),
-  del: v.object({ ...targetFields, deleted: v.boolean() }),
+  delete: v.object({ ...targetFields, deleted: v.boolean() }),
 }
 
 function parseResult(operation: KVDevOperation, result: unknown): KVCommandResult | undefined {
@@ -275,7 +275,7 @@ function parseResult(operation: KVDevOperation, result: unknown): KVCommandResul
     case "get": { const parsed = v.safeParse(resultSchemas.get, result); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "has": { const parsed = v.safeParse(resultSchemas.has, result); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "set": { const parsed = v.safeParse(resultSchemas.set, result); return parsed.success ? { operation, value: parsed.output } : undefined }
-    case "del": { const parsed = v.safeParse(resultSchemas.del, result); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "delete": { const parsed = v.safeParse(resultSchemas.delete, result); return parsed.success ? { operation, value: parsed.output } : undefined }
   }
 }
 
@@ -315,7 +315,7 @@ function writeResult(result: KVCommandResult, context: KVCliContext): number {
       ].join("\n"))
       return 0
     }
-    case "del": {
+    case "delete": {
       const value = result.value
       context.stdout.write(value.deleted
         ? `Deleted key ${value.key} from store ${value.store}.\n`
@@ -365,10 +365,10 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
     writeUsage(command, context.stdout)
     return 0
   }
-  if (command.name === "del" && !parsed.yes) {
+  if (command.name === "delete" && !parsed.yes) {
     const question = `Delete key ${parsed.key} from KV store ${parsed.store ?? "default"} at ${parsed.url ?? context.rootDir}? [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
-    if (!confirmed) return writeFailure(parsed, context, { code: "KV_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "kv del deletes a key and was not confirmed." })
+    if (!confirmed) return writeFailure(parsed, context, { code: "KV_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "kv delete deletes a key and was not confirmed." })
   }
   const input: Record<string, unknown> = {}
   if (parsed.cursor !== undefined) input.cursor = parsed.cursor
@@ -379,7 +379,7 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
   if (parsed.ttl !== undefined) input.ttl = parsed.ttl
   if (command.value) input.value = value
   const called = await callOperationFromCli({
-    ...(command.name === "del" ? { confirmed: true } : {}),
+    ...(command.name === "delete" ? { confirmed: true } : {}),
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

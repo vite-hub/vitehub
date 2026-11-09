@@ -27,7 +27,7 @@ export interface ConsoleRuntime {
   invocationUrl: (invocation: ConsoleInvocationLink | Record<string, unknown>) => string
 }
 
-export const console = {
+export const agentConsole = {
   resolve(context: RuntimeHostContext<unknown>): ConsoleRuntime {
     return {
       invocationUrl(invocation) {

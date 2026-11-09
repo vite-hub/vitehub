@@ -14,7 +14,7 @@ pnpm vitehub secret generate
 
 Store the printed value as `VITEHUB_SECRET` in the host environment of each deployment. `openssl rand -base64 32` produces an equivalent value. The secret must be at least 32 characters. Use a different root secret for each deployment.
 
-In a Nuxt application, ViteHub reads `NUXT_APP_SECRET` when `VITEHUB_SECRET` is not set. ViteHub derives with its own salt, so the same root never produces the same secret as Nuxt's `deriveSecret()`.
+ViteHub reads only `VITEHUB_SECRET`, not `NUXT_APP_SECRET`, so a Nuxt application sets `VITEHUB_SECRET` too. ViteHub derives with its own salt, so the same root never produces the same secret as Nuxt's `deriveSecret()`.
 
 ## Derive a secret
 
@@ -26,11 +26,13 @@ export async function sessionPassword() {
 }
 ```
 
-`deriveSecret(purpose)` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. The result is stable while the root secret is unchanged, and it is different for every purpose. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+`deriveSecret(purpose, { event, root })` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. The result is stable while the root secret is unchanged, and it is different for every purpose. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+
+Both options are optional. On Cloudflare, pass the request event, as in `deriveSecret('my-app:session', { event })`, so ViteHub reads `VITEHUB_SECRET` from the Worker bindings of that request. Pass `root` to derive from another root secret than `VITEHUB_SECRET`.
 
 | Failure | Error code |
 | --- | --- |
-| `VITEHUB_SECRET` and `NUXT_APP_SECRET` are not set | `ENV_REQUIRED_MISSING` |
+| `VITEHUB_SECRET` is not set | `ENV_REQUIRED_MISSING` |
 | The root secret is shorter than 32 characters | `ENV_RUNTIME_VALUE_INVALID` |
 
 `vitehub secret derive <purpose>` prints the same value from the `VITEHUB_SECRET` in the shell environment. It does not load the project.
@@ -49,7 +51,7 @@ VITEHUB_SECRET=... pnpm vitehub secret derive my-app:session
 
 ## Development
 
-When the Vite development server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one, saves it in `.vitehub/env/secret` with mode `0600`, and supplies it to that project’s Server Env runtime and inline Console Auth. The saved secret survives restarts, so development sessions stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
+When the Vite development server starts without `VITEHUB_SECRET`, ViteHub generates one, saves it in `.vitehub/env/secret` with mode `0600`, and supplies it to that project’s Server Env runtime and inline Console Auth. The saved secret survives restarts, so development sessions stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
 
 Builds never generate a secret. A deployment without `VITEHUB_SECRET` fails at the first derivation, not at build time.
 

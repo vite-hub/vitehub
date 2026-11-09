@@ -44,7 +44,7 @@ const integrationMocks = vi.hoisted(() => ({
   })),
   hubBrowser: vi.fn(() => ({ name: "@vite-hub/browser/vite" })),
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
-  hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
+  hubDatabase: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEmailOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/email/optional-peer-resolver" })),
   hubEnv: vi.fn((options?: { projectRoot?: string }) => ({
@@ -56,8 +56,8 @@ const integrationMocks = vi.hoisted(() => ({
     },
     name: "@vite-hub/env/vite",
   })),
-  hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
-  hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
+  hubKV: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
+  hubKVOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
   resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
     kv: kv?.stores
       ? { stores: kv.stores }
@@ -102,7 +102,7 @@ vi.mock("@vite-hub/blob/vite", () => ({
 }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
-vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
+vi.mock("@vite-hub/database/vite", () => ({ hubDatabase: integrationMocks.hubDatabase }))
 vi.mock("@vite-hub/email/vite", () => ({
   emailConsoleSection: integrationMocks.consoleSection("email"),
   hubEmail: integrationMocks.hubEmail,
@@ -113,8 +113,8 @@ vi.mock("@vite-hub/env/vite", async importOriginal => ({
   hubEnv: integrationMocks.hubEnv,
 }))
 vi.mock("@vite-hub/kv/vite", () => ({
-  hubKv: integrationMocks.hubKv,
-  hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,
+  hubKV: integrationMocks.hubKV,
+  hubKVOptionalPeerResolver: integrationMocks.hubKVOptionalPeerResolver,
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
@@ -856,7 +856,7 @@ describe("vitehub", () => {
       importBase: "vite-hub/_internal/blob",
       presetDriver: expect.any(Function),
     })
-    expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubDatabase).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
@@ -864,8 +864,8 @@ describe("vitehub", () => {
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    // hubKv() infers the driver itself, so `vite dev` can keep the store local.
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
+    // hubKV() infers the driver itself, so `vite dev` can keep the store local.
+    expect(integrationMocks.hubKV).toHaveBeenLastCalledWith(undefined, { hosting: "cloudflare-module" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -926,7 +926,7 @@ describe("vitehub", () => {
       workspace: { root: ".data/workspaces" },
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({ imports: false }))
-    expect(integrationMocks.hubDb).toHaveBeenLastCalledWith({ cli: { generate: false } })
+    expect(integrationMocks.hubDatabase).toHaveBeenLastCalledWith({ cli: { generate: false } })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(
       expect.objectContaining({ provider: "vercel" }),
       expect.any(Object),

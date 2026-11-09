@@ -23,7 +23,7 @@ import type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevL
 export type BlobCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface BlobCliOptions {
-  /** Asks whether `del` may delete a blob. Defaults to a prompt on a terminal, and refuses without one. */
+  /** Asks whether `delete` may delete a blob. Defaults to a prompt on a terminal, and refuses without one. */
   confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
 }
@@ -71,7 +71,7 @@ const blobCommands: readonly BlobCommand[] = [
   { description: "Show the metadata of one blob.", name: "head", options: [], pathname: true },
   { description: "Download one blob to a file, or to stdout without --output.", name: "get", options: ["output"], pathname: true },
   { description: "Upload one file as a blob.", file: true, name: "put", options: ["content-type"], pathname: true },
-  { description: "Delete one blob.", name: "del", options: [], pathname: true },
+  { description: "Delete one blob.", name: "delete", options: [], pathname: true },
   { description: "Show the media record of one blob: size, dimensions, hash, alt text, focal point, and crops.", name: "media", options: [], pathname: true },
   { description: "List the cached image variants of one blob and its crop replacements.", name: "variants", options: [], pathname: true },
 ]
@@ -96,7 +96,7 @@ function commandUsage(command: BlobCommand): string {
   const pathname = command.pathname ? " <pathname>" : ""
   const file = command.file ? " <file>" : ""
   const options = command.options.map(option => ` ${optionUsage[option]}`).join("")
-  return `vitehub blob ${command.name}${pathname}${file}${options} [--store <name>] [--json]${command.name === "del" ? " [--yes]" : ""} [--url <url>]`
+  return `vitehub blob ${command.name}${pathname}${file}${options} [--store <name>] [--json]${command.name === "delete" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeUsage(command: BlobCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -112,7 +112,7 @@ function writeUsage(command: BlobCommand, stream: ViteHubCliStreams["stdout"]): 
     ...command.options.map(option => optionHelp[option]),
     "  --store <name>      Blob store. Defaults to `default`.",
     "  --json              Print JSON.",
-    ...(command.name === "del" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
+    ...(command.name === "delete" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
@@ -151,7 +151,7 @@ function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArg
       parsed.json = true
       continue
     }
-    if (command.name === "del" && (arg === "--yes" || arg === "-y")) {
+    if (command.name === "delete" && (arg === "--yes" || arg === "-y")) {
       parsed.yes = true
       continue
     }
@@ -279,7 +279,7 @@ type BlobCliResult =
   | { operation: "list", value: BlobDevListResult }
   | { operation: "head", value: BlobDevHeadResult }
   | { operation: "put", value: BlobDevPutResult }
-  | { operation: "del", value: BlobDevDeleteResult }
+  | { operation: "delete", value: BlobDevDeleteResult }
   | { operation: "media", value: BlobDevMediaResult }
   | { operation: "variants", value: BlobDevVariantsResult }
 
@@ -292,7 +292,7 @@ const resultSchemas = {
   list: v.object({ blobs: v.array(blobObjectSchema), cursor: v.optional(v.string()), hasMore: v.boolean(), limit: v.pipe(v.number(), v.finite()), prefix: v.string(), store: v.string(), stores: v.array(v.string()) }),
   head: v.object({ object: blobObjectSchema, store: v.string() }),
   put: v.object({ created: v.boolean(), object: blobObjectSchema, store: v.string() }),
-  del: v.object({ deleted: v.boolean(), pathname: v.string(), store: v.string() }),
+  delete: v.object({ deleted: v.boolean(), pathname: v.string(), store: v.string() }),
   media: v.object({ record: v.unknown(), store: v.string() }),
   variants: v.object({
     pathname: v.string(),
@@ -306,7 +306,7 @@ function parseResult(operation: Exclude<BlobDevOperation, "get">, value: unknown
     case "list": { const parsed = v.safeParse(resultSchemas.list, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "head": { const parsed = v.safeParse(resultSchemas.head, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "put": { const parsed = v.safeParse(resultSchemas.put, value); return parsed.success ? { operation, value: parsed.output } : undefined }
-    case "del": { const parsed = v.safeParse(resultSchemas.del, value); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "delete": { const parsed = v.safeParse(resultSchemas.delete, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "media": {
       const parsed = v.safeParse(resultSchemas.media, value)
       const record = parsed.success ? sanitizeMediaRecord(parsed.output.record) : undefined
@@ -360,7 +360,7 @@ function writeResult(result: BlobCliResult, context: BlobCliContext): void {
       ])}\n`)
       return
     }
-    case "del": {
+    case "delete": {
       const value = result.value
       context.stdout.write(value.deleted
         ? `Deleted blob ${value.pathname} from store ${value.store}.\n`
@@ -424,10 +424,10 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
     writeUsage(command, context.stdout)
     return 0
   }
-  if (command.name === "del" && !parsed.yes) {
+  if (command.name === "delete" && !parsed.yes) {
     const question = `Delete blob ${parsed.pathname} from Blob store ${parsed.store ?? "default"} at ${parsed.url ?? context.rootDir}? [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
-    if (!confirmed) return writeFailure(parsed, context, { code: "BLOB_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "blob del deletes a blob and was not confirmed." })
+    if (!confirmed) return writeFailure(parsed, context, { code: "BLOB_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "blob delete deletes a blob and was not confirmed." })
   }
   let data: string | undefined
   if (command.file) {
@@ -446,7 +446,7 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   // The command shows every object, also the ones that ViteHub keeps for itself. The Console hides them.
   if (command.name === "list") input.showVitehub = true
   const called = await callOperationFromCli({
-    ...(command.name === "del" ? { confirmed: true } : {}),
+    ...(command.name === "delete" ? { confirmed: true } : {}),
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

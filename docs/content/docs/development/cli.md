@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, `decisions`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `decisions` and `sandbox` do not load the project config. `sandbox` also runs in a deployed container without Vite.
+The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDatabase()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKV()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, `decisions`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `decisions` and `sandbox` do not load the project config. `sandbox` also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -90,7 +90,7 @@ Available namespaces:
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |
 | `vitehub blob get` | Available | Blob Package | Download one blob (up to 8 MiB) to a file or to stdout, byte for byte. |
 | `vitehub blob put` | Available | Blob Package | Upload one file as a blob and print what changed. |
-| `vitehub blob del` | Available | Blob Package | Delete one blob and print what changed. |
+| `vitehub blob delete` | Available | Blob Package | Delete one blob and print what changed. |
 | `vitehub blob media` | Available | Blob Package | Show the media record of one blob: dimensions, hash, alt text, focal point, and crops. |
 | `vitehub blob variants` | Available | Blob Package | List the cached image variants of one blob. |
 | `vitehub channels export` | Available | Agent Package | Alias for `conversations export`: export one conversation as Markdown or JSON, with optional attachments. |
@@ -133,7 +133,7 @@ Available namespaces:
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
-| `vitehub kv del` | Available | KV Package | Delete one key and print what changed. |
+| `vitehub kv delete` | Available | KV Package | Delete one key and print what changed. |
 | `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
 | `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
@@ -495,7 +495,7 @@ pnpm vitehub blob head avatars/ada.png
 pnpm vitehub blob get avatars/ada.png --output ./ada.png
 pnpm vitehub blob get reports/2026.csv > report.csv
 pnpm vitehub blob put avatars/ada.png ./ada.png --content-type image/png
-pnpm vitehub blob del avatars/ada.png
+pnpm vitehub blob delete avatars/ada.png
 pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png --json
 ```
@@ -515,14 +515,14 @@ Every command accepts `--store <name>`, `--json`, `--url <url>` for a deployed a
 - `put` uploads a file relative to the current directory. Without `--content-type`, the Blob storage detects the type from the pathname. The output says if the blob was created or replaced. The created/replaced label is best-effort because it is based on a metadata read immediately before the write; eventual consistency and concurrent writers can make it stale.
 - `media` prints the [media record](/docs/blob/media) of one blob. A missing record is built from the object and stored, as `blob.media.get()` does. A missing blob exits with status 1.
 - `variants` lists the cached image variants of one blob and its crop replacements, with each transform key, type, and size.
-- `put` and `del` refuse the paths under `_vitehub/` (`BLOB_RESERVED_PATH`), which ViteHub keeps for itself; `get` and `head` read them. The Console asks before it replaces a blob that exists (`overwrite: false` makes `blob.put` fail with `BLOB_EXISTS`); the CLI replaces without asking.
-- `del` says if the blob existed. Deleting a missing blob changes nothing and exits with status 0. The existed/missing label is best-effort for the same reason, and a concurrent writer can change the object between the metadata read and delete.
+- `put` and `delete` refuse the paths under `_vitehub/` (`BLOB_RESERVED_PATH`), which ViteHub keeps for itself; `get` and `head` read them. The Console asks before it replaces a blob that exists (`overwrite: false` makes `blob.put` fail with `BLOB_EXISTS`); the CLI replaces without asking.
+- `delete` says if the blob existed. Deleting a missing blob changes nothing and exits with status 0. The existed/missing label is best-effort for the same reason, and a concurrent writer can change the object between the metadata read and delete.
 
 The operations carry a file as base64 in a JSON call, so `put` accepts files up to 8 MiB and `get` returns files up to 8 MiB. The CLI checks the size of an upload before it reads the file. A larger blob fails with `BLOB_UPLOAD_TOO_LARGE` or `BLOB_DOWNLOAD_TOO_LARGE`: use the application or the tools of your provider. There is no `sign` command. `list` shows every object, also the ones that ViteHub keeps under `_vitehub/`, which the Console hides by default.
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands do not print object URLs, because a signed URL can carry credentials. `media` prints the record's served route URL, which carries none. Metadata values under secret names, such as `token`, are redacted, as the Console Blob page does.
 
-The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime, which owns the Blob storage, and answer through the Console RPC, so a person or an agent needs access to the `blob` section. `blob.put` writes and `blob.del` is destructive. `vitehub blob del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console Blob page uploads and deletes objects with the same operations.
+The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime, which owns the Blob storage, and answer through the Console RPC, so a person or an agent needs access to the `blob` section. `blob.put` writes and `blob.delete` is destructive. `vitehub blob delete` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console Blob page uploads and deletes objects with the same operations.
 
 ## Inspect the Email development outbox
 
@@ -569,7 +569,7 @@ pnpm vitehub secret generate
 VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
 ```
 
-`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints what `deriveSecret(purpose)` returns for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell environment. Neither command loads the project.
+`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints what `deriveSecret(purpose)` returns for the `VITEHUB_SECRET` in the shell environment. Neither command loads the project.
 
 ## Inspect Definitions and Provider Output
 
@@ -776,7 +776,7 @@ pnpm vitehub kv has settings
 pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
 pnpm vitehub kv set session:42 active --ttl 3600
 pnpm vitehub kv set template @./fixtures/template.txt
-pnpm vitehub kv del settings
+pnpm vitehub kv delete settings
 ```
 
 Each write command prints what it changed:
@@ -793,13 +793,13 @@ Every command accepts `--store <name>`, `--json`, `--url <url>` when Vite does n
 - `get` writes a string value unchanged, without adding a newline, and prints other JSON values as formatted JSON. Binary values are written to stdout as bytes, or as base64 with `"encoding": "base64"` in `--json` output. A missing key exits with status 1.
 - `has` exits with status 0 when the key exists and 1 when it does not.
 - `set` writes a string. Add `--json-value` to parse the value as JSON. Use strings for integers outside JavaScript's safe integer range. JSON input rejects values that underflow to zero or whose decimal magnitude changes during parsing. Use a string to preserve those values. A value that starts with `@` reads a UTF-8 file relative to the current directory. The output says if the key was created or updated. `--ttl <seconds>` sets an expiry and accepts positive fractional seconds. The `fs-lite` driver ignores TTL and Cloudflare KV rounds up to whole seconds with a minimum of 60 seconds, and Upstash requires at least one second and rounds accepted fractional TTLs up to whole seconds. The output reports the effective TTL and prints a notice when the driver ignores or changes the requested expiry.
-- `del` says if the key was found. Deleting a missing key changes nothing and exits with status 0.
+- `delete` says if the key was found. Deleting a missing key changes nothing and exits with status 0.
 
 The KV storage deserializes stored strings that look like JSON, so a string such as `"2026"` can read back as the number `2026`. There is no `clear` command. Delete keys one at a time so that each change is explicit.
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands print values as they are stored and do not redact them, as the Console KV page does. Do not store credentials in keys that you inspect in shared logs.
 
-The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. `vitehub kv del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
+The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.delete`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.delete` is destructive. `vitehub kv delete` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
 
 
 ## Run a Decision
@@ -922,11 +922,11 @@ pnpm vitehub invocations delete ainv_123 --yes
 pnpm vitehub invocations list --url https://app.example.com
 ```
 
-The generated commands need the Console RPC. `vitehub()` installs it, and standalone `hubKv()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` plugins install a local development RPC for their storage commands. Other standalone package plugins, such as `hubWorkflow()`, `hubSchedule()`, and `hubQueue()`, need a running app with an operation RPC to run their generated commands.
+The generated commands need the Console RPC. `vitehub()` installs it, and standalone `hubKV()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` plugins install a local development RPC for their storage commands. Other standalone package plugins, such as `hubWorkflow()`, `hubSchedule()`, and `hubQueue()`, need a running app with an operation RPC to run their generated commands.
 
 An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |

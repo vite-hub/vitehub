@@ -108,7 +108,7 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options), kvKeyLimitCodes) },
     async getAndDelete(key, options) {
       return runKVOperation("getAndDelete", name, async (storage) => {

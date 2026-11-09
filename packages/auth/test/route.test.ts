@@ -59,7 +59,7 @@ describe("Auth route", () => {
   })
 
   it("reads the Cloudflare bindings of the Request's Standard Context", async () => {
-    for (const name of ["VITEHUB_SECRET", "NUXT_APP_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) vi.stubEnv(name, undefined)
+    for (const name of ["VITEHUB_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) vi.stubEnv(name, undefined)
     useDefinition({})
     const env = { VITEHUB_SECRET: secret }
     const response = await authRoute.fetch(nitroRequest(

@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { build } from "esbuild"
 import { describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -19,7 +19,7 @@ describe("Nuxt production Node Database runtime", () => {
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     try {
       await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
-      await hubDb()(undefined, {
+      await hubDatabase()(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -62,7 +62,7 @@ describe("Nuxt production Node Database runtime", () => {
         '  schema: { users: sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) },',
         "})",
       ].join("\n"))
-      await hubDb({
+      await hubDatabase({
         connection: { url: name === "default" ? databaseUrl : "file:unused.sqlite" },
         ...(name === "orders" ? { driver: "d1", databaseId: "content-id", databaseName: "content-db" } as const : {}),
       })(undefined, {

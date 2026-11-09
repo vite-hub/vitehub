@@ -35,7 +35,7 @@ describe("kv.store(name, { mode: \"read\" })", () => {
 
   it("has no write methods at runtime", () => {
     const reader = kv.store("default", { mode: "read" })
-    for (const method of ["set", "setIfAbsent", "del", "clear", "getAndDelete", "increment", "store"]) {
+    for (const method of ["set", "setIfAbsent", "delete", "clear", "getAndDelete", "increment", "store"]) {
       expect(method in reader).toBe(false)
     }
     expect(Object.keys(reader).sort()).toEqual(["get", "has", "keys", "list"])
@@ -51,6 +51,6 @@ describe("kv.store(name, { mode: \"read\" })", () => {
     expect(typeof kv.store("default").set).toBe("function")
     expect(typeof kv.store("default", {}).set).toBe("function")
     expect(typeof kv.store("default", { mode: undefined }).set).toBe("function")
-    expect(typeof kv.store("default", { mode: "write" }).del).toBe("function")
+    expect(typeof kv.store("default", { mode: "write" }).delete).toBe("function")
   })
 })

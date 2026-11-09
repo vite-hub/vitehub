@@ -1,0 +1,25 @@
+renamed-apis: renamed the ViteHub APIs of 7 file(s)
+Dry run: no files were written.
+
+Files to change (7):
+  server/api/files/[pathname].delete.ts
+  server/api/settings.delete.ts
+  server/schedules/cleanup.ts
+  server/utils/content-origin.ts
+  server/utils/mcp-tools.ts
+  server/utils/mount.ts
+  vite.config.ts
+
+Manual follow-ups (3):
+  1. server/utils/content-origin.ts:14 `deriveSecret()` takes `(purpose, { event, root })`. Move the event and the root secret into the options object.
+  2. .env.example:1 ViteHub no longer reads `NUXT_APP_SECRET`. Set `VITEHUB_SECRET` to the same value, here and in each deployment.
+  3. package.json:7 `vitehub kv del` and `vitehub blob del` are now `vitehub kv delete` and `vitehub blob delete`.
+
+Notes:
+  - Renamed 4 import(s) of `hubDb`, `hubKv`, `createWorkspaceDriver`, or `console`.
+  - Renamed 5 `del()` call(s) on KV and Blob to `delete()`.
+  - Moved the event of 2 `deriveSecret()` call(s) into `{ event }`.
+  - Renamed 4 operation or MCP tool name(s) from `del` to `delete`.
+
+Next steps:
+  - Run your typecheck.

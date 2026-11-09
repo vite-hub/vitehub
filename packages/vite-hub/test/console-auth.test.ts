@@ -502,7 +502,6 @@ describe("independent Console Auth", () => {
 
   it("retains each project's inline secret when Env runs after Console", async () => {
     vi.stubEnv("VITEHUB_SECRET", undefined)
-    vi.stubEnv("NUXT_APP_SECRET", undefined)
     const roots = await Promise.all(["first", "second"].map(name => mkdtemp(join(tmpdir(), `vitehub-console-secret-${name}-`))))
     try {
       const secrets = []

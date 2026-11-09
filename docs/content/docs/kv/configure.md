@@ -11,11 +11,11 @@ icon: i-lucide-sliders-horizontal
 Configure a default store directly, or configure named stores with `kv.stores`.
 
 ```ts [vite.config.ts]
-import { hubKv } from '@vite-hub/kv/vite'
+import { hubKV } from '@vite-hub/kv/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubKv()],
+  plugins: [hubKV()],
   kv: {
     stores: {
       default: { driver: 'fs-lite' },

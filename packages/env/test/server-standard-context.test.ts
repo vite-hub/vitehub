@@ -29,8 +29,8 @@ describe("Server Env Standard Context", () => {
     expect(event["~standard"].runtime?.cloudflare?.env).toBe(bindings)
     await expect(loadServerEnv(registry(), requestEvent(version))).resolves.toEqual({ token: "request-token" })
     await expect(inspectServerEnv(registry(), requestEvent(version))).resolves.toMatchObject({ entries: [{ status: "available" }] })
-    await expect(deriveSecret("test:context", requestEvent(version))).resolves.toBe(
-      await deriveSecret("test:context", cloudflareRequest(bindings)),
+    await expect(deriveSecret("test:context", { event: requestEvent(version) })).resolves.toBe(
+      await deriveSecret("test:context", { event: cloudflareRequest(bindings) }),
     )
   })
 

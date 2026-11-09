@@ -1,5 +1,5 @@
 /** The operations that `vitehub blob` runs, without the `blob.` prefix. `sign` is not available through the CLI. */
-export const blobOperationNames = ["list", "head", "get", "put", "del", "media", "variants"] as const
+export const blobOperationNames = ["list", "head", "get", "put", "delete", "media", "variants"] as const
 
 export type BlobDevOperation = typeof blobOperationNames[number]
 

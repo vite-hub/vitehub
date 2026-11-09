@@ -163,14 +163,14 @@ For `wrangler dev`, set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_<BINDING>
 Keep the Database Definition limited to tables, then select its hosted libSQL connection in the Vite Integration. Runtime Env declarations keep the Vercel Marketplace environment variable lookup in generated output instead of embedding credentials at build time.
 
 ```ts [vite.config.ts]
-import { hubDb } from '@vite-hub/database/vite'
+import { hubDatabase } from '@vite-hub/database/vite'
 import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
     hubEnv(),
-    hubDb({
+    hubDatabase({
       connection: {
         url: env({ source: env.source('TURSO_DATABASE_URL') }),
         authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),

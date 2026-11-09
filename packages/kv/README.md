@@ -36,7 +36,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts
 // vite.config.ts
-import { hubKv } from "@vite-hub/kv/vite"
+import { hubKV } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -44,13 +44,13 @@ export default defineConfig({
     driver: "fs-lite",
     base: ".vitehub/data/kv",
   },
-  plugins: [hubKv()],
+  plugins: [hubKV()],
 })
 ```
 
 ## Vite Integration
 
-Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
+Use `hubKV()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
 Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 
@@ -114,7 +114,7 @@ export default defineNitroPlugin((nitroApp) => {
 
 ## CLI
 
-`hubKv()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `del <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
+`hubKV()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `delete <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
 Each command runs a `kv.*` operation of the app through the Console RPC (`@vite-hub/kv/operations`). On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 

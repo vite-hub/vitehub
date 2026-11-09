@@ -65,8 +65,8 @@ function failure(message: string): ViteHubDispatchVerification {
 }
 
 /**
- * Resolves the dispatch key of a client: `VITEHUB_DISPATCH_KEY`, or the key derived from `VITEHUB_SECRET` or
- * `NUXT_APP_SECRET`. Returns `undefined` when none is set. Throws a `TypeError` for a malformed `VITEHUB_DISPATCH_KEY`.
+ * Resolves the dispatch key of a client: `VITEHUB_DISPATCH_KEY`, or the key derived from `VITEHUB_SECRET`.
+ * Returns `undefined` when none is set. Throws a `TypeError` for a malformed `VITEHUB_DISPATCH_KEY`.
  */
 export async function resolveViteHubDispatchKey(env: Readonly<Record<string, unknown>>): Promise<string | undefined> {
   const key = env.VITEHUB_DISPATCH_KEY

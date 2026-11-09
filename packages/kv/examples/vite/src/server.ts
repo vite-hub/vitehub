@@ -12,7 +12,7 @@ const app = new H3()
     if (error) throw error
   })
   .delete("/", async () => {
-    const [error] = await kv.del("settings")
+    const [error] = await kv.delete("settings")
     if (error) throw error
   })
 

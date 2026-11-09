@@ -167,16 +167,16 @@ Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. 
 
 ## Run schedules in one process
 
-The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()`. Configure it only for one long-lived replica:
+The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKV()`. Configure it only for one long-lived replica:
 
 ```ts
-import { hubKv } from "@vite-hub/kv/vite";
+import { hubKV } from "@vite-hub/kv/vite";
 import { hubSchedule } from "@vite-hub/schedule/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
-    hubKv(),
+    hubKV(),
     hubSchedule({
       runtime: {
         driver: "process",

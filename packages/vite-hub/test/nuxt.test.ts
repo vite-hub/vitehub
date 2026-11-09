@@ -24,7 +24,7 @@ import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
-import { hubKv, resolveKVViteConfig } from "@vite-hub/kv/vite"
+import { hubKV, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
@@ -489,7 +489,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
-    mocks.vitehub.mockReturnValue([hubKv({ driver: "cloudflare-kv-binding", binding: "KV" })])
+    mocks.vitehub.mockReturnValue([hubKV({ driver: "cloudflare-kv-binding", binding: "KV" })])
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
     await viteHubNuxtModule({ kv: true, preset: "cloudflare" }, nuxt)
     const config: Record<string, unknown> = {}
@@ -746,7 +746,7 @@ describe("ViteHub Nuxt integration", () => {
     const envDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-kv-env-"))
     for (const name of ["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"]) vi.stubEnv(name, undefined)
     await writeFile(resolve(envDir, ".env.development"), "KV_REST_API_URL=https://nuxt-kv.test\nKV_REST_API_TOKEN=nuxt-kv-secret\n")
-    const plugin = hubKv({ remote: true })
+    const plugin = hubKV({ remote: true })
     mocks.vitehub.mockReturnValue([plugin])
     const { nuxt, runNitroConfigHook } = createNuxt(true)
     nuxt.options.vite.envDir = envDir
@@ -2038,7 +2038,7 @@ describe("ViteHub Nuxt integration", () => {
       name: "@vite-hub/kv/vite",
       api: { getConfig: () => ({ kv: retainedOptions }) },
       configResolved(config: ResolvedConfig) {
-        // SAFETY: This fixture mirrors hubKv's supported Vite config extension and normalizes it through the production resolver.
+        // SAFETY: This fixture mirrors hubKV's supported Vite config extension and normalizes it through the production resolver.
         retainedOptions = resolveKVViteConfig(Reflect.get(config, "kv") as KVModuleOptions).kv || {}
       },
     }])

@@ -12,9 +12,9 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 import { migrateOnStart } from "../src/runtime/migrate-on-start.ts"
-import { hubDb as hubDbVite } from "../src/vite.ts"
+import { hubDatabase as hubDatabaseVite } from "../src/vite.ts"
 
 import type { DatabaseNuxtIntegrationOptions, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
@@ -60,7 +60,7 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
 /** Runs the Nuxt module for a production Node build and bundles a server whose entry imports Nitro's plugins first. */
 async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = []) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-  await hubDb(options)(undefined, {
+  await hubDatabase(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
       if (event === "nitro:config") hooks.push(callback)
     },
@@ -339,7 +339,7 @@ describe("database.migrateOnStart", () => {
     const root = await createProject()
     await writeMigrations(root, [init])
     const setup = async (options: { dev?: boolean, preset?: string }) => {
-      const plugin = hubDbVite({ migrateOnStart: true })
+      const plugin = hubDatabaseVite({ migrateOnStart: true })
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root })
       const nitroOptions: Parameters<typeof plugin.nitro.setup>[0]["options"] = { ...options, output: { serverDir: join(root, ".output/server") } }
       plugin.nitro.setup({ hooks: { hook: () => {} }, options: nitroOptions })
@@ -359,7 +359,7 @@ describe("database.migrateOnStart", () => {
     await writeMigrations(root, [init])
     for (const source of ["nuxt", "nitro"]) {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-      await hubDb({ migrateOnStart: true })(undefined, {
+      await hubDatabase({ migrateOnStart: true })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },

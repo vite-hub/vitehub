@@ -253,7 +253,7 @@ async function collectSourceDependencies(file: string, require: NodeRequire, fil
   }
 }
 
-export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
+export function hubDatabase(options?: DBModulePublicOptions): DBVitePlugin {
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ source: string, target: string }> = []
   let providerOutput: ProviderOutputCatalog | undefined

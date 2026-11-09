@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
-import { createWorkspaceDriver } from "../src/mountx.ts"
+import { createMountxDriver } from "../src/mountx.ts"
 
 function workspace() {
   return createWorkspace({
@@ -17,7 +17,7 @@ describe("MountX Workspace driver", () => {
   it("writes byte arrays from another realm without JSON encoding", async () => {
     const docs = workspace()
     const session = await docs.startSession()
-    const fs = createLoopback(createWorkspaceDriver(session))
+    const fs = createLoopback(createMountxDriver(session))
     const bytes = runInNewContext("new Uint8Array([1, 2, 3])") as Uint8Array
 
     await fs.writeFile("/foreign.bin", bytes)
@@ -40,7 +40,7 @@ describe("MountX Workspace driver", () => {
     await docs.snapshot({ name: "baseline" })
 
     const session = await docs.startSession()
-    const fs = createLoopback(createWorkspaceDriver(session))
+    const fs = createLoopback(createMountxDriver(session))
 
     expect(new TextDecoder().decode(await fs.readFile("/README.md"))).toBe("before")
     await fs.mkdir("/notes")
@@ -92,7 +92,7 @@ describe("MountX Workspace driver", () => {
     await docs.writeFile("README.md", "readable")
 
     const session = await docs.startSession()
-    const fs = createLoopback(createWorkspaceDriver(session, { readOnly: true }))
+    const fs = createLoopback(createMountxDriver(session, { readOnly: true }))
 
     expect(new TextDecoder().decode(await fs.readFile("/README.md"))).toBe("readable")
     await expect(fs.writeFile("/README.md", "blocked")).rejects.toMatchObject({ code: "EROFS" })
@@ -106,7 +106,7 @@ describe("MountX Workspace driver", () => {
     })
 
     const session = await docs.startSession()
-    const fs = createLoopback(createWorkspaceDriver(session))
+    const fs = createLoopback(createMountxDriver(session))
 
     await expect(fs.stat("/linked.md")).rejects.toMatchObject({ code: "ENOTSUP" })
     await session.close()
@@ -117,7 +117,7 @@ describe("MountX Workspace driver", () => {
     await docs.writeFile("report/final.txt", "directory")
 
     const session = await docs.startSession()
-    const fs = createLoopback(createWorkspaceDriver(session))
+    const fs = createLoopback(createMountxDriver(session))
 
     await expect(fs.writeFile("/report:final.txt", "colon")).rejects.toMatchObject({ code: "EINVAL" })
     await expect(fs.unlink("/report:final.txt")).rejects.toMatchObject({ code: "EINVAL" })

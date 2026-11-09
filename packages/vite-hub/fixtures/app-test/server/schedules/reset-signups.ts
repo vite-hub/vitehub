@@ -6,7 +6,7 @@ export default defineSchedule({
   async handler({ scheduledAt }) {
     const [error] = await kv.set("last-reset", scheduledAt.toISOString())
     if (error) throw error
-    const [deleteError] = await kv.del("signups")
+    const [deleteError] = await kv.delete("signups")
     if (deleteError) throw deleteError
   },
 })

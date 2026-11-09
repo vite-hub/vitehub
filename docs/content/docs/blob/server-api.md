@@ -71,7 +71,7 @@ export const reports = blob.store('reports')
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, so calling them is a type error, and they are absent at runtime. The Default Blob Store is `blob.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `delete()`, upload, or multipart methods, so calling them is a type error, and they are absent at runtime. The Default Blob Store is `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
 import { createError, defineEventHandler, getRouterParam } from 'h3'
@@ -105,7 +105,7 @@ Every async method returns a `Result` from `vite-hub/runtime`: `[error, undefine
 | `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
 | `blob.head(pathname)` | Reads object metadata or returns `null`. |
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
-| `blob.del(pathnames)` | Deletes one or more objects. |
+| `blob.delete(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
 | `blob.serve(event, pathname, options?)` | Serves an object stream through a request event or a Fetchable `Request`, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
@@ -132,7 +132,7 @@ To serve a resized or cropped image, pass `variant` instead, or let the generate
 
 The optional `transform` receives the original `Blob` and returns the response `Blob`. ViteHub caches that result in the same store with its configured access under `_vitehub/derived/`, a namespace reserved from public writes, signed PUTs, multipart uploads, and the serve route, along with `_vitehub/media/` and the `_vitehub` parent pathname. On filesystem stores, legacy files at either cache directory path are preserved; serving still returns fresh transforms, but caching requires moving those files out of the way. It validates the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes separate from content metadata. If source metadata changes while reading its bytes, ViteHub retries the read before transforming it. Stable ETags determine cache writes; provider timestamps do not.
 
-Change the key when the transformation changes, and include any size or format variants in it. Each source and key has one cache object, which source updates replace on the next request. Distinct keys remain separate variants. `blob.del(originalPath)` removes the original and its cached variants; serving a missing source also clears its variants. Cleanup failures are logged without undoing deletion. Operators can inspect variants with `blob.list({ prefix: '_vitehub/derived/' })` and remove unused ones with `blob.del`. No background eviction runs.
+Change the key when the transformation changes, and include any size or format variants in it. Each source and key has one cache object, which source updates replace on the next request. Distinct keys remain separate variants. `blob.delete(originalPath)` removes the original and its cached variants; serving a missing source also clears its variants. Cleanup failures are logged without undoing deletion. Operators can inspect variants with `blob.list({ prefix: '_vitehub/derived/' })` and remove unused ones with `blob.delete`. No background eviction runs.
 
 Filesystem cache keys normalize repeated slashes. Use consistent filename casing on case-insensitive filesystems; differently cased aliases can leave unused variants that require operator cleanup.
 

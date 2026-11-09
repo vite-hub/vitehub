@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { build } from "esbuild"
 import { describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -32,7 +32,7 @@ describe("Nuxt remote Database development", () => {
         'const notes = sqliteTable("notes", { title: text("title") })',
         `export default defineDatabase({ ${mode === "remote" ? "remote: true," : ""} schema: { notes } })`,
       ].join("\n"))
-      await hubDb({
+      await hubDatabase({
         binding: "DB",
         cloudflare: mode === "http" ? { http: true } : undefined,
         databaseId: "real-database-id",

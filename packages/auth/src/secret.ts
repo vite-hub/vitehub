@@ -20,7 +20,7 @@ function hex(buffer: ArrayBuffer): string {
 }
 
 /**
- * The Better Auth secret derived from the root app secret (`VITEHUB_SECRET`, or `NUXT_APP_SECRET`), equal to
+ * The Better Auth secret derived from the root app secret, `VITEHUB_SECRET`, equal to
  * `deriveSecret("vitehub:auth")`. Returns `undefined` when the environment sets a Better Auth secret or no root secret.
  * It is synchronous because Better Auth reads its options synchronously.
  */

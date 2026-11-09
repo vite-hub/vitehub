@@ -394,14 +394,14 @@ pnpm add mountx@0.0.2
 ```
 
 ```ts [server/tasks/edit-docs.ts]
-import { createWorkspaceDriver } from '@vite-hub/workspace/mountx'
+import { createMountxDriver } from '@vite-hub/workspace/mountx'
 import { mount } from 'mountx/auto'
 import { useWorkspace } from '@vite-hub/workspace'
 
 const session = await useWorkspace('docs', { mode: 'write' }).startSession()
 
 try {
-  const mounted = await mount(createWorkspaceDriver(session), '/tmp/vitehub-docs')
+  const mounted = await mount(createMountxDriver(session), '/tmp/vitehub-docs')
 
   try {
     // Any local program can now use /tmp/vitehub-docs.
@@ -417,7 +417,7 @@ finally {
 }
 ```
 
-Pass `{ readOnly: true }` to `createWorkspaceDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
+Pass `{ readOnly: true }` to `createMountxDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
 Workspace stores the file tree and commits. Sandbox and Sandbox provide separate execution environments. Provider Agent Drivers materialize a selected Workspace in their local working directory.
 

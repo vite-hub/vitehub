@@ -9,7 +9,7 @@ A `kv` call, such as `kv.get()`, throws `KV_DISABLED`. The runtime has a KV conf
 
 The `kv` helper reads the generated module `#vitehub/kv/config`. When that module exports `kv: false`, the first operation throws. The module exports `false` when:
 
-- The Vite config sets `kv: false` while `hubKv()` is registered. A top-level `kv` key replaces the options of `hubKv()`.
+- The Vite config sets `kv: false` while `hubKV()` is registered. A top-level `kv` key replaces the options of `hubKV()`.
 - A Nuxt app uses the `vite-hub/nuxt` module without `kv`. The module then writes a KV config with `kv: false`, because the Console and Agents bundle the KV operations in every app.
 
 The `kv.*` operations behind the Console KV section and the `vitehub kv` commands also report `KV_DISABLED` when the app has no KV store.
@@ -30,7 +30,7 @@ The `kv.*` operations behind the Console KV section and the `vitehub kv` command
 
 ```diff [vite.config.ts]
  export default defineConfig({
-   plugins: [hubKv()],
+   plugins: [hubKV()],
 -  kv: false,
  })
 ```
