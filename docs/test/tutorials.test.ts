@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { buildRunnableTutorial, createZip, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
+import { zipFiles } from "@vite-hub/ui/playground";
+import { buildRunnableTutorial, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
 import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
@@ -287,7 +288,7 @@ describe("runnable tutorials", () => {
 
   it("zips the starter with the files of step 1", async () => {
     const tutorial = await build(0);
-    const zip = Buffer.from(createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
+    const zip = Buffer.from(zipFiles(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
     expect(zip.subarray(0, 4).readUInt32LE(0)).toBe(0x04034B50);
     expect(zip.toString("latin1")).toContain("first-server-primitive/vite.config.ts");
     expect(zip.toString("latin1")).not.toContain("server/api/settings.post.ts");

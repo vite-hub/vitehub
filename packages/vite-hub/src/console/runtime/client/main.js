@@ -34,7 +34,7 @@ import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } 
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { takeConsoleOAuthCallback } from "./oauth";
 import { continueConsoleOpen, startConsoleOpen } from "./open-link";
-import { consoleProjectReady, finishConsoleOAuthSignIn, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
+import { consoleProjectReady, finishConsoleOAuthSignIn, isConsoleNewProjectPath, noteConsoleProjectsVolatile, startConsoleLink, startConsoleNewProject, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { browserProjectStorage, openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
@@ -66,11 +66,14 @@ startConsoleProjects({
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
   storage,
+  storagePersistent: storage.persistent !== false,
   sessionStorage: session.durable ? session.storage : undefined,
   durableStorage: storage.persistent !== false,
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+// The /new page opens no project, so it works before the first link.
+else if (hosted && isConsoleNewProjectPath(window.location.pathname, consoleBase)) startConsoleNewProject();
 else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
 else if (openRequest) continueConsoleOpen(openRequest);
 const sectionsBase = "/_vitehub/api/sections";
