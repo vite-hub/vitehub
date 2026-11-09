@@ -89,6 +89,19 @@ describe("default Agent Invocation journal", () => {
     await expect(resolveDefaultAgentInvocationsLocation(remote)).resolves.toEqual({ authToken: "token", url: "libsql://journal.example.com" })
   })
 
+  it("opens a slow default journal outside the store operation timeout", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-slow-journal-"))
+    opens.delayMs = 1_100
+    try {
+      const invocations = createDefaultAgentInvocations({ env: {}, projectRoot })
+      await expect(Promise.all([invocations.list(), invocations.getSummary("missing")]))
+        .resolves.toMatchObject([{ invocations: [] }, undefined])
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it.each([{ maxAge: 0 }, { maxRecords: 0 }])("rejects invalid D1 retention at startup: %j", (retention) => {
     const env = vi.fn(() => ({}))
     expect(() => createDefaultAgentInvocations({ d1: { binding: "DB", env }, env: {}, projectRoot: "/worker", retention }))

@@ -377,9 +377,29 @@ When the sign-in does not finish, the Console says why:
 | `Cannot reach <host>` | Add the Console origin to `console.origins`, then build and deploy again. |
 | `This Console was built for another origin` | The client document names another origin. Build the Console with `VITEHUB_CONSOLE_ORIGIN`, see [Self-host the Console](#self-host-the-console). |
 
+### Start a new project
+
+The hosted Console can start a new app for you. It needs a `vite-hub` release with `vite-hub init` ([#3523](https://github.com/vite-hub/vitehub/pull/3523)), which is not released yet.
+
+1. Select **New project** on the empty Console, in the project menu, or in <kbd>⌘</kbd><kbd>K</kbd>. The page is at `/new`.
+2. Enter the folder name and pick the host. Features that the host cannot run are greyed out and say why.
+3. Pick the features. The page adds the features that they turn on, such as Database for Comments, and marks them **Added by**. When the host needs an option for a feature, such as `email.driver` on Vercel, the page asks for it.
+   Console is always on and uses token auth so the one-time link can sign in from the hosted Console.
+4. Once the stack has no problems, copy the command and run it in your terminal:
+
+```bash [Terminal]
+pnpm dlx vite-hub init my-app --host cloudflare --features console,kv,queue --option console.auth=token --console <id>:sha256:<verifier> --yes
+```
+
+5. On Cloudflare, Vercel, Netlify, or Deno, open the app folder and run `pnpm vitehub deploy`. This sets up the Console key on the host and prints a link. Open that link in the same browser. For Node.js, deploy the app with `VITEHUB_CONSOLE_TOKEN_SHA256` set to the verifier from `--console`. Open `https://console.vitehub.dev/link#p=<id>&url=<app-origin>` in the same browser, with `<id>` from `--console` and `<app-origin>` replaced by the URL-encoded origin of the deployed app. See [Link a new project](#link-a-new-project).
+
+The address of the page holds the stack: the folder, the host, the features, and non-private options, such as `/new?host=vercel&features=email&option=email.driver%3Dresend`. Database connection URLs can contain credentials, so they stay only in page memory and the generated command. Enter them again after a reload or when you open a shared link. The `--console` value is not in the address, because its link works only in the browser that made it. When you change the stack after the command appears, the command changes and keeps the same link.
+
+Creating a command needs persistent browser storage and Web Locks, which keep the key across navigation and let only one tab confirm a link. Allow browser storage and use a current browser on an HTTPS Console.
+
 ### Link a new project
 
-A one-time link lets a new project link itself, so you do not copy a token by hand. The setup command that makes these links, `vite-hub init --console`, is not released yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
+A one-time link lets a new project link itself, so you do not copy a token by hand. [Start a new project](#start-a-new-project) makes the link and prints it in the `vite-hub init --console` command. That command is not released yet, and the server does not read `VITEHUB_CONSOLE_TOKEN_SHA256` yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
 
 The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. The setup command stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
 
@@ -396,6 +416,30 @@ The link has limits:
 ### Switch projects
 
 The top of the rail shows the name and the host of the open project. Select it, or press <kbd>⌘</kbd><kbd>K</kbd> and choose **Switch project**, to see the linked projects. A dot shows if each one is reachable, needs a new token, or is unreachable. The Console loads the project that you choose, and opens it again after a reload.
+
+### Links to the hosted Console
+
+A link can open one page of a project in the hosted Console:
+
+```txt
+https://console.vitehub.dev/open?project=<app URL>&path=<Console path>
+```
+
+- `project` is the app origin, with its base path if it has one, such as `https://app.example.com/portal`. It must be `https://`, or `http://` on `localhost`, `127.0.0.1`, or `[::1]`.
+- `path` is the page in the Console, such as `/kv` or `/agents/<agent>/invocations/<id>`. It must start with one `/`. A path that starts with `/_vitehub`, as in the Console that the app serves, also works. Without `path`, the link opens the Overview.
+
+When this browser linked the project, the Console switches to it and opens the page. When it did not, the Console opens **Link project** with the app URL filled in. Select **Continue** to link the project, and the Console then opens the page. The link holds no secret. An absolute URL or a `//` path in `path` shows `Check the Console path`, so a link cannot send the browser to another site.
+
+To build the link in code, use `hostedConsoleUrl()` from `vite-hub/runtime`. It encodes both values, and throws a `TypeError` for a project URL or a path that the Console refuses:
+
+```ts
+import { hostedConsoleUrl } from 'vite-hub/runtime'
+
+hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
+// https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fsupport%2Finvocations%2Fabc
+```
+
+A self-hosted Console takes its origin as the third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
 ### Where the tokens are
 
