@@ -322,6 +322,18 @@ describe("ambiguous and clipped anchors", () => {
     expect(resolved(resolveAnchor(anchor)).clipped).toBe(true)
   })
 
+  it("keeps a quote in a scroll container visible though its pin sits in the gutter outside it", () => {
+    page(`<pre id="code" style="overflow: auto"><code id="line">const answer = 42</code></pre>`)
+    place(document.getElementById("code")!, { left: 0, top: 0, width: 200, height: 40 })
+    place(document.getElementById("line")!, { left: 0, top: 0, width: 200, height: 20 })
+    const anchor = { kind: "text" as const, selector: "#line", exact: "answer", prefix: "const ", suffix: " = 42" }
+    expect(resolved(resolveAnchor(anchor)).clipped).toBe(false)
+
+    // The block scrolled, so the quote is above its top edge.
+    place(document.getElementById("line")!, { left: 0, top: -300, width: 200, height: 20 })
+    expect(resolved(resolveAnchor(anchor)).clipped).toBe(true)
+  })
+
   it("does not mark a spot as clipped when no ancestor clips", () => {
     page(`<div id="box"><div id="row"></div></div>`)
     place(document.getElementById("box")!, { left: 0, top: 0, width: 10, height: 10 })

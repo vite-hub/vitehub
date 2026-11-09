@@ -177,11 +177,11 @@ html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 `
 
 /**
- * The areas that threads point at, in their own element at z-index 0 of the page: over its text, under its own
+ * The areas that threads point at, in their own element at z-index 1 of the page: over its text, under its own
  * floating controls, such as a menu button, which a box must not cross. A resolved area is dashed and faint.
  */
 export const areaStyles = `
-:host { all: initial; position: fixed; inset: 0; z-index: 0; pointer-events: none; --ink: #171717; --muted: #737373; }
+:host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; --ink: #171717; --muted: #737373; }
 :host(.dark) { --ink: #fafafa; --muted: #a3a3a3; }
 .area {
   position: fixed; box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 3px;

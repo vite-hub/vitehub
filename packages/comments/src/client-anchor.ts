@@ -360,7 +360,8 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
   const x = Math.min(Math.max(block.left + block.width, last.left + last.width) + PIN_GUTTER, (view?.innerWidth ?? Infinity) - PIN_ROOM)
   const y = last.top + last.height / 2
   return {
-    position: { clipped: isClipped(element, x, y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },
+    // Clipping follows the quote, not the pin: the gutter can be outside a scroll container that shows the quote.
+    position: { clipped: isClipped(element, last.left + Math.max(0, last.width - 1), y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },
     score: match.score,
     ambiguous: match.ambiguous,
   }
