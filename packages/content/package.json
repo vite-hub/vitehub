@@ -23,9 +23,7 @@
     "package.json"
   ],
   "type": "module",
-  "sideEffects": [
-    "./dist/sqlite-workerd.js"
-  ],
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
