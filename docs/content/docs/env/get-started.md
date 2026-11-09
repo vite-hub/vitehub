@@ -59,7 +59,7 @@ const publicEnv = usePublicEnv()
 console.log(publicEnv.appName)
 ```
 
-`#vitehub/env/public` is a module that Env makes from your config, so `appName` has a type. Only Vite can load this module. You cannot run this file with `node` alone.
+`#vitehub/env/public` is a module that Env makes from your config, so `appName` has a type. Env writes that type to `.vitehub/types/env.d.ts`. To use it in your editor, add `.vitehub/types/**/*.d.ts` to `include` in `tsconfig.json`, as [Configure](/docs/env/configure#provider-output) shows. Only Vite can load this module. You cannot run this file with `node` alone.
 
 ::
 
@@ -85,7 +85,14 @@ Run it in the root folder of the app:
 node scripts/verify-env.mjs
 ```
 
-The terminal prints `Acme`. Your code read the value that you declared in `vite.config.ts`.
+The terminal prints a check line from Env, then `Acme`:
+
+```text [output/terminal.txt]
+@vite-hub/env validated 1 declaration.
+Acme
+```
+
+Your code read the value that you declared in `vite.config.ts`.
 
 ::
 

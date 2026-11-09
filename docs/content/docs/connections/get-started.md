@@ -13,19 +13,19 @@ A Connection lets your server call another service, such as Gmail, as a user who
 In this tutorial, you connect a Google account and list its Gmail labels from an API route. The example only reads labels. It does not send or change mail.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. You also need a Google OAuth client with access to the Gmail API, and a test account that its consent screen allows. Connections turns on [Database](/docs/database/get-started) to store the access, but you do not need to define a database. Run every command from the app root.
+> Use the app from [Installation](/docs/getting-started/installation). You also need a Google OAuth client with access to the Gmail API, and a test account that its consent screen allows. Connections turns on [Database](/docs/database/get-started) to store the access, but you do not need to define a database. Run every command from the app root.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add ViteHub and Nitro to your app. Connections stores its data with Database, so add `@vite-hub/database` and `drizzle-orm` too:
+Add Connections and the Database packages that store its data:
 
 ```bash pm [commands/install]
-pnpm add vite-hub nitro h3 @vite-hub/connections @vite-hub/database drizzle-orm
-pnpm add -D vite
+pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
+pnpm add -D drizzle-kit
 ```
 
-Then update `vite.config.ts`:
+Then update `vite.config.ts`. Keep the other options of your app:
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -66,7 +66,7 @@ export GOOGLE_CLIENT_ID='your-google-client-id'
 export GOOGLE_CLIENT_SECRET='your-google-client-secret'
 ```
 
-In Google Cloud, add `http://localhost:5173/_vitehub/connections/callback` as an authorized redirect URI. Google sends the user back to this URL after sign-in. Its start must match the URL that you open in your browser.
+In Google Cloud, add `http://localhost:3000/_vitehub/connections/callback` as an authorized redirect URI. Google sends the user back to this URL after you connect from the Console. Its start must match the URL that you open in your browser. To connect from the CLI, also add `http://127.0.0.1:4799/callback`.
 
 ::
 
@@ -88,14 +88,14 @@ export default defineConnection({
   scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
   api: { gmail: ['users.labels.list'] },
   access: {
-    server: { read: true, write: false },
+    server: { read: true },
   },
 })
 ```
 
 - `scopes` lists what the user lets your app do. `gmail.readonly` allows reads only. The Google provider also asks for `openid` and `email`, to know which account signed in.
 - `api` lists the Gmail methods that your code can call. Here, only `users.labels.list`.
-- `access.server` lets server code read and stops it from writing.
+- `access.server` lets server code read. It has no `write` rule, so server code cannot write.
 
 ::
 
@@ -105,19 +105,19 @@ export default defineConnection({
 Start the dev server in the terminal where you set the keys:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-To connect the account, open the Console at `http://localhost:5173/_vitehub`, select **Connections**, and select **Connect**.
+To connect the account, open the Console at `http://localhost:3000/_vitehub`, select **Connections**, and select **Connect**. Sign in with the test account, and accept the consent screen.
 
-Or use the CLI. Open a second terminal and run the first command below. It prints a connect URL that works one time. Open that URL in your browser, sign in with the test account, and accept the consent screen. When the browser comes back to the app, run the second command:
+Or use the CLI. Open a second terminal and run the first command below. It prints a connect URL that works one time, and waits on `http://127.0.0.1:4799/callback`. Open that URL in your browser, sign in with the test account, and accept the consent screen. When the command ends, run the second command:
 
 ```bash [commands/connect]
-pnpm vitehub connections connect google
-pnpm vitehub connections status google --json
+pnpm vitehub connections connect google --port 4799
+pnpm vitehub connections inspect google --json
 ```
 
-The status shows a connected account.
+Before you connect, `inspect` shows `"status": "disconnected"` and the Gmail scope in `scopes.missing`. After you connect, it shows `"status": "connected"` and the account.
 
 ::
 
@@ -130,22 +130,22 @@ Create `server/api/labels.get.ts`. This route calls Gmail as the connected accou
 import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
-export default defineEventHandler(async (event) => {
-  const connection = useConnection('google', { event })
+export default defineEventHandler(async () => {
+  const connection = useConnection('google')
   const [error, data] = await connection.gmail.users.labels.list({ userId: 'me' })
   if (error) throw error
   return data
 })
 ```
 
-- `useConnection('google', { event })` gives you the `google` Connection. `event` tells ViteHub which request made the call, for access checks and the activity log.
+- `useConnection('google')` gives you the `google` Connection. The call runs as the `server` actor, so the `access.server` rule applies.
 - `userId: 'me'` tells Gmail to use the connected account.
 - The call returns an `[error, data]` pair. Throw the error, or return the data.
 
 Call the route:
 
 ```bash [commands/request]
-curl http://localhost:5173/api/labels
+curl http://localhost:3000/api/labels
 ```
 
 ```json [output/response.json]
