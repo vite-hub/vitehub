@@ -1035,15 +1035,15 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
     const definitionFile = resolveWorkspaceDefinitionModule(loader, definition, rootDir)
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
     let loaded: WorkspaceDefinitionInput
     try {
+      // Loading is cheaper than the source walk below, which transforms every module that feeds the store.
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition, rootDir)
       const commonJsLoaded: WorkspaceDefinitionInput & { default?: WorkspaceDefinitionInput } = loaded
       loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
+      if (!await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
       const source = await readSourceModule(definitionFile)
       if (source && sourceHasUnresolvedWorkspaceRoot(source, loader)) throw error
       // Factored store analysis reads the default export only.
