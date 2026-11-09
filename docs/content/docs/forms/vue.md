@@ -45,7 +45,7 @@ It draws plain elements with `data-*` attributes. Style them with CSS:
 
 ## `useFormSubmit()`
 
-For your own markup, use Formisch and `useFormSubmit()`. It sends the values, puts each server error under its field, and resets the form after a success. Nuxt imports it for you.
+For your own markup, use Formisch and `useFormSubmit()`. It sends the input of the form, puts each server error under its field, and resets the form after a success. Nuxt imports it for you.
 
 ```vue [app/components/FeedbackForm.vue] fragment
 <script setup lang="ts">
@@ -56,7 +56,7 @@ const { send, sent } = useFormSubmit('feedback', form)
 </script>
 
 <template>
-  <Form :of="form" @submit="send">
+  <Form :of="form" @submit="() => send()">
     <Field v-slot="field" :of="form" :path="['message']">
       <textarea v-model="field.input" v-bind="field.props" />
       <p v-if="field.errors">{{ field.errors[0] }}</p>

@@ -35,7 +35,7 @@ export default defineForm({
 The route takes JSON, URL-encoded, or multipart bodies. Two fields are not form data:
 
 - `_page`: the app path of the form. Default: the `Referer`, when it is on your origin.
-- `_anchor`: `{ selector, exact, prefix, suffix }`, the sentence that the sender selected. It is the text anchor of [Comments](/docs/comments), so `anchorRange()` finds the sentence again.
+- `_anchor`: `{ selector, exact, prefix, suffix }`, the sentence that the sender selected. It is the text anchor of [Comments](/docs/comments), so `resolveAnchor({ kind: "text", ...anchor })` of `@vite-hub/comments/client` finds the sentence again.
 
 | Answer | When |
 | --- | --- |
@@ -54,17 +54,16 @@ Each message is a row of `vitehub_form_submissions`: the form, the data as JSON,
 
 The `forms.list`, `forms.get`, and `forms.mark` operations read and change it. The Console, `vitehub forms`, and MCP call them. Access to the Forms section of the Console decides who may.
 
-In server code, `installedForms()` from `vite-hub/forms/runtime` returns the inbox. Each call returns `[error, data]`:
+In server code, `installedForms()` from `vite-hub/forms/runtime` returns the inbox. Each call returns `[error, data]`. The inbox checks no access, so do not return it from a public route:
 
-```ts [server/routes/open-messages.get.ts] fragment
+```ts [server/utils/open-messages.ts] fragment
 import { installedForms } from 'vite-hub/forms/runtime'
 
-export default {
-  async fetch() {
-    const [error, messages] = await installedForms()!.inbox.list({ form: 'contact', status: 'open' })
-    if (error) throw error
-    return Response.json(messages)
-  },
+/** The open messages of the contact form, such as for a daily digest. */
+export async function openMessages() {
+  const [error, messages] = await installedForms()!.inbox.list({ form: 'contact', status: 'open' })
+  if (error) throw error
+  return messages
 }
 ```
 
@@ -75,7 +74,14 @@ export default {
 ```ts fragment
 import { guardRequest } from '@vite-hub/forms/guard'
 
-const [stopped, guarded] = await guardRequest(request, { key: 'votes', rateLimit: { limit: 10, window: '1h' } })
+const [stopped, guarded] = await guardRequest(request, {
+  key: 'votes',
+  rateLimit: { limit: 10, window: '1h' },
+  // Runs before the rate limit and the body. Return a status and a message to stop the request.
+  check: async request => await signedIn(request) ? undefined : { status: 401, message: 'Sign in to vote.' },
+}, { rateLimit: countRequests })
 if (stopped) return stopped
 guarded.body // the fields, without _page, _anchor, and the honeypot
 ```
+
+The guard counts requests only with the `rateLimit` service of its third argument: `(request, key, policy) => Promise<{ allowed, retryAfter? }>`. Without it, `rateLimit` has no effect. The Forms route passes its own.
