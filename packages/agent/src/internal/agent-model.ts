@@ -6,6 +6,7 @@ import type {
 } from "../types.ts"
 import type { LanguageModel } from "ai"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { loadAiSdk } from "./ai-sdk-runtime.ts"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -62,7 +63,8 @@ export async function materializeAgentModel<TRuntimeConfig extends AgentRuntimeC
   if (!id) {
     throw agentDiagnostics.AGENT_R0514({ message: "[vitehub] Agent model identifiers must be non-empty." })
   }
-  const { createGateway } = await import("@ai-sdk/gateway")
+  // `ai` re-exports the gateway it depends on. A separate @ai-sdk/gateway import can resolve a second copy.
+  const { createGateway } = await loadAiSdk()
   const apiKey = gatewayApiKey(descriptor.apiKey, context)
   return (apiKey ? createGateway({ apiKey }) : createGateway())(id)
 }
