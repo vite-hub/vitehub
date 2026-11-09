@@ -78,7 +78,7 @@ async function cancelInJournals(request: Request, grant: ViteHubDevRequestGrant,
  * The Vite endpoint forwards the request here, so the cancel reaches the application's own journals and abort
  * registry. The handler exists only in `vite dev`. The request must carry the Workspace dev token of `serverId`.
  * Without a `serverId`, every request is rejected. `input` is a Request, or a request event with Standard Context
- * properties, such as an H3 1 event on Nitro 2 (Nuxt 4) or an H3 2 event.
+ * properties, such as the H3 event of Nitro.
  */
 export async function handleAgentInvocationsDevRequest(input: Request | ViteHubContext, options: { rootDir?: string, serverId?: string } = {}): Promise<Response> {
   const request = input instanceof Request ? input : getStandardContext(input).req

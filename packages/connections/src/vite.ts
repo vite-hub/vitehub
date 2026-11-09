@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { findPackageJSON } from "node:module";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 
 import * as v from "valibot";
 
@@ -33,12 +32,6 @@ export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
 export const CONNECTIONS_VITE_PLUGIN_NAME = "@vite-hub/connections/vite";
 
 const resolvedConnectionsRegistryId = `\0${CONNECTIONS_REGISTRY_ID}`;
-/**
- * Nitro 2 matches `@vite-hub/connections` against the import name and the resolved path after its last
- * `node_modules/`. A linked package, such as a pnpm workspace package, resolves outside `node_modules`, so Nitro left
- * it to Node, and Node served the empty registry fallback instead of the generated registry alias.
- */
-const connectionsPackageRoot = `${dirname(findPackageJSON(import.meta.url)!)}${sep}`;
 const noExternalAddition = createNoExternalAddition("@vite-hub/connections");
 // Keep prior output ownership with the project so cleanup works after a restart.
 const generatedTypesManifest = ".vitehub/connections-types.json";
@@ -292,8 +285,8 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   };
   nitro: {
     name: string;
-    /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing?: { sync: () => void } }) => void;
+    /** Nitro rebuilds its routing table from `options.handlers` when `routing.sync()` runs. */
+    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing: { sync: () => void } }) => void;
   };
 };
 
@@ -488,30 +481,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const nitro = v.parse(
         v.looseObject({
           alias: v.optional(v.record(v.string(), v.unknown()), {}),
-          externals: v.optional(
-            v.looseObject({
-              inline: v.optional(v.union([v.literal(true), v.array(v.unknown())]), []),
-            }),
-            {},
-          ),
         }),
         nitroInput ?? {},
       );
       const alias = nitro.alias;
-      const externals = nitro.externals;
-      const inline =
-        externals.inline === true
-          ? true
-          : [
-              ...new Set([
-                ...(Array.isArray(externals.inline) ? externals.inline : []),
-                "vite-hub",
-                "@vite-hub/connections",
-                connectionsPackageRoot,
-              ]),
-            ];
       nitro.alias = { ...alias, [CONNECTIONS_REGISTRY_ID]: nitroRegistryFile };
-      nitro.externals = { ...externals, inline };
       if (environment.command === "serve") {
         // Node loads this package in `vite dev`, so a plugin hands it the generated registry.
         const registryPlugin = resolve(generatedDir, "registry-dev-plugin.ts");
@@ -544,7 +518,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
               ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
               : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
-            // `handle` reads the Web Request from the event's Standard Context, on H3 1 and H3 2.
+            // `handle` reads the Web Request from the H3 event's Standard Context.
             "export default (event: Parameters<typeof handle>[0]) => handle(event)",
             "",
           ].join("\n"),
@@ -567,7 +541,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           // Nitro initializes during config hooks, before Vite resolves its final base.
           if (nitroInstance) {
             Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
-            nitroInstance.routing?.sync();
+            nitroInstance.routing.sync();
           }
           await writeManagementHandler(route);
         };

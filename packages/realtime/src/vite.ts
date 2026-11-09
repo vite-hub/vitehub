@@ -2,14 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 export { discoverRealtimeDefinitions } from "./discovery.ts"
-import { realtimeDurableObjectKey } from "./durable-key.ts"
 import { realtimeKeepalivePing, realtimeKeepalivePong } from "./protocol.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
@@ -82,8 +81,8 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
-function configureCloudflareRealtime(nitro: NitroConfig, nitro2: boolean): void {
-  nitro.preset = nitro2 ? "cloudflare-durable" : "cloudflare-module"
+function configureCloudflareRealtime(nitro: NitroConfig): void {
+  nitro.preset = "cloudflare-module"
   const cloudflare = record(nitro.cloudflare)
   const wrangler = record(cloudflare.wrangler)
   const durableObjects = record(wrangler.durable_objects)
@@ -215,15 +214,12 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       let durablePlugin: string | undefined
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         inspectionAuthority = "cloudflare"
-        configureCloudflareRealtime(nitro, (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: number })[VITEHUB_NITRO_MAJOR_VERSION] === 2)
-        // Nitro 2 upgrades sockets in the Durable Object with only the request in hand: give Realtime its storage.
+        configureCloudflareRealtime(nitro)
+        // The plugin does not import the Realtime server (Tiptap, ProseMirror, Yjs), so a cold start does not load it.
         durablePlugin = resolve(directory, "durable-object.mjs")
-        // The same global registerRealtimeDurableObject() writes, set without importing the Realtime server: a Nitro
-        // plugin loads with the Worker, and the server (Tiptap, ProseMirror, Yjs) would then load on every cold start.
         await writeFile(durablePlugin, [
           "export default (nitroApp) => {",
-          "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state, env }) => {",
-          `    globalThis[Symbol.for(${JSON.stringify(realtimeDurableObjectKey)})] = { env, state }`,
+          "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state }) => {",
           "    // Answer the clients' keepalive without waking the Durable Object from hibernation.",
           `    if (typeof WebSocketRequestResponsePair === "function") state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(${JSON.stringify(realtimeKeepalivePing)}, ${JSON.stringify(realtimeKeepalivePong)}))`,
           "  })",

@@ -96,7 +96,6 @@
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "h3": "catalog:unjs",
-    "nitropack": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "tailwindcss": "^4.3.3",

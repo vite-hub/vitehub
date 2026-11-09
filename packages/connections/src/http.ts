@@ -75,7 +75,7 @@ export function createConnectionsHandler(
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
   const base = normalizeConnectionsBasePath(options.basePath);
   return async (input) => {
-    // A request event, such as an H3 1 or H3 2 event in a ViteHub app, gives its Web Request through Standard Context.
+    // A request event, such as an H3 event in a ViteHub app, gives its Web Request through Standard Context.
     const requestInput = isWebRequest(input);
     const request = requestInput ? input : getStandardContext(input).req;
     const event = requestInput ? undefined : input;

@@ -3,7 +3,6 @@ import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from 
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
@@ -107,19 +106,6 @@ describe("hubConnections", () => {
     );
   });
 
-  it("inlines a linked @vite-hub/connections in Nitro so it reads the generated registry", async () => {
-    const root = await createTempProject();
-    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
-    await (hubConnections().config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
-    const { inline } = (config.nitro as { externals: { inline: unknown[] } }).externals;
-    // In this workspace the package resolves outside node_modules, like any linked package. Nitro 2 matches inline
-    // strings against the path and against the part after the last `node_modules/`.
-    const file = fileURLToPath(import.meta.resolve("@vite-hub/connections/server"));
-    const nitroMatches = (pattern: string) => file.startsWith(pattern) || file.split("node_modules/").pop()!.startsWith(pattern);
-    expect(nitroMatches("@vite-hub/connections")).toBe(false);
-    expect(inline.some(entry => typeof entry === "string" && nitroMatches(entry))).toBe(true);
-  });
-
   it("hands the registry to the package that Node loads in vite dev", async () => {
     for (const command of ["serve", "build"] as const) {
       const root = await createTempProject();
@@ -218,10 +204,10 @@ describe("hubConnections", () => {
     expect(handler).not.toContain("/early/");
   });
 
-  it("updates the handlers of a Nitro 2 instance at the Nuxt app base, not the assets base", async () => {
+  it("updates the handlers of a Nitro instance at the Nuxt app base, not the assets base", async () => {
     const root = await createTempProject();
     const connections = hubConnections();
-    const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> } };
+    const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> }, routing: { sync: vi.fn() } };
     // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
     const nuxtBase = { base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/" };
     const config = await resolveConfig({
@@ -288,9 +274,19 @@ describe("hubConnections", () => {
     const handle = vi.fn((event: unknown) => event);
     const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
     const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => unknown;
-    const event = { node: { req: {}, res: {} } };
+    const request = new Request("https://public.example/_vitehub/connections");
+    const event = { req: request, "~standard": { req: request } };
     expect(adapt(event)).toBe(event);
     expect(handle).toHaveBeenCalledWith(event);
+  });
+
+  it.each(["node-server", "cloudflare-module"])("preserves the Nuxt app base in production H3 requests on %s", async (preset) => {
+    const root = await createTempProject();
+    const config = { nitro: { preset, handlers: [] as Array<{ handler: string }> }, root, base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/portal/", [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections({ management: { actor: "#app/connections-actor" } }).config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
+    const handlers = config.nitro.handlers;
+    const source = await readFile(handlers[0]!.handler, "utf8");
+    expect(source).toContain('basePath: "/portal/_vitehub/connections"');
   });
 
   it("checks every development request with the actor module, or the development policy without one", async () => {

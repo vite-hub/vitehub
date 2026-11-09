@@ -131,8 +131,8 @@ loader /* receiver */ . /* call */ import(path)
 `, "application entrypoint")).not.toThrow()
   })
 
-  it("records externals that Nitro 2 keeps as resolved files", () => {
-    // Nitro 2's externals plugin can keep an external as its resolved file path or file URL, and Rollup marks it `isExternal`.
+  it("records externals that Nitro keeps as resolved files", () => {
+    // Nitro's externals resolver can keep an external as its resolved file path or file URL, and Rollup marks it `isExternal`.
     const entry = "/app/server/api.ts"
     const sharp = "file:///app/node_modules/.pnpm/sharp@1/node_modules/sharp/dist/index.mjs"
     const lazy = "/app/node_modules/@scope/lazy/index.js"

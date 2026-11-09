@@ -181,12 +181,11 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
 
 function renderNitroRequestScopeMiddleware() {
   return [
-    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
+    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
     "",
     "export default (event, next) => {",
     "  const env = getRequestCloudflareEnv(event) ?? globalThis.__env__",
-    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
-    "  setActiveCloudflareEnv(env)",
+    "  return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "}",
     "",
   ].join("\n")
@@ -196,7 +195,7 @@ function renderNitroRequestStatsMiddleware() {
   return [
     `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/request-stats"))}`,
     "",
-    "export default (event, next) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
+    "export default (event, next) => runWithDatabaseRequestStats(event, next)",
     "",
   ].join("\n")
 }
