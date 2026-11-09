@@ -1,6 +1,7 @@
 import { getConsoleInvocations } from "./invocations.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -44,10 +45,7 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
     return cursor
   }
   catch {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }), {
-      statusCode: 400,
-      statusMessage: "Invalid invocation cursor",
-    })
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }))
   }
 }
 
@@ -91,10 +89,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const query = consoleRequestURL(event).searchParams
   const ids = query.getAll("id")
   if (ids.length > 100) {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0059({ message: "Too many invocation ids" }), {
-      statusCode: 400,
-      statusMessage: "Too many invocation ids",
-    })
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0059({ message: "Too many invocation ids" }))
   }
   if (ids.length > 0) {
     const invocations = getConsoleInvocations()
@@ -109,32 +104,20 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const cursor = decodeCursor(query.get("cursor") || undefined)
   const agentName = query.get("agent")?.trim() || undefined
   if (agentName && agentName.length > 512) {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0060({ message: "Invalid Agent name" }), {
-      statusCode: 400,
-      statusMessage: "Invalid Agent name",
-    })
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0060({ message: "Invalid Agent name" }))
   }
   const capabilityId = query.get("capability")?.trim() || undefined
   if (capabilityId && capabilityId.length > 512) {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0061({ message: "Invalid Capability id" }), {
-      statusCode: 400,
-      statusMessage: "Invalid Capability id",
-    })
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0061({ message: "Invalid Capability id" }))
   }
   const triggeredBy = query.get("triggeredBy")?.trim() || undefined
   if (triggeredBy && triggeredBy.length > 512) {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0061({ message: "Invalid triggering person" }), {
-      statusCode: 400,
-      statusMessage: "Invalid triggering person",
-    })
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0061({ message: "Invalid triggering person" }))
   }
   const limitValue = query.get("limit")
   const limit = limitValue === null ? undefined : Number(limitValue)
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0062({ message: "Invalid invocation limit" }), {
-      statusCode: 400,
-      statusMessage: "Invalid invocation limit",
-    })
+    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0062({ message: "Invalid invocation limit" }))
   }
   const pageLimit = Math.min(limit ?? defaultListLimit, maximumListLimit)
   const emptyPage: AgentInvocationListResult = { invocations: [] }

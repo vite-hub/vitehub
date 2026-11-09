@@ -37,7 +37,8 @@ export interface SetupAddArgs {
 export interface SetupChange {
   /** Relative to the project root. */
   path: string
-  kind: "create" | "patch"
+  /** `delete` is a file that `vitehub remove` deletes; its `after` is empty. */
+  kind: "create" | "patch" | "delete"
   before?: string
   after: string
   /** A unified diff from `before` to `after`. */
@@ -117,14 +118,15 @@ function installSpecifiers(packages: readonly string[]): string[] {
   return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
 }
 
-function invalid(message: string): Error {
-  return cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${usage}` })
+function invalid(message: string, commandUsage = usage): Error {
+  return cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${commandUsage}` })
 }
 
-function featureId(value: string): FeatureId {
+/** The feature id of a command argument, such as `rate-limit` for `rateLimit`. Throws `CLI_R0003` for an unknown feature. */
+export function readFeatureId(value: string, commandUsage = usage): FeatureId {
   const key = value.replaceAll("-", "").toLowerCase()
   const id = featureIds.find(item => item.toLowerCase() === key)
-  if (!id) throw invalid(`Unknown feature ${JSON.stringify(value)}. Run \`vitehub catalog\` to list the features.`)
+  if (!id) throw invalid(`Unknown feature ${JSON.stringify(value)}. Run \`vitehub catalog\` to list the features.`, commandUsage)
   return id
 }
 
@@ -145,8 +147,17 @@ function setPath(target: Record<string, JsonValue>, path: readonly string[], val
   target[key] = next
 }
 
-function isRecord(value: JsonValue | undefined): value is { readonly [key: string]: JsonValue } {
+export function isRecord(value: JsonValue | undefined): value is { readonly [key: string]: JsonValue } {
   return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+/** Additional Console owners selected by its access policy and enabled features. */
+export function setupConsolePackages(value: JsonValue | undefined, enabled: ReadonlySet<FeatureId>): string[] {
+  const packages: string[] = []
+  if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
+  const auth = isRecord(value) ? value.auth : "app"
+  if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
+  return packages
 }
 
 /** Reads the arguments. Throws `CLI_R0003` for an unknown flag, feature, or option. */
@@ -169,7 +180,7 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
     else if (flag === "--name") parsed.name = value()
     else if (flag === "--option") rawOptions.push(value())
     else if (arg.startsWith("-")) throw invalid(`Unknown argument ${JSON.stringify(arg)}.`)
-    else if (!parsed.features.includes(featureId(arg))) parsed.features.push(featureId(arg))
+    else if (!parsed.features.includes(readFeatureId(arg))) parsed.features.push(readFeatureId(arg))
   }
   if (parsed.name !== undefined && !/^[a-z0-9][a-z0-9-]*$/u.test(parsed.name)) {
     throw invalid(`--name ${JSON.stringify(parsed.name)} must use lowercase letters, digits, and dashes, such as \`welcome-email\`.`)
@@ -242,7 +253,7 @@ function sameValue(left: JsonValue | undefined, right: JsonValue | undefined): b
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function toSource(value: JsonValue): string {
+export function toSource(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(toSource).join(", ")}]`
   if (isRecord(value)) {
     const entries = Object.entries(value).map(([key, child]) => `${/^[A-Z_$][\w$]*$/iu.test(key) ? key : JSON.stringify(key)}: ${toSource(child)}`)
@@ -251,9 +262,9 @@ function toSource(value: JsonValue): string {
   return JSON.stringify(value)
 }
 
-/** A unified diff of `path`. An empty `before` is a new file. */
+/** A unified diff of `path`. An empty `before` is a new file, and an empty `after` is a deleted file. */
 export function setupDiff(path: string, before: string, after: string): string {
-  return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", `b/${path}`, before, after, undefined, undefined, { context: 3 })
+  return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", after ? `b/${path}` : "/dev/null", before, after, undefined, undefined, { context: 3 })
     .replace(/^=+\n/u, "")
 }
 
@@ -501,14 +512,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
   const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host))
-  const observability = valueFor("observability")
-  if (packageFeatures.includes("observability") && isRecord(observability) && observability.posthog) packages.push("posthog-node")
-  if (enabled.has("console")) {
-    if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
-    const consoleValue = valueFor("console")
-    const auth = isRecord(consoleValue) ? consoleValue.auth : "app"
-    if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
-  }
+  if (enabled.has("console")) packages.push(...setupConsolePackages(valueFor("console"), enabled))
   const install: SetupAddPlanned["install"] = {
     dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
     prod: [...new Set(packages)].filter(name => !project.declared(name, false)),

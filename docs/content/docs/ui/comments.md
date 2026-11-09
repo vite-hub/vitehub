@@ -11,7 +11,7 @@ icon: i-ph-chat-circle-light
 
 The parts show state and call a transport. They do not own storage or access. The transport is the seam to the server: `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and examples, and `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments Operations server](/docs/comments/operations/get-started). The built-in live-site overlay uses a separate thread and anchor format.
 
-::component-preview{name="CommentComposerExample"}
+::example{name="CommentComposerExample" height=8}
 ::
 
 ## Installation
@@ -136,7 +136,7 @@ comments.people.value; // The people that the state knows, for mention names.
 
 `CommentPanel` is one surface for the comments of a page, as in the side panel of a review tool. It shows the list of threads with Open and Resolved filters. A click on a thread opens it in the panel, and Back returns to the list with the focus on that thread. The box at the bottom comments on the whole page.
 
-::component-preview{name="CommentPanelExample"}
+::example{name="CommentPanelExample" height=8}
 ::
 
 Inside `CommentLayer` the panel uses the layer's state. Put it in the layer's slot to replace the toolbar and the list:
@@ -250,7 +250,7 @@ The slots receive the data that they show:
 
 `CommentThread` passes `body`, `attachments`, `extra`, and `mention-item` on to its messages and its reply box. `CommentPanel` passes every slot on to its thread, and `extra` and `mention-item` to its page box.
 
-::component-preview{name="CommentThreadSlotsExample"}
+::example{name="CommentThreadSlotsExample" height=8}
 ::
 
 ## Themes
