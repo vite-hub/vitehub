@@ -30,7 +30,7 @@ For each `POST`, `handleFormRequest()`:
 4. Asks `rateLimit` with the key `form:<name>`. The default policy is 5 a minute. It answers 429 with `retry-after`.
 5. Answers 413 above `maxBytes`, 64 KB by default.
 6. Answers 202 and stores nothing when the honeypot field, `website` by default, is filled.
-7. Validates the other fields with `schema`. It answers 400 with `{ message, issues: [{ message, path }] }`.
+7. Validates the other fields with `schema`. It answers 400 with `{ message, issues: [{ message, path }] }`. Schema output must be JSON data: plain objects, arrays, strings, finite numbers, booleans, or `null`. Transforms that return `Date`, `Map`, `bigint`, `undefined`, or cycles get 400 before `onSubmit`, email, or storage. Convert these values in the schema, for example a date to an ISO string. Accepted output uses its JSON representation in every step.
 8. Runs `onSubmit`. When it returns a Response, the request gets that Response and nothing is stored.
 9. Stores the submission, then sends the email. A stored submission is safe, so an email failure is only logged.
 10. Answers 201 with `{ id }`.
@@ -45,7 +45,7 @@ Two fields are not form data: `_page`, the app path of the form (default: the `R
 
 | Service | Does | Without it |
 | --- | --- | --- |
-| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. | Nothing is stored. |
+| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. | The request gets 503 before `onSubmit` or email, unless the form sets `store: false`. With `store: false`, set `onSubmit` or `notify` to handle submissions. |
 | `email` | Sends `notify.email`. | A stored submission is kept; without `store` the request gets 503. |
 | `rateLimit` | Decides each request. | No rate limit. |
 | `identify` | Returns the signed-in user. | Every sender is anonymous. |

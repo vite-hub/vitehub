@@ -8,7 +8,7 @@ icon: i-ph-users-three-light
 
 This block combines [`AvatarStack`](/docs/ui/avatar-stack), [`ConnectionStatus`](/docs/ui/connection-status), [`SyncStatus`](/docs/ui/sync-status), and the [caret styles](/docs/ui/carets) around a document. Ben types, and Cleo has a phrase selected. Save to see the save state, or drop the connection to see the header wait, then say Reconnecting. The room is synthetic. No editor runs and no network requests leave the page.
 
-::component-preview{name="CollaborativeEditorBlock" flush reset}
+::example{name="CollaborativeEditorBlock" flush reset height=21}
 ::
 
 ## Connect Realtime

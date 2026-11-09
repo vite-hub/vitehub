@@ -35,6 +35,7 @@ import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
@@ -1196,6 +1197,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
+  if (plan.preset === "cloudflare") plugins.push(cloudflareShSyntaxPlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
 
   const logsOwnsEvlog = options.logs === true || (options.logs && !("source" in options.logs) && options.logs.evlog?.enabled !== false)
@@ -1467,7 +1469,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent())
+  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: options.contentImportBase ?? "vite-hub/content" }))
   // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, and the user
   // with Auth. Inert without the folder, and absent without its package.
   if (ownerModules.formsVite) plugins.push(ownerModules.formsVite.hubForms({
@@ -1497,7 +1499,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   else if (options.comments === false) plugins.push(commentsOffPlugin())
-  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite) plugins.push(optionalOwnerEntriesPlugin())
+  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())

@@ -6,6 +6,7 @@ export const diagnosticSections: Record<string, string> = {
   "auth": "auth",
   "blob": "blob",
   "browser": "browser",
+  "bundle": "development",
   "channels": "channels",
   "cli": "development",
   "cms": "cms",
