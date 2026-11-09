@@ -485,7 +485,9 @@ function discoverRateLimitCatalog(
   }
   return {
     declarationFiles,
-    declarations: [...declarations.values()].sort((left, right) => left.name.localeCompare(right.name)),
+    declarations: [...declarations.values()]
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map(declaration => ({ ...declaration, policy: { ...declaration.policy }, source: { ...declaration.source } })),
   }
 }
 

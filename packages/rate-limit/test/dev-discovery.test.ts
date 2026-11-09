@@ -6,6 +6,7 @@ import { parseSync, resolveConfig } from "vite"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { hubRateLimit } from "../src/vite.ts"
+import { createRateLimitCatalogDiscovery } from "../src/discovery.ts"
 
 vi.mock("vite", async (importOriginal) => {
   const vite = await importOriginal<typeof import("vite")>()
@@ -22,6 +23,31 @@ afterEach(async () => {
 function guard(name: string, limit = 5): string {
   return `export function route(event) { return requireRateLimit(event, ${JSON.stringify(name)}, { limit: ${limit}, window: "1m" }) }\n`
 }
+
+it("isolates cached declarations from mutations to previous results", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-catalog-"))
+  roots.push(root)
+  await mkdir(join(root, "server"))
+  const file = join(root, "server", "upload.ts")
+  await writeFile(file, guard("upload"))
+  const discover = createRateLimitCatalogDiscovery()
+  const first = discover({ rootDir: root })
+  const expected = structuredClone(first.declarations)
+  for (const declaration of first.declarations) {
+    declaration.name = "changed"
+    declaration.policy.limit = 99
+    declaration.source.file = "changed.ts"
+  }
+  first.declarationFiles.clear()
+  first.declarations.length = 0
+  vi.mocked(parseSync).mockClear()
+
+  const second = discover({ rootDir: root })
+
+  expect(second.declarations).toEqual(expected)
+  expect(second.declarationFiles).toEqual(new Set([file]))
+  expect(parseSync).not.toHaveBeenCalled()
+})
 
 async function project() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-dev-discovery-"))
