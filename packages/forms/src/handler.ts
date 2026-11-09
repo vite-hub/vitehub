@@ -1,3 +1,5 @@
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { FormAnchor, FormDefinition, FormEmailMessage, FormIssue, FormServices, FormSubmission, FormUser } from "./types.ts"
 
@@ -60,9 +62,16 @@ async function readBody(request: Request, kind: BodyKind, text: string): Promise
       return undefined
     }
   }
-  const form = request.headers.get("content-type")?.toLowerCase().startsWith("multipart/")
-    ? await new Response(text, { headers: { "content-type": request.headers.get("content-type")! } }).formData()
-    : new URLSearchParams(text)
+  let form: FormData | URLSearchParams
+  try {
+    form = request.headers.get("content-type")?.toLowerCase().startsWith("multipart/")
+      ? await new Response(text, { headers: { "content-type": request.headers.get("content-type")! } }).formData()
+      : new URLSearchParams(text)
+  }
+  catch {
+    // A multipart body without its boundary, or a broken one.
+    return undefined
+  }
   const body: Record<string, unknown> = {}
   for (const [key, value] of form.entries()) {
     if (typeof value !== "string") return undefined
@@ -76,9 +85,11 @@ function appPath(value: unknown, request: Request): string | null {
   const raw = typeof value === "string" ? value : request.headers.get("referer")
   if (!raw) return null
   try {
-    const url = new URL(raw, request.url)
-    if (url.origin !== new URL(request.url).origin) return null
-    return `${url.pathname}${url.search}`.slice(0, 2000)
+    const origin = forwardedRequestOrigin(request)
+    const url = new URL(raw, origin)
+    if (url.origin !== origin) return null
+    // One leading slash: `//evil.test` would be a link to another site.
+    return `${url.pathname.replace(/^\/+/, "/")}${url.search}`.slice(0, 2000)
   }
   catch {
     return null
@@ -157,7 +168,8 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   const kind = bodyKind(request)
   if (!kind) return fail(415, "Send JSON or form data.")
   const origin = request.headers.get("origin")
-  if (origin && origin !== new URL(request.url).origin && !options.origins?.includes(origin)) return fail(403, "This origin may not send this form.")
+  // Behind a proxy that ends TLS, `request.url` is `http:` while the browser sends its `https:` origin.
+  if (origin && origin !== forwardedRequestOrigin(request) && !options.origins?.includes(origin)) return fail(403, "This origin may not send this form.")
   // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
   let page = appPath(undefined, request)
   const stop = (status: number, message: string, headers?: Record<string, string>) => wantsPage(request, kind) ? back(request, page, "error") : fail(status, message, headers)
