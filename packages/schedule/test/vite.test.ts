@@ -179,6 +179,54 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.d.ts"), "utf8")).resolves.toContain("ScheduleRegistryDefinition")
   })
 
+  it("keeps the started Schedule tick alongside a time-zoned Static Definition", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-started-nitro-")
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "reminder.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ handler: ({ payload }) => console.log(payload) })",
+      "",
+    ].join("\n"), "utf8")
+
+    await writeFile(join(root, "server", "schedules", "daily.ts"), "export default defineSchedule({ cron: '0 8 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8")
+
+    const userConfig: Record<string, unknown> = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root }
+    await (hubSchedule().config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      userConfig,
+      { command: "build", mode: "production" },
+    )
+
+    expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 6,7 * * *", "* * * * *"] } } } } })
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain('import { createKVStartedScheduleStore, installStartedSchedules } from "@vite-hub/schedule/runtime"')
+    expect(pluginSource).toContain('import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"')
+    expect(pluginSource).toContain("    catchUpMs: 0,")
+    expect(pluginSource).toContain("cloudflare:scheduled")
+    expect(pluginSource).toContain('timeZoneCrons: {"daily":"0 6,7 * * *"}')
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "started-registry.js"), "utf8")).resolves.toContain("[\"reminder\"]: async () => import(")
+    const providerRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.js"), "utf8")
+    expect(providerRegistry).toContain("[\"vitehub/started-schedules\"]")
+    expect(providerRegistry).not.toContain("[\"reminder\"]")
+  })
+
+  it("lets the Process Runtime wake Definitions without cron and catch up after a restart", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-started-process-")
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "reminder.ts"), "export default defineSchedule({ handler: () => {} })\n", "utf8")
+
+    const userConfig: Record<string, unknown> = { root }
+    await (hubSchedule({ runtime: { driver: "process", prefix: "app:schedule" } }).config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      userConfig,
+      { command: "build", mode: "production" },
+    )
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("    catchUpMs: 3600000,")
+    expect(pluginSource).toContain("store: createKVStartedScheduleStore({ ...{\"prefix\":\"app:schedule\"}, kvStore: scheduleKVStorage }),")
+    expect(pluginSource.match(/import \{ scheduleKVStorage \}/g)).toHaveLength(1)
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("schedule-started/tick.mjs")
+  })
+
   it("installs an explicit Process Runtime through generated Nitro wiring", async () => {
     const root = await temporaryDirectory("vitehub-schedule-process-runtime-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
@@ -620,7 +668,7 @@ describe("Vite schedule integration", () => {
     expect(JSON.stringify(serveConfig.nitro)).not.toContain("/_vitehub/schedule/dev")
     const [contribution] = (plugin.vitehub as { operations: Array<{ export: string, load(): Promise<readonly { name: string }[]>, module: string }> }).operations
     expect(contribution).toMatchObject({ export: "scheduleOperations", module: "@vite-hub/schedule/operations" })
-    expect((await contribution!.load()).map(operation => operation.name)).toEqual(["schedule.runs", "schedule.attempts", "schedule.run"])
+    expect((await contribution!.load()).map(operation => operation.name)).toEqual(["schedule.runs", "schedule.attempts", "schedule.run", "schedule.list", "schedule.start", "schedule.cancel"])
   })
 
   it("rejects invalid Process Runtime options before generating Nitro code", async () => {

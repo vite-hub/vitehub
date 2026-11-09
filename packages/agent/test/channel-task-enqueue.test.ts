@@ -193,13 +193,21 @@ describe("enqueueChannelTask()", () => {
   })
 
   it("keeps task names and keys containing colons distinct during replacement and cancellation", async () => {
-    const { deliveries, ran } = await setup()
-    const [, first] = await enqueueChannelTask("airtable", "close", { data: { version: 1 } }, { delayMs: 400, key: "duplicate:123" })
-    const [, second] = await enqueueChannelTask("airtable", "close:duplicate", { data: { version: 2 } }, { delayMs: 400, key: "123" })
-    expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
-    await expect(cancelChannelTask("airtable", "close", { key: "duplicate:123" })).resolves.toEqual([undefined, { cancelled: 1 }])
-    expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
-    await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
+    // Keep both tasks queued until cancellation, even when database calls take longer than their delay on CI.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+    try {
+      const { deliveries, ran } = await setup()
+      const [, first] = await enqueueChannelTask("airtable", "close", { data: { version: 1 } }, { delayMs: 400, key: "duplicate:123" })
+      const [, second] = await enqueueChannelTask("airtable", "close:duplicate", { data: { version: 2 } }, { delayMs: 400, key: "123" })
+      expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
+      await expect(cancelChannelTask("airtable", "close", { key: "duplicate:123" })).resolves.toEqual([undefined, { cancelled: 1 }])
+      expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
+      clock.mockRestore()
+      await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
+    }
+    finally {
+      clock.mockRestore()
+    }
   })
 
   it("isolates the same task key on different triggers during replacement and cancellation", async () => {

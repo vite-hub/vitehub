@@ -898,6 +898,11 @@
       "import": "./dist/task.js",
       "default": "./dist/task.js"
     },
+    "./test": {
+      "types": "./dist/test.d.ts",
+      "import": "./dist/test.js",
+      "default": "./dist/test.js"
+    },
     "./skills": {
       "types": "./dist/skills.d.ts",
       "import": "./dist/skills.js",
