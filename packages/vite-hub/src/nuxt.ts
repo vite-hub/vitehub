@@ -60,6 +60,7 @@ import type { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveViteHubServerImports, type ServerAutoImport } from "./nuxt-server-imports.ts"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
@@ -76,6 +77,11 @@ function resolveConsoleAuthPaths(rootDir: string, auth: ConsoleAuthConfig | unde
   const client = auth.client ? { client: resolve(rootDir, auth.client) } : {}
   if ("provider" in auth) return { ...auth, ...client }
   return { ...auth, ...client, ...(auth.server ? { server: resolve(rootDir, auth.server) } : {}) }
+}
+
+/** True when the app names a Blob driver or stores, which works on hosts without a default Blob store. */
+function explicitBlobOption(value: ViteHubOptions["blob"]): boolean {
+  return Boolean(value && value !== true && ("driver" in value || "stores" in value))
 }
 
 function configuredProjectRoot(root: string, value: unknown): string | undefined {
@@ -546,23 +552,29 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   }
 }
 
-type NitroAutoImport = { as?: string, from: string, name: string }
-
 /**
- * Add entries only when server auto-imports are on. Nuxt sets `nitro.imports` to `false` when
- * `experimental.nitroAutoImports` is off, and Nitro 3 leaves it unset by default.
+ * Add ViteHub's server helpers to the auto-imports that Nuxt 5 gives to Nitro code. The app turns them off with
+ * `nitro: { imports: false }`, which makes `imports` false here, or with `imports: { autoImport: false }`, which Nuxt
+ * copies to `imports.autoImport`. A name that another source already configures keeps that source.
  */
-function addNitroImports(config: Record<string, unknown>, from: string, names: readonly string[]): void {
-  if (!isRecord(config.imports)) return
+function addNitroImports(config: Record<string, unknown>, entries: readonly ServerAutoImport[]): void {
+  if (!isRecord(config.imports) || config.imports.autoImport === false) return
   const options = config.imports
   // SAFETY: Nitro's `imports.imports` is an unimport list of `{ name, as?, from }` entries.
-  const imports = (Array.isArray(options.imports) ? options.imports : (options.imports = [])) as NitroAutoImport[]
-  for (const name of names) {
-    const existing = imports.find(entry => (entry.as ?? entry.name) === name)
-    if (existing && existing.from !== from) {
-      throw viteHubErrorDiagnostics.VITE_HUB_B0008({ message: `[vitehub] Cannot auto-import ${name} in server code from ${from} because it is already configured from ${existing.from}.` })
+  const imports = (Array.isArray(options.imports) ? options.imports : (options.imports = [])) as ServerAutoImport[]
+  const taken = new Map<string, string>()
+  for (const entry of imports) taken.set(entry.as ?? entry.name, entry.from)
+  for (const preset of Array.isArray(options.presets) ? options.presets : []) {
+    if (!isRecord(preset) || typeof preset.from !== "string" || !Array.isArray(preset.imports)) continue
+    for (const item of preset.imports) {
+      const name = typeof item === "string" ? item : isRecord(item) ? item.as ?? item.name : undefined
+      if (typeof name === "string") taken.set(name, preset.from)
     }
-    if (!existing) imports.push({ from, name })
+  }
+  for (const entry of entries) {
+    if (taken.has(entry.name)) continue
+    imports.push(entry)
+    taken.set(entry.name, entry.from)
   }
 }
 
@@ -1158,7 +1170,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   // SAFETY: ViteHub Blob extends Vite's open user config with the documented top-level `blob` key.
   const viteBlob = (nuxt.options.vite as UserConfig & { blob?: ViteHubOptions["blob"] }).blob
   const effectiveBlob = consoleOptions ? viteBlob ?? options.blob : false
-  const explicitBlob = Boolean(effectiveBlob && effectiveBlob !== true && ("driver" in effectiveBlob || "stores" in effectiveBlob))
+  const explicitBlob = explicitBlobOption(effectiveBlob)
   const consoleBlobEnabled = Boolean(effectiveBlob) && (plan.services.blob.supported || explicitBlob)
   const resolvedConsoleBlob = consoleBlobEnabled
     ? requireOptionalOwner(ownerModules.blobVite, "blob").resolveBlobViteConfig(effectiveBlob === true ? undefined : effectiveBlob, { hosting: plan.nitroPreset }).blob
@@ -1195,6 +1207,19 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   let generatedConsolePluginPath: string | undefined
   let consoleWorkflowConfigResolved = false
   const effectiveAuth = nuxt.options.vite?.auth ?? options.auth
+  // Every enabled feature adds its server helpers to Nitro auto-imports. The table is in `nuxt-server-imports.ts`.
+  const serverAutoImports = resolveViteHubServerImports({
+    ...options,
+    auth: effectiveAuth,
+    blob: (viteBlob ?? options.blob) && (plan.services.blob.supported || explicitBlobOption(viteBlob ?? options.blob)),
+    env: options.env !== false,
+    kv: effectiveKV,
+    queue: effectiveQueue && plan.services.queue.supported,
+    rateLimit: nuxt.options.vite?.rateLimit ?? options.rateLimit,
+    sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
+    workflow: effectiveWorkflow,
+    workspace: nuxt.options.vite?.workspace ?? options.workspace,
+  })
   let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined
   if (consoleOptions) {
@@ -1763,9 +1788,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const kv = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
     if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
-    if (effectiveKV) addNitroImports(config, "vite-hub/kv", ["kv"])
-    if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
-    if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])
+    addNitroImports(config, serverAutoImports)
     installGeneratedTypeScriptCompiler(config, join(nuxt.options.buildDir, "vitehub"))
   })
   if (options.agent) {

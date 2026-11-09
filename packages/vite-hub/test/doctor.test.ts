@@ -175,6 +175,12 @@ describe("vitehub/destructure-result-tuples", () => {
     }, "nuxt")).toEqual(["VHUB0003"])
   })
 
+  it("follows every ViteHub server auto-import in Nuxt server files", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/welcome.post.ts": "export default async () => {\n  const sent = await runQueue(\"welcome\", { id: \"1\" })\n  return sent\n}\n",
+    }, "nuxt")).toEqual(["VHUB0003"])
+  })
+
   it.each([
     'async function parameter(kv) { const value = await kv.get("x") }',
     'const arrow = async ({ kv }, ...blob) => { const value = await kv.get("x"); const other = await blob.get("x") }',
