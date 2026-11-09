@@ -196,9 +196,13 @@ function watchPageAsk(change: () => void, signal: AbortSignal): void {
       check()
     }, 200)
   }
-  // A page can add its floating control after the pill, such as a chat widget that loads late.
-  const added = new MutationObserver(later)
-  added.observe(document.documentElement, { childList: true, subtree: true })
+  // A page can add or show its floating control after the pill, such as a chat widget that loads late or a back-to-top
+  // button that a scroll reveals with a class. The pill's own changes do not count.
+  const added = new MutationObserver((records) => {
+    if (records.some(record => !(record.target instanceof Element && record.target.localName.startsWith("vitehub-")))) later()
+  })
+  added.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "class", "style"] })
+  addEventListener("scroll", later, { capture: true, passive: true, signal })
   addEventListener("resize", later, { signal })
   addEventListener("storage", (event) => {
     if (event.key === null || event.key === dockKey) seen = storedDockText()

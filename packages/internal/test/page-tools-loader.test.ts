@@ -306,6 +306,35 @@ describe("loadViteHubPageTools", () => {
     top.remove()
   })
 
+  it("folds when the page shows a hidden control or a scroll reveals one", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    page("/?vitehub")
+    const menu = document.createElement("button")
+    menu.style.position = "fixed"
+    menu.hidden = true
+    const list = document.createElement("div")
+    document.body.append(menu, list)
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    let revealed = false
+    vi.spyOn(document, "elementsFromPoint").mockImplementation(() => (!menu.hidden || revealed ? [menu, document.body, document.documentElement] : [document.body, document.documentElement]))
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect(element.hasAttribute("collapsed")).toBe(false)
+    menu.hidden = false
+    await vi.advanceTimersByTimeAsync(250)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    menu.hidden = true
+    await vi.advanceTimersByTimeAsync(250)
+    expect(element.hasAttribute("collapsed")).toBe(false)
+    // A scroll of an inner list, which does not bubble, shows the control without a change of the DOM.
+    revealed = true
+    list.dispatchEvent(new Event("scroll"))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    menu.remove()
+  })
+
   it("folds for a small control in a fixed layer over the whole screen, but not for the layer", async () => {
     page("/?vitehub")
     const layer = document.createElement("div")
