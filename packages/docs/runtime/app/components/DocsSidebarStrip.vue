@@ -13,13 +13,13 @@ onMounted(focusMounted)
 <template>
   <nav class="vh-docs-strip" :aria-label="`${site.name} navigation`">
     <UTooltip :text="brandLabel" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150">
-      <NuxtLink :to="docsHome ?? '/'" class="vh-docs-strip-brand" :aria-label="brandLabel">
+      <NuxtLink :to="docsHome ?? '/'" class="vh-docs-strip-brand" data-focus-inset :aria-label="brandLabel">
         <DocsBrandMark v-if="site.logo" />
         <span v-else class="vh-docs-strip-initial">{{ site.name.charAt(0) }}</span>
       </NuxtLink>
     </UTooltip>
     <UTooltip text="Show navigation" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" ignore-non-keyboard-focus>
-      <button :id="docsSidebarToggleIds.show" type="button" class="vh-docs-strip-button" aria-label="Show navigation" @click="toggle(true)">
+      <button :id="docsSidebarToggleIds.show" type="button" class="vh-docs-strip-button" data-focus-inset aria-label="Show navigation" @click="toggle(true)">
         <UIcon name="i-lucide-panel-left-open" class="size-4" />
       </button>
     </UTooltip>
@@ -28,6 +28,7 @@ onMounted(focusMounted)
       label="Search docs"
       :tooltip="{ content: { side: 'right', sideOffset: 6 }, delayDuration: 150 }"
       class="vh-docs-strip-button"
+      data-focus-inset
       :ui="{ base: 'h-10 w-full justify-center rounded-none border-0 border-b border-default bg-transparent text-dimmed hover:bg-elevated/50 hover:text-highlighted' }"
     />
     <DocsAsideFooter stacked class="mt-auto" />
@@ -77,9 +78,4 @@ onMounted(focusMounted)
   }
 }
 
-.vh-docs-strip-brand:focus-visible,
-.vh-docs-strip-button:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
-}
 </style>

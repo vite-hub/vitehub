@@ -44,7 +44,7 @@ onMounted(focusMounted)
   <!-- The collapse button sits where the collapsed strip has its open button, so the pointer can toggle in place. -->
   <div v-if="search" class="vh-docs-panel-search-row">
     <UTooltip v-if="collapsible" text="Hide navigation" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" ignore-non-keyboard-focus>
-      <button :id="docsSidebarToggleIds.hide" type="button" class="vh-docs-panel-collapse" aria-label="Hide navigation" @click="toggle(false)">
+      <button :id="docsSidebarToggleIds.hide" type="button" class="vh-docs-panel-collapse" data-focus-inset aria-label="Hide navigation" @click="toggle(false)">
         <UIcon name="i-lucide-panel-left-close" class="size-4" />
       </button>
     </UTooltip>
@@ -118,11 +118,6 @@ onMounted(focusMounted)
     background: color-mix(in oklab, var(--ui-bg-elevated) 50%, transparent);
     color: var(--ui-text-highlighted);
   }
-}
-
-.vh-docs-panel-collapse:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
 }
 
 .vh-docs-panel-title {
