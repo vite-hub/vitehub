@@ -374,15 +374,12 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
           activate = undefined
           mounted = false
           console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
-          if (tool.lazy) {
-            // A failed tool may have attached a shadow root; retries need a fresh segment.
-            replaceBar()
-            launch.textContent = `Retry ${tool.label}`
-            launch.title = "The tool could not load. Try again."
-            bar.hidden = false
-            mountLaunch()
-          }
-          else { activators.delete(tool.id); bar.remove() }
+          // A failed tool may have attached a shadow root; retries need a fresh segment.
+          replaceBar()
+          launch.textContent = `Retry ${tool.label}`
+          launch.title = "The tool could not load. Try again."
+          bar.hidden = false
+          mountLaunch()
           return false
         }
         finally { bar.removeAttribute("aria-busy"); starting = undefined }
@@ -396,9 +393,9 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     for (const intent of ["pointerenter", "pointerdown", "focus"]) launch.addEventListener(intent, () => void preload())
     activators.set(tool.id, run)
     if (tool.lazy && tool.id !== open && !restored(tool.id)) { mountLaunch(); return tool }
-    // Restored tools may mount, but an explicit query selection owns the visible window.
-    const ok = await run(undefined, !querySelected || tool.id === open)
-    return !signal.aborted && (ok || tool.lazy) ? tool : undefined
+    // Restored tools may mount, but an explicit query selection owns the visible window. A failed start keeps a retry.
+    await run(undefined, !querySelected || tool.id === open)
+    return signal.aborted ? undefined : tool
   }))
   const tools = started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
   if (tools.length === 0) pillController.abort()
