@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
+import { runInNewContext } from "node:vm"
+import { Window, type HTMLButtonElement } from "happy-dom"
 import { defineAuth, type AuthSessionRefresh } from "@vite-hub/auth"
 import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { adminPlugin } from "../../auth/test/fixtures/admin-plugin.ts"
@@ -216,7 +218,18 @@ describe("App Auth Console during impersonation", () => {
     expect(html).toContain(`"${mount}/_vitehub/auth/users?user=${member.id}"`)
     expect(html).toContain(`href="${mount}/"`)
 
-    const stopped = await post("admin/stop-impersonating", {}, impersonating)
+    const window = new Window()
+    closers.push(() => window.close())
+    window.document.write(html)
+    const assign = vi.fn()
+    const fetch = vi.fn(async () => post("admin/stop-impersonating", {}, impersonating))
+    runInNewContext(window.document.querySelector("script")!.textContent, { document: window.document, fetch, window: { location: { assign } } })
+    window.document.querySelector<HTMLButtonElement>("button")!.click()
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith(`${mount}/_vitehub/auth/users?user=${member.id}`))
+    expect(fetch).toHaveBeenCalledWith(`${mount}/api/auth/admin/stop-impersonating`, {
+      body: "{}", credentials: "same-origin", headers: { "content-type": "application/json" }, method: "POST",
+    })
+    const stopped = await fetch.mock.results[0]!.value
     expect(stopped.status).toBe(200)
     const restored = jar(impersonating, stopped)
     const console = await visit("/_vitehub/auth/users", restored)
