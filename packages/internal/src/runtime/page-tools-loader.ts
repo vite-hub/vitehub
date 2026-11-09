@@ -116,21 +116,27 @@ let crowded = false
 /**
  * Whether a fixed or sticky element of the page, such as its own floating menu button, lies in the middle of the bottom
  * edge, where the pill docks until the person drags it. Elements in the page's flow do not count: the pill floats over
- * text anyway. A layer over most of the screen, such as a backdrop, is no control.
+ * text anyway. A layer over most of the screen, such as a backdrop, is no control, but a small element in it is.
  */
 function pageControlAtPillPlace(): boolean {
   // A DOM without layout, such as happy-dom in tests, has nothing under the pill.
   if (storedViteHubPageDock(dockKey) || typeof document.elementsFromPoint !== "function") return false
+  const small = (element: Element) => {
+    const box = element.getBoundingClientRect()
+    return box.width * box.height < innerWidth * innerHeight / 2
+  }
   const y = innerHeight - 35
   for (const dx of [-120, -60, 0, 60, 120]) {
     for (const element of document.elementsFromPoint(innerWidth / 2 + dx, y)) {
       for (let node: Element | null = element; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
         if (node.localName.startsWith("vitehub-")) break
-        const { position } = getComputedStyle(node)
-        if (position !== "fixed" && position !== "sticky") continue
-        const box = node.getBoundingClientRect()
-        if (box.width * box.height < innerWidth * innerHeight / 2) return true
-        break
+        const style = getComputedStyle(node)
+        if (style.position === "fixed" || style.position === "sticky") {
+          if (small(node) || (node !== element && small(element))) return true
+          break
+        }
+        // Content that scrolls in a fixed layer, such as the main column of an app shell, is the page's flow.
+        if (/auto|scroll/.test(style.overflowY) && node.scrollHeight > node.clientHeight) break
       }
     }
   }

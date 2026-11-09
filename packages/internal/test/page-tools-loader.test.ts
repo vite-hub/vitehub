@@ -292,6 +292,26 @@ describe("loadViteHubPageTools", () => {
     menu.remove()
   })
 
+  it("folds for a small control in a fixed layer over the whole screen, but not for the layer", async () => {
+    page("/?vitehub")
+    const layer = document.createElement("div")
+    layer.style.position = "fixed"
+    const menu = document.createElement("button")
+    layer.append(menu)
+    document.body.append(layer)
+    vi.spyOn(layer, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 0, y: 0, width: innerWidth, height: innerHeight }))
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 400, y: 700, width: 220, height: 56 }))
+    const under = vi.spyOn(document, "elementsFromPoint").mockReturnValue([layer, document.body, document.documentElement])
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(false)
+    pill().element.remove()
+    under.mockReturnValue([menu, layer, document.body, document.documentElement])
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(true)
+    layer.remove()
+  })
+
   it("follows the page's ask after it loads, back to the person's own choices", async () => {
     page("/?vitehub")
     localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "bottom", at: 30 }))
