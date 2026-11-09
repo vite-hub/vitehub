@@ -11,7 +11,7 @@ export function wordText(word: Word, source: string, toIndex = createSourceIndex
 function wordPartText(part: WordPart, source: string, toIndex: SourceIndex, doubleQuoted: boolean): string {
   switch (part.type) {
     case "Lit":
-      return doubleQuoted ? unescapeDoubleQuoted(part.value) : part.value
+      return doubleQuoted ? unescapeDoubleQuoted(part.value) : unescapeUnquoted(part.value)
     case "SglQuoted":
       return part.value
     case "DblQuoted":
@@ -19,6 +19,10 @@ function wordPartText(part: WordPart, source: string, toIndex: SourceIndex, doub
     default:
       return source.slice(toIndex(part.start), toIndex(part.end))
   }
+}
+
+function unescapeUnquoted(value: string): string {
+  return value.replace(/\\(\n|.)/gs, (_, next: string) => next === "\n" ? "" : next)
 }
 
 function unescapeDoubleQuoted(value: string): string {
@@ -52,17 +56,21 @@ export function parseShellCommand(command: string, mode: "execution" | "inspecti
   }
 
   const stmt = file.stmts[0]
-  const toIndex = createSourceIndex(command)
-  const call = stmt?.cmd
+  return stmt ? statementWords(stmt, command, createSourceIndex(command)) : []
+}
+
+function statementWords(stmt: Stmt, command: string, toIndex: SourceIndex): string[] {
+  const call = stmt.cmd
+  if (call?.type === "FuncDecl") return [`${call.name?.value ?? ""}()`]
   if (call?.type !== "CallExpr") {
-    const firstToken = command.slice(toIndex(stmt?.start ?? 0), toIndex(stmt?.end ?? 0)).trim().match(/^\S+/)
+    const firstToken = command.slice(toIndex(stmt.start), toIndex(stmt.end)).trim().match(/^\S+/)
     return firstToken ? [firstToken[0]] : []
   }
 
   return [
     ...call.assigns.map(assign => command.slice(toIndex(assign.start), toIndex(assign.end))),
     ...call.args.map(arg => wordText(arg, command, toIndex)),
-    ...(stmt?.redirs ?? []).map(redir => command.slice(toIndex(redir.start), toIndex(redir.end))),
+    ...stmt.redirs.map(redir => command.slice(toIndex(redir.start), toIndex(redir.end))),
   ]
 }
 
@@ -71,6 +79,7 @@ export interface ShellCommandSegment {
   followsPipe: boolean
   invalid?: boolean
   separatorAfter?: "&&" | "||" | "|" | ";" | "\n"
+  words: string[]
 }
 
 interface StatementSeparator {
@@ -85,7 +94,7 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
     file = parseSync(command, { keepComments: true, variant: LangVariant.LangBash })
   }
   catch {
-    return [{ command, followsPipe: false, invalid: true }]
+    return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
 
   const toIndex = createSourceIndex(command)
@@ -105,6 +114,7 @@ export function splitShellCommandSegments(command: string): ShellCommandSegment[
       command: raw,
       followsPipe,
       ...(separator ? { separatorAfter: separator.kind } : {}),
+      words: statementWords(stmt, command, toIndex),
     })
     if (separator) cursor = separator.offset + separator.length
     followsPipe = separator?.kind === "|"

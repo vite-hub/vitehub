@@ -1,4 +1,4 @@
-import { BinCmdOperator, LangVariant, parse, walk, type File, type Stmt } from "sh-syntax"
+import { BinCmdOperator, LangVariant, parse, walk, type File } from "sh-syntax"
 
 import { createSourceIndex, wordText } from "./parse.ts"
 
@@ -46,7 +46,6 @@ async function parseWithShSyntax(command: string) {
 function analyzeAst(file: File, command: string) {
   const commands: string[] = []
   const toIndex = createSourceIndex(command)
-  collectTopLevelCommands(file.stmts, command, toIndex, commands)
   let hasCommandSubstitution = false
   let hasHeredocs = false
   let hasPipelines = false
@@ -54,6 +53,15 @@ function analyzeAst(file: File, command: string) {
 
   walk(file, (node) => {
     switch (node.type) {
+      case "CallExpr":
+        if (node.args.length) commands.push(wordText(node.args[0]!, command, toIndex))
+        break
+      case "DeclClause":
+        if (node.variant) commands.push(node.variant.value)
+        break
+      case "LetClause":
+        commands.push("let")
+        break
       case "CmdSubst":
         hasCommandSubstitution = true
         break
@@ -90,37 +98,5 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
   finally {
     if (timeout) clearTimeout(timeout)
-  }
-}
-
-function collectTopLevelCommands(stmts: Stmt[], command: string, toIndex: (offset: number) => number, commands: string[]) {
-  for (const stmt of stmts) {
-    collectStatementCommand(stmt, command, toIndex, commands)
-  }
-}
-
-function collectStatementCommand(
-  stmt: Stmt | null,
-  command: string,
-  toIndex: (offset: number) => number,
-  commands: string[],
-) {
-  const cmd = stmt?.cmd
-  if (!cmd) return
-  if (cmd.type === "CallExpr") {
-    if (cmd.args.length) commands.push(wordText(cmd.args[0]!, command, toIndex))
-    return
-  }
-  if (cmd.type === "DeclClause") {
-    if (cmd.variant) commands.push(cmd.variant.value)
-    return
-  }
-  if (cmd.type === "LetClause") {
-    commands.push("let")
-    return
-  }
-  if (cmd.type === "BinaryCmd") {
-    collectStatementCommand(cmd.x, command, toIndex, commands)
-    collectStatementCommand(cmd.y, command, toIndex, commands)
   }
 }

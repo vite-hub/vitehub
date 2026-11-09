@@ -9,7 +9,7 @@ describe("Workspace inspection line continuations", () => {
     { command: 'cat "docs/re\\\nadme.md"', joined: 'cat "docs/readme.md"' },
     { command: "cat \\\n'docs/readme.md'", joined: "cat 'docs/readme.md'" },
   ])("removes the full continuation in $command", ({ command, joined }) => {
-    expect(splitShellCommandSegments(command)).toEqual([{ command: joined, followsPipe: false }])
+    expect(splitShellCommandSegments(command)).toMatchObject([{ command: joined, followsPipe: false }])
   })
 
   it.each(['cat "docs/re\\\nadme.md"', "cat \\\n'docs/readme.md'"])("reads the existing file with %j", async (command) => {

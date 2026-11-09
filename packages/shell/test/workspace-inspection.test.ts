@@ -184,6 +184,35 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
   })
 
+  it.each([
+    "rm README.md <<EOF | cat README.md\nhi\nEOF",
+    "rm README.md <<EOF && cat README.md\nhi\nEOF",
+    "cat () { rm README.md; }; cat README.md",
+  ])("checks every statement in %j before a provider runs it", async (command) => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+    const exec = vi.fn(async (command: string) => ({ command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }))
+
+    const fs = createReadonlyWorkspaceFs(workspace)
+
+    await expect(runWorkspaceInspectionCommand(workspace, command, {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+      provider: { ...createJustBashProvider({ fs }), exec },
+    })).resolves.toMatchObject({ event: "policy_denied" })
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it("removes backslash escapes from unquoted words before path checks", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat READ\\ME.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+  })
+
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
       ".secret": "hidden\n",
