@@ -472,13 +472,6 @@
 
 .session-inspector__tree.vh-file-tree {
   --trees-padding-inline-override: 0.5rem;
-  --trees-accent-override: var(--ui-primary);
-  --trees-bg-muted-override: var(--ui-bg-elevated);
-  --trees-bg-override: var(--ui-bg);
-  --trees-border-color-override: var(--ui-border);
-  --trees-input-bg-override: var(--ui-bg);
-  --trees-selected-bg-override: var(--ui-bg-elevated);
-  --trees-selected-fg-override: var(--ui-text-highlighted);
   border: 0;
   border-radius: 0;
   height: 100%;

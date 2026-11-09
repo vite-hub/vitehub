@@ -269,13 +269,24 @@ a {
 }
 
 /*
- * Parts that draw their own focus where the rules above cannot reach: the file tree of @pierre/trees renders its search
- * field in shadow DOM and reads these variables, and Comark adds a shadow to its heading anchors.
+ * Parts that the rules above cannot reach. The file tree of @pierre/trees renders in shadow DOM and reads these
+ * variables, which inherit into it from the page: the selected row is a neutral fill like every selected item, and the
+ * focused row gets the blue ring inside. Comark adds a shadow to its heading anchors.
  */
-file-tree-container {
+:root {
+  --trees-accent-override: var(--ui-text-highlighted);
+  --trees-bg-muted-override: var(--ui-bg-elevated);
+  --trees-bg-override: var(--ui-bg);
+  --trees-border-color-override: var(--ui-border);
+  --trees-border-radius-override: calc(var(--ui-radius) * 1.5);
+  --trees-fg-override: var(--ui-text-toned);
+  --trees-font-family-override: var(--font-sans);
+  --trees-input-bg-override: var(--ui-bg);
   --trees-focus-ring-color-override: var(--vh-focus);
-  --trees-focus-ring-width-override: 2px;
   --trees-focus-ring-offset-override: -2px;
+  --trees-focus-ring-width-override: 2px;
+  --trees-selected-bg-override: var(--ui-bg-elevated);
+  --trees-selected-fg-override: var(--ui-text-highlighted);
   --trees-selected-focused-border-color-override: var(--vh-focus);
 }
 
