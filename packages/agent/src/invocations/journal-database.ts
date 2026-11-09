@@ -3,13 +3,13 @@ import { drizzle as drizzleRemote } from "drizzle-orm/sqlite-proxy"
 import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
-import type { AgentInvocationRecord, AgentInvocationSummary } from "@vite-hub/agent"
-import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/invocations/default"
+import type { AgentInvocationRecord, AgentInvocationSummary } from "../invocations.ts"
+import type { DefaultAgentInvocationsD1Database } from "./default.ts"
 import type { Client } from "@libsql/client"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
-import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type AgentInvocationColumn<Data, NotNull extends boolean, HasDefault extends boolean = false> = AnySQLiteColumn<{
   data: Data
@@ -103,7 +103,7 @@ export function createD1InvocationsDatabase(database: () => Promise<DefaultAgent
   }, { schema: d1InvocationSchema })
   // D1 cannot keep Drizzle's separate BEGIN/query/COMMIT calls in one transaction.
   db.transaction = async () => {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0123({ message: "[vitehub] The D1 Agent Invocation journal does not support db.transaction(). Use db.batch() for atomic writes." })
+    throw agentDiagnostics.AGENT_R1035({ message: "[vitehub] The D1 Agent Invocation journal does not support db.transaction(). Use db.batch() for atomic writes." })
   }
   return { driver: "d1", db, schema: d1InvocationSchema }
 }

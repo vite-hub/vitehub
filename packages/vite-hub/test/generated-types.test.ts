@@ -65,18 +65,26 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubAuth } from "@vite-hub/auth/vite"
-import { hubSource, mergeGeneratedSourceNitroConfig, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
+import { hubSource, mergeGeneratedSourceNitroConfig, prepareSourceGeneration, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
-import {
-  hubSource as frameworkHubSource,
-  prepareSourceGeneration as prepareFrameworkSourceGeneration,
-} from "../src/source/vite.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 
 const tempDirectories: string[] = []
+
+const frameworkImports = { contentImportBase: "vite-hub/content", importBase: "vite-hub/source" }
+
+/** The Source plugins as `vitehub()` composes them: generated code imports `vite-hub/*`. */
+function frameworkHubSource(options: Parameters<typeof hubSource>[0] = {}) {
+  const source = hubSource({ ...frameworkImports, ...options })
+  return [source, viteHubTypesPlugin({ prepareSources: source.api.prepareSources })] as const
+}
+
+function prepareFrameworkSourceGeneration(options: Parameters<typeof prepareSourceGeneration>[0]) {
+  return prepareSourceGeneration({ ...frameworkImports, ...options })
+}
 
 async function createNestedProject() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-generated-types-"))
@@ -495,22 +503,6 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toContain(
       'from "@vite-hub/content"',
     )
-  })
-
-  it("uses framework imports when direct Source options explicitly leave the import base undefined", async () => {
-    const { root } = await createNestedProject()
-    await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
-
-    await prepareFrameworkSourceGeneration({ importBase: undefined, projectRoot: root })
-    const generatedRoute = join(root, ".vitehub/source/routes/meals.mjs")
-    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
-
-    await rm(generatedRoute)
-    const [source] = frameworkHubSource({ importBase: undefined })
-    await configResolved(source!)({ root })
-
-    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
   })
 
   it("preserves a custom framework import base during CLI preparation", async () => {

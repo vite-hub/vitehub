@@ -1,13 +1,11 @@
-import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "@vite-hub/agent/invocations/default"
-import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
+import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default.ts"
 
-import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
-import { isDefaultAgentJournal } from "../../agent-invocations-setting.ts"
-
-import type { AgentInvocations } from "@vite-hub/agent"
-import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
-import type { AgentInvocationObservationOptions, AgentInvocationsOptions, AgentInvocationStore, AgentRetentionPolicy } from "@vite-hub/agent/server"
-import type { DatabaseAgentInvocationStoreOptions } from "../../agent/invocations/database.ts"
+import type { AgentInvocationObservationOptions, AgentInvocations, AgentInvocationsOptions, AgentInvocationStore } from "../invocations.ts"
+import type { AgentRetentionPolicy } from "../retention.ts"
+import type { DatabaseAgentInvocationStoreOptions } from "./database.ts"
+import type { DefaultAgentInvocationsD1 } from "./default.ts"
 
 /** Built-in Invocation journal stores. `database` uses the app's ViteHub Database. `memory` keeps records in the server process. */
 export type AgentInvocationsStoreName = "database" | "memory"
@@ -20,7 +18,7 @@ export type AgentInvocationsStoreOptions =
   | AgentInvocationsJournalOptions & { store: "memory", database?: never }
 
 /**
- * The `invocations` value of `defineAgent()` from `vite-hub/agent`.
+ * The `invocations` value of `defineAgent()`. Omit it to record in the app-wide journal.
  * `false` records no journal, also when `agent.invocations` sets an app-wide default.
  */
 export type AgentInvocationsSetting =
@@ -61,6 +59,13 @@ export type AgentInvocationsDefault =
   | AgentInvocationsDefaultJournal
   | Omit<AgentInvocationsJournalOptions, "redact" | "redactError"> & ({ store: "database", database?: string } | { store: "memory", database?: never })
 
+/** Where the default journal of a generated server lives. */
+export interface DefaultAgentJournalLocation {
+  /** Store the journal in this D1 binding. A Cloudflare production build sets it from the default Database Definition. */
+  d1?: DefaultAgentInvocationsD1
+  /** The ViteHub project root. The default journal file and relative `file:` URLs resolve from it. */
+  projectRoot: string
+}
 
 type DatabaseStoreModule = {
   createDatabaseAgentInvocationStore: (options?: DatabaseAgentInvocationStoreOptions) => AgentInvocationStore
@@ -69,13 +74,18 @@ type DatabaseStoreModule = {
 type AgentInvocationsRuntime = {
   [databaseStoreLoaderKey]?: () => Promise<DatabaseStoreModule>
   [defaultInvocationsKey]?: { invocations: AgentInvocations, key: string }
+  [overrideInvocationsKey]?: () => AgentInvocations | undefined
 }
 
 const databaseStoreLoaderKey: unique symbol = Symbol.for("vitehub.agent.invocations.database-store")
 const defaultInvocationsKey: unique symbol = Symbol.for("vitehub.agent.invocations.default")
+const overrideInvocationsKey: unique symbol = Symbol.for("vitehub.agent.invocations.override")
 
 /** Marks an Agent Definition that sets `invocations: false`. The Console does not attach a journal to it. */
 export const agentInvocationsDisabledKey: unique symbol = Symbol.for("vitehub.agent.invocations.disabled")
+
+/** Marks an Agent Definition that records in the app-wide journal, because it sets no journal of its own. */
+export const agentInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.agent.invocations.fallback")
 
 function runtime(): AgentInvocationsRuntime {
   // SAFETY: AgentInvocationsRuntime adds only optional symbol-keyed state to the global object.
@@ -85,7 +95,7 @@ function runtime(): AgentInvocationsRuntime {
 async function loadDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Promise<AgentInvocationStore> {
   const load = runtime()[databaseStoreLoaderKey]
   if (!load) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0130({ message: "[vitehub] Agent invocations \"database\" requires ViteHub Database. Set `database` in vitehub() and run the Agent in the ViteHub server." })
+    throw agentDiagnostics.AGENT_R1030({ message: "[vitehub] Agent invocations \"database\" requires ViteHub Database. Set `database` in vitehub() and run the Agent in the ViteHub server." })
   }
   return (await load()).createDatabaseAgentInvocationStore(options)
 }
@@ -152,12 +162,24 @@ export function resolveDefaultAgentInvocations(): AgentInvocations | undefined {
   return runtime()[defaultInvocationsKey]?.invocations
 }
 
-/** Where the default journal of a generated server lives. */
-export interface DefaultAgentJournalLocation {
-  /** Store the journal in this D1 binding. A Cloudflare production build sets it from the default Database Definition. */
-  d1?: DefaultAgentInvocationsD1
-  /** The ViteHub project root. The default journal file and relative `file:` URLs resolve from it. */
-  projectRoot: string
+/**
+ * Replace the app-wide journal of Agent Definitions that set no journal, while `resolve` returns a journal.
+ * A development tool, such as the fixture mode of the ViteHub Console, uses it. Pass `undefined` to remove it.
+ */
+export function installAgentInvocationsOverride(resolve: (() => AgentInvocations | undefined) | undefined): void {
+  if (resolve) runtime()[overrideInvocationsKey] = resolve
+  else delete runtime()[overrideInvocationsKey]
+}
+
+/** The journal of an Agent Definition that sets no journal: the override, or else the app-wide journal. */
+export function resolveFallbackAgentInvocations(): AgentInvocations | undefined {
+  const state = runtime()
+  return state[overrideInvocationsKey]?.() ?? state[defaultInvocationsKey]?.invocations
+}
+
+/** True for an omitted `agent.invocations` or the default journal options. */
+function isDefaultAgentJournal(setting: AgentInvocationsDefault | undefined): setting is AgentInvocationsDefaultJournal | undefined {
+  return setting === undefined || (typeof setting === "object" && setting.store === undefined)
 }
 
 /**
@@ -176,10 +198,10 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
   }
   if (isDefaultAgentJournal(setting)) {
     if (!options.journal) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0138({ message: "[vitehub] The default Agent Invocation journal needs the project root. Run the Agent in the ViteHub server." })
+      throw agentDiagnostics.AGENT_R1031({ message: "[vitehub] The default Agent Invocation journal needs the project root. Run the Agent in the ViteHub server." })
     }
     if (globalThis.process?.env?.VITEHUB_CONSOLE_DATABASE_URL?.trim()) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0139({ message: "[vitehub] VITEHUB_CONSOLE_DATABASE_URL was renamed. Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, and VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN for an authenticated libSQL endpoint." })
+      throw agentDiagnostics.AGENT_R1032({ message: "[vitehub] VITEHUB_CONSOLE_DATABASE_URL was renamed. Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, and VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN for an authenticated libSQL endpoint." })
     }
     const { d1, projectRoot } = options.journal
     const key = JSON.stringify({
@@ -199,4 +221,16 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
   // Keep one journal per setting when development reloads the generated plugin.
   if (state[defaultInvocationsKey]?.key === key) return
   state[defaultInvocationsKey] = { invocations: journal(setting), key }
+}
+
+/**
+ * The app-wide Agent Invocation journal: the default journal, or the `agent.invocations` store.
+ * Agents that set no `invocations` record here, and the Console reads it.
+ */
+export function getAgentInvocations(): AgentInvocations {
+  const invocations = resolveDefaultAgentInvocations()
+  if (!invocations) {
+    throw agentDiagnostics.AGENT_R1033({ message: "[vitehub] No app-wide Agent Invocation journal is installed. Call getAgentInvocations() in the ViteHub server of an app with Agents, and do not set agent.invocations to false." })
+  }
+  return invocations
 }

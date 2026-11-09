@@ -83,7 +83,8 @@ Set `repo` to keep documents in a Git repository instead of Blob and the Databas
 ```ts [server/content.ts]
 import { z } from 'zod'
 import { cms } from 'vite-hub/cms'
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 
 export const content = defineContent({
   extends: [cms, {

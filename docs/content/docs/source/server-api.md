@@ -16,7 +16,8 @@ Use these imports and methods to read Sources from server code and expose them t
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
 | `file` from `vite-hub/source/file`, `glob` from `vite-hub/source/glob`, `markdown` from `vite-hub/source/markdown`, `github` from `vite-hub/source/github`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each subpath also exports its option types. |
-| `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
+| `defineCollection`, `array` from `vite-hub/source` | Turn an array or a custom loader into a typed, paginated HTTP read model. |
+| `table` from `vite-hub/source/drizzle` | Turn a Drizzle table into a Collection. It needs `drizzle-orm`. |
 | `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Consume a Collection from Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a keyed reader with Nitro cache options, or mount a Collection handler manually. |
@@ -24,7 +25,7 @@ Use these imports and methods to read Sources from server code and expose them t
 | `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
-Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. `table()` and `cachedSource()` exist only in the `vite-hub` distribution. `@vite-hub/source` exports both forms of `defineCollection()` and `array()`.
+Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. Each `vite-hub/source/*` path re-exports the matching `@vite-hub/source/*` path unchanged.
 
 ## Source reader API
 
@@ -178,7 +179,8 @@ A Source describes where data comes from. A Collection describes the paginated o
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
 import { useDatabase } from 'vite-hub/database/drizzle'
-import { defineCollection, table } from 'vite-hub/source'
+import { defineCollection } from 'vite-hub/source'
+import { table } from 'vite-hub/source/drizzle'
 
 const { db, schema } = useDatabase('default')
 

@@ -11,7 +11,7 @@ import { ownerModules } from "./internal/owner-modules.ts"
 
 import type { Plugin } from "vite"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
-import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
+import type { AgentInvocationsDefault } from "@vite-hub/agent"
 
 const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
 
@@ -83,7 +83,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ...(journal.length ? [`journal: { ${journal.join(", ")} }`] : []),
   ]
   return [
-    `import { installAgentInvocations } from "vite-hub/_internal/agent/invocations"`,
+    `import { installAgentInvocations } from "vite-hub/_internal/agent/invocations/app"`,
     "",
     // Install at module evaluation, so Agent and Console plugins that load later read the journal.
     `installAgentInvocations({ ${settings.join(", ")} })`,

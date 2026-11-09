@@ -15,7 +15,8 @@ icon: i-lucide-newspaper
 The CMS is its own package, `vite-hub/cms`, built on [Content](/docs/content). Add `extends: cms` to `server/content.ts`, and ViteHub stores your [document collections](/docs/content/configure#document-collections): it turns on Workspace, Database, and Blob, adds the Workspace and its history tables, and adds a Database when the app has none. You write no Workspace Definition, no Database Definition, and no schema.
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 

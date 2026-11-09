@@ -708,7 +708,7 @@ describe("Content Console section", () => {
 
   it("shows the section only when server/content.ts defines document collections", async () => {
     await expect(contentConsoleSection.entry({ projectRoot: await temporaryRoot() })).resolves.toBeUndefined()
-    const imports = `import { defineContent, documents } from "vite-hub/content"\n`
+    const imports = `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\n`
     await expect(entryFor(`${imports}export const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)).resolves.toBe(true)
     // Read-only Sources, or no collections, leave nothing to edit.
     await expect(entryFor(`${imports}export const content = defineContent({ source: "content" })\n`)).resolves.toBe(false)

@@ -15,6 +15,9 @@ implementation detail.
 
 Applications that install `vite-hub` use the root only for framework
 composition and explicit feature subpaths for application APIs.
+Each feature subpath, such as `vite-hub/agent`, re-exports the matching owner
+path, such as `@vite-hub/agent`, unchanged. Both paths give the same values and
+the same behavior.
 
 | Import path | Use |
 | --- | --- |
@@ -46,6 +49,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
+| `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/agent/runtime/process` | Adaptive process-local Agent capacity for self-hosted Node applications. |
@@ -64,7 +68,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
-| `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition, editable document collections and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
+| `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
+| `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, `admin(cmsAccess)`, and the policies from those roles: `cmsCan()`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize`. |
 | `vite-hub/cms/vite` | `hubCms()`, the Vite plugin that adds the `cms` preset's Workspace, its tables, and a Database when the app has none. `vitehub()` registers it. |
@@ -134,7 +139,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
 | `vite-hub/task` | Nitro `defineTask()` and `runTask()` for `server/tasks/` files. |
 | `vite-hub/test` | `setupViteHubTest()` for app tests: local backends for KV, Blob, Database, Queue, Email, and Rate Limit, Server Env values, and Channel deliveries. See [Testing](/docs/development/testing). |
-| `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, and Collections (`defineCollection`, `array`, `table`). |
+| `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, and Collections (`defineCollection`, `array`). |
+| `vite-hub/source/drizzle` | `table()`, a Collection over a Drizzle table. Needs `drizzle-orm`. |
 | `vite-hub/source/client` and `vite-hub/source/server` | Vue Collection pagination and the H3 Collection route adapter. |
 | `vite-hub/source/file`, `vite-hub/source/glob`, and `vite-hub/source/markdown` | Local file implementations, loaded only when selected. |
 | `vite-hub/source/files` | `files()`, the Source that `glob()` becomes in a server build, with the matched files bundled at build time. |

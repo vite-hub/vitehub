@@ -50,7 +50,8 @@ Use a collection when people or Agents edit the content at runtime. Sources stay
 Collections need a Workspace with retained history. The [CMS](/docs/cms) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the tables go to the implicit `default` Database.
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
@@ -67,7 +68,8 @@ To use a Workspace you define yourself, pass its name as `workspace` instead of 
 ### Define collections
 
 ```ts [server/content.ts]
-import { defineContent, documents, optional } from 'vite-hub/content'
+import { defineContent, optional } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
@@ -213,7 +215,8 @@ The Console editor and live editing work on the source locale. Edit leases and l
 Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path. It lives in `collections` next to your collections, with the same drafts, publishing, history, validation, and access.
 
 ```ts [server/content.ts]
-import { defineContent, documents, image, optional, singleton } from 'vite-hub/content'
+import { defineContent, image, optional } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({

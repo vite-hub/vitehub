@@ -69,14 +69,14 @@ The context also includes the resolved host Runtime Capabilities that the applic
 
 ### Console helpers
 
-When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work.
+When you enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work. Without the Console, `context.console` is `undefined`.
 `invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
-Read the journal itself with `getAgentInvocations()` and `getAgentInvocationsDatabase()` from `vite-hub/agent`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
+Read the journal itself with `getAgentInvocations()` from `vite-hub/agent` and `getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
 
 ```ts [server/agents/support.ts]
 import { desc } from 'drizzle-orm'
 import { inputCommands } from 'vite-hub/agent/capabilities'
-import { getAgentInvocationsDatabase } from 'vite-hub/agent'
+import { getAgentInvocationsDatabase } from 'vite-hub/agent/invocations/drizzle'
 
 const history = inputCommands({
   commands: {
@@ -91,6 +91,7 @@ const history = inputCommands({
           .orderBy(desc(schema.invocations.sequence))
           .limit(1)
         if (!latest?.agentName) return 'No previous invocation.'
+        if (!context.console) return await context.reply('The ViteHub Console is not enabled.')
         return await context.reply(context.console.invocationUrl({
           agentName: latest.agentName,
           id: latest.id,
@@ -100,8 +101,6 @@ const history = inputCommands({
   },
 })
 ```
-
-The full `vite-hub` distribution types the Console helpers. The standalone `@vite-hub/agent` package remains host-neutral.
 
 ### Link the previous invocation with `/debug`
 
@@ -127,7 +126,7 @@ A `debug` entry in `commands` replaces the built-in command.
 - A command `description`, when set, must be a non-empty string.
 - `channels`, when set, must contain non-empty Channel IDs.
 - The trigger must be a non-empty string without whitespace.
-- Console helpers require the `vite-hub` import path and `vitehub({ console })`.
+- Console helpers require `vitehub({ console })`.
 - `debug`, when set, must be `true` or `false`. `commands` is required unless `debug` is `true`.
 
 Input Commands are Capability concerns.
@@ -168,7 +167,7 @@ A handler that returns a `Response` stops the invocation before any Agent Driver
 | `commands.*.channels` | `string[]` | all Channels | Configured Channel ID allowlist. |
 | `commands.*.description` | `string` | none | Command description for metadata and inspection. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery helpers. |
-| `debug` | `boolean` | `false` | Add `/debug`, which replies with the Console link of the previous Invocation. Requires the `vite-hub` import path. |
+| `debug` | `boolean` | `false` | Add `/debug`, which replies with the Console link of the previous Invocation. |
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 

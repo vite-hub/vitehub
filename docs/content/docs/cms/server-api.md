@@ -18,7 +18,8 @@ The CMS has the `cms` preset and the CMS roles. Pass the preset to `defineConten
 | `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` or `@vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and the policies from them. See [Roles and access](/docs/cms/access). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 

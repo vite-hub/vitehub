@@ -48,7 +48,7 @@ import { observabilityVitePlugin, type ObservabilityOptions } from "./observabil
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
-import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
+import type { AgentInvocationsDefault } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
 import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
@@ -77,7 +77,7 @@ export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { LogsOptions, LogsEvlogOptions } from "./logs-vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
-export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "./_internal/agent/invocations.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies | keyof typeof frameworkPackageManifest.peerDependencies, `@vite-hub/${string}`>
 type DeploymentServicesManifest = Record<DeploymentService, object>

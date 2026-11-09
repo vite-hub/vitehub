@@ -15,7 +15,8 @@ The [Content server API](/docs/content/server-api) covers application code. This
 Define collections and an `authorize` policy in `server/content.ts`:
 
 ```ts [server/content.ts]
-import { defineContent, documents, singleton } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({

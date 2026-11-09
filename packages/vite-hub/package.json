@@ -368,6 +368,11 @@
       "import": "./dist/agent/invocations/d1.js",
       "default": "./dist/agent/invocations/d1.js"
     },
+    "./agent/invocations/drizzle": {
+      "types": "./dist/agent/invocations/drizzle.d.ts",
+      "import": "./dist/agent/invocations/drizzle.js",
+      "default": "./dist/agent/invocations/drizzle.js"
+    },
     "./agent/invocations/database": {
       "types": "./dist/agent/invocations/database.d.ts",
       "import": "./dist/agent/invocations/database.js",
@@ -653,6 +658,11 @@
       "import": "./dist/content/client.js",
       "default": "./dist/content/client.js"
     },
+    "./content/collections": {
+      "types": "./dist/content/collections.d.ts",
+      "import": "./dist/content/collections.js",
+      "default": "./dist/content/collections.js"
+    },
     "./content/database": {
       "types": "./dist/content/database.d.ts",
       "import": "./dist/content/database.js",
@@ -922,6 +932,11 @@
       "types": "./dist/source/client.d.ts",
       "import": "./dist/source/client.js",
       "default": "./dist/source/client.js"
+    },
+    "./source/drizzle": {
+      "types": "./dist/source/drizzle.d.ts",
+      "import": "./dist/source/drizzle.js",
+      "default": "./dist/source/drizzle.js"
     },
     "./source/file": {
       "types": "./dist/source/file.d.ts",
@@ -1274,10 +1289,10 @@
       "import": "./dist/source/files.js",
       "default": "./dist/source/files.js"
     },
-    "./_internal/agent/invocations": {
-      "types": "./dist/_internal/agent/invocations.d.ts",
-      "import": "./dist/_internal/agent/invocations.js",
-      "default": "./dist/_internal/agent/invocations.js"
+    "./_internal/agent/invocations/app": {
+      "types": "./dist/_internal/agent/invocations/app.d.ts",
+      "import": "./dist/_internal/agent/invocations/app.js",
+      "default": "./dist/_internal/agent/invocations/app.js"
     },
     "./console/documents": {
       "types": "./dist/console/runtime/server/documents.d.ts",

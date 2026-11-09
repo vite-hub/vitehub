@@ -11,7 +11,8 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
-| `documents`, `singleton`, `optional` from `vite-hub/content` | Define an editable collection or a singleton, and mark a field optional. |
+| `documents`, `singleton` from `vite-hub/content/collections` | Define an editable collection or a singleton. This entry needs `@vite-hub/workspace`. |
+| `optional` from `vite-hub/content` | Mark a field optional. |
 | `cms` from `vite-hub/cms` | Store collections with `defineContent({ extends: cms })`. See [CMS](/docs/cms). |
 | `seo` from `vite-hub/content` | A per-document [SEO field](/docs/content/seo#seo-fields). |
 | `image`, `file` from `vite-hub/content` | [Blob reference](/docs/blob/server-api#blob-reference-schemas) fields. Blob owns them; `vite-hub/blob` exports the same functions. |

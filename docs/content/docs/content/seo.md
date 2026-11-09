@@ -21,7 +21,8 @@ Content gives you the parts of SEO that depend on your documents: where each doc
 Set `url` on a collection or singleton to say where its documents are published. A pattern replaces `:id` with the document id and `:<field>` with a text or number field:
 
 ```ts [server/content.ts]
-import { defineContent, documents, seo, singleton } from 'vite-hub/content'
+import { defineContent, seo } from 'vite-hub/content'
+import { documents, singleton } from 'vite-hub/content/collections'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -62,7 +63,8 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt). Read
 
 ```ts [server/content.ts]
 import { z } from 'zod'
-import { documents, image, seo } from 'vite-hub/content'
+import { image, seo } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 
 const posts = documents({
   path: 'posts/**/*.md',

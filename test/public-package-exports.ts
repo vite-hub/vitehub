@@ -32,6 +32,9 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/agent/observability/host", { "evlog": "both" }],
   ["@vite-hub/agent/observability/posthog", { "evlog": "both", "posthog-node": "both" }],
   ["@vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
+  // `getAgentInvocationsDatabase()` returns Drizzle types and loads drizzle-orm when it is called.
+  ["@vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
+  ["@vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["@vite-hub/agent/runtime/workflow", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/auth/agent", { "@vite-hub/agent": "both" }],
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
@@ -72,6 +75,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
+  ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
@@ -86,6 +90,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/logs/memory", { "evlog": "declaration" }],
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
+  ["vite-hub/source/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/console/ui", {
