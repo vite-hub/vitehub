@@ -8,28 +8,51 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Register the Queue Vite Integration and choose a Queue Provider with the `queue` Integration Options.
+Turn on Queue with `queue: true`. The `preset` selects the Queue Provider.
 
-```ts [vite.config.ts]
-import { hubQueue } from '@vite-hub/queue/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubQueue()],
-  queue: {
-    provider: 'cloudflare',
-  },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', queue: true },
 })
 ```
+:::
 
-You can also pass the same options to `hubQueue()`. A `queue` key in `vite.config.ts` takes precedence.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+})
+```
+:::
+::
+
+With `vitehub()`, the preset sets `provider`, and on Cloudflare the app name sets `namePrefix`. To set the other options in the table, such as `region`, use the Queue package without ViteHub. Pass the options to `hubQueue()`, or set a top-level `queue` key, which takes precedence:
 
 ```ts [vite.config.ts]
 import { hubQueue } from '@vite-hub/queue/vite'
 import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' })],
+  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' }), nitro()],
 })
 ```
 
