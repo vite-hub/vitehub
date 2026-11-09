@@ -42,6 +42,40 @@ The overlay works in Nitro 3 apps and in Nuxt 4 apps on each of these hosts.
 
 Use a SQLite file or libSQL Database, and the memory room authority:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    database: true,
+    realtime: { authority: 'memory' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      database: true,
+      realtime: { authority: 'memory' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -56,6 +90,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 The memory authority keeps the presence rooms in one process. With several processes or machines, people see only the people on the same process. Their comments still reach each other when the processes share a libSQL Database. A local SQLite file is not shared between machines.
 
@@ -63,6 +99,40 @@ The memory authority keeps the presence rooms in one process. With several proce
 
 Use a D1 Database. `realtime: true` selects Durable Objects on the Cloudflare preset, and each page gets its own room.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    database: { driver: 'd1', databaseName: 'site' },
+    realtime: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      database: { driver: 'd1', databaseName: 'site' },
+      realtime: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -77,6 +147,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Run `pnpm vitehub provision run --provider cloudflare` to create the D1 Database, then apply the migrations. See [Database hosts](/docs/database/hosts) and [Realtime host support](/docs/realtime/configure#host-support).
 

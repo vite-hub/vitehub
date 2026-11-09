@@ -14,6 +14,7 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
+import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
@@ -29,6 +30,7 @@ import { hubDb as hubDbVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
 import type { CollectedDatabaseContribution, CollectedDatabaseContributions } from "./contributions.ts"
+import type { DatabaseBundleStartupRule } from "./internal/bundle-startup.ts"
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -370,6 +372,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             installNitroCloudflareD1BindingCollapse(config)
           }
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
+          if (runtime) installNitroBundleStartupRule(config, runtime)
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)
@@ -780,6 +783,21 @@ function installNitroCloudflareMigrations(config: Record<string, unknown>, sourc
       await Promise.all(entries
         .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
         .map(entry => copyFile(resolve(sourceDir, entry.name), resolve(outputDir, entry.name))))
+    })
+  })
+  config.modules = modules
+}
+
+/** Tells `@vite-hub/bundle` which packages this build never runs at server startup. */
+function installNitroBundleStartupRule(config: Record<string, unknown>, runtime: ResolvedDBViteConfig) {
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: {
+    hooks: { hook: (name: "vitehub:bundle:rules", callback: (rules: DatabaseBundleStartupRule[]) => void) => void }
+    options: { preset?: string }
+  }) => {
+    nitro.hooks.hook("vitehub:bundle:rules", (rules) => {
+      const rule = libsqlStartupRule(runtime, nitro.options.preset)
+      if (rule) rules.push(rule)
     })
   })
   config.modules = modules

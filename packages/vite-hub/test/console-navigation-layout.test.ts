@@ -163,7 +163,7 @@ describe("shared Console navigation layout", () => {
     expect(app).toMatch(/class="vitehub-console__panel-title[^"]*">\s*<span class="min-w-0 flex-1 truncate">Agents<\/span>/)
     expect(app).not.toContain("<UDropdownMenu")
     expect(app).not.toContain("<UDashboardSearchButton")
-    expect(app).toContain('aria-label="Filter sessions"')
+    expect(app).toMatch(/:aria-label="activeFilterCount \? `Filter sessions, \$\{activeFilterCount\} active` : 'Filter sessions'"/)
     expect(app).toContain('<section v-if="hasMultipleAgents" class="vitehub-console__agents')
     // The selected row exposes its state to assistive technology, not only through color.
     expect(app).toMatch(/v-for="name in agentRows\.visible"[\s\S]*?:aria-current="name === selectedAgentName \? 'true' : undefined"[\s\S]*?@click="selectAgent\(name\)"/)
@@ -175,9 +175,10 @@ describe("shared Console navigation layout", () => {
   it("generates the Tailwind classes that the Console app config declares", () => {
     const styles = readFileSync(new URL("../src/console/runtime/client/styles.css", import.meta.url), "utf8")
     const appConfig = readFileSync(new URL("../src/console/app.config.ts", import.meta.url), "utf8")
-    expect(appConfig).toContain("bg-(color:--vitehub-console-floating)")
+    // The app config spreads the shared theme, and the theme CSS sources the theme's own classes.
+    expect(appConfig).toContain("...vitehubTheme")
+    expect(styles).toContain('@import "@vite-hub/ui/theme.css";')
     expect(styles).toContain('@source "../../app.config.ts";')
-    expect(styles).toMatch(/--vitehub-console-floating:/)
   })
 
   it("loads the Workspace when its active tab is reopened from a file", () => {

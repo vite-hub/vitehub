@@ -8,7 +8,7 @@ icon: i-lucide-radio
 ---
 
 ::product-hero{tagline="Let several people edit one document at the same time, with live changes and automatic saves to a file." hosts="Cloudflare, Node, Docker"}
-  :::product-files{feature="realtime"}
+  :::code-tree{feature="realtime"}
   ```ts [server/realtime/docs.ts]
   import { defineRealtime } from 'vite-hub/realtime'
 
@@ -82,6 +82,20 @@ icon: i-lucide-radio
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: {
+      preset: 'node',
+      // Keep rooms in this server process
+      realtime: { authority: 'memory' },
+      workspace: true,
+    },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import vue from '@vitejs/plugin-vue'
   import { nitro } from 'nitro/vite'
@@ -101,6 +115,26 @@ icon: i-lucide-radio
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import vue from '@vitejs/plugin-vue'
+  import { vitehub } from 'vite-hub'
+  import { defineConfig } from 'vite'
+
+  export default defineConfig({
+    plugins: [
+      vue(),
+      vitehub({
+        preset: 'node',
+        // Keep rooms in this server process
+        realtime: { authority: 'memory' },
+        workspace: true,
+      }),
+    ],
+  })
+  ```
+  ::::
 
   ```ts [Checkpoint] fragment
   const [error, checkpoint] = await realtime.history.checkpoint()

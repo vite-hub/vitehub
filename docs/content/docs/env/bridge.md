@@ -73,6 +73,56 @@ Call the factory once per application runtime and export its `provider` as the d
 
 Register the provider module and declare the key your application uses.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    console: { auth: false },
+    env: {
+      providers: { credentials: './server/env/credentials.ts' },
+      server: {
+        githubToken: env({
+          secret: true,
+          source: env.provider('credentials', 'github/token'),
+        }),
+      },
+    },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    console: { auth: false },
+    env: { providers: { credentials: './server/env/credentials.ts' } },
+  }), nitro()],
+  env: {
+    server: {
+      githubToken: env({
+        secret: true,
+        source: env.provider('credentials', 'github/token'),
+      }),
+    },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -94,6 +144,8 @@ export default defineConfig({
   },
 })
 ```
+::::
+:::
 
 ### Start using it
 

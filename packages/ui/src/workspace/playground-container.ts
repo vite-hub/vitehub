@@ -14,6 +14,8 @@ import {
   type VNode,
   watch,
 } from "vue";
+import { useCopy } from "../components/copy-button.ts";
+import { Status } from "../components/status.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { decodePlaygroundLink, encodePlaygroundLink, type PlaygroundFiles, playgroundLinkLimit, playgroundUrl, readPlaygroundHash } from "../playground/share.ts";
 import { downloadZip } from "../playground/zip.ts";
@@ -98,6 +100,8 @@ const stageLabels: Partial<Record<WebContainerStage, string>> = {
 };
 
 /** One line that says what the workspace does now. */
+const statusTones = { busy: "warning", error: "error", ready: "success" } as const;
+
 function runState(workspace: Workspace): { tone: "busy" | "ready" | "error", label: string } {
   const failure = workspace.failure.value;
   if (failure) return { tone: "error", label: failure.kind === "install" ? "Install failed" : failure.kind === "server" ? "The dev server stopped" : "Did not start" };
@@ -112,26 +116,6 @@ function diff(base: PlaygroundFiles, files: Readonly<PlaygroundFiles>): string[]
 
 function firstFile(template: PlaygroundContainerTemplate, files: Readonly<PlaygroundFiles>): string {
   return template.open !== undefined && files[template.open] !== undefined ? template.open : Object.keys(files).sort()[0] ?? "";
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  }
-  catch {
-    // Some browsers block the async clipboard in some frames. A selected text area still copies there.
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.setAttribute("readonly", "");
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.append(area);
-    area.select();
-    const copied = document.execCommand("copy");
-    area.remove();
-    return copied;
-  }
 }
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -244,9 +228,8 @@ const PlaygroundSession = defineComponent({
     }
 
     // Copy link writes the share link. A link that chat apps would cut says so, in place of a toast.
-    const copied = ref(false);
+    const { copy, copied } = useCopy();
     const problem = ref<string>();
-    let copiedTimer: ReturnType<typeof setTimeout> | undefined;
     async function copyLink() {
       problem.value = undefined;
       const code = await encodePlaygroundLink({ template: template.value.id, files: workspace.files.value }, template.value.files);
@@ -255,12 +238,8 @@ const PlaygroundSession = defineComponent({
         problem.value = `This link would have ${(url.length / 1000).toFixed(1)} KB, and a share link can have ${playgroundLinkLimit / 1000} KB. Download the files instead.`;
         return;
       }
-      if (!await copyText(url)) return;
-      copied.value = true;
-      clearTimeout(copiedTimer);
-      copiedTimer = setTimeout(() => { copied.value = false; }, 2000);
+      await copy(url);
     }
-    onBeforeUnmount(() => clearTimeout(copiedTimer));
 
     const context = reactive({
       workspace: markRaw(workspace),
@@ -321,7 +300,7 @@ const PlaygroundSession = defineComponent({
       }, () => h(UButton, { "aria-label": "More actions", color: "neutral", icon: "i-lucide-ellipsis", size: "sm", variant: "ghost" }));
       return h("header", { class: "vh-pc-toolbar" }, [
         templateMenu,
-        h("span", { class: "vh-pc-run-state", "data-tone": state.tone, role: "status" }, [h("span", { "aria-hidden": "true", class: "vh-pc-run-dot" }), state.label]),
+        h("span", { class: "vh-pc-run-state", role: "status" }, h(Status, { colored: state.tone === "error", label: state.label, pulse: state.tone === "busy", tone: statusTones[state.tone] })),
         h("span", { class: "vh-pc-spacer" }),
         slots.toolbar?.(context),
         ...props.share
@@ -378,7 +357,7 @@ const PlaygroundSession = defineComponent({
             onConnect: (name: ConnectProviderName, token: string) => store.set(name, token),
             onDisconnect: (name: ConnectProviderName) => store.remove(name),
             "onRemove-all": () => store.clear(),
-            "onCopy-command": (command: string) => void copyText(command),
+            "onCopy-command": (command: string) => void copy(command),
           })),
         },
         ...Object.fromEntries(props.tabs.map(item => [item.value, () => slots[item.value]?.(context)])),
@@ -494,12 +473,7 @@ export const PlaygroundContainer = defineComponent({
     const shown = computed(() => !!session.value && supported.value === true && (device.value === "desktop" || (device.value === "tablet" && requested.value)));
     watch(shown, (value) => { if (value !== props.open) emit("update:open", value); });
 
-    const copied = ref(false);
-    async function copyPage() {
-      if (!await copyText(location.href)) return;
-      copied.value = true;
-      setTimeout(() => { copied.value = false; }, 1500);
-    }
+    const { copy: copyPage, copied } = useCopy({ duration: 1500 });
     function download() {
       const current = session.value ?? { files: first().files, template: first() };
       downloadZip(current.files, zipName(props.name, current.template));
@@ -525,7 +499,7 @@ export const PlaygroundContainer = defineComponent({
       const phone = h("aside", { class: "vh-pc-card vh-pc-phone" }, [
         h("p", { class: "vh-pc-strong" }, `The live ${props.label} runs in a desktop browser. Open this page on a desktop to edit and run the code.`),
         h("div", { class: "vh-pc-actions" }, [
-          h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Copied" : "Copy link", size: "sm", variant: "outline", onClick: () => void copyPage() }),
+          h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Copied" : "Copy link", size: "sm", variant: "outline", onClick: () => void copyPage(location.href) }),
           downloadButton(),
         ]),
       ]);

@@ -302,7 +302,7 @@ export const landingPrimitives = [
     name: "UI",
     description: "Agent interfaces",
     to: "/docs/ui",
-    icon: "i-ph-squares-four-light",
+    icon: "i-lucide-layout-grid",
   },
 ] as const;
 

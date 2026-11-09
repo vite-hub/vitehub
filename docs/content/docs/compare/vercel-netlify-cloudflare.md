@@ -136,7 +136,7 @@ create Netlify resources. Netlify Blobs needs no provisioning.
 Route code imports `vite-hub/*` paths, so it does not change when the host
 changes. To switch hosts:
 
-1. Change `preset` in `vite.config.ts`, or in `nuxt.config.ts` for Nuxt.
+1. Change `preset` in the config of your app.
 2. Check each enabled feature against the
    [support matrix](/docs/frameworks-hosts/support-matrix). A feature that the
    new preset cannot provide fails the build.
@@ -149,14 +149,56 @@ changes. To switch hosts:
 6. Move existing data with the provider's own tools. A new preset writes new
    data to the new provider.
 
-```diff [vite.config.ts]
- vitehub({
--  preset: 'vercel',
-+  preset: 'cloudflare',
-   blob: true,
-   queue: true,
- })
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare', // was 'vercel'
+    blob: true,
+    queue: true,
+  },
+})
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare', // was 'vercel'
+      blob: true,
+      queue: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare', // was 'vercel'
+      blob: true,
+      queue: true,
+    }),
+  ],
+})
+```
+:::
+::
 
 Read [Prepare a production deployment](/docs/frameworks-hosts/production)
 before you serve traffic on the new host.

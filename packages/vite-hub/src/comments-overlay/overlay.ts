@@ -147,7 +147,7 @@ export function mount(options: MountOptions): OverlayHandle {
               default: ({ comments }: { comments: never }) => [
                 h(CommentToolbar, { comments }, {
                   default: () => edit.value
-                    ? h("a", { "data-slot": "comment-toolbar-edit", href: `${prefix}/_vitehub/content/${encodeURIComponent(edit.value.collection)}/${encodeURIComponent(edit.value.id)}`, title: "Edit this page" }, [h(UIcon, { name: "i-ph-pencil-simple-light" }), "Edit"])
+                    ? h("a", { "data-slot": "comment-toolbar-edit", href: `${prefix}/_vitehub/content/${encodeURIComponent(edit.value.collection)}/${encodeURIComponent(edit.value.id)}`, title: "Edit this page" }, [h(UIcon, { name: "i-lucide-pencil" }), "Edit"])
                     : null,
                 }),
                 // SAFETY: `comments` is the CommentsState that the layer provides.

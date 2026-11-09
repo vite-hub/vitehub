@@ -3,14 +3,14 @@ title: Bubble
 description: "Frame message text in one of seven Bubble variants, align it to a side, group Bubbles, and attach reactions."
 navigation.order: 11
 navigation.group: Parts
-icon: i-ph-chat-circle-light
+icon: i-lucide-message-circle
 ---
 
 `Bubble` frames the text of a turn. Seven variants cover the current user, the assistant, quiet notes, and errors. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Bubble](https://ui.shadcn.com/docs/components/bubble). Colors come from the Nuxt UI tokens of your app.
 
 `Bubble` is only the framed surface. Put avatars, names, timestamps, and message actions in [Message](/docs/ui/message).
 
-::component-preview{name="BubbleExample"}
+::example{name="BubbleExample" height=26}
 ::
 
 ## Installation
@@ -69,7 +69,7 @@ BubbleGroup
 
 Use `variant` to change the visual treatment of the bubble.
 
-::component-preview{name="BubbleVariantsExample"}
+::example{name="BubbleVariantsExample" height=48}
 ::
 
 | Variant       | Use for                                       |
@@ -88,7 +88,7 @@ The `ghost` variant removes the maximum width, so assistant text and rich conten
 
 Use `align` on `Bubble` to align the bubble to the start or the end of the conversation.
 
-::component-preview{name="BubbleAlignmentExample"}
+::example{name="BubbleAlignmentExample" height=10}
 ::
 
 | Align   | Description                                        |
@@ -102,14 +102,14 @@ In a chat, set `align` on [Message](/docs/ui/message) instead. A bubble in a `Me
 
 Use `BubbleGroup` to group consecutive bubbles from the same sender. Set `align` on each `Bubble`, not on the group.
 
-::component-preview{name="BubbleGroupExample"}
+::example{name="BubbleGroupExample" height=22}
 ::
 
 ## Links and Buttons
 
 Set `as` on `BubbleContent` to render it as another element or component. The bubble then gets hover and focus styles.
 
-::component-preview{name="BubbleLinksExample"}
+::example{name="BubbleLinksExample" height=14}
 ::
 
 ```vue
@@ -122,28 +122,28 @@ Set `as` on `BubbleContent` to render it as another element or component. The bu
 
 Use `BubbleReactions` for reactions or quick actions. Use `side` and `align` to place the row. `side="top"` puts it on the upper edge. Reactions overlap the edge of the bubble, so leave vertical space between rows. The examples use a larger `gap` for this reason.
 
-::component-preview{name="BubbleReactionsExample"}
+::example{name="BubbleReactionsExample" height=25}
 ::
 
 ## Show More
 
 Put a toggle in `BubbleContent` to show more or less of a long message. The button sets `aria-expanded` and `aria-controls`.
 
-::component-preview{name="BubbleCollapsibleExample"}
+::example{name="BubbleCollapsibleExample" height=20}
 ::
 
 ## Tooltip
 
 Put a `UTooltip` in `BubbleReactions` to show metadata on hover, such as when the reader read the message.
 
-::component-preview{name="BubbleTooltipExample"}
+::example{name="BubbleTooltipExample" height=9}
 ::
 
 ## Popover
 
 Put a `UPopover` in `BubbleReactions` to show more information on demand, such as the full error of a failed action.
 
-::component-preview{name="BubblePopoverExample"}
+::example{name="BubblePopoverExample" height=9}
 ::
 
 ## Accessibility
@@ -166,7 +166,7 @@ When reactions are interactive, use buttons. Give an icon-only button an `aria-l
 
 ```vue
 <BubbleReactions>
-  <UButton color="neutral" variant="ghost" size="xs" square icon="i-ph-thumbs-up-light" aria-label="Thumbs up" />
+  <UButton color="neutral" variant="ghost" size="xs" square icon="i-lucide-thumbs-up" aria-label="Thumbs up" />
 </BubbleReactions>
 ```
 

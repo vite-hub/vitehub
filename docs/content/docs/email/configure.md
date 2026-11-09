@@ -10,6 +10,44 @@ icon: i-lucide-sliders-horizontal
 
 The ViteHub preset keeps Email opt-in:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    email: {
+      driver: 'resend',
+      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    email: {
+      driver: 'resend',
+      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -25,6 +63,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |

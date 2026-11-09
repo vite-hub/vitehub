@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { consoleDuration } from "../client/format";
+import { CopyButton } from "@vite-hub/ui";
 import { useConsoleWordWrap } from "./console-wrap";
 const wordWrap = useConsoleWordWrap();
 import type { SplitterItem } from "@nuxt/ui";
@@ -23,6 +25,7 @@ import {
   traceSpanEndMs,
   traceStartBoundaryMs,
 } from "./console-session-trace-model";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 type Observation = AgentInvocationView["observations"][number];
 type SpanStatus = "cancelled" | "completed" | "failed" | "recovered" | "running";
@@ -49,7 +52,6 @@ const emit = defineEmits<{ focusActivity: [activityId: string] }>();
 const spanQuery = ref("");
 const fieldQuery = ref("");
 const selectedSpanId = ref<string>();
-const copied = ref(false);
 
 const spans = computed(() => buildSpans(props.invocation));
 const traceStartMs = computed(() =>
@@ -143,7 +145,6 @@ watch(
 
 watch(selectedSpanId, () => {
   fieldQuery.value = "";
-  copied.value = false;
 });
 
 function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
@@ -470,28 +471,19 @@ function timestamp(value: Date | string | undefined) {
   return Number.isFinite(result) ? result : Date.now();
 }
 
+const summaryFacts = computed(() => selectedSpan.value ? [
+  { label: "Duration", value: formatDuration(selectedSpan.value.durationMs) },
+  { label: "Trace ID", value: shortId(props.invocation.traceId) },
+  { label: "Span ID", value: shortId(selectedSpan.value.id) },
+] : []);
+
 function formatDuration(durationMs: number) {
-  if (durationMs < 1) return "<1ms";
-  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
-  if (durationMs < 60_000) return `${trim(durationMs / 1_000, durationMs < 10_000 ? 2 : 1)}s`;
-  return formatMinutes(durationMs);
+  return consoleDuration(durationMs) ?? "";
 }
 
+/** An axis tick starts at `0ms`, not `<1ms`. */
 function formatAxis(durationMs: number) {
-  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
-  if (durationMs < 60_000) return `${trim(durationMs / 1_000, 1)}s`;
-  return formatMinutes(durationMs);
-}
-
-function formatMinutes(durationMs: number) {
-  const totalSeconds = Math.round(durationMs / 1_000);
-  const minutes = Math.floor(totalSeconds / 60);
-  if (minutes < 60) return `${minutes}m ${totalSeconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-function trim(value: number, digits: number) {
-  return value.toFixed(digits).replace(/\.?0+$/, "");
+  return durationMs < 1 ? "0ms" : formatDuration(durationMs);
 }
 
 function shortId(value: string) {
@@ -525,25 +517,7 @@ function displayValue(value: unknown) {
   }
 }
 
-async function copyAttributes() {
-  const value = JSON.stringify(selectedAttributes.value, null, 2);
-  try {
-    await navigator.clipboard.writeText(value);
-  } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = value;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.append(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
-  }
-  copied.value = true;
-  window.setTimeout(() => {
-    copied.value = false;
-  }, 1_500);
-}
+const selectedAttributesText = () => JSON.stringify(selectedAttributes.value, null, 2);
 </script>
 
 <template>
@@ -562,9 +536,7 @@ async function copyAttributes() {
             v-model="spanQuery"
             icon="i-lucide-search"
             placeholder="Search spans"
-            size="sm"
-            variant="outline"
-            :ui="{ base: 'w-full' }"
+            class="w-full"
           />
           <span>{{ filteredSpans.length }} spans</span>
         </div>
@@ -619,9 +591,7 @@ async function copyAttributes() {
                   >
                 </span>
               </button>
-              <div v-if="filteredSpans.length === 0" class="session-trace__empty">
-                No spans match this search.
-              </div>
+              <UEmpty v-if="filteredSpans.length === 0" variant="naked" icon="i-lucide-search" title="No spans match this search" />
             </div>
           </div>
         </div>
@@ -630,7 +600,7 @@ async function copyAttributes() {
 
     <template #resize-handle>
       <span
-        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-(--ui-border-accented)"
       />
     </template>
 
@@ -640,42 +610,21 @@ async function copyAttributes() {
           <strong
             ><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong
           >
-          <UButton icon="i-lucide-wrap-text" label="Wrap" color="neutral" :variant="wordWrap ? 'soft' : 'ghost'" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
-          <button type="button" @click="copyAttributes">
-            <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-copy'" />{{
-              copied ? "Copied" : "Copy attributes"
-            }}
-          </button>
+          <UButton icon="i-lucide-wrap-text" label="Wrap" variant="ghost" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
+          <CopyButton :key="selectedSpan.id" :value="selectedAttributesText" label="Copy attributes" size="xs" />
         </header>
         <section class="session-trace__summary">
           <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
           <h3><UIcon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
-          <dl>
-            <div>
-              <dt>Duration</dt>
-              <dd>{{ formatDuration(selectedSpan.durationMs) }}</dd>
-            </div>
-            <div>
-              <dt>Trace ID</dt>
-              <dd>
-                <code>{{ shortId(invocation.traceId) }}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Span ID</dt>
-              <dd>
-                <code>{{ shortId(selectedSpan.id) }}</code>
-              </dd>
-            </div>
-          </dl>
+          <ConsoleStatGrid :items="summaryFacts" :columns="3" label="Span summary">
+            <template #value="{ item }"><span :class="item.label === 'Duration' ? '' : 'font-mono text-xs'">{{ item.value }}</span></template>
+          </ConsoleStatGrid>
         </section>
         <div class="session-trace__field-search">
           <UInput
             v-model="fieldQuery"
             icon="i-lucide-search"
             placeholder="Search fields…"
-            size="sm"
-            variant="outline"
           />
         </div>
         <div class="session-trace__fields">
@@ -683,9 +632,7 @@ async function copyAttributes() {
             <span>{{ key }}</span>
             <pre>{{ displayValue(value) }}</pre>
           </section>
-          <div v-if="filteredAttributes.length === 0" class="session-trace__empty">
-            No fields match this search.
-          </div>
+          <UEmpty v-if="filteredAttributes.length === 0" variant="naked" icon="i-lucide-search" title="No fields match this search" />
         </div>
       </aside>
     </template>

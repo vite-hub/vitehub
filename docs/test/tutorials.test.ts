@@ -4,10 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { buildRunnableTutorial, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
+import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
-import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
+import { frameworkNodes, parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
@@ -26,7 +26,7 @@ function codeBlocks(source: string, label: string) {
 }
 
 async function expectPageToUseFixture(pagePath: string, fixture: string, labels: string[]) {
-  const page = await readFile(resolve(docsRoot, pagePath), "utf8");
+  const page = frameworkView(await readFile(resolve(docsRoot, pagePath), "utf8"), "Vite");
 
   for (const label of labels) {
     const expected = normalize(await readFile(resolve(fixturesRoot, fixture, label), "utf8"));
@@ -213,7 +213,7 @@ describe("runnable tutorials", () => {
   it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("builds %s from its lesson and its fixture", async (slug, index) => {
     const tutorial = await build(index);
     const lesson = await readFile(resolve(docsRoot, `content${tutorial.page}.md`), "utf8");
-    const installation = await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8");
+    const installation = frameworkView(await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8"), "Vite");
 
     // The docs page links to this copy, and the steps are the page's steps.
     expect(lesson).toContain(`::run-tutorial{to="/learn/${slug}"}`);
@@ -288,6 +288,17 @@ describe("runnable tutorials", () => {
   it("splits the lesson into its steps", () => {
     const parts = splitTutorialDocument(["intro", ["tutorial-step", { title: "One" }], "between", ["tutorial-step", { title: "Two" }], "outro"]);
     expect(parts).toEqual({ intro: ["intro"], steps: [["tutorial-step", { title: "One" }], ["tutorial-step", { title: "Two" }]], outro: ["outro"] });
+  });
+
+  it("shows the Vite tab of a framework tabs block in a runnable lesson", () => {
+    expect(frameworkNodes([["tutorial-step", { title: "One" },
+      ["tabs", { sync: "framework" },
+        ["tabs-item", { label: "Nuxt" }, ["pre", { filename: "nuxt.config.ts" }]],
+        ["tabs-item", { label: "Nitro" }, ["pre", { filename: "vite.config.ts" }, "nitro"]],
+        ["tabs-item", { label: "Vite" }, ["pre", { filename: "vite.config.ts" }, "vite"]]],
+      ["tabs", { sync: "os" }, ["tabs-item", { label: "macOS" }, "mac"]]]], "Vite")).toEqual([
+      ["tutorial-step", { title: "One" }, ["pre", { filename: "vite.config.ts" }, "vite"], ["tabs", { sync: "os" }, ["tabs-item", { label: "macOS" }, "mac"]]],
+    ]);
   });
 
   it("runs the request blocks of a lesson, and nothing else", () => {

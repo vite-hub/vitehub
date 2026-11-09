@@ -1,4 +1,5 @@
-import { computed, defineComponent, h, onMounted, type PropType, ref, type Slots, useId, type VNode, watch } from "vue";
+import { computed, defineComponent, h, onMounted, type PropType, ref, type Slots, type VNode, watch } from "vue";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export type WorkspaceLayout = "tutorial" | "playground";
 /** A built-in panel, or the slot name of a panel that the page adds. */
@@ -167,46 +168,32 @@ export const WorkspaceShell = defineComponent({
     }
 
     const slotProps = () => ({ layout: props.layout, tab: active.value, showTab: select });
-    const id = `vh-ws${useId()}`.replace(/[^\w-]/g, "");
-    const domId = (part: "tab" | "panel", name: string) => `${id}-${part}-${name.replace(/[^\w-]/g, "-")}`;
+    const UTabs = useUIComponent("UTabs");
 
+    // UTabs draws the strip and moves between tabs with the arrow keys. The panels stay here, mounted and laid over each
+    // other, so the terminal keeps its size and output and the preview keeps its page while another tab shows.
     function tabList(): VNode | undefined {
       if (tabs.value.length === 0) return undefined;
       const panels = tabs.value.map(name => h("div", {
-        "aria-labelledby": domId("tab", name),
+        "aria-label": items.value.find(item => item.value === name)?.label,
         class: ["vh-ws-tab-panel", active.value !== name && "is-hidden"],
         "data-tab": name,
-        id: domId("panel", name),
         inert: active.value === name ? undefined : "",
         key: name,
         role: "tabpanel",
       }, renderSlot(slots, name, slotProps())));
       return h("div", { class: "vh-ws-tabs" }, [
-        h("div", {
+        h(UTabs, {
           "aria-label": "Workspace panels",
           class: "vh-ws-tab-list",
-          role: "tablist",
-          onKeydown(event: KeyboardEvent) {
-            const index = active.value ? tabs.value.indexOf(active.value) : 0;
-            const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-            if (!offset) return;
-            event.preventDefault();
-            const next = tabs.value[(index + offset + tabs.value.length) % tabs.value.length];
-            if (!next) return;
-            select(next);
-            root.value?.querySelector<HTMLElement>(`#${domId("tab", next)}`)?.focus();
+          content: false,
+          items: items.value.map(({ badge, label, value }) => ({ badge: badge === "" ? undefined : badge, label, value })),
+          modelValue: active.value,
+          "onUpdate:modelValue": (value: string | number) => {
+            const tab = tabs.value.find(name => name === value);
+            if (tab) select(tab);
           },
-        }, items.value.map(({ badge, label, value: name }) => h("button", {
-          "aria-controls": domId("panel", name),
-          "aria-selected": active.value === name ? "true" : "false",
-          class: "vh-ws-tab",
-          id: domId("tab", name),
-          key: name,
-          role: "tab",
-          tabindex: active.value === name ? 0 : -1,
-          type: "button",
-          onClick: () => select(name),
-        }, [label, badge === undefined || badge === "" ? undefined : h("span", { class: "vh-ws-tab-badge" }, String(badge))]))),
+        }),
         h("div", { class: "vh-ws-tab-panels" }, panels),
       ]);
     }

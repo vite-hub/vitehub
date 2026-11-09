@@ -117,15 +117,15 @@ onBeforeUnmount(() => { props.actions.available = false; });
     @context="value => context = value"
   >
     <template #toolbar="{ guard }">
-      <UButton size="sm" color="neutral" variant="ghost" label="Reset step" icon="i-lucide-rotate-ccw" @click="reset(guard)" />
-      <UButton size="sm" color="neutral" variant="outline" label="Solve" icon="i-lucide-wand-sparkles" @click="solve(guard)" />
+      <UButton variant="ghost" label="Reset step" icon="i-lucide-rotate-ccw" @click="reset(guard)" />
+      <UButton variant="outline" label="Solve" icon="i-lucide-wand-sparkles" @click="solve(guard)" />
     </template>
 
     <template v-if="pendingStep !== undefined" #banner="{ edited }">
       <div class="vh-tutorial-bar" role="status">
         <span class="min-w-0 flex-1">You changed {{ edited.length === 1 ? "1 file" : `${edited.length} files` }}. Step {{ pendingStep + 1 }} has its own version.</span>
-        <UButton size="xs" color="neutral" variant="outline" :label="`Load step ${pendingStep + 1}`" @click="loadPending" />
-        <UButton size="xs" color="neutral" variant="ghost" label="Keep mine" @click="keepMine" />
+        <UButton size="xs" variant="outline" :label="`Load step ${pendingStep + 1}`" @click="loadPending" />
+        <UButton size="xs" variant="ghost" label="Keep mine" @click="keepMine" />
       </div>
     </template>
   </PlaygroundContainer>

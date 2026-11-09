@@ -2,7 +2,7 @@
 import { usePlaygroundDevice } from "@vite-hub/ui/playground-container";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import TutorialCodePre from "~/components/tutorial/TutorialCodePre.vue";
-import { splitTutorialDocument } from "~/utils/runnable-tutorial";
+import { frameworkNodes, splitTutorialDocument } from "~/utils/runnable-tutorial";
 import { tutorialActionsKey } from "~/utils/tutorial-actions";
 
 import type { DocsPageResponse } from "@vite-hub/docs";
@@ -19,7 +19,8 @@ if (!tutorial) throw createError({ statusCode: 404, statusMessage: "Tutorial not
 
 const { data } = await useFetch<DocsPageResponse>(`/api/_docs/page${tutorial.page}.json`, { key: `docs:${tutorial.page}` });
 if (!data.value) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
-const lesson = splitTutorialDocument(data.value.document.nodes);
+// The workspace is a Vite app, so the lesson shows the Vite tab of every framework tabs block.
+const lesson = splitTutorialDocument(frameworkNodes(data.value.document.nodes, "Vite"));
 const total = tutorial.steps.length;
 
 useSeoMeta({ title: tutorial.title, ogTitle: tutorial.title, description: tutorial.description, ogDescription: tutorial.description });
@@ -127,8 +128,8 @@ function key(event: KeyboardEvent) {
           <span class="text-muted">Step {{ step + 1 }} of {{ total }} · </span>
           <span class="font-medium text-highlighted">{{ tutorial.steps[step]?.title }}</span>
         </p>
-        <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
-        <UButton v-if="step < total - 1" size="sm" color="neutral" trailing-icon="i-lucide-arrow-right" label="Next" @click="step = step + 1" />
+        <UButton variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
+        <UButton v-if="step < total - 1" trailing-icon="i-lucide-arrow-right" label="Next" @click="step = step + 1" />
       </header>
 
       <div class="vh-run-prose">
@@ -149,9 +150,9 @@ function key(event: KeyboardEvent) {
         </UPageBody>
 
         <nav class="vh-run-footer" aria-label="Steps">
-          <UButton color="neutral" variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
-          <UButton v-if="step < total - 1" color="neutral" trailing-icon="i-lucide-arrow-right" :label="`Next: ${tutorial.steps[step + 1]?.title}`" @click="step = step + 1" />
-          <UButton v-else color="neutral" variant="outline" to="/learn" label="Back to Learn" />
+          <UButton variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
+          <UButton v-if="step < total - 1" trailing-icon="i-lucide-arrow-right" :label="`Next: ${tutorial.steps[step + 1]?.title}`" @click="step = step + 1" />
+          <UButton v-else variant="outline" to="/learn" label="Back to Learn" />
         </nav>
       </div>
     </div>
@@ -287,10 +288,5 @@ function key(event: KeyboardEvent) {
 
 .vh-run-divider:hover {
   background: var(--ui-border-accented);
-}
-
-.vh-run-divider:focus-visible {
-  background: var(--ui-primary);
-  outline: none;
 }
 </style>

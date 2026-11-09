@@ -191,7 +191,7 @@ The demo page in `test/browser/page` shows every part in the tutorial layout. `p
 Add the package, ViteHub, and the runtime peers to an existing Nuxt application:
 
 ```bash
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Register Nuxt UI and `vite-hub/nuxt`:
@@ -213,7 +213,7 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide and Phosphor collections must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
+`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide collection must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
 
 `@vite-hub/ui/nuxt` is internal. `vite-hub/nuxt` and `@vite-hub/docs/nuxt` load it, and it can change in any release. Do not add it to Nuxt `modules`.
 

@@ -3,6 +3,7 @@ import "@vite-hub/ui/styles.css";
 
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
+import { vitehubTheme } from "@vite-hub/ui/theme";
 import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
@@ -423,7 +424,7 @@ createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
-  .use(createViteHubUI())
+  .use(createViteHubUI({ icons: vitehubTheme.icons }))
   .mount("#app");
 
 // Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.

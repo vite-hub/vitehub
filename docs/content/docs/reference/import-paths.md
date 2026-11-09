@@ -38,6 +38,10 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
 | `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
 | `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
+| `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. Re-exports `@vite-hub/forms`. |
+| `vite-hub/forms/client` | `submitForm()`: posts the values of a form to its route and returns the issue of each field. Re-exports `@vite-hub/forms/client`. |
+| `vite-hub/forms/database` | The `vitehub_form_submissions` table and `createDrizzleFormsStore()`. Re-exports `@vite-hub/forms/database`. |
+| `vite-hub/forms/runtime` | `installedForms()`: the inbox of the running app, for server code. Re-exports `@vite-hub/forms/runtime`. |
 | `vite-hub/gateways` | [AI gateways](/docs/agents/ai-gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
 | `vite-hub/gateways/ai-sdk` | [`languageModel()`](/docs/agents/ai-gateways#use-a-model-with-the-ai-sdk): an AI SDK model that sends its requests through a gateway. Re-exports `@vite-hub/gateways/ai-sdk`. |
 | `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
@@ -149,6 +153,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui/tool-list`, `vite-hub/ui/trace-run` | Focused imports for tool contract and trace run components. |
 | `vite-hub/ui/code-view`, `vite-hub/ui/file-view`, `vite-hub/ui/file-diff`, `vite-hub/ui/multi-file-diff`, `vite-hub/ui/patch-diff`, `vite-hub/ui/unresolved-file` | Focused imports for code and diff components. |
 | `vite-hub/ui/file-tree` | Focused import for the file tree component. |
+| `vite-hub/ui/device-frame` | Focused import for the device frame, which shows a page at a device's size. |
 | `vite-hub/ui/avatar-stack`, `vite-hub/ui/comments`, `vite-hub/ui/connection-status`, `vite-hub/ui/sync-status` | Focused imports for collaboration components. |
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
@@ -206,7 +211,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/sandbox/ssh` | Sandbox Package | `sshLaunch` and `serveSsh` for a trusted SSH command transport. |
 | `@vite-hub/channels` | Channels Package | Channels with `defineChannel()`, HTTP sender adapters, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
-| `@vite-hub/comments` | Comments Package | `defineComments()`, `installComments()`, the runtime methods, and portable types. |
+| `@vite-hub/comments` | Comments Package | `defineComments()`, the runtime methods, and portable types. `installComments()` is in `@vite-hub/comments/server`. |
 | `@vite-hub/comments/anchor` | Comments Package | Browser helpers that create and place [anchors](/docs/comments/server-api#anchors) of pins. |
 | `@vite-hub/comments/database` | Comments Package | `commentsSchema`, the tables of Comments, and `migrateComments()` with `commentsMigrationSql()` to move the tables of the live-site model. |
 | `@vite-hub/comments/realtime` and `@vite-hub/comments/runtime` | Comments Package | The presence room definition, the Comments API handler, and the Nitro plugin that generated output imports. |
