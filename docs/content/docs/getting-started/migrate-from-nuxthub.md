@@ -232,9 +232,11 @@ NuxtHub normally applied migrations during `nuxt dev` and `nuxt build`, but
 disabled build-time application for D1 binding deployments. ViteHub does not
 apply application migrations during development or builds. Run
 `pnpm vitehub db migrate` after you pull a new migration.
-`vitehub db migrate` applies SQLite, libSQL, and D1 HTTP migrations. A Node
-server build can apply them when it starts with
-[`migrateOnStart`](/docs/database/configure#migrate-when-the-server-starts).
+`vitehub db migrate` applies SQLite, libSQL, D1 HTTP, and Postgres migrations.
+A Node server build applies Postgres migrations when it starts, and SQLite
+migrations with `migrateOnStart: true`. See
+[Migrate when the server starts](/docs/database/configure#migrate-when-the-server-starts).
+Until the Postgres baseline is in place, build with `migrateOnStart: false`.
 
 ### Baseline an existing SQLite database
 

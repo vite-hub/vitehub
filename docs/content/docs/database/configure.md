@@ -36,7 +36,7 @@ export default defineConfig({
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
-| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean }` | `false` | Applies pending migrations of local SQLite databases when a Node server build starts. See [Migrate when the server starts](#migrate-when-the-server-starts). |
+| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files. `false` turns it off. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
 With `vitehub()`, a discovered Database Definition does not enable Database. Without the `database` option, a build or `vite dev` that imports `vite-hub/database/drizzle` fails with `VITE_HUB_B0013`, and `vitehub db generate` and `vitehub db migrate` exit with an error. Add `database: true` or an options object to enable them. A directly composed `hubDb()` also provides Database.
@@ -75,7 +75,7 @@ ViteHub loads the Definition with your Vite or Nuxt string aliases. If the Defin
 
 ## Apply migrations
 
-`vitehub db generate` writes a Drizzle migration beside the Definition. `vitehub db migrate` applies the pending migrations with Drizzle Kit. Before it applies anything, it reads the Drizzle migrations table of each database and checks the SQL of each pending migration.
+`vitehub db generate` writes a Drizzle migration beside the Definition. `vitehub db migrate` applies the pending migrations with Drizzle Kit. For Postgres, it applies them with the migrator that a server runs [on start](#migrate-when-the-server-starts): it writes the same ledger rows as Drizzle Kit and holds the same advisory lock as a starting server. Before it applies anything, it reads the Drizzle migrations table of each database and checks the SQL of each pending migration.
 
 Both commands run from the Database project root, even when Nuxt uses `app/` as its Vite root. The CLI finds Drizzle Kit in the application's dependencies or the installed `vite-hub` facade.
 
@@ -113,7 +113,17 @@ For D1 HTTP, `vitehub db migrate` uses Wrangler's migrations table: `cloudflare.
 
 ## Migrate when the server starts
 
-A self-hosted Node server, for example in a Docker image, often has only `.output` and no sources or CLI to run `vitehub db migrate` with. Set `migrateOnStart` to apply the pending migrations when the server starts:
+A self-hosted Node server, for example in a Docker image, often has only `.output` and no sources or CLI to run `vitehub db migrate` with. ViteHub can apply the pending migrations when the server starts, before it handles a request.
+
+| Database | Default in a Node build | With `migrateOnStart: true` |
+| --- | --- | --- |
+| Postgres | Migrates on start | Migrates on start |
+| Local SQLite file (`file:` URL) | Does not migrate | Migrates on start |
+| Remote libSQL, D1 over HTTP | Does not migrate | `DATABASE_MIGRATE_ON_START_UNSUPPORTED` |
+
+A build for another host, such as Cloudflare or Vercel, does not migrate on start. With `migrateOnStart: true`, it fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Development does not migrate on start either: run `vitehub db migrate`.
+
+Set `true` to also migrate local SQLite files, or `false` to migrate only with `vitehub db migrate`:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -124,15 +134,29 @@ export default defineNuxtConfig({
 })
 ```
 
-The build reads each database's migrations folder and writes the migrations into a Nitro plugin, so the output does not need the folder. When the server starts, the plugin reads Drizzle Kit's `__drizzle_migrations` table and applies the pending migrations before the server handles a request. It writes the same ledger rows as `vitehub db migrate`, so either can migrate the database next. All pending migrations of a database run in one transaction, and the server logs each one it applied.
+The build reads each database's migrations folder and writes the migrations into a Nitro plugin, so the output does not need the folder. Nitro loads the plugin before the server listens. The plugin reads Drizzle Kit's `__drizzle_migrations` table and applies the pending migrations, and only then does the server accept requests. It writes the same ledger rows as `vitehub db migrate` and `drizzle-kit migrate`, so any of them can migrate the database next. All pending migrations of a database run in one transaction, and the server logs each one it applied.
 
-Definitions that share a SQLite file share one transaction. Their pending migrations run in journal timestamp order, and matching timestamp and hash pairs run once. If a shared journal contains a migration at or below the file's latest applied timestamp without a matching timestamp and hash in the ledger, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any database changes. Use compatible migration histories or separate SQLite files; `allowDataLoss` does not bypass this check.
+When a migration fails, the database keeps none of the pending migrations of that start. The server stops before it listens, with `DATABASE_MIGRATION_FAILED` for Postgres. It never serves requests with a schema that its code does not expect.
 
 It refuses pending migrations that lose data, with the rules of `vitehub db migrate`: the server does not start, and it throws `DATABASE_MIGRATION_DATA_LOSS` without changing the database. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply them.
 
-`migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node preset. A build for another host, a Postgres database, or D1 over HTTP fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`, and so does a server whose connection URL turns out to be remote libSQL. Migrate those from the deployment with `vitehub db migrate`. Development does not use it either: run `vitehub db migrate`.
+### Several instances on Postgres
 
-Run one server process for each database file. Two processes that start together on the same file can both find a migration pending, and the second then fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
+Several Node instances can start together on one Postgres database. Each one migrates in a transaction that first takes the Postgres advisory lock `pg_advisory_xact_lock(hashtext('vitehub:migrations'))`, and only then reads the ledger. The first instance applies the migrations. The others log that they wait, and wait for the lock. When the first one commits, they read its ledger rows, find nothing pending, and start. `vitehub db migrate` holds the same lock, so a deploy step and a starting instance never migrate at the same time.
+
+```txt
+[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.
+```
+
+To see who holds or waits for the lock, query `pg_locks` where `locktype = 'advisory'`. Drizzle Kit's own `drizzle-kit migrate` does not take this lock, so do not run it while instances start.
+
+The advisory lock belongs to one Postgres database, and so does the ledger. Give each Postgres Database Definition its own Postgres database: Definitions that share one also share one ledger, and Drizzle then skips a migration whose timestamp is older than the last applied one.
+
+### Several processes on SQLite
+
+Definitions that share a SQLite file share one transaction. Their pending migrations run in journal timestamp order, and matching timestamp and hash pairs run once. If a shared journal contains a migration at or below the file's latest applied timestamp without a matching timestamp and hash in the ledger, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any database changes. Use compatible migration histories or separate SQLite files; `allowDataLoss` does not bypass this check.
+
+SQLite has no lock across processes here. Run one server process for each database file. Two processes that start together on the same file can both find a migration pending, and the second then fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
 
 ## Export a database
 

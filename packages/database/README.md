@@ -117,7 +117,11 @@ pnpm vitehub db export                             # local SQLite to .vitehub/ex
 pnpm vitehub db export --remote --stage production # the deployed database
 ```
 
-A self-hosted Node build can apply migrations itself with `database: { migrateOnStart: true }`. The build writes each database's migrations into a Nitro plugin. When the server starts, the plugin applies the pending ones to the local SQLite file in one transaction, before the server handles a request. It uses Drizzle Kit's ledger and refuses data loss like `vitehub db migrate`, unless `migrateOnStart: { allowDataLoss: true }`. Another host, Postgres, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a file must have ledger entries matching every migration at or below its latest applied timestamp; otherwise startup refuses all changes with that error. Run one server process per database file.
+A self-hosted Node build applies migrations itself when the server starts. The build writes each database's migrations into a Nitro plugin, and Nitro loads it before the server listens. Postgres databases migrate on start by default; `migrateOnStart: true` also migrates local SQLite files, and `migrateOnStart: false` turns it off. The plugin applies the pending migrations in one transaction, with Drizzle Kit's ledger, and refuses data loss like `vitehub db migrate`, unless `migrateOnStart: { allowDataLoss: true }`. A failed migration rolls back and stops the server with `DATABASE_MIGRATION_FAILED` for Postgres.
+
+On Postgres, the transaction first takes the advisory lock `pg_advisory_xact_lock(hashtext('vitehub:migrations'))`. Several instances can start together: one migrates, and the others wait, then find nothing pending. `vitehub db migrate` applies Postgres migrations with the same migrator and lock, not with Drizzle Kit. Give each Postgres Definition its own Postgres database, because the ledger belongs to the database.
+
+With `migrateOnStart: true`, another host, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a SQLite file must have ledger entries matching every migration at or below its latest applied timestamp; otherwise startup refuses all changes with that error. SQLite has no lock across processes: run one server process per database file.
 
 ## Contributed tables
 

@@ -7,7 +7,9 @@ import { join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
+import { migratePostgres } from "../runtime/migrate-on-start.ts"
 import { applyD1Migrations, createD1Query, listD1MigrationFiles, readD1Ledger } from "./d1-migrations.ts"
+import { readStartMigrations } from "./migrate-on-start.ts"
 import { readJournal, readPendingMigration } from "./migration-journal.ts"
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
 
@@ -125,7 +127,8 @@ async function readSqliteLastApplied(url: string, authToken?: string): Promise<n
   }
 }
 
-async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<number | undefined> {
+/** Opens a postgres.js client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. */
+function connectPostgres(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
   let connect: typeof postgres
   try {
     // The app installs the Postgres driver, so load it from the project, like Drizzle Kit does.
@@ -144,7 +147,11 @@ async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: 
     port: env.PGPORT ? Number(env.PGPORT) : undefined,
     user: env.PGUSERNAME ?? env.PGUSER,
   }
-  const sql = target.url ? connect(target.url, options) : connect(options)
+  return target.url ? connect(target.url, options) : connect(options)
+}
+
+async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<number | undefined> {
+  const sql = connectPostgres(target, projectRoot, env)
   try {
     const [table] = await sql<Array<{ name: string | null }>>`select to_regclass('drizzle.__drizzle_migrations')::text as name`
     if (!table?.name) return
@@ -217,5 +224,31 @@ export async function migrateD1Http(
   }
   catch (error) {
     return error instanceof Error ? error.message : String(error)
+  }
+}
+
+/**
+ * Applies the pending migrations of a Postgres database with the runtime's `migratePostgres()`, the one that a server
+ * runs on start. It holds the same advisory lock, so `vitehub db migrate` and a starting server never migrate at the
+ * same time. Returns the error when the migrations do not apply.
+ */
+export async function migratePostgresTarget(
+  database: ResolvedDrizzleDatabaseConfig,
+  options: MigrationPlanOptions & { allowDataLoss: boolean },
+  log: (message: string) => void,
+): Promise<unknown> {
+  const target = resolveTarget(database, options)
+  if (target?.kind !== "postgres") return new Error(`The database "${database.name}" is not a Postgres database.`)
+  try {
+    const sql = connectPostgres(target, options.projectRoot, options.env)
+    try {
+      await migratePostgres(sql, { migrations: readStartMigrations(database.migrationsDir), name: database.name }, { allowDataLoss: options.allowDataLoss, log })
+    }
+    finally {
+      await sql.end({ timeout: 5 })
+    }
+  }
+  catch (error) {
+    return error
   }
 }

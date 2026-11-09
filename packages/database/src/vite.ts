@@ -22,7 +22,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
-import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
+import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
@@ -376,14 +376,17 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     const database = resolvedOptions()
     const settings = resolveMigrateOnStart(database)
     if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || (database && "nuxtHostResource" in database)) return
+    const databases = selectMigrateOnStartDatabases(runtimeConfig, settings, resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }))
     const packageDir = computePackageDir(import.meta.url)
-    const plugin = resolve(databaseRoot(), migrateOnStartPluginFile)
-    writeFileIfChangedSync(plugin, renderMigrateOnStartPlugin(runtimeConfig, {
-      ...settings,
+    const source = renderMigrateOnStartPlugin(runtimeConfig, {
+      allowDataLoss: settings.allowDataLoss,
+      databases,
       drizzleImport: resolveRuntimeModule(packageDir, "drizzle"),
-      host: resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }),
       runtimeImport: resolveRuntimeModule(packageDir, "runtime/migrate-on-start"),
-    }))
+    })
+    if (!source) return
+    const plugin = resolve(databaseRoot(), migrateOnStartPluginFile)
+    writeFileIfChangedSync(plugin, source)
     const plugins = nitroOptions.plugins ??= []
     if (!plugins.includes(plugin)) plugins.push(plugin)
   }

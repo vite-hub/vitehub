@@ -10,13 +10,15 @@ import { migrate } from "drizzle-orm/libsql/migrator"
 import { build } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
 import { hubDb } from "../src/nuxt.ts"
-import { migrateOnStart } from "../src/runtime/migrate-on-start.ts"
+import { migrateOnStart, migratePostgres, postgresMigrationLock } from "../src/runtime/migrate-on-start.ts"
 import { hubDb as hubDbVite } from "../src/vite.ts"
 
-import type { DatabaseNuxtIntegrationOptions, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
+import type { PostgresMigrationSql } from "../src/runtime/migrate-on-start.ts"
+import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -167,8 +169,8 @@ describe("database.migrateOnStart", () => {
     }))
     const extra = { dataLoss: [], hash: "extra", name: "0002_extra", statements: ["INSERT INTO users (id, name) VALUES (8, 'Grace')"], when: dropLegacy.when }
     const databases = [
-      { db: drizzle({ client: first }), migrations, name: "default" },
-      { db: drizzle({ client: second }), migrations: [...migrations, extra], name: "shared" },
+      { db: drizzle({ client: first }), dialect: "sqlite" as const, migrations, name: "default" },
+      { db: drizzle({ client: second }), dialect: "sqlite" as const, migrations: [...migrations, extra], name: "shared" },
     ]
     const applied: string[] = []
     try {
@@ -203,8 +205,8 @@ describe("database.migrateOnStart", () => {
       tag: "0002_late", when: dropLegacy.when,
     }
     const databases = [
-      { db: drizzle({ client: first }), migrations: [migration(init), migration(late)], name: "first" },
-      { db: drizzle({ client: second }), migrations: [migration(init), migration(seed)], name: "second" },
+      { db: drizzle({ client: first }), dialect: "sqlite" as const, migrations: [migration(init), migration(late)], name: "first" },
+      { db: drizzle({ client: second }), dialect: "sqlite" as const, migrations: [migration(init), migration(seed)], name: "second" },
     ]
     if (reverse) databases.reverse()
     const applied: string[] = []
@@ -235,11 +237,11 @@ describe("database.migrateOnStart", () => {
     const migration = (name: string, timestamp: number, sql: string) => ({ dataLoss: [], hash: name, name, statements: [sql], when: timestamp })
     const history = [migration(init.tag, init.when, "CREATE TABLE users (id integer)"), migration("late", dropLegacy.when, "INSERT INTO users VALUES (1)")]
     try {
-      await migrateOnStart([{ db: drizzle({ client: first }), migrations: history, name: "first" }], { log: () => {} })
+      await migrateOnStart([{ db: drizzle({ client: first }), dialect: "sqlite" as const, migrations: history, name: "first" }], { log: () => {} })
       const applied: string[] = []
       await expect(migrateOnStart([
-        { db: drizzle({ client: first }), migrations: [...history, migration("future", dropLegacy.when + 1, "INSERT INTO users VALUES (2)")], name: "first" },
-        { db: drizzle({ client: second }), migrations: [migration("divergent", when, "CREATE TABLE missing_history (id integer)")], name: "second" },
+        { db: drizzle({ client: first }), dialect: "sqlite" as const, migrations: [...history, migration("future", dropLegacy.when + 1, "INSERT INTO users VALUES (2)")], name: "first" },
+        { db: drizzle({ client: second }), dialect: "sqlite" as const, migrations: [migration("divergent", when, "CREATE TABLE missing_history (id integer)")], name: "second" },
       ], { allowDataLoss: true, log: message => applied.push(message) })).rejects.toMatchObject({
         code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
         why: expect.stringContaining("divergent"),
@@ -263,11 +265,11 @@ describe("database.migrateOnStart", () => {
     try {
       await expect(migrateOnStart([
         {
-          db: drizzle({ client: first }), name: "first",
+          db: drizzle({ client: first }), dialect: "sqlite" as const, name: "first",
           migrations: [{ dataLoss: [], hash: init.tag, name: init.tag, statements: init.sql.split("--> statement-breakpoint"), when: init.when }],
         },
         {
-          db: drizzle({ client: second }), name: "second",
+          db: drizzle({ client: second }), dialect: "sqlite" as const, name: "second",
           migrations: [{ dataLoss: [], hash: "bad", name: "bad", statements: ["INSERT INTO missing_table VALUES (1)"], when: seed.when }],
         },
       ], { log: () => {} })).rejects.toThrow(/missing_table/)
@@ -323,8 +325,8 @@ describe("database.migrateOnStart", () => {
     ])
     const migrations = [migration(init.tag, init.when, init.sql.split("--> statement-breakpoint")), rebuildLegacy, migration(dropLegacy.tag, dropLegacy.when, [dropLegacy.sql])]
     try {
-      await migrateOnStart([{ db: drizzle({ client }), migrations: migrations.slice(0, 1), name: "default" }], { log: () => {} })
-      await expect(migrateOnStart([{ db: drizzle({ client }), migrations, name: "default" }], { log: () => {} })).rejects.toMatchObject({
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations: migrations.slice(0, 1), name: "default" }], { log: () => {} })
+      await expect(migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations, name: "default" }], { log: () => {} })).rejects.toMatchObject({
         code: "DATABASE_MIGRATION_DATA_LOSS",
         message: expect.stringContaining("0002_drop_legacy: drops table \"legacy\""),
       })
@@ -376,17 +378,122 @@ describe("database.migrateOnStart", () => {
     const client = (name: string) => ({ execute: async () => ({ rows: [] }), migrate: async () => applied.push(name), protocol: "file" })
     const migration = (dataLoss: Array<{ reason: string, statement: string }>) => ({ dataLoss, hash: "hash", name: "0000_init", statements: ["SELECT 1"], when: 1 })
     await expect(migrateOnStart([
-      { db: { $client: client("default") }, migrations: [migration([])], name: "default" },
-      { db: { $client: client("orders") }, migrations: [migration([{ reason: "drops table \"orders\"", statement: "DROP TABLE orders;" }])], name: "orders" },
+      { db: { $client: client("default") }, dialect: "sqlite" as const, migrations: [migration([])], name: "default" },
+      { db: { $client: client("orders") }, dialect: "sqlite" as const, migrations: [migration([{ reason: "drops table \"orders\"", statement: "DROP TABLE orders;" }])], name: "orders" },
     ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
     expect(applied).toEqual([])
   })
 
   it("refuses a database that is not a local SQLite file", async () => {
     const client = { execute: async () => ({ rows: [] }), migrate: async () => [], protocol: "https" }
-    await expect(migrateOnStart([{ db: { $client: client }, migrations: [], name: "remote" }])).rejects.toMatchObject({
+    await expect(migrateOnStart([{ db: { $client: client }, dialect: "sqlite" as const, migrations: [], name: "remote" }])).rejects.toMatchObject({
       code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
       why: expect.stringContaining("libSQL over https"),
     })
+  })
+})
+
+describe("migrate on start defaults", () => {
+  const config = {
+    databaseNames: ["default", "analytics", "edge"],
+    databases: {
+      analytics: { dialect: "postgresql" },
+      default: { dialect: "sqlite" },
+      edge: { dialect: "postgresql" },
+    },
+  } as unknown as ResolvedDBViteConfig
+
+  it("migrates the Postgres databases of a Node build when migrateOnStart is unset", () => {
+    const settings = resolveMigrateOnStart({})!
+    expect(settings).toEqual({ allowDataLoss: false, explicit: false })
+    expect(selectMigrateOnStartDatabases(config, settings, "node")).toEqual(["analytics", "edge"])
+    expect(selectMigrateOnStartDatabases(config, settings, undefined)).toEqual(["analytics", "edge"])
+    for (const host of ["cloudflare", "vercel", "bun"]) expect(selectMigrateOnStartDatabases(config, settings, host)).toEqual([])
+  })
+
+  it("migrates every database with true, and nothing with false", () => {
+    expect(selectMigrateOnStartDatabases(config, resolveMigrateOnStart({ migrateOnStart: true })!, "node")).toEqual(["default", "analytics", "edge"])
+    expect(() => selectMigrateOnStartDatabases(config, resolveMigrateOnStart({ migrateOnStart: true })!, "cloudflare")).toThrow(expect.objectContaining({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" }))
+    expect(resolveMigrateOnStart({ migrateOnStart: { allowDataLoss: true } })).toEqual({ allowDataLoss: true, explicit: true })
+    expect(resolveMigrateOnStart({ migrateOnStart: false })).toBeUndefined()
+    expect(resolveMigrateOnStart(false)).toBeUndefined()
+  })
+
+  it("adds the plugin for Postgres when migrateOnStart is unset, and only when it has migrations", async () => {
+    const root = await createProject()
+    await writeFile(join(root, "server/databases/config.ts"), [
+      'import { defineDatabase } from "@vite-hub/database"',
+      'import { integer, pgTable } from "drizzle-orm/pg-core"',
+      'export default defineDatabase({ dialect: "postgresql", schema: { users: pgTable("users", { id: integer("id").primaryKey() }) } })',
+    ].join("\n"))
+    expect((await buildNodeServer(root, {})).config.plugins).toBeUndefined()
+    await writeMigrations(root, [init])
+    expect((await buildNodeServer(root, {})).config.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+  })
+
+  it("adds no plugin for SQLite when migrateOnStart is unset", async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init])
+    const server = await buildNodeServer(root, { connection: { url: `file:${join(root, "data/app.sqlite")}` } })
+    expect(server.config.plugins).toBeUndefined()
+  })
+})
+
+describe("migratePostgres", () => {
+  const migration = (name: string, when: number, statements: string[]) => ({ dataLoss: [], hash: `hash-${name}`, name, statements, when })
+
+  /** A postgres.js client that records each query and answers the lock and ledger reads. */
+  function fakeClient({ lastApplied, locked = true, fail }: { fail?: string, lastApplied?: number, locked?: boolean }) {
+    const queries: Array<[string, unknown[] | undefined]> = []
+    const sql: PostgresMigrationSql = {
+      unsafe: async (query, parameters) => {
+        queries.push([query, parameters])
+        if (query === fail) throw new Error("relation \"missing_table\" does not exist")
+        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
+        if (query.startsWith("select created_at")) return lastApplied === undefined ? [] : [{ created_at: String(lastApplied) }]
+        return []
+      },
+    }
+    return { client: { ...sql, begin: async <T>(run: (tx: PostgresMigrationSql) => Promise<T>) => await run(sql) }, queries }
+  }
+
+  it("takes the lock before it reads Drizzle's ledger, and applies only the migrations after its last row", async () => {
+    const { client, queries } = fakeClient({ lastApplied: 1 })
+    const log: string[] = []
+    const applied = await migratePostgres(client, { migrations: [migration("0000_init", 1, ["CREATE TABLE a (id int)"]), migration("0001_next", 2, ["CREATE TABLE b (id int)"])], name: "default" }, { log: message => log.push(message) })
+    expect(applied).toEqual(["0001_next"])
+    expect(queries).toEqual([
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["set local client_min_messages = warning", undefined],
+      ["CREATE SCHEMA IF NOT EXISTS \"drizzle\"", undefined],
+      ["CREATE TABLE IF NOT EXISTS \"drizzle\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)", undefined],
+      ["select created_at from \"drizzle\".\"__drizzle_migrations\" order by created_at desc limit 1", undefined],
+      ["CREATE TABLE b (id int)", undefined],
+      ["insert into \"drizzle\".\"__drizzle_migrations\" (\"hash\", \"created_at\") values ($1, $2)", ["hash-0001_next", 2]],
+    ])
+    expect(log).toEqual(['[vitehub] Database "default": applied 0001_next.'])
+  })
+
+  it("says that it waits when another process holds the lock", async () => {
+    const { client, queries } = fakeClient({ locked: false })
+    const log: string[] = []
+    await migratePostgres(client, { migrations: [], name: "default" }, { log: message => log.push(message) })
+    expect(queries[1]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
+    expect(log).toEqual(['[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.'])
+  })
+
+  it("names the migration that failed", async () => {
+    const { client } = fakeClient({ fail: "INSERT INTO missing_table VALUES (1)" })
+    const log: string[] = []
+    await expect(migratePostgres(client, { migrations: [migration("0000_init", 1, ["CREATE TABLE a (id int)"]), migration("0001_broken", 2, ["INSERT INTO missing_table VALUES (1)"])], name: "default" }, { log: message => log.push(message) }))
+      .rejects.toMatchObject({ code: "DATABASE_MIGRATION_FAILED", why: expect.stringContaining("\"0001_broken\" of the database \"default\" failed: relation \"missing_table\" does not exist") })
+    expect(log).toEqual([])
+  })
+
+  it("refuses data loss inside the lock", async () => {
+    const { client, queries } = fakeClient({})
+    await expect(migratePostgres(client, { migrations: [{ ...migration("0000_drop", 1, ["DROP TABLE public.a"]), dataLoss: [{ reason: "drops table \"a\"", statement: "DROP TABLE public.a" }] }], name: "default" }, { log: () => {} }))
+      .rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+    expect(queries.map(([query]) => query)).not.toContain("DROP TABLE public.a")
   })
 })
