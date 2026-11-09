@@ -9,39 +9,44 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-List Markdown files from a local Source, then add a draft to the Workspace's writable file tree. A Workspace combines files with access rules and tracks changes as a diff. The read route and write route will ask for different access modes.
+A Workspace is a folder of files that your server code can read and change. It tracks your changes as a diff, a list of what changed. A Source is read-only content that you put inside a Workspace, such as a folder of Markdown files.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. This example uses the default local store. Read [Hosts](/docs/workspace/hosts) before choosing storage for a deployed app.
+In this tutorial, you list Markdown files from a local folder. Then you write a draft into the Workspace and see the change. The original files do not change.
+
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. The files are saved on your computer. Before you deploy, read [Hosts](/docs/workspace/hosts) to choose storage.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install Workspace and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
+Install the Workspace package:
 
-```bash [commands/install]
-pnpm add @vite-hub/workspace nitro h3
-pnpm add -D vite
+```bash pm [commands/install]
+pnpm add @vite-hub/workspace
 ```
+
+Add `workspace: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
 ```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [hubWorkspace(), nitro()],
+  plugins: [vitehub({ preset: 'node', workspace: true })],
 })
 ```
+
+Did you choose Nuxt in Installation? Then add `workspace: true` to the options of the `vite-hub/nuxt` module.
 
 ::
 
 ::tutorial-step{title="Define the Workspace"}
 ## Define the Workspace
 
-The Definition name comes from `server/workspaces/docs.ts`. The Source reads Markdown under the local `docs` directory and mounts it as `docs` in the Workspace. Create the sample file below before requesting the read route.
+Create `server/workspaces/docs.ts`. The file name is the name of the Workspace: `docs`.
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace, glob } from '@vite-hub/workspace'
+import { defineWorkspace, glob } from 'vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
@@ -50,7 +55,10 @@ export default defineWorkspace({
 })
 ```
 
-Create the directory and this file in your app. It gives the read route a known Markdown document to find:
+- `sources.docs` adds a Source named `docs` to the Workspace.
+- `glob({ cwd: 'docs', include: '**/*.md' })` reads every Markdown file in the `docs` folder of your app. In the Workspace, those files are under `docs/`.
+
+Create the `docs` folder and a sample file in it, so the read route has a file to find:
 
 ```md [docs/intro.md]
 # Workspace sample
@@ -63,11 +71,11 @@ This document comes from a read-only Source.
 ::tutorial-step{title="Add read and write routes"}
 ## Add read and write routes
 
-The default mode permits reads. `glob()` lists the Markdown paths visible through the Workspace, including files mounted from the Source.
+Create a route that lists the Markdown files in the Workspace:
 
 ```ts [server/api/docs.get.ts]
 import { defineEventHandler } from 'h3'
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async () => {
   const workspace = useWorkspace('docs')
@@ -75,17 +83,20 @@ export default defineEventHandler(async () => {
 })
 ```
 
-This route asks for write mode because it creates a draft. Writing changes the Workspace store; it does not write back to the mounted Source. `diff()` reports the pending change.
+- `useWorkspace('docs')` opens the Workspace. By default, it can only read.
+- `workspace.fs.glob('**/*.md')` lists the Markdown files. The list includes the files from the Source.
+
+Create a second route that writes a draft:
 
 ```ts [server/api/drafts.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async (event) => {
   const workspace = useWorkspace('docs', { mode: 'write' })
   const body = await readBody<{ text: string }>(event)
 
-  await workspace.fs.writeFile('drafts/summary.md', body.text, {
+  await workspace.fs.writeFile('drafts/summary.md', body?.text ?? '', {
     mediaType: 'text/markdown',
   })
 
@@ -93,31 +104,72 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+- `{ mode: 'write' }` asks for write access. In read mode, `workspace.fs` has no `writeFile()`.
+- `writeFile()` saves the draft in the Workspace. It does not change the files in your `docs` folder.
+- `diff()` returns the changes that wait to be saved, here the new draft.
+
 ::
 
 ::tutorial-step{title="Read and write the tree"}
 ## Read and write the tree
 
-Start Vite and call the read route:
+Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Keep the server running. In another terminal, run:
+Keep the server running. Open a second terminal and call the read route:
 
 ```bash [commands/request]
-curl http://localhost:5173/api/docs
+curl http://localhost:3000/api/docs
 ```
 
-The response lists Markdown files from the `docs` mount, including the `docs/intro.md` sample. Send a draft to the write route:
+The response lists the Markdown files. It includes `docs/intro.md`. Now send a draft to the write route:
 
 ```bash [commands/write]
-curl -X POST http://localhost:5173/api/drafts \
+curl -X POST http://localhost:3000/api/drafts \
   -H 'content-type: application/json' \
   -d '{"text":"# Draft"}'
 ```
 
-The write response reports the new `drafts/summary.md` in a Workspace diff. Request `/api/docs` again to see it in the file listing. The Source file still contains its original content. Read [Server API](/docs/workspace/server-api) for snapshots, commits, and Source sync.
+The response is the diff. It shows the new file `drafts/summary.md`. Your `from` and `to` values are different:
 
+```json [output/diff.json]
+{
+  "from": "361e4d3ccd99a3c02491bb7bea076549e9886868e5cd701c3a3ec10938534a09",
+  "to": "b39f89281fd2971be9b8949b030c6382186e6df7347c52c1648c22ca9f060b96",
+  "entries": [
+    { "path": "drafts", "type": "added", "after": { "type": "directory" } },
+    {
+      "path": "drafts/summary.md",
+      "type": "added",
+      "after": {
+        "type": "file",
+        "digest": "2f8aa1f6d9602d7214a36d962d142cffa28dd28a8adf24bcf5c4589db06d52ff",
+        "size": 7
+      }
+    }
+  ]
+}
+```
+
+Request `/api/docs` again, and the list also has the draft. The file `docs/intro.md` in your app does not change.
+
+::
+
+## Next steps
+
+::card-group
+:::card{title="Workspaces and Sources" icon="i-lucide-folder-git-2" to="/docs/workspace/concepts"}
+Learn when to use a Workspace, a Source, or both.
+:::
+
+:::card{title="Server API" icon="i-lucide-code-2" to="/docs/workspace/server-api"}
+Take snapshots, make commits, and sync Sources.
+:::
+
+:::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/workspace/hosts"}
+Choose where a deployed app keeps its files.
+:::
 ::
