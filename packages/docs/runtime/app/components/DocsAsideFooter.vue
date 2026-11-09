@@ -1,15 +1,25 @@
 <script setup lang="ts">
+import { useDocsHeaderActionsTarget } from "../composables/headerActions"
+
 // Wide screens have no site header beside the docs sidebar, so its foot holds the repository, the community links, and
 // the color mode button. Phones keep them in the header and its menu.
 // A collapsed sidebar stacks them in its narrow column, as icons.
 defineProps<{ stacked?: boolean }>()
 const { github, site, socials } = useDocsConfig()
+const actionsTargetId = useDocsHeaderActionsTarget()
+const id = `docs-header-actions-${useId()}`
+// Register only after hydration. The server and the first client render keep the action in the header.
+onMounted(() => { actionsTargetId.value = id })
+onBeforeUnmount(() => {
+  if (actionsTargetId.value === id) actionsTargetId.value = null
+})
 // Nuxt turns a `null` in runtime config into "", so only a number counts.
 const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
 </script>
 
 <template>
   <div class="vh-docs-aside-footer" :class="{ 'is-stacked': stacked }">
+    <div :id="id" class="contents" />
     <a
       v-if="github"
       :href="github.url"
@@ -52,6 +62,7 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
 <style scoped>
 .vh-docs-aside-footer {
   display: flex;
+  flex-wrap: wrap;
   flex: none;
   align-items: center;
   gap: 0.25rem;

@@ -27,11 +27,20 @@ onMounted(focusMounted)
 
 <template>
   <!-- Like the header brand on other pages, it opens the docs home. 40px including the border, as the search row and the banner. -->
-  <NuxtLink v-if="brand" :to="docsHome ?? '/'" class="vh-docs-panel-brand" :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
-    <DocsBrandMark />
-    <span>{{ site.name }}</span>
-    <span v-if="site.badge" class="vh-docs-panel-brand-badge">{{ site.badge.label }}</span>
-  </NuxtLink>
+  <UTooltip
+    v-if="brand"
+    :text="site.badge?.tooltip ?? undefined"
+    :disabled="!site.badge?.tooltip"
+    :content="{ side: 'right', sideOffset: 8 }"
+    ignore-non-keyboard-focus
+    :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
+  >
+    <NuxtLink :to="docsHome ?? '/'" class="vh-docs-panel-brand" :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
+      <DocsBrandMark />
+      <span>{{ site.name }}</span>
+      <span v-if="site.badge" class="vh-docs-panel-brand-badge">{{ site.badge.label }}</span>
+    </NuxtLink>
+  </UTooltip>
   <!-- The collapse button sits where the collapsed strip has its open button, so the pointer can toggle in place. -->
   <div v-if="search" class="vh-docs-panel-search-row">
     <UTooltip v-if="collapsible" text="Hide navigation" :content="{ side: 'right', sideOffset: 6 }" :delay-duration="150" ignore-non-keyboard-focus>

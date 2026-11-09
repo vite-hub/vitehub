@@ -1,24 +1,21 @@
-import { parseShellCommand, splitShellCommandSegments } from "../command/parse.ts"
+import { splitShellCommandSegments } from "../command/parse.ts"
 
 export interface WorkspaceInspectionCommandSegment {
   command: string
   followsPipe: boolean
+  invalid?: boolean
   paths: string[]
   searchRecursive: boolean
   separatorAfter?: "&&" | "||" | "|" | ";" | "\n"
   words: string[]
 }
 
-export function analyzeWorkspaceInspectionCommand(command: string): WorkspaceInspectionCommandSegment[] {
-  return splitShellCommandSegments(command).map((segment) => {
-    const words = parseShellCommand(segment.command, "inspection")
-    return {
-      ...segment,
-      paths: shellPathArguments(words),
-      searchRecursive: hasRecursiveGrepFlag(words),
-      words,
-    }
-  })
+export async function analyzeWorkspaceInspectionCommand(command: string): Promise<WorkspaceInspectionCommandSegment[]> {
+  return (await splitShellCommandSegments(command)).map(segment => ({
+    ...segment,
+    paths: shellPathArguments(segment.words),
+    searchRecursive: hasRecursiveGrepFlag(segment.words),
+  }))
 }
 
 function shellPathArguments(words: string[]) {

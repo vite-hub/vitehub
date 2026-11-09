@@ -4,8 +4,7 @@ import { checkWebContainerSupport } from "@vite-hub/web-container";
 import { useClipboard, useMediaQuery } from "@vueuse/core";
 import { playgroundTemplates } from "#build/playground-templates.mjs";
 import PlaygroundWorkspace from "~/components/playground/PlaygroundWorkspace.vue";
-import { decodePlayground, shareCode } from "~/utils/playground-share";
-import { downloadZip } from "~/utils/zip";
+import { decodePlaygroundLink, downloadZip, readPlaygroundHash } from "@vite-hub/ui/playground";
 
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
 
@@ -36,13 +35,16 @@ let restoration = 0;
 /** A `#code=…` link holds files. Loading it opens them on their template. */
 async function restore() {
   const request = ++restoration;
-  const code = shareCode(location.hash);
-  const state = code ? await decodePlayground(code, playgroundTemplates) : undefined;
+  const code = readPlaygroundHash(location.hash);
+  const decoded = code ? await decodePlaygroundLink(code, playgroundTemplates) : undefined;
   if (request !== restoration) return;
-  invalidLink.value = !!code && !state;
-  restored.value = !!state;
-  const template = state ? playgroundTemplates.find(template => template.id === state.template)! : fromQuery();
-  boot(template, state?.files ?? template.files);
+  // Every app here starts from a template, so a link without one is not for this playground.
+  const shared = decoded && playgroundTemplates.find(template => template.id === decoded.template);
+  invalidLink.value = !!code && !shared;
+  restored.value = !!shared;
+  if (shared && decoded) return boot(shared, decoded.files);
+  const template = fromQuery();
+  boot(template, template.files);
 }
 function keep(template: PlaygroundTemplate) {
   // The share link no longer matches the files, so the address keeps the template only.

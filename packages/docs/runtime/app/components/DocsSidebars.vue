@@ -21,7 +21,7 @@ const rail = docsHasRail(useDocsManifest(), config.icons, config.groups, config)
 </script>
 
 <template>
-  <div class="vh-docs-sidebars">
+  <div class="vh-docs-sidebars" :data-docs-sidebar-head="head && (panel || collapsible) ? '' : undefined">
     <DocsRail v-if="rail" :labeled="labeled" :brand="head" :toggle="collapsible ? (panel ? 'hide' : 'show') : undefined" />
     <DocsSidebarStrip v-else-if="collapsible && !panel" />
     <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': !rail, 'has-head': head }">

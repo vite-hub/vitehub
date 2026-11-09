@@ -8,21 +8,71 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [
-    hubSchedule({
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    kv: true,
+    schedule: {
       runtime: {
         driver: 'process',
         prefix: 'my-app:schedule',
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      kv: true,
+      schedule: {
+        runtime: {
+          driver: 'process',
+          prefix: 'my-app:schedule',
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      kv: true,
+      schedule: {
+        runtime: {
+          driver: 'process',
+          prefix: 'my-app:schedule',
+        },
       },
     }),
   ],
 })
 ```
+:::
+::
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -33,7 +83,7 @@ export default defineConfig({
 
 Use `createScheduleNitroConfig()` when a Nitro integration owns config merging and needs Schedule to return Nitro-ready provider output.
 
-The Process Runtime imports the discovered registry and runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()` under the Schedule prefix, reports errors through Nitro, and stops during Nitro shutdown. It scans once per minute with one concurrent run unless configured otherwise, and `intervalMs` cannot exceed the one-minute cron resolution. Each scan checks every minute since the previous scan, so a late timer does not skip a minute. After a restart, the runtime runs the due minutes that no process checked, such as a minute during a deploy, for each Schedule that already has a run. It looks back at most one hour (`installProcessScheduleRuntime({ catchUpMs })`, `0` disables it). Run ids are deterministic, so a minute that already ran does not run again. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
+The Process Runtime imports the discovered registry and runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store (the `kv` option) under the Schedule prefix, reports errors through Nitro, and stops during Nitro shutdown. It scans once per minute with one concurrent run unless configured otherwise, and `intervalMs` cannot exceed the one-minute cron resolution. Each scan checks every minute since the previous scan, so a late timer does not skip a minute. After a restart, the runtime runs the due minutes that no process checked, such as a minute during a deploy, for each Schedule that already has a run. It looks back at most one hour (`installProcessScheduleRuntime({ catchUpMs })`, `0` disables it). Run ids are deterministic, so a minute that already ran does not run again. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
 
 ::warning
 The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
@@ -43,6 +93,40 @@ The Process Runtime requires exactly one long-lived process or replica. The KV r
 
 Some hosts limit how often a cron job runs. Vercel Hobby runs cron jobs at most once a day. Set `cron` in that host's build config to give a Schedule another cron there, and keep the Schedule's own cron on the other hosts:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'vercel',
+    // server/schedules/cleanup.ts declares cron: '0 * * * *'
+    schedule: { cron: { cleanup: '0 0 * * *' } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      // server/schedules/cleanup.ts declares cron: '0 * * * *'
+      schedule: { cron: { cleanup: '0 0 * * *' } },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -57,6 +141,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 The keys are Schedule names. The cron replaces the declared one in the generated host output: Vercel and Netlify cron jobs, Cloudflare cron triggers, and `Deno.cron`. `vitehub inspect definitions` shows it as the Schedule's `Cron`, with the `Declared cron` beside it. A name that matches no Schedule fails the build with `SCHEDULE_B0008`, and so does `cron` when the Process Runtime wakes the Static Schedules, since it always runs the declared cron. With `providerOutput: 'nitro'` or `'standalone'` the host wakes them, so `cron` applies.
 
