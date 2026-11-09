@@ -377,7 +377,10 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     resized.observe(toolbar)
     options.markOnly?.watch(() => {
       opened = false
+      // A fold hides the focused button of a segment. The focus moves to the mark, which stays, and not to the page.
+      const focused = pill.contains(document.activeElement)
       collapse(folded())
+      if (focused && pill.hasAttribute("collapsed")) mark.focus({ preventScroll: true })
       place(dock)
     }, signal)
   }
