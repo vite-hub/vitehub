@@ -220,7 +220,12 @@ function renderConsoleNitroPlugin(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections).map(section => catalog.sectionOverrides?.[section.id] ?? section)
+  // An override also adds a section that no owner registers, such as Forms.
+  const registered = new Map(describeConsoleContributedSections(sections).map(section => [section.id, section]))
+  const contributedSections = sections.flatMap((id) => {
+    const section = catalog.sectionOverrides?.[id] ?? registered.get(id)
+    return section ? [section] : []
+  })
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined

@@ -24,8 +24,44 @@ function defineFormsOperation<Input, Output>(definition: Omit<OperationDefinitio
 
 const status = v.picklist(["open", "done", "spam"])
 
+function table(rows: readonly (readonly string[])[]): string {
+  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
+}
+
+/** The first text value of a submission on one line, such as its message. */
+function preview(data: unknown): string {
+  const values = Object.values(Object(data) as Record<string, unknown>)
+  const text = values.find((value): value is string => typeof value === "string" && value.includes(" ")) ?? values.find(value => typeof value === "string") ?? ""
+  const line = text.replace(/\s+/g, " ").trim()
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line || "-"
+}
+
+function formatList(rows: FormSubmission[]): string {
+  if (!rows.length) return "No form submissions.\n"
+  return `${table([
+    ["ID", "FORM", "STATUS", "SENT AT", "TEXT"],
+    ...rows.map(row => [row.id, row.form, row.status, new Date(row.createdAt).toISOString(), preview(row.data)]),
+  ])}\n`
+}
+
+function formatOne(row: FormSubmission): string {
+  return [
+    `Submission: ${row.id}`,
+    `Form: ${row.form}`,
+    `Status: ${row.status}`,
+    `Sent at: ${new Date(row.createdAt).toISOString()}`,
+    ...(row.page ? [`Page: ${row.page}`] : []),
+    ...(row.user ? [`User: ${row.user.email ?? row.user.name ?? row.user.id}`] : []),
+    ...(row.anchor ? [`Anchor: ${row.anchor.selector} "${row.anchor.exact}"`] : []),
+    "Data:",
+    JSON.stringify(row.data, null, 2),
+    "",
+  ].join("\n")
+}
+
 const list = defineFormsOperation<{ form?: string, status?: "open" | "done" | "spam", limit?: number, before?: { createdAt: number, id: string } }, FormSubmission[]>({
-  cli: { default: true },
+  cli: { default: true, format: formatList },
   description: "List form submissions, newest first.",
   input: v.object({
     form: v.optional(v.pipe(v.string(), v.description("Only this form, such as contact."))),
@@ -39,7 +75,7 @@ const list = defineFormsOperation<{ form?: string, status?: "open" | "done" | "s
 })
 
 const get = defineFormsOperation<{ id: string }, FormSubmission>({
-  cli: { positional: ["id"] },
+  cli: { format: formatOne, positional: ["id"] },
   description: "Show one form submission.",
   input: v.object({ id: v.pipe(v.string(), v.minLength(1)) }),
   kind: "read",
@@ -48,7 +84,7 @@ const get = defineFormsOperation<{ id: string }, FormSubmission>({
 })
 
 const mark = defineFormsOperation<{ id: string, status: "open" | "done" | "spam" }, FormSubmission>({
-  cli: { positional: ["id", "status"] },
+  cli: { format: (row: FormSubmission) => `Marked ${row.id} ${row.status}.\n`, positional: ["id", "status"] },
   description: "Mark a form submission open, done, or spam.",
   input: v.object({ id: v.pipe(v.string(), v.minLength(1)), status }),
   kind: "write",
