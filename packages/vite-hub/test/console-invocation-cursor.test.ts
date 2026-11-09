@@ -8,6 +8,30 @@ import { consoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
+it("resets a legacy cursor once before resuming append polls", async () => {
+  const store = createMemoryAgentInvocationStore()
+  const timestamp = "2026-11-09T00:00:00.000Z"
+  await store.create({
+    createdAt: timestamp,
+    id: "legacy-cursor-test",
+    observations: [],
+    status: "running",
+    traceId: "legacy-cursor-test",
+    updatedAt: timestamp,
+  })
+  installConsoleInvocationFallback(defineAgentInvocations({ store }), "/console-legacy-cursor-test")
+  installConsoleAccess({ mode: "open", authorize: () => true })
+  const url = "http://localhost/_vitehub/api/invocations/legacy-cursor-test"
+  const legacy = new URLSearchParams({ observationCount: "0", observationCursor: "0-ztntfp-45h" })
+  const reset = await invocationHandler(consoleRequestEvent(new Request(`${url}?${legacy}`)))
+  if (reset instanceof Response || !("observationCursor" in reset)) throw new Error("Expected invocation detail")
+  expect(reset.observations).toEqual([])
+  expect(reset).not.toHaveProperty("appendObservations")
+  const query = new URLSearchParams({ observationCount: "0", observationCursor: reset.observationCursor })
+  const unchanged = await invocationHandler(consoleRequestEvent(new Request(`${url}?${query}`)))
+  expect(unchanged).toMatchObject({ appendObservations: true, observations: [], observationCursor: reset.observationCursor })
+})
+
 it.each([2, 3, 31, 32, 33, 63, 64, 65])("serializes the history once for a poll with %s retained observations", async (count) => {
   const store = createMemoryAgentInvocationStore()
   const timestamp = "2026-11-08T00:00:00.000Z"
