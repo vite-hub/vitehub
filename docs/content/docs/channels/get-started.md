@@ -8,20 +8,23 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Define a Channel named `alerts`. First it sends a build notification through an adapter that writes to the server terminal. Then it receives a signed webhook and runs a handler once per delivery. No message leaves your machine and no provider key is needed.
+A Channel is a named connection that your server uses to send and receive messages. An adapter connects it to a service, such as Slack, or to your own code.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. Nitro serves the routes.
+In this tutorial, you make an `alerts` Channel that writes "Build finished." to your terminal. Then you make a `builds` Channel that receives a signed webhook and runs a handler once per delivery.
+
+> [!NOTE] Before you start
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. No message leaves your computer.
 
 ::tutorial-step{title="Install and enable Channels"}
 ## Install and enable Channels
 
-Install ViteHub and Nitro. Add the plugins below to your existing Vite config, keeping its other plugins.
+Add Channels and the Agent and Workflow packages that receive webhooks:
 
-```bash [commands/install]
-pnpm add vite-hub @vite-hub/channels @vite-hub/agent @vite-hub/workflow nitro h3 vite
+```bash pm [commands/install]
+pnpm add @vite-hub/channels @vite-hub/agent @vite-hub/workflow
 ```
 
-`channels: true` discovers the files below `server/channels`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers. Inbound webhooks run on the Agent webhook route, so a Channel that receives webhooks also needs `agent: true`.
+Add `channels: true` and `agent: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -32,12 +35,21 @@ export default defineConfig({
 })
 ```
 
+- `channels: true` finds Channel files in `server/channels`.
+- `agent: true` serves the webhook route for Channels that receive messages.
+
+Did you choose Nuxt in Installation? Then add `channels: true` and `agent: true` to the options of the `vite-hub/nuxt` module.
+
+:::details{summary="How ViteHub finds Channel files"}
+ViteHub discovers files below `server/channels` and files that end in `.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers. Discovery skips modules whose default export cannot be a Channel, such as a function, an array, or an object literal without `adapter`.
+:::
+
 ::
 
 ::tutorial-step{title="Define a named Channel"}
 ## Define a named Channel
 
-Create `server/channels/alerts.ts` with `defineChannel()`. The adapter is the connection. This one has a `send` function that prints the text and returns a receipt, so we can check the code without a real service.
+Create `server/channels/alerts.ts`. The file name is the name of the Channel: `alerts`.
 
 ```ts [server/channels/alerts.ts]
 import { defineChannel } from 'vite-hub/channels'
@@ -53,14 +65,16 @@ export default defineChannel({
 })
 ```
 
-The file name becomes the Channel name.
+- `adapter` is the connection. This one writes to your terminal.
+- `send()` gets the text and your options, here `label`.
+- `send()` returns a receipt with an `id`. A real adapter returns the message id from the service.
 
 ::
 
 ::tutorial-step{title="Send one message"}
 ## Send one message
 
-`useChannel('alerts')` selects the Channel. `send()` passes the text and the options to the adapter. Check the error before you return the receipt.
+Create an API route that sends a message to `alerts`.
 
 ```ts [server/api/build-finished.post.ts] fragment
 import { defineEventHandler } from 'h3'
@@ -73,16 +87,20 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Start the dev server and send one request:
+- `useChannel('alerts')` picks the Channel by its name.
+- `send()` passes the text and the options, here `label`, to the adapter.
+- `send()` returns `[error, receipt]`. Check `error` for input, discovery, and adapter failures. Invalid Channel Definitions or names passed to `useChannel()` can throw.
+
+Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Keep the server running. In another terminal, run:
+Keep the server running. Open a second terminal and send a request:
 
 ```bash [commands/request]
-curl -X POST http://localhost:5173/api/build-finished
+curl -X POST http://localhost:3000/api/build-finished
 ```
 
 The terminal running Vite prints `[release] Build finished.`, and the response has the receipt:
@@ -95,12 +113,14 @@ The terminal running Vite prints `[release] Build finished.`, and the response h
 }
 ```
 
+`deliveryId` is a new id that ViteHub makes for each send. `id` comes from your adapter.
+
 ::
 
 ::tutorial-step{title="Receive a signed webhook"}
 ## Receive a signed webhook
 
-Create `server/channels/builds.ts`. The `webhook()` adapter checks `Authorization: Bearer <secret>`, and `on` runs a handler for each delivery. The default event name is `webhook`.
+Create `server/channels/builds.ts`. A webhook is an HTTP request that a service sends to tell your app about an event.
 
 ```ts [server/channels/builds.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'
@@ -113,13 +133,36 @@ export default defineChannel({
 })
 ```
 
+- `webhook()` checks the secret in the `Authorization: Bearer <secret>` header.
+- `on.webhook` runs the handler for each delivery. `webhook` is the default event name.
+
 Every Channel that receives webhooks has the route `/api/_vitehub/channels/<name>`. Send the same body twice:
 
 ```bash [commands/webhook]
-curl -X POST http://localhost:5173/api/_vitehub/channels/builds \
+curl -X POST http://localhost:3000/api/_vitehub/channels/builds \
   -H 'authorization: Bearer local-secret' -H 'content-type: application/json' \
   -d '{"id":"build-42"}'
 ```
 
-The handler runs once. The second request answers `{ "duplicate": true }`, because the delivery ID, the SHA-256 of the body here, is the same. A request without the secret answers 401. Read secrets from Server Env in a real app, and continue with [Receive webhooks](/docs/channels/server-api#receive-webhooks).
+The handler runs once. The second request answers `{ "duplicate": true }`, because both requests have the same delivery ID. This adapter makes the ID from a hash of the body. A request without the secret answers 401.
+::
+
+## Connect a real service
+
+Use an adapter that calls the service API. Read its API key or webhook secret from Server Env. Keep the secret in server code. Channels does not retry a failed outbound send.
+
+## Next steps
+
+::card-group
+:::card{title="Server API" icon="i-lucide-code-2" to="/docs/channels/server-api#send-a-message"}
+Read the receipt and see the delivery logs.
+:::
+
+:::card{title="Send through a chat adapter" icon="i-lucide-message-square" to="/docs/channels/server-api#send-through-a-chat-adapter"}
+Send to Slack, Teams, Discord, or Telegram with a ready adapter.
+:::
+
+:::card{title="Receive webhooks" icon="i-lucide-webhook" to="/docs/channels/server-api#receive-webhooks"}
+Receive events from a service and choose how to handle them.
+:::
 ::
