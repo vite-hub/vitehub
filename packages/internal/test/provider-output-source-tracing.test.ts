@@ -75,3 +75,36 @@ it("retains dependencies recovered by retracing a shared module after a host var
   })
   await expect(import(pathToFileURL(output).href)).resolves.toMatchObject({ host: "node", value: "worker" })
 })
+
+it.each([
+  'import Worker from "../dist/shared.ts?worker"; export { Worker }',
+  'const target = "../dist/shared.ts"; export const load = () => import(target)',
+])("retraces modules absent from some successful host variants: %s", async (request) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-provider-trace-variant-"))
+  roots.push(root)
+  await mkdir(join(root, "server", "platform"), { recursive: true })
+  await mkdir(join(root, "dist", "lib"), { recursive: true })
+  await writeFile(join(root, ".git"), "fixture boundary\n")
+  await writeFile(join(root, "package.json"), '{"type":"module"}')
+  const entry = join(root, "server", "entry.ts")
+  const worker = join(root, "dist", "shared.ts")
+  const target = join(root, "dist", "worker-value.ts")
+  await writeFile(entry, `export { value } from "./platform"; ${request}\n`)
+  await writeFile(join(root, "server", "platform", "package.json"), '{"main":"../../dist/shared.ts","module":"./index.ts","type":"module"}')
+  await writeFile(join(root, "server", "platform", "index.ts"), 'export const value = "fallback"\n')
+  await writeFile(worker, 'export { value } from "./lib"\n')
+  await writeFile(join(root, "dist", "lib", "package.json"), '{"main":"./node.ts","module":"./index.ts","type":"module"}')
+  await writeFile(join(root, "dist", "lib", "node.ts"), 'export const value = "node"\n')
+  await writeFile(join(root, "dist", "lib", "index.ts"), 'export { value } from "../worker-value"\n')
+  await writeFile(target, 'export const value = "worker"\n')
+
+  const retained = await retainProviderOutputSources({ artifactDir: join(root, ".vitehub", "sources"), paths: [entry], roots: [root] })
+  await expect(readFile(retained.resolve(target), "utf8")).resolves.toContain('"worker"')
+  const output = join(root, ".vitehub", "worker.mjs")
+  await bundleEsmEntry(retained.resolve(worker), output, {
+    conditions: ["workerd", "worker", "browser", "default"],
+    platform: "neutral",
+    rootDir: retained.resolve(root),
+  })
+  await expect(import(pathToFileURL(output).href)).resolves.toMatchObject({ value: "worker" })
+})

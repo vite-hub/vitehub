@@ -735,7 +735,8 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         for (const path of Object.keys(result.metafile.inputs)) {
           const source = resolve(root, path)
           importedSources.add(source)
-          if (results.length === traceBuildVariants.length) tracedEntries.add(source)
+          if (results.length === traceBuildVariants.length
+            && results.every(variant => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source)
         }
       }
       for (const path of importedSourceHints) {
