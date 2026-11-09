@@ -9,9 +9,9 @@ import {
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
+import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { findExportNames } from "mlly"
 
 import { parseSync as parseJavaScript } from "vite"
 import type { Plugin, UserConfig } from "vite"
@@ -863,7 +863,7 @@ async function discoverSourceCollections(options: SourceGenerationOptions): Prom
       }
       const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
       const source = await readFile(file, "utf8")
-      if (!findExportNames(source).includes(exportName)) {
+      if (!exportNames(source, file).includes(exportName)) {
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
       return { exportName, file, name, routeEnabled: collectionRouteEnabled(file, source, exportName) }
@@ -978,7 +978,7 @@ export async function findContentEntry(options: Pick<SourceGenerationOptions, "p
   if (candidates.length > 1) throw sourceErrorDiagnostics.SOURCE_B0007({ message: "[vitehub] Content is defined in more than one server directory." })
   const file = candidates[0]
   if (!file) return
-  if (!findExportNames(await readFile(file, "utf8")).includes("content")) {
+  if (!exportNames(await readFile(file, "utf8"), file).includes("content")) {
     throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".` })
   }
   return file
