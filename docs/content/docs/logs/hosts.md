@@ -6,16 +6,16 @@ description: "Where ViteHub Logs captures events: Nitro 3 local capture, Cloudfl
 icon: i-lucide-logs
 ---
 
-Local Evlog capture currently supports Nitro 3 and registers `evlog/nitro/v3`. Nuxt with Nitro 2 must register Evlog separately through `evlog/nuxt` and use an [existing backend source](/docs/logs/configure#read-an-existing-backend) for ViteHub Logs. Do not enable local `logs: true` capture on Nitro 2. Keep request logger imports aligned with the installed Nitro version: `evlog/nitro/v3` for Nitro 3 and `evlog/nitro` for Nitro 2.
+Local Evlog capture supports Nitro 3 and registers `evlog/nitro/v3`. On Nuxt with Nitro 2, register Evlog yourself through `evlog/nuxt` and use an [existing backend source](/docs/logs/configure#read-an-existing-backend). Do not turn on local `logs: true` capture on Nitro 2. Import the request logger that matches your Nitro: `evlog/nitro/v3` for Nitro 3, `evlog/nitro` for Nitro 2.
 
 ## Cloudflare
 
-ViteHub enables native Worker observability by default in generated Cloudflare configuration. Explicit observability settings remain authoritative. Native Worker capture does not create a query adapter for the Console.
+ViteHub turns on native Worker observability in the generated Cloudflare config. Your own observability settings win. Native capture gives the Console no query adapter.
 
 ## Vercel and other hosts
 
-Keep the host's existing logging and Evlog export pipeline. Connect a `LogSource` to its query API for Console and CLI access. Host log retention, permissions, and query availability depend on that backend.
+Keep the host's logging and Evlog export. Connect a `LogSource` to its query API for Console and CLI access. That backend sets retention, permissions, and what you can query.
 
-Production builds reject local `logs: true` capture. Use a source module for production, or disable Logs for the build. The playground disables local capture when building and does not provision a backend.
+Production builds reject local `logs: true` capture. Use a source module in production, or turn Logs off for the build. The playground turns off local capture in builds and sets up no backend.
 
-An Evlog drain can send to a supported platform without making that platform readable through ViteHub. This distinction also applies to OpenTelemetry collectors and PostHog.
+An Evlog drain can send to a platform that ViteHub still cannot read. This is also true for OpenTelemetry collectors and PostHog.
