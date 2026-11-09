@@ -866,7 +866,8 @@ function message(error: unknown) {
       <footer v-if="workspace || file" class="session-inspector__file-status">
         <span v-if="workspace" class="session-inspector__file-revision" :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : `${workspace.ref ? `${workspace.ref} · ` : ''}${workspace.revision}`">{{ workspace.revision === 'current' ? 'Current mounted files' : `${workspace.ref ? `${workspace.ref} · ` : ''}${workspace.revision.slice(0, 12)}` }}</span>
         <span v-if="selectedChange" class="session-inspector__change-note">{{ changeLabels[selectedChange.status] }} since {{ workspace?.base?.ref }}</span>
-        <span v-else-if="file">{{ file.revision === "current" ? "Current mounted file" : file.revision }}</span>
+        <span v-else-if="file && workspace?.base" class="session-inspector__change-note">Unchanged since {{ workspace.base.ref }}</span>
+        <span v-else-if="file && file.revision !== workspace?.revision" class="session-inspector__file-revision" :title="file.revision">{{ file.revision === "current" ? "Current mounted file" : file.revision.slice(0, 12) }}</span>
         <span v-if="file?.provenance">From {{ file.provenance.source }}</span>
         <span><template v-if="workspace">{{ workspace.paths.length }} files<span v-if="file"> · </span></template><template v-if="file">{{ consoleBytes(file.size) }}</template></span>
       </footer>
