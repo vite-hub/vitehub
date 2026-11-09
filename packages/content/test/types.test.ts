@@ -22,6 +22,14 @@ function docs(items: Array<{ key: string, content: string }>) {
   return { async items() { return items } }
 }
 
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 it("types every Source by name and by document path", async () => {
   const content = defineContent({
     sources: {
@@ -93,8 +101,8 @@ it("keeps changes received after a generation has read the Source", async () => 
   directories.push(directory)
   const file = join(directory, "content.d.ts")
   const items = [{ key: "about.md", content: "---\ntitle: About\n---\n" }]
-  const started = Promise.withResolvers<void>()
-  const resume = Promise.withResolvers<void>()
+  const started = deferred()
+  const resume = deferred()
   const content = defineContent({ sources: {
     docs: docs(items),
     blog: { async items() {
