@@ -1,11 +1,10 @@
-import { ask } from "@vite-hub/gateways"
+import { defineChoices } from "@vite-hub/decisions"
 import { getMessageText } from "../messages.ts"
-import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { askJev } from "../internal/ask-runtime.ts"
 
-import type { AiGateway } from "@vite-hub/gateways"
+import type { AiGateway, AiGatewayAsk, AskModel } from "@vite-hub/gateways"
 import type { Message } from "../messages.ts"
-import type { AgentCapabilityRuntimeContext } from "../types.ts"
+import type { AgentCapabilityRuntimeContext, AgentModelResolver } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type LlmDecisionChoiceDefinition =
@@ -20,15 +19,6 @@ export type LlmDecisionChoiceMap = Record<string, LlmDecisionChoiceDefinition>
 export interface NormalizedLlmDecisionChoice {
   description: string
   key: string
-}
-
-type DecisionObjectSchemaResult<T> =
-  | { success: true, value: T }
-  | { error: Error, success: false }
-
-export interface DecisionObjectSchema<T> {
-  schema: Record<string, unknown>
-  validate: (value: unknown) => DecisionObjectSchemaResult<T>
 }
 
 function assertStableId(id: string, label: string): void {
@@ -49,16 +39,6 @@ export function normalizeChoices(choices: LlmDecisionChoiceMap, label: string): 
       key,
     }
   })
-}
-
-export function confidence(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.max(0, Math.min(1, value))
-    : undefined
-}
-
-export function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
 export function latestUserText(inputPrompt: unknown, messages: Message[]): string {
@@ -83,95 +63,91 @@ export function renderHistory(messages: Message[], history: boolean | number | u
   return rendered.length ? rendered.join("\n") : undefined
 }
 
-function renderChoices(choices: NormalizedLlmDecisionChoice[]): string {
-  return choices.map(choice => `- ${choice.key}: ${choice.description}`).join("\n")
-}
-
-export function decisionPrompt(options: {
-  choices: NormalizedLlmDecisionChoice[]
-  history?: string
-  prompt?: string
-  task: string
-  userMessage: string
-}): string {
-  return [
-    options.prompt,
-    options.task,
-    `Choices:\n${renderChoices(options.choices)}`,
-    options.history ? `Recent conversation:\n${options.history}` : undefined,
-    `User request:\n${options.userMessage}`,
-  ].filter(Boolean).join("\n\n")
-}
-
-export function objectSchema<T>(schema: Record<string, unknown>, validate: (value: unknown) => T): DecisionObjectSchema<T> {
-  return {
-    schema: schema,
-    validate(value: unknown) {
-      try {
-        return { success: true as const, value: validate(value) }
-      }
-      catch (error) {
-        return { success: false as const, error: error instanceof Error ? error : agentDiagnostics.AGENT_R0109({ message: String(error) }) }
-      }
-    },
-  }
-}
-
-export async function generateDecision<T>(input: {
-  id: string
-  model: unknown
-  prompt: string
-  schema: DecisionObjectSchema<T>
-}): Promise<T> {
-  const { Output, generateText, jsonSchema } = await loadAiSdk()
-  const result = await generateText({
-    instructions: [
-      "You are a pre-invocation classifier for an AI agent.",
-      "Choose the best option from the allowed schema.",
-      "Do not answer the user request.",
-    ].join("\n"),
-    model: input.model as never,
-    output: Output.object({
-      description: `Decision result for ${input.id}.`,
-      name: input.id.replace(/[^A-Za-z0-9_]/g, "_"),
-      schema: jsonSchema<T>(input.schema.schema as never, { validate: input.schema.validate }),
-    }),
-    prompt: input.prompt,
-  })
-  return (result as { output: T }).output
-}
-
-export interface JevDecision {
+export interface LlmDecision {
   choice: string
   confidence: number
   probabilities: Record<string, number>
 }
 
-/**
- * Decides with TypeSafe Jev when the Agent uses `driver.ask` and the Capability sets no `model`.
- * Returns `undefined` to keep the chat model path. Jev returns probabilities, not a reason.
- */
-export async function jevDecision(
-  context: AgentCapabilityRuntimeContext,
-  options: { gateway?: AiGateway<{ ask: true }>, history?: boolean | number, model?: unknown, prompt?: string },
-  decision: { choices: NormalizedLlmDecisionChoice[], task: string },
-): Promise<JevDecision | undefined> {
-  if (options.model !== undefined || context.driver?.kind !== "ask") return
-  const [onlyChoice] = decision.choices
-  if (onlyChoice && decision.choices.length === 1) {
-    return { choice: onlyChoice.key, confidence: 1, probabilities: { [onlyChoice.key]: 1 } }
+/** Maximum UTF-8 bytes of JSON-encoded request text, reduced for Jev's state and question envelope. */
+const textLimit = 16_000
+
+const utf8 = new TextEncoder()
+
+/** The end of `text` that fits in `limit` bytes once JSON-encoded, cut on a code point boundary. */
+function lastBytes(text: string, limit: number): string {
+  const points = Array.from(text)
+  let size = 0
+  let start = points.length
+  while (start > 0) {
+    const next = utf8.encode(JSON.stringify(points[start - 1])).byteLength - 2
+    if (size + next > limit) break
+    size += next
+    start--
   }
+  return points.slice(start).join("")
+}
+
+/** The text that the decision reads: the Invocation `data` as JSON when a caller sets it, else the recent history and the latest user text. */
+function decisionText(context: AgentCapabilityRuntimeContext, history: boolean | number | undefined): string {
   const input = context.input.get()
   const messages = context.input.messages()
-  const history = renderHistory(messages, options.history)
   // `data` is part of the Agent Run Input once `defineAgent({ data })` is available. Read it when a caller sets it.
-  const state = "data" in input && input.data !== undefined
-    ? input.data
-    : { request: latestUserText(input.prompt, messages), ...(history ? { history } : {}) }
-  const criteria = Object.fromEntries(decision.choices.map(choice => [choice.key, choice.description]))
-  const instructions = [options.prompt, decision.task].filter(Boolean).join("\n\n")
-  const { decision: answer } = await askJev({ abortSignal: context.abortSignal, ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}), ...(options.gateway ? { gateway: options.gateway } : {}) }, state, {
-    decision: ask.choice(instructions, criteria),
+  if ("data" in input && input.data !== undefined) return JSON.stringify(input.data)
+  const recent = renderHistory(messages, history)
+  return [recent && `Recent conversation:\n${recent}`, `User request:\n${latestUserText(input.prompt, messages)}`].filter(Boolean).join("\n\n")
+}
+
+/**
+ * Decides with a Decisions group that infers one choice. `model`, or the Agent model, answers by default.
+ * `gateway` asks TypeSafe Jev instead. An ask Driver Agent has no Agent model, so it asks Jev through `typesafe()`.
+ */
+export async function decide(
+  context: AgentCapabilityRuntimeContext,
+  options: { gateway?: AiGateway<{ ask: true }>, history?: boolean | number, model?: AgentModelResolver, prompt?: string },
+  decision: { choices: NormalizedLlmDecisionChoice[], label: string, task: string },
+): Promise<LlmDecision> {
+  // One choice is the answer, so no model or key is needed.
+  const [only] = decision.choices
+  if (only && decision.choices.length === 1) return { choice: only.key, confidence: 1, probabilities: { [only.key]: 1 } }
+  const jev = options.model === undefined && (options.gateway !== undefined || context.driver?.kind === "ask")
+  const request = { abortSignal: context.abortSignal, ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}), ...(options.gateway ? { gateway: options.gateway } : {}) }
+  const ask: AiGatewayAsk = async (state, questions) => await askJev(request, state, questions)
+  const answerer = jev
+    ? { gateway: { ask } }
+    // SAFETY: `context.model.resolve()` returns the AI SDK model of the Capability or the Agent.
+    : { model: await context.model.resolve(options.model, { abortSignal: context.abortSignal }) as AskModel }
+  const choices = defineChoices({
+    ...answerer,
+    groups: {
+      decision: {
+        hints: decision.task,
+        infer: true,
+        label: decision.label,
+        multiple: false,
+        options: decision.choices.map(choice => ({ description: choice.description, label: choice.key, value: choice.key })),
+      },
+    },
+    ...(options.prompt ? { hints: options.prompt } : {}),
+    limits: { options: 255, text: textLimit, totalOptions: 255 },
+    // A route or gate always records its most likely choice.
+    thresholds: { option: 0 },
   })
-  return { choice: answer.choice, confidence: answer.confidence, probabilities: { ...answer.probabilities } }
+  let limit = textLimit
+  if (jev) {
+    const [error, plan] = await choices.inspect("x")
+    if (error) throw error
+    const size = (value: unknown) => utf8.encode(JSON.stringify(value)).byteLength
+    const stateSize = size({ ...plan.state, query: "" })
+    const questionSize = Math.max(...Object.entries(plan.questions).map(([name, question]) => size({ [name]: question })))
+    // Jev reserves 2,048 bytes for framing and 128 for each question. Leave room for both envelopes.
+    limit = Math.min(limit, 29_999 - 2048 - 128 - stateSize - questionSize)
+    if (limit < 1) throw agentDiagnostics.AGENT_R0108({ message: "[vitehub] The decision choices exceed the Jev input budget. Use fewer or shorter choices, or set model." })
+  }
+  const [error, selection] = await choices.resolve(lastBytes(decisionText(context, options.history), limit), { signal: context.abortSignal })
+  if (error) throw error
+  const { confidence, ranked } = selection.decision
+  const [best] = ranked
+  if (!best) throw agentDiagnostics.AGENT_R0108({ message: "[vitehub] A decision requires at least one choice." })
+  return { choice: best.value, confidence, probabilities: Object.fromEntries(ranked.map(item => [item.value, item.probability])) }
 }
