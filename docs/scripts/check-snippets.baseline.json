@@ -205,11 +205,6 @@
     "error": "TS2304 Cannot find name 'defineAgent'."
   },
   {
-    "id": "docs/content/docs/logs/get-started.md#b7725026293a",
-    "label": "vite.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
     "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
     "label": "server/api/signup.post.ts",
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
@@ -318,11 +313,6 @@
     "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
     "label": "server/connections/github.ts",
     "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#470146cec573",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"google\", options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<GoogleApis, { ...; }, false>', gave the following error.\n    Object literal may only specify known properties, and 'event' does not exist in type 'Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/content/editing-together.md#97e032df96d3",

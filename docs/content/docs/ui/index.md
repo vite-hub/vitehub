@@ -15,7 +15,7 @@ The package owns presentation, layout, and interaction defaults. Your app owns t
 
 Select a session to read its messages and reply. This example uses the package styles and built-in layouts.
 
-::component-preview{name="ChatAppBlock" flush reset}
+::example{name="ChatAppBlock" flush reset height=36}
 ::
 
 [Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), or [Collaborative editor](/docs/ui/blocks/collaborative-editor) into your application. Each block explains how to connect real data.
