@@ -29,10 +29,10 @@ Create a folder for the site, and add a `package.json` with the two scripts that
 }
 ```
 
-Install Nuxt, Nuxt UI, Tailwind CSS, and the docs module:
+Install Nuxt, Nuxt UI, Tailwind CSS, Comark with its Vue and HTML renderers and comark-ui, and the docs module:
 
 ```bash [commands/install]
-pnpm add @vite-hub/docs nuxt @nuxt/ui tailwindcss
+pnpm add @vite-hub/docs nuxt @nuxt/ui tailwindcss comark @comark/vue @comark/html comark-ui
 ```
 
 ::

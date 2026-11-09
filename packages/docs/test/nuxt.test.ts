@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -107,6 +107,23 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).not.toThrow()
     writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/missing">Missing</a>`)
     expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
+  it("writes the comark-ui stylesheet again after a build empties the build directory", async () => {
+    const options = await setupDocs({})
+    const stylesDir = join(options.buildDir, "docs/styles")
+    const [file] = readdirSync(stylesDir)
+    expect(file).toMatch(/^comark-[0-9a-f]{10}\.css$/)
+    rmSync(join(options.buildDir, "docs"), { recursive: true, force: true })
+    for (const hook of hooks.get("build:before") ?? []) await hook()
+    expect(readdirSync(stylesDir)).toEqual([file])
+  })
+
+  it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
+    const options = await setupDocs({})
+    const [file] = readdirSync(join(options.buildDir, "docs/styles"))
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\n`)
+    expect(JSON.stringify(options.app.head)).not.toContain("/_docs/")
   })
 
   it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
@@ -306,7 +323,7 @@ describe("docs Nuxt setup", () => {
 
   it("gives the page route and search the app's parser module", async () => {
     const options = await setupDocs({ parser: "./docs.parser.ts" })
-    expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\n`)
+    expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\nexport const githubRepo = null\n`)
     const nitro: { alias?: Record<string, string> } = {}
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
     expect(nitro.alias?.["#docs/parser"]).toBe("/build/docs/parser.mjs")
@@ -314,7 +331,12 @@ describe("docs Nuxt setup", () => {
 
   it("parses with the built-in plugins only without a parser module", async () => {
     await setupDocs({})
-    expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\n")
+    expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\nexport const githubRepo = null\n")
+  })
+
+  it("gives the parser the site's repository, where issue references link", async () => {
+    await setupDocs({ github: { repo: "vite-hub/vitehub" } })
+    expect(templates.get("docs/parser.mjs")?.()).toContain(`export const githubRepo = "vite-hub/vitehub"`)
   })
 
   it("writes relative Markdown links against the rendered page below the app base", async () => {
