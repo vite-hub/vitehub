@@ -13,7 +13,7 @@ icon: i-ph-paperclip-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/attachment`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Attachment, AttachmentMedia, AttachmentContent, AttachmentTitle } from "@vite-hub/ui";

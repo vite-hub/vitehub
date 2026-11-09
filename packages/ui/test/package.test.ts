@@ -1,7 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
-import { componentEntryName, componentNames } from "../src/component-names.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -60,32 +59,12 @@ const packageJson = parsePackageManifest(
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
 const sourceStylesheet = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
-const workspaceEntries = [
-  "./workspace",
-  "./workspace-shell",
-  "./workspace-file-tree",
-  "./workspace-editor",
-  "./workspace-terminal",
-  "./workspace-preview",
-  "./workspace-boot-status",
-  "./connect-panel",
-  "./browser-support-notice",
-];
-const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
+// The root holds every component. An entry of its own is only for parts whose dependencies a chat page must not load.
+const publicEntries = [".", "./headless", "./markdown-editor", "./nuxt", "./vite", "./workspace"];
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports)).toEqual(expect.arrayContaining([
-      ...componentEntries,
-      "./package.json",
-      "./styles.css",
-    ]));
-    expect(Object.keys(packageJson.exports)).not.toEqual(expect.arrayContaining([
-      "./agent-code-view",
-      "./agent-file-tree",
-      "./agent-tool-list",
-      "./agent-trace",
-    ]));
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./package.json", "./styles.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/ph": expect.any(String),
       "@nuxt/ui": expect.any(String),
@@ -138,26 +117,8 @@ describe("@vite-hub/ui package contract", () => {
   });
 
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
-  it.each([
-    ".",
-    ...componentEntries,
-    "./headless",
-    "./markdown-editor",
-    "./nuxt",
-    "./primitive-rail",
-    "./vite",
-    ...workspaceEntries,
-  ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
+  it.each(publicEntries)("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
-  });
-
-  it("keeps component entry exports identical to the root barrel", async () => {
-    const root = await import("../dist/index.js");
-    for (const component of componentNames) {
-      const entry = componentEntryName(component);
-      const subpath = await import(`../dist/${entry}.js`);
-      expect(subpath[component], entry).toBe(root[component]);
-    }
   });
 
   it("ships flat console surfaces that fill their containers", () => {
@@ -168,23 +129,26 @@ describe("@vite-hub/ui package contract", () => {
     expect(stylesheet).not.toContain("--vh-ui-text-muted");
   });
 
-  it("keeps WebContainer, CodeMirror, and xterm out of the root barrel and behind their own entries", () => {
+  it("keeps WebContainer, CodeMirror, and xterm out of the root barrel, and loads the editor and terminal on demand", () => {
     const dist = new URL("../dist/", import.meta.url);
     const read = (name: string) => readFileSync(new URL(name, dist), "utf8");
     const root = read("index.js");
     for (const name of ["@vite-hub/web-container", "@codemirror/", "@xterm/"]) expect(root, name).not.toContain(name);
+    // The app runs the WebContainer with `useWebContainer()` of @vite-hub/web-container/vue. The parts only render its state.
     const webContainerImporters = readdirSync(dist)
-      .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container"/.test(read(name)));
-    expect(webContainerImporters.every((name) => name === "workspace.js" || name.startsWith("use-workspace-"))).toBe(true);
-    expect(read("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
-    expect(read("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
+      .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container/.test(read(name)));
+    expect(webContainerImporters).toEqual([]);
+    expect(read("parts/workspace/workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
+    expect(read("parts/workspace/workspace-terminal.js")).not.toMatch(/from\s*"@xterm\//);
+    expect(read("parts/workspace/workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
   });
 
   it("keeps Tiptap out of the root barrel and its own dependency", () => {
     const dist = new URL("../dist/", import.meta.url);
     expect(readFileSync(new URL("index.js", dist), "utf8")).not.toContain("@tiptap/");
     // Bundled Tiptap would be a second copy beside the one Nuxt UI's editor menus use.
-    expect(readFileSync(new URL("markdown-editor.js", dist), "utf8")).toMatch(/from\s*"@tiptap\/vue-3"/);
+    const editor = readdirSync(dist).find((name) => /^markdown-editor-[^/]+\.js$/.test(name));
+    expect(editor && readFileSync(new URL(editor, dist), "utf8")).toMatch(/from\s*"@tiptap\/vue-3"/);
   });
 
   it("keeps KaTeX out of the global stylesheet", () => {

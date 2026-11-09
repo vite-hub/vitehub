@@ -420,7 +420,7 @@ Content bundles the Comark UI parser preset with the HTML-only `annotate`, `diff
 
 ```vue
 <script setup lang="ts">
-import { Markdown } from "vite-hub/ui/markdown"
+import { Markdown } from "vite-hub/ui"
 
 const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </script>
@@ -430,7 +430,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-Use `@vite-hub/ui/markdown` with the owner packages. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
+Use `@vite-hub/ui` with the owner packages. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
 
 `markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
 
@@ -466,7 +466,7 @@ A component that the preset and `components` do not know renders as an element w
 
 ### Migrate an existing Comark setup
 
-Replace the app's Comark renderer, component map, and document stylesheet imports with `Markdown` from `vite-hub/ui/markdown`. Pass the parsed page as `value`. Keep only app-specific renderer overrides in `components`.
+Replace the app's Comark renderer, component map, and document stylesheet imports with `Markdown` from `vite-hub/ui`. Pass the parsed page as `value`. Keep only app-specific renderer overrides in `components`.
 
 Remove app dependencies on Comark UI and Tiptap packages that were installed only for Content. Keep packages that the app imports directly, such as optional search plugins or extensions for a custom editor.
 

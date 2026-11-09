@@ -1,5 +1,5 @@
 import type { WebContainerStage } from "@vite-hub/web-container";
-import type { useWorkspace } from "@vite-hub/ui/workspace";
+import type { UseWebContainerReturn } from "@vite-hub/web-container/vue";
 
 /** A 1px divider with a wider hit area. It highlights on hover and while it moves. */
 export const splitterUi = {
@@ -19,7 +19,7 @@ const stageLabels: Partial<Record<WebContainerStage, string>> = {
 export type RunTone = "busy" | "ready" | "error";
 
 /** One line that says what the workspace does now, for a toolbar. */
-export function useRunState(workspace: ReturnType<typeof useWorkspace>) {
+export function useRunState(workspace: UseWebContainerReturn) {
   return computed<{ tone: RunTone, label: string }>(() => {
     const failure = workspace.failure.value;
     if (failure) return { tone: "error", label: failure.kind === "install" ? "Install failed" : failure.kind === "server" ? "The dev server stopped" : "Did not start" };

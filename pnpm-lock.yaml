@@ -1950,6 +1950,9 @@ importers:
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../ui
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
@@ -2008,12 +2011,21 @@ importers:
       '@vite-hub/gateways':
         specifier: workspace:*
         version: link:../gateways
+      '@vite-hub/icons':
+        specifier: workspace:*
+        version: link:../icons
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vue/test-utils':
+        specifier: 2.5.1
+        version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
+      happy-dom:
+        specifier: 21.0.3
+        version: 21.0.3
       nitropack:
         specifier: catalog:unjs
         version: 2.13.4(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@libsql/client@0.18.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@parcel/watcher@2.5.6)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(oxc-parser@0.153.0)(rolldown@1.2.12)(srvx@1.0.8)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3))
@@ -3157,6 +3169,9 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
     devDependencies:
+      '@ai-sdk/vue':
+        specifier: catalog:ai
+        version: 4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
@@ -3651,6 +3666,12 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vue/test-utils':
+        specifier: 2.5.1
+        version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
+      happy-dom:
+        specifier: 21.0.3
+        version: 21.0.3
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0
@@ -3666,6 +3687,9 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+      vue:
+        specifier: 3.5.44
+        version: 3.5.44(typescript@6.0.3)
 
   packages/workflow:
     dependencies:

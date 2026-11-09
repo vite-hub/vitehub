@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createAuthClient } from "@vite-hub/auth/vue";
-import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
+import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/docs/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
 import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";

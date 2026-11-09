@@ -40,6 +40,8 @@ test("boots the workspace shell with a real WebContainer, edits a file, and show
       alias: [
         { find: "@vite-hub/ui/styles.css", replacement: join(dist, "styles.css") },
         { find: /^@vite-hub\/ui\/(.+)$/, replacement: `${dist}$1.js` },
+        // @vite-hub/docs depends on this package, so the page takes the Connect panel from its source.
+        { find: "@vite-hub/docs/connect-panel", replacement: fileURLToPath(new URL("../../../docs/src/connect-panel.ts", import.meta.url)) },
       ],
     },
     root,

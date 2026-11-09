@@ -13,7 +13,7 @@ icon: i-ph-markdown-logo-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/markdown`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
 import { Markdown } from "@vite-hub/ui";
@@ -35,7 +35,7 @@ Pass a Content page directly. ViteHub uses its pre-parsed nodes without parsing 
 
 ```vue
 <script setup lang="ts">
-import { Markdown } from "vite-hub/ui/markdown";
+import { Markdown } from "vite-hub/ui";
 
 const { data: page } = await useFetch("/api/content/get/docs/introduction");
 </script>
@@ -127,7 +127,7 @@ Change the default class for every instance with the `markdown.class` [default](
 
 ### Markdown
 
-Renders a Markdown string or a parsed Content page as styled prose. The focused `vite-hub/ui/markdown` and `@vite-hub/ui/markdown` entries also export the `MarkdownValue` type.
+Renders a Markdown string or a parsed Content page as styled prose. `vite-hub/ui` and `@vite-hub/ui` also export the `MarkdownValue` type.
 
 #### Props
 

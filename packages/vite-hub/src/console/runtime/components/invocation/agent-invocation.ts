@@ -29,10 +29,9 @@ import { buildInvocationConversation, type InvocationConversation } from "./inte
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
 import { isSafeExternalUrl } from "./internal/url.ts";
-import { Markdown } from "@vite-hub/ui/markdown";
-import { ToolList } from "@vite-hub/ui/tool-list";
+import { Markdown, ToolList } from "@vite-hub/ui";
 
-const InvocationPatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
+const InvocationPatchDiff = defineAsyncComponent(() => import("../console-lazy-views.ts").then(module => module.PatchDiff));
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   const labels = {

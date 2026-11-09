@@ -15,7 +15,7 @@ icon: i-ph-chat-circle-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/bubble`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Bubble, BubbleContent, BubbleGroup, BubbleReactions } from "@vite-hub/ui";

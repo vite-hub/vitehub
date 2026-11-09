@@ -36,7 +36,7 @@ defineProps<{
   border-inline-end: 1px solid var(--ui-border);
 }
 
-/* The context panel matches the primitive rail from @vite-hub/ui: the same surface and hairline. */
+/* The context panel matches the primitive rail from @vite-hub/docs: the same surface and hairline. */
 .dark .vitehub-console__nav[data-slot="root"] {
   background: #000;
 }

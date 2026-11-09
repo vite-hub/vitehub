@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
+import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "#docs/primitive-rail"
 import { NuxtLink } from "#components"
 import { docsPanelOf, docsRailEntries, docsRailTarget, normalizeDocsPath } from "#docs/navigation"
 

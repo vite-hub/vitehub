@@ -13,7 +13,7 @@ icon: i-ph-paper-plane-tilt-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/prompt-input`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
 
 ```ts
 import { PromptInput, type PromptInputSubmit } from "@vite-hub/ui";

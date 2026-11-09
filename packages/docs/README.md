@@ -199,6 +199,15 @@ Markdown blocks are components in `components/content/`. The package has `::tuto
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 
+Two Vue entries hold the parts that docs pages share with other ViteHub surfaces. Their styles are in `@vite-hub/ui/styles.css`, which the module loads.
+
+| Entry | Parts |
+| --- | --- |
+| `@vite-hub/docs/primitive-rail` | `PrimitiveRail`, `PrimitiveRailGroup`, `PrimitiveRailItem`, and `PrimitiveIcon`, which draws a [`@vite-hub/icons`](../icons/README.md) icon inline so its rail item can move it on hover. The docs rail and the Console use them. They are internal and can change in any release. |
+| `@vite-hub/docs/connect-panel` | `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, for a playground or tutorial that lets the reader connect accounts to a [WebContainer](../web-container/README.md). |
+
+`ConnectPanel` takes the providers of `defineConnect()` and a state for each one. It emits `connect` for pasted tokens and `oauth` with the provider definition (including its `app` or `clientId`) for the application to start authorization. It also emits `disconnect`, `remove-all`, and `copy-command`. It does not store tokens. Without providers it shows `empty`, "No accounts needed." by default. `useConnectStore()` keeps them in sessionStorage by default (`storage: "local" | "memory"` also work), and falls back to memory when storage operations fail.
+
 ### Comark plugins
 
 The server parses each page with Comark, and the browser renders the nodes. Comark plugins are functions, so they go in a module that `parser` names:

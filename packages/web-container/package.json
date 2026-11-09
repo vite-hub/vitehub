@@ -9,6 +9,7 @@
     "typescript",
     "vite",
     "vitehub",
+    "vue",
     "webcontainer"
   ],
   "homepage": "https://vitehub.dev",
@@ -53,6 +54,11 @@
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -69,18 +75,25 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vue/test-utils": "2.5.1",
+    "happy-dom": "21.0.3",
     "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

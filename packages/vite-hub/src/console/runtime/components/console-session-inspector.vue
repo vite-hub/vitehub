@@ -13,8 +13,8 @@ import { consoleBytes } from "../client/format";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => module.FileTree));
-const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
+const ConsoleFileTree = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileTree));
+const ConsolePatchDiff = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.PatchDiff));
 
 type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
 type WorkspaceDescriptor = {

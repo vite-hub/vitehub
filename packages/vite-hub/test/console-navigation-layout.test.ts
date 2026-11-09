@@ -187,15 +187,12 @@ describe("shared Console navigation layout", () => {
 
   it("loads file and diff renderers only when their views open", () => {
     const inspector = component("console-session-inspector")
-    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/file-tree")')
-    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
-    expect(inspector).not.toContain('import { FileTree, PatchDiff } from "@vite-hub/ui"')
+    expect(inspector).toContain('defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileTree))')
+    expect(inspector).toContain('defineAsyncComponent(() => import("./console-lazy-views").then(module => module.PatchDiff))')
+    expect(inspector).not.toMatch(/import \{[^}]*\b(?:FileTree|PatchDiff)\b[^}]*\} from "@vite-hub\/ui"/)
     const invocation = readFileSync(new URL("../src/console/runtime/components/invocation/agent-invocation.ts", import.meta.url), "utf8")
-    expect(invocation).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
-    expect(invocation).not.toContain("import { Markdown, PatchDiff } from \"@vite-hub/ui\"")
-    const capabilityInspector = readFileSync(new URL("../src/console/runtime/components/invocation/agent-capability-inspector.ts", import.meta.url), "utf8")
-    expect(capabilityInspector).toContain('import { ToolList } from "@vite-hub/ui/tool-list"')
-    expect(capabilityInspector).not.toContain('import { ToolList } from "@vite-hub/ui"')
+    expect(invocation).toContain('defineAsyncComponent(() => import("../console-lazy-views.ts").then(module => module.PatchDiff))')
+    expect(invocation).not.toMatch(/import \{[^}]*\bPatchDiff\b[^}]*\} from "@vite-hub\/ui"/)
   })
 
   it("loads only the requested syntax grammar for workspace previews", () => {

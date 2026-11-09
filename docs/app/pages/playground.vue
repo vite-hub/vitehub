@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BrowserSupportNotice } from "@vite-hub/ui/browser-support-notice";
+import { BrowserSupportNotice } from "@vite-hub/ui/workspace";
 import { checkWebContainerSupport } from "@vite-hub/web-container";
 import { useClipboard, useMediaQuery } from "@vueuse/core";
 import { playgroundTemplates } from "#build/playground-templates.mjs";

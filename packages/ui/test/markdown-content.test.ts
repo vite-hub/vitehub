@@ -2,7 +2,7 @@ import { createSSRApp, defineComponent, h } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import { defineContent } from "@vite-hub/content";
-import { Markdown } from "../src/markdown.ts";
+import { Markdown } from "../src/components/markdown.ts";
 
 async function page() {
   const markdown = "# Ready\n\n> [!NOTE]\n> No renderer setup.\n\n::steps\n### First\nRead the page.\n### Next\nKeep going.\n::\n\nInline $x^2$.\n";

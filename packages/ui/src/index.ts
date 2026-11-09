@@ -2,6 +2,7 @@ export * from "./components/chat.ts";
 export * from "./components/chat-message.ts";
 export * from "./components/prompt-input.ts";
 export * from "./components/code-view.ts";
+export * from "./components/patch-parsers.ts";
 export * from "./components/file-tree.ts";
 export * from "./components/markdown.ts";
 export * from "./components/message-parts.ts";

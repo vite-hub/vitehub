@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { defineConnect } from "@vite-hub/web-container/connect";
-import { ConnectPanel, type ConnectProviderState, useConnectStore } from "@vite-hub/ui/connect-panel";
-import { useWorkspace } from "@vite-hub/ui/workspace";
-import { WorkspaceBootStatus } from "@vite-hub/ui/workspace-boot-status";
-import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
-import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
-import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
-import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
+import { ConnectPanel, type ConnectProviderState, useConnectStore } from "@vite-hub/docs/connect-panel";
+import { WorkspaceBootStatus, WorkspaceEditor, WorkspaceFileTree, WorkspacePreview, WorkspaceTerminal } from "@vite-hub/ui/workspace";
+import { useWebContainer } from "@vite-hub/web-container/vue";
 import { useClipboard } from "@vueuse/core";
 import { encodePlayground, shareHashKey, shareLimit } from "~/utils/playground-share";
 import WorkspacePane from "~/components/workspace/WorkspacePane.vue";
@@ -45,7 +41,7 @@ const sameManifest = props.files["package.json"] === props.template.files["packa
 // Tokens stay in this tab (sessionStorage). They reach the app only as environment variables of the dev server.
 const connect = defineConnect({ anthropic: true, github: true, netlify: true, openai: true, vercel: true });
 const store = useConnectStore();
-const workspace = useWorkspace({
+const workspace = useWebContainer({
   files: props.files,
   port: appPort,
   env: store.env(connect),

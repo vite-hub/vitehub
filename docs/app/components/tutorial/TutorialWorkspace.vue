@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { defineConnect } from "@vite-hub/web-container/connect";
-import { ConnectPanel } from "@vite-hub/ui/connect-panel";
-import { useWorkspace } from "@vite-hub/ui/workspace";
-import { WorkspaceBootStatus } from "@vite-hub/ui/workspace-boot-status";
-import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
-import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
-import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
-import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
+import { ConnectPanel } from "@vite-hub/docs/connect-panel";
+import { WorkspaceBootStatus, WorkspaceEditor, WorkspaceFileTree, WorkspacePreview, WorkspaceTerminal } from "@vite-hub/ui/workspace";
+import { useWebContainer } from "@vite-hub/web-container/vue";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import WorkspacePane from "~/components/workspace/WorkspacePane.vue";
 import WorkspaceRunState from "~/components/workspace/WorkspaceRunState.vue";
@@ -38,7 +34,7 @@ const stepFiles = (index: number, state: "start" | "solution"): Files => tutoria
 // The docs build writes a snapshot of node_modules, so the workspace mounts it instead of running `npm install`.
 // The browser keeps its parts in Cache Storage for later visits.
 const prebuilt = props.tutorial.snapshot;
-const workspace = useWorkspace({
+const workspace = useWebContainer({
   files: stepFiles(props.step, "start"),
   port: appPort,
   ...prebuilt && {

@@ -13,7 +13,7 @@ icon: i-ph-code-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entries `@vite-hub/ui/code-view` and `@vite-hub/ui/file-view`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { CodeView, FileView } from "@vite-hub/ui";

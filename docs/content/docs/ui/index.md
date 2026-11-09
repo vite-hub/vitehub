@@ -48,8 +48,8 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or the Vi
 | Import                    | Use it for                                                                     |
 | ------------------------- | ------------------------------------------------------------------------------ |
 | `@vite-hub/ui`            | Styled components, composables, display helpers, and Pierre diff helpers.      |
-| `@vite-hub/ui/<name>`     | One component or part family, such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. |
 | `@vite-hub/ui/headless`   | Message scroller and Choices input primitives without styles or Nuxt UI.       |
-| `@vite-hub/ui/choices-input` | The headless Choices input parts of `FilterSearch`.                        |
+| `@vite-hub/ui/markdown-editor` | `MarkdownEditor`. It has its own entry, so pages without it never load Tiptap. |
+| `@vite-hub/ui/workspace` | The live app parts for docs tutorials and playgrounds. It has its own entry, so pages without it never load CodeMirror or xterm. |
 | `@vite-hub/ui/vite`       | The Vite plugin for Vue applications. It configures Nuxt UI and Comark.        |
 | `@vite-hub/ui/styles.css` | The package stylesheet. Load it after Tailwind CSS and Nuxt UI.                |
