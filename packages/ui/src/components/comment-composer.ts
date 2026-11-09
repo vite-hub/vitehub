@@ -87,6 +87,9 @@ const pastedFiles = (clipboard: DataTransfer): File[] => {
 // The Figma composer. Enter sends and Shift+Enter breaks the line. Esc in an empty composer closes it. Esc in a composer
 // with text, and a click outside it, shake the box and keep the focus and the text, so a draft is never lost by accident.
 // A second Esc right after that shake means it: the text and files go and the composer closes.
+// How long a second Esc discards after the first one shook the box.
+const escapeWindow = 2000;
+
 export const CommentComposer = defineComponent({
   name: "CommentComposer",
   props: {
@@ -135,8 +138,14 @@ export const CommentComposer = defineComponent({
     const menuId = useId();
     const optionId = (index: number) => `${menuId}-option-${index}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // Set by the shake of an Esc. The next Esc, with nothing typed in between, discards the text and closes.
+    // Set by the shake of an Esc. The next Esc within `escapeWindow`, with nothing typed in between, discards the text
+    // and closes. The box says so while it is set.
     const escaped = ref(false);
+    let escapeTimer: ReturnType<typeof setTimeout> | undefined;
+    watch(escaped, (value) => {
+      clearTimeout(escapeTimer);
+      if (value) escapeTimer = setTimeout(() => (escaped.value = false), escapeWindow);
+    });
     let lookup = 0;
     let mentionCaret: number | undefined;
     // The `@` whose menu Esc closed. It stays closed until the caret leaves that mention.
@@ -222,6 +231,7 @@ export const CommentComposer = defineComponent({
     onBeforeUnmount(() => {
       root.value?.removeEventListener(shakeEventName, onShake);
       clearTimeout(timer);
+      clearTimeout(escapeTimer);
       for (const url of urls) URL.revokeObjectURL(url);
     });
     expose({ focus, shake });
@@ -455,8 +465,8 @@ export const CommentComposer = defineComponent({
                 )
               : null,
             (props.error ?? hint.value) ? h("p", { "data-slot": "comment-composer-error", role: "alert" }, props.error ?? hint.value) : null,
-            // The shake shows that the text stays. A screen reader hears what the next Esc does.
-            h("p", { "aria-live": "polite", class: "vh-visually-hidden", "data-slot": "comment-composer-status" }, escaped.value ? "Press Escape again to discard the comment." : ""),
+            // The shake shows that the text stays. The line says what the next Esc does, also to a screen reader.
+            h("p", { "aria-live": "polite", "data-slot": "comment-composer-status" }, escaped.value ? "Press Esc again to discard." : ""),
           ]),
         ],
       );

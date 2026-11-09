@@ -2086,6 +2086,17 @@
     margin: 0.375rem 0 0;
   }
 
+  /* "Press Esc again to discard." after an Esc in a box with text. It takes no room while it is empty. */
+  [data-slot="comment-composer-status"] {
+    color: var(--vh-muted);
+    font-size: 0.75rem;
+    margin: 0;
+  }
+
+  [data-slot="comment-composer-status"]:not(:empty) {
+    padding: 0.25rem 0.625rem 0.125rem;
+  }
+
   [data-slot="comment-thread"] {
     display: flex;
     flex-direction: column;
