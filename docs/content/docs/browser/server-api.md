@@ -80,9 +80,9 @@ pnpm add @vite-hub/browser
 ```
 
 ```ts [server/browser.ts]
-import { createBrowser } from '@vite-hub/browser'
-import { playwright } from '@vite-hub/browser/controllers/playwright'
-import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
+import { createBrowser } from 'vite-hub/browser'
+import { playwright } from 'vite-hub/browser/controllers/playwright'
+import { cloudflareBrowser } from 'vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
   provider: cloudflareBrowser({ binding: 'BROWSER' }),
@@ -107,16 +107,16 @@ If reading the controller client or attachment tracing fails, ViteHub releases t
 
 Install `@cloudflare/playwright` and `playwright-core` when using the Playwright controller on Cloudflare. Cloudflare builds select the `workerd` export condition and exclude the Node Playwright loader. Standalone Worker bundlers must also select `workerd`. The built-in Playwright CDP adapter requires Node.js.
 
-`localBrowser({ executablePath })` from `@vite-hub/browser/providers/local` starts a local Chromium process on a trusted host. It supports CDP control and live handoff. `playwright-core` supplies the controller but does not download a browser. ViteHub does not sandbox the browser process.
+`localBrowser({ executablePath })` from `vite-hub/browser/providers/local` starts a local Chromium process on a trusted host. It supports CDP control and live handoff. `playwright-core` supplies the controller but does not download a browser. ViteHub does not sandbox the browser process.
 
 ## Live handoff
 
 Low-level sessions can transfer one provider session through an opaque reference tied to an audience. The default Kitesurf engine does not support live handoff. Use `engine: 'chromium'` on Cloudflare, or `localBrowser()`.
 
 ```ts [server/browser-handoff.ts]
-import { createBrowser } from '@vite-hub/browser'
-import { cdp } from '@vite-hub/browser/controllers/cdp'
-import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
+import { createBrowser } from 'vite-hub/browser'
+import { cdp } from 'vite-hub/browser/controllers/cdp'
+import { cloudflareBrowser } from 'vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
   provider: cloudflareBrowser({ binding: 'BROWSER', engine: 'chromium' }),

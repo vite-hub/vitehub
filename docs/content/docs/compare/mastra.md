@@ -17,7 +17,7 @@ Mastra when the agent logic is the product and you need its memory, retrieval,
 or evals. Choose ViteHub when Agents are one part of a Vite or Nuxt app that
 also needs storage, background work, and host output.
 
-Mastra has a 1.x release. ViteHub is at 0.0.x, and its public API still
+Mastra has a 1.x release. ViteHub is at 0.1.x, and its public API still
 changes.
 
 ## Compare the scope
@@ -29,7 +29,7 @@ changes.
 | Frameworks | Angular, Astro, Electron, Express, Hono, NestJS, Next.js, Nuxt, React with Vite, SvelteKit, and TanStack Start | Vite with Nitro, and Nuxt 4.5.2 or newer |
 | Deploy | Built-in deployers for Vercel, Netlify, and Cloudflare, or your own server | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` presets |
 | Hosted option | The Mastra platform: Observability, Studio, and Server | None. ViteHub runs on your host account. |
-| Release | `@mastra/core` 1.80.0 | `vite-hub` 0.0.x |
+| Release | `@mastra/core` 1.80.0 | `vite-hub` 0.1.x |
 | License | Apache-2.0. Code in `ee/` folders needs an enterprise license for production. | Apache-2.0 |
 
 Sources: [Mastra docs](https://mastra.ai/docs),

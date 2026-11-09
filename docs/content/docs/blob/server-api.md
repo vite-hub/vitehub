@@ -10,17 +10,17 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `blob` from `@vite-hub/blob` | Read and write the Default Blob Store or named Blob Stores. |
-| `image`, `file` from `@vite-hub/blob` | Validate stored Blob references and describe them as JSON Schema for pickers. |
-| `blob.media` from `@vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
-| `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `@vite-hub/blob/media` | Browser-safe image helpers. `@vite-hub/blob` re-exports them for server code. |
+| `blob` from `vite-hub/blob` | Read and write the Default Blob Store or named Blob Stores. |
+| `image`, `file` from `vite-hub/blob` | Validate stored Blob references and describe them as JSON Schema for pickers. |
+| `blob.media` from `vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
+| `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `vite-hub/blob/media` | Browser-safe image helpers. `vite-hub/blob` re-exports them for server code. |
 | `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Classify common image and PDF signatures before storage. |
-| `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
+| `ensureBlob` from `vite-hub/blob` | Validate upload size and content type. |
 | `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and its Nitro plugin. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob Vite runtime config manually. |
 | `@vite-hub/blob/drivers/*` | Import provider-specific Blob Driver Modules. |
 
-All Blob driver, object, list, put, store, and module types are exported from `@vite-hub/blob`.
+All Blob driver, object, list, put, store, and module types are exported from `vite-hub/blob`.
 
 Blob writes preserve the metadata you provide. `detectContentType()` checks common leading signatures, but it doesn't validate the complete file or prove that the file is safe.
 
@@ -29,7 +29,7 @@ Blob writes preserve the metadata you provide. `detectContentType()` checks comm
 Use the `blob` Runtime Helper from server code.
 
 ```ts [server/api/files.post.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ path: string, text: string }>(event)
@@ -46,7 +46,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts [server/api/files/[...path].get.ts]
 import { createError, defineEventHandler, getRouterParam } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const path = getRouterParam(event, 'path')!
@@ -64,7 +64,7 @@ export default defineEventHandler(async (event) => {
 Use named Blob Stores when configuration defines multiple stores.
 
 ```ts [server/reports.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export const reports = blob.store('reports')
 ```
@@ -75,7 +75,7 @@ Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `
 
 ```ts [server/api/reports/[...path].get.ts]
 import { createError, defineEventHandler, getRouterParam } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 const reports = blob.store('reports', { mode: 'read' })
 
@@ -139,7 +139,7 @@ Filesystem cache keys normalize repeated slashes. Use consistent filename casing
 Configure a private store when originals and derived objects must be accessible only through your application. The transform does not change provider access settings. The original remains unchanged. Deleting it prevents serving the cached result, including a conditional `304`. An in-flight transform does not recreate its cache after the source is removed.
 
 ```ts [server/api/photos/[id].get.ts] fragment
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { createPreview, resolvePhotoPath } from '../../utils/photos'
 
 export default defineEventHandler(async (event) => {
@@ -185,7 +185,7 @@ stored.
 
 ```ts [server/api/files.post.ts]
 import { defineEventHandler } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   // Authorize the request here. The route decides who may upload.
@@ -206,7 +206,7 @@ export default defineEventHandler(async (event) => {
 | `ensure` | none | Options for [`ensureBlob()`](#ensureblobblob-options), checked for each file. |
 | `put` | none | [Write options](#write-options) for each `put()`. |
 
-In Vue, `useUpload()` from `@vite-hub/blob/vue` sends the form. The Nuxt module
+In Vue, `useUpload()` from `vite-hub/blob/vue` sends the form. The Nuxt module
 auto-imports it when `blob` is enabled.
 
 ```vue [app/components/AvatarUpload.vue]
@@ -239,7 +239,7 @@ Create one route with `action` and `pathname` params:
 
 ```ts [server/api/files/multipart/[action]/[...pathname].ts]
 import { defineEventHandler } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   // Authorize the request here. The client chooses the pathname.
@@ -291,7 +291,7 @@ request; `completed` then resolves with `undefined`.
 Server code can also drive an upload directly:
 
 ```ts [server/utils/copy-large-file.ts] fragment
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 const [createError, upload] = await blob.createMultipartUpload('exports/report.csv')
 if (createError) throw createError
@@ -319,7 +319,7 @@ upload progress makes the browser preflight even a simple multipart POST.
 Use `blob.sign()` when a client or provider needs short-lived direct access to one private object. The result contains the URL, HTTP method, and every header that must be sent with the request.
 
 ```ts [server/api/uploads/presign.post.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 const [sourceError, source] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'GET',
@@ -354,10 +354,10 @@ interface BlobReference {
 }
 ```
 
-`image()` and `file()` from `@vite-hub/blob` return validators for that shape. [Content](/docs/content/configure#fields) re-exports the same functions from `vite-hub/content`, next to its other field helpers. A reference has no URL, because signed and served URLs expire or depend on routes. It has no alt text or dimensions either: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)` when you render. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
+`image()` and `file()` from `vite-hub/blob` return validators for that shape. [Content](/docs/content/configure#fields) re-exports the same functions from `vite-hub/content`, next to its other field helpers. A reference has no URL, because signed and served URLs expire or depend on routes. It has no alt text or dimensions either: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)` when you render. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
 
 ```ts [server/api/profile/avatar.put.ts] fragment
-import { image } from '@vite-hub/blob'
+import { image } from 'vite-hub/blob'
 
 const avatar = image({ maxSize: '2MB' })
 

@@ -181,8 +181,8 @@ pnpm add @vite-hub/rate-limit
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { rateLimit } from 'vite-hub/agent/capabilities'
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const invocations = createRateLimiter({
   driver: memoryRateLimitDriver(),

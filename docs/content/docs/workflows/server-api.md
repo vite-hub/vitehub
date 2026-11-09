@@ -10,15 +10,15 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineWorkflow` from `@vite-hub/workflow` | Declare a Workflow Definition. |
-| `runWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflowSignal` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume Workflow Runs. |
-| `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle for app-owned code. |
-| `normalizeWorkflowOptions` from `@vite-hub/workflow` | Resolve Integration Options to a concrete Workflow Provider. |
-| `ViteHubError` from `@vite-hub/runtime` | Throw application-owned Workflow failures with stable codes. |
-| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `@vite-hub/workflow` | Read provider request payloads in custom runtime entrypoints. |
+| `defineWorkflow` from `vite-hub/workflow` | Declare a Workflow Definition. |
+| `runWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflowSignal` from `vite-hub/workflow` | Start, defer, inspect, cancel, or resume Workflow Runs. |
+| `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle for app-owned code. |
+| `normalizeWorkflowOptions` from `vite-hub/workflow` | Resolve Integration Options to a concrete Workflow Provider. |
+| `ViteHubError` from `vite-hub/runtime` | Throw application-owned Workflow failures with stable codes. |
+| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entrypoints. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Register Workflow discovery and provider output generation. |
 
-Workflow Provider, Definition, Run, Step, Start Options, and Integration Options types are exported from `@vite-hub/workflow`.
+Workflow Provider, Definition, Run, Step, Start Options, and Integration Options types are exported from `vite-hub/workflow`.
 
 ## Start a run
 
@@ -26,7 +26,7 @@ Use `runWorkflow()` from server code.
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { runWorkflow } from '@vite-hub/workflow'
+import { runWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
@@ -98,7 +98,7 @@ Use `getWorkflowRun()` when server code needs current run state.
 
 ```ts [server/api/workflows/[id].get.ts]
 import { defineEventHandler, getRouterParam } from 'h3'
-import { getWorkflowRun } from '@vite-hub/workflow'
+import { getWorkflowRun } from 'vite-hub/workflow'
 
 export default defineEventHandler((event) => {
   return getWorkflowRun('onboard-user', getRouterParam(event, 'id')!)

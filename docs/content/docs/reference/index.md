@@ -87,8 +87,6 @@ For example, Blob Provider SDK Adapters belong behind Blob Driver Modules, and W
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
 
-- `@vite-hub/box`
-
 - `@vite-hub/presets`
 
 - `@vite-hub/forge`

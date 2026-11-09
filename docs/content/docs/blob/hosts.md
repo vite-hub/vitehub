@@ -10,7 +10,7 @@ icon: i-lucide-cloud-cog
 
 Nitro writes the host output. `hubBlob()` adds a Nitro plugin that selects the default or named store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's generated `wrangler.json`. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
 
-Application code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
+Application code keeps importing `blob` from `vite-hub/blob` when you switch providers.
 
 ## Read and write blobs during development
 

@@ -30,7 +30,7 @@ if (error) {
 }
 ```
 
-`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
+`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
 
 Catalog definitions can provide static or computed `data`. Each factory infers its data type; `ResultError<Code, Data>` names it explicitly. Without a data type, `ResultError` keeps `data` as `unknown`. Diagnostic data stays in memory. The `toJSON()` type preserves the literal code and name and remains compatible with Nostics `Diagnostic`, so catalog errors can be passed directly to `formatDiagnostic()`. Nostics 1.3 requires `data` in its serializer type: this inherited type does not describe redaction. Read metadata from the error itself; runtime JSON still omits it.
 
@@ -47,7 +47,7 @@ Named codes use the format `<PACKAGE>_<NAME>`, for example `KV_INVALID_CURSOR` o
 The package prefix identifies the owner, for example `AGENT`, `AUTH`, `BLOB`, `DATABASE`, `ENV`, `KV`, `RATE_LIMIT`, `SANDBOX`, `SANDBOX_TASK`, or `WORKSPACE`. The family letter groups the package catalog. It does not classify when the failure can occur because one validation site can run during configuration, build, or runtime work. The number identifies one failure site. Codes stay stable when a message gains context. Catch a diagnostic by its complete `code` when the application can repair or classify that exact defect.
 
 ```ts
-import { getAgentFromRegistry } from '@vite-hub/agent'
+import { getAgentFromRegistry } from 'vite-hub/agent'
 
 try {
   await getAgentFromRegistry('triage', {})
@@ -62,13 +62,13 @@ catch (error) {
 
 When ViteHub wraps a lower-level failure, its `cause` remains available to protected in-process diagnostics. ViteHub preserves existing `DOMException`, `AggregateError`, cancellation errors, and application or third-party errors when their identity is part of the boundary contract.
 
-Use `isRuntimeDiagnostic(error)` from `@vite-hub/runtime` to recognize a live Nostics error across bundled copies. Check its `code` against the codes your operation can handle. The helper rejects serialized records and does not make diagnostic text safe to expose in a public response.
+Use `isRuntimeDiagnostic(error)` from `vite-hub/runtime` to recognize a live Nostics error across bundled copies. Check its `code` against the codes your operation can handle. The helper rejects serialized records and does not make diagnostic text safe to expose in a public response.
 
 Some code runs where the Nostics package cannot load. Browser page evaluation, uploaded Sandbox scripts, standalone Deno deploy runners, and test helpers can use native errors inside their isolated environment. The owning package translates or sanitizes those failures when they cross back into the ViteHub process.
 
 ## Operational errors
 
-Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+Packages that do not follow the error contract yet keep the `ViteHubError` contract from `vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
 
 `ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen. Its `cause` stays on the in-memory error and `toJSON()` omits it. Public details must be bounded JSON data.
 
@@ -103,7 +103,7 @@ Install `nostics` as a direct dependency when using it in application code. Omit
 
 AI SDK tool results, Codex and Claude Code MCP tool responses, tool-step reports, and CLI error output retain the code and repair guidance. Formatting omits causes and stacks. Only put information suitable for the model in the diagnostic message, fix, sources, and docs. The AI SDK adapter wraps a Nostics tool failure in an `Error` with the formatted message because the SDK reads only `error.message`; the original diagnostic remains its `cause`.
 
-`normalizeRuntimeDiagnosticError(error)` preserves Nostics metadata in bounded diagnostic records, including serialized Nostics errors. `formatRuntimeDiagnosticError(error)` from `@vite-hub/runtime` formats those records for text output. Sources share the node limit, and all strings share the size limit. Large error records can omit metadata when these limits are reached.
+`normalizeRuntimeDiagnosticError(error)` preserves Nostics metadata in bounded diagnostic records, including serialized Nostics errors. `formatRuntimeDiagnosticError(error)` from `vite-hub/runtime` formats those records for text output. Sources share the node limit, and all strings share the size limit. Large error records can omit metadata when these limits are reached.
 
 Public HTTP error mapping, approval decisions, and cancellation keep their existing contracts. A Nostics diagnostic does not become a public `ViteHubError`. Unknown public failures still map to `INTERNAL`. Public HTTP responses never serialize causes or stacks.
 

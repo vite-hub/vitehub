@@ -10,7 +10,7 @@ icon: i-lucide-cloud-cog
 
 The KV package selects the default or named store and generates store-name types. Put provider namespaces, bindings, and credentials in integration configuration or deployment setup.
 
-Application code keeps importing `kv` from `@vite-hub/kv` when you switch between local, Cloudflare, Deno, Vercel-compatible, or other drivers.
+Application code keeps importing `kv` from `vite-hub/kv` when you switch between local, Cloudflare, Deno, Vercel-compatible, or other drivers.
 
 `vite dev` keeps every store local unless it sets `remote: true`, also when `.env` has Upstash credentials. Read [Development stays local](/docs/kv/configure#development-stays-local).
 

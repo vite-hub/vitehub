@@ -15,9 +15,9 @@ Use the same SQLite Drizzle database that the app already uses, or a separate on
 This example keeps users and events in a discovered `auth` Database Definition. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
 ```ts [server/auth.ts]
-import { createDatabaseAuthEventStore, defineAuth } from '@vite-hub/auth'
-import { authDatabase } from '@vite-hub/auth/database'
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineAuth(() => ({
   database: authDatabase('auth'),
@@ -35,7 +35,7 @@ Better Auth 1.7.7 has a last-login-method plugin, but no bundled local audit log
 ## Read events from code
 
 ```ts
-import { aggregateAuthEvents, listAuthEvents } from '@vite-hub/auth/server'
+import { aggregateAuthEvents, listAuthEvents } from 'vite-hub/auth/server'
 
 const first = await listAuthEvents({
   type: 'user.signed_in',
@@ -78,7 +78,7 @@ Server readers do not authorize HTTP callers. Guard a route before returning the
 The Auth Vite Integration contributes `vitehub auth events`. It calls the app's Auth route. Enable this read endpoint with `events.authorize`, using the app's own access policy:
 
 ```ts fragment
-import type { AuthEventsConfiguration } from '@vite-hub/auth'
+import type { AuthEventsConfiguration } from 'vite-hub/auth'
 
 const events: AuthEventsConfiguration = {
   store,

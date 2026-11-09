@@ -62,7 +62,7 @@ icon: i-lucide-mail
 
   ```ts [test/welcome.test.ts]
   import { expect, it } from 'vitest'
-  import { createTestEmail } from '@vite-hub/email/test'
+  import { createTestEmail } from 'vite-hub/email/test'
 
   // Check an email without sending it
   it('sends the welcome email', async () => {

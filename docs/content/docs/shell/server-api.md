@@ -10,12 +10,12 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `createShellRuntime` from `@vite-hub/shell` | Create a Shell Runtime from an Execution Provider. |
-| `analyzeShellCommand` from `@vite-hub/shell` | Parse a command and return static command facts. |
-| `createJustBashProvider` from `@vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` runtime. |
-| `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `@vite-hub/shell/workspace` | Mount Workspace file access into Shell providers at `/workspace`. |
-| `runWorkspaceInspectionCommand` from `@vite-hub/shell/workspace` | Run a preflighted read-only Workspace inspection command. |
-| `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `@vite-hub/shell/workspace` | Normalize Workspace paths for shell-facing behavior. |
+| `createShellRuntime` from `vite-hub/shell` | Create a Shell Runtime from an Execution Provider. |
+| `analyzeShellCommand` from `vite-hub/shell` | Parse a command and return static command facts. |
+| `createJustBashProvider` from `vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` runtime. |
+| `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `vite-hub/shell/workspace` | Mount Workspace file access into Shell providers at `/workspace`. |
+| `runWorkspaceInspectionCommand` from `vite-hub/shell/workspace` | Run a preflighted read-only Workspace inspection command. |
+| `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `vite-hub/shell/workspace` | Normalize Workspace paths for shell-facing behavior. |
 
 Shell Runtime, Session, Policy, Boundary, Observation, Provider, process, and Workspace filesystem types are exported from these entrypoints. Applications that use the `vite-hub` distribution can import the same APIs from `vite-hub/shell`, `vite-hub/shell/providers/*`, and `vite-hub/shell/workspace`.
 
@@ -38,7 +38,7 @@ Custom providers can return Shell Observations as class instances. Sessions pres
 A Shell Session keeps policy across repeated commands: call budget, output size, timeouts, and process budget.
 
 ```ts [server/tasks/inspect-docs.ts]
-import { createShellRuntime } from '@vite-hub/shell'
+import { createShellRuntime } from 'vite-hub/shell'
 
 export async function inspect(runtime: ReturnType<typeof createShellRuntime>) {
   const session = runtime.createSession({
@@ -65,7 +65,7 @@ Session policy merges over the runtime policy. `session.startProcess()` starts a
 Command Analysis reports facts about a command before execution. The caller makes the final policy decision.
 
 ```ts [server/tasks/analyze-command.ts]
-import { analyzeShellCommand } from '@vite-hub/shell'
+import { analyzeShellCommand } from 'vite-hub/shell'
 
 const analysis = await analyzeShellCommand('rg TODO src')
 // analysis.commands: ['rg'], analysis.hasPipelines: false, analysis.ok: true

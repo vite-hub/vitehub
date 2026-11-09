@@ -59,7 +59,7 @@ When the KV handle returns an `[error, value]` tuple, the tool throws the error 
 
 ## Requirements
 
-- Configure the KV primitive. Generated Agent routes pass `kv` from `@vite-hub/kv` to the Capability when the KV Vite integration is active.
+- Configure the KV primitive. Generated Agent routes pass `kv` from `vite-hub/kv` to the Capability when the KV Vite integration is active.
 - Without a `kv` handle, tool resolution fails with `Capability "kv" requires the kv primitive to be configured.` The Agent Driver does not receive KV tools.
 - `store` requires a KV handle that exposes `store()`.
 

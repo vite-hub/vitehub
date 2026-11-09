@@ -24,7 +24,7 @@ Auth generates the Definition module, route handler, access middleware, and ambi
 Set `route: false` only when a host integration or a manual route mounts the Auth handler itself.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',

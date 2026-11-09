@@ -12,18 +12,18 @@ Use these imports and methods to work with a Workspace from server code.
 
 | Import | Use |
 | --- | --- |
-| `defineWorkspace` from `@vite-hub/workspace` | Declare a Workspace Definition. |
-| `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions for a Workspace. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Workspace Source Bindings. |
-| `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools from Workspace access. |
-| Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources and process-local readiness into runtime facades. |
-| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
-| `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Add rules and hooks to a Workspace you do not define. See [Add plugins to a Workspace](#add-plugins-to-a-workspace). |
-| `workspaceFile` from `@vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
+| `defineWorkspace` from `vite-hub/workspace` | Declare a Workspace Definition. |
+| `useWorkspace` from `vite-hub/workspace` | Read, write, diff, snapshot, sync, or start sessions for a Workspace. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `vite-hub/workspace` | Declare Workspace Source Bindings. |
+| `createWorkspaceTools` from `vite-hub/workspace` | Build AI SDK tools from Workspace access. |
+| Source resolution, request, and preparation helpers from `vite-hub/workspace/runtime` | Integrate resolved Workspace Sources and process-local readiness into runtime facades. |
+| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
+| `registerWorkspacePlugin` from `vite-hub/workspace` or `@vite-hub/workspace/runtime` | Add rules and hooks to a Workspace you do not define. See [Add plugins to a Workspace](#add-plugins-to-a-workspace). |
+| `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/test` | Add loaders, or register test Workspaces. |
 
-Workspace definition, Source Binding, rule, hook, store, sync, facade, and session types are exported from `@vite-hub/workspace`. Source resolution runtime types are exported from `@vite-hub/workspace/runtime`.
+Workspace definition, Source Binding, rule, hook, store, sync, facade, and session types are exported from `vite-hub/workspace`. Source resolution runtime types are exported from `vite-hub/workspace/runtime`.
 
 ## Runtime facade
 
@@ -75,7 +75,7 @@ AI SDK tool cancellation is forwarded to the Shell provider and Workspace Sessio
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. Keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:` are reserved for Workspace internals, and `setMeta` rejects them. |
 
-When wrapping a writable facade with a replacement `fs`, call `forwardWorkspaceFacade(base, wrapped)` from `@vite-hub/workspace/runtime` to preserve internal Source Sync routing. This forwards enclosing Source guards and durable sync metadata without exposing privileged setters. Keep public writes delegated to the original facade.
+When wrapping a writable facade with a replacement `fs`, call `forwardWorkspaceFacade(base, wrapped)` from `vite-hub/workspace/runtime` to preserve internal Source Sync routing. This forwards enclosing Source guards and durable sync metadata without exposing privileged setters. Keep public writes delegated to the original facade.
 
 Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition preserves files last materialized by another definition. Shared paths still contain the most recent write.
 
@@ -275,7 +275,7 @@ The `translate` Queue job reads `workspace.stale`, translates each stale file wi
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
 
 ```ts fragment
-import { registerWorkspacePlugin } from '@vite-hub/workspace'
+import { registerWorkspacePlugin } from 'vite-hub/workspace'
 
 registerWorkspacePlugin('content', {
   id: 'content-schema',
@@ -308,7 +308,7 @@ Workspace Source Sync copies selected Source-backed paths into the Workspace Sto
 Only Sources declared with `sync: true` or a sync policy participate in runtime `workspace.sync()`.
 
 ```ts [server/tasks/sync-docs.ts]
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export async function syncDocs() {
   const workspace = useWorkspace('docs', { mode: 'write' })
@@ -347,8 +347,8 @@ Use a Workspace Session when a command needs a materialized file tree and must p
 `session.exec()` requires an open Sandbox Session. Workspace handles materialization, diff, commit, and rollback. Sandbox runs the command and manages its lifecycle.
 
 ```ts [server/tasks/test-docs.ts]
-import { resolveSandbox } from '@vite-hub/sandbox'
-import { useWorkspace } from '@vite-hub/workspace'
+import { resolveSandbox } from 'vite-hub/sandbox'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export async function testDocs() {
   const sandbox = await resolveSandbox({ runtime: 'trusted-host' }, undefined)
@@ -396,7 +396,7 @@ pnpm add mountx@0.0.2
 ```ts [server/tasks/edit-docs.ts]
 import { createWorkspaceDriver } from '@vite-hub/workspace/mountx'
 import { mount } from 'mountx/auto'
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 const session = await useWorkspace('docs', { mode: 'write' }).startSession()
 

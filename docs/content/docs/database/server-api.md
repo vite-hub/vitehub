@@ -10,21 +10,21 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
-| `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the bound parameter limit of D1. |
+| `defineDatabase` from `vite-hub/database` | Declare a Database Definition. |
+| `useDatabase` from `vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
+| `chunkParameters` from `vite-hub/database/drizzle` | Split values so each statement stays under the bound parameter limit of D1. |
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
 
-All Database Definition, integration, connection, Cloudflare D1, Drizzle, and runtime config types are exported from `@vite-hub/database`.
+All Database Definition, integration, connection, Cloudflare D1, Drizzle, and runtime config types are exported from `vite-hub/database`.
 
 ## Use it at runtime
 
 Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
 
 ```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('default')
@@ -39,7 +39,7 @@ The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server co
 Use Named Databases when the app needs more than one independent database. Name a database for a real data or deployment split, not for a source-code folder.
 
 ```ts [src/analytics.database.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const events = sqliteTable('events', {
@@ -54,7 +54,7 @@ export default defineDatabase({
 ```
 
 ```ts [server/api/events.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('analytics')
@@ -68,7 +68,7 @@ Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
-import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
+import { chunkParameters, useDatabase } from 'vite-hub/database/drizzle'
 
 const { db, schema } = useDatabase('default')
 

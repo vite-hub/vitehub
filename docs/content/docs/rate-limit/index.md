@@ -62,10 +62,10 @@ icon: i-lucide-gauge
 
   ```ts [server/api/search.get.ts]
   import { defineEventHandler } from 'h3'
-  import { createRateLimiter } from '@vite-hub/rate-limit'
+  import { createRateLimiter } from 'vite-hub/rate-limit'
   import {
     memoryRateLimitDriver,
-  } from '@vite-hub/rate-limit/drivers/memory'
+  } from 'vite-hub/rate-limit/drivers/memory'
 
   const limiter = createRateLimiter({
     driver: memoryRateLimitDriver(),

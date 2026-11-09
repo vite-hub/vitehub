@@ -219,7 +219,7 @@ Without `artifacts.directory`, transcripts use `transcripts/<date>/<stem>.txt` a
 
 ### Public helpers
 
-Import these helpers from `@vite-hub/agent/capabilities` when custom hooks or executors need the same normalized data as the Capability.
+Import these helpers from `vite-hub/agent/capabilities` when custom hooks or executors need the same normalized data as the Capability.
 
 | Helper | Return value | Behavior |
 | --- | --- | --- |

@@ -12,7 +12,7 @@ Each KV operation returns `[error, value]`. When `error` is set, `error.code` na
 
 ```ts [server/api/settings.get.ts]
 import { defineEventHandler } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const [error, settings] = await kv.get('settings')

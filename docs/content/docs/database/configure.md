@@ -55,7 +55,7 @@ A project uses either one Default Database or a set of Named Databases. Mixing b
 An enabled Vite Database without a Definition is one empty Default Database. It works like `server/databases/config.ts` with `defineDatabase({ schema: {} })`: it uses `database.connection`, keeps migrations in `server/databases/migrations`, receives contributed tables, and is listed by `vitehub inspect` and the Console. Connections use it for their tables. The Nuxt module does not add it.
 
 ```ts [src/database.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export default defineDatabase({
@@ -170,7 +170,7 @@ database has the tables of all of them, and `vitehub db generate` writes one set
 of migrations for it.
 
 ```ts [layers/blog/server/databases/config.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export default defineDatabase({
@@ -388,7 +388,7 @@ pnpm add postgres
 ```
 
 ```ts [server/databases/config.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { pgTable, serial, text } from 'drizzle-orm/pg-core'
 
 export default defineDatabase({

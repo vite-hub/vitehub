@@ -11,8 +11,8 @@ icon: i-lucide-circle-alert
 Throw `ViteHubError` when app code needs a stable failure contract across Workflow Providers. ViteHub-owned failures use the package's fixed `WorkflowErrorCode` vocabulary.
 
 ```ts [server/workflows/transcribe.ts] fragment
-import { ViteHubError } from '@vite-hub/runtime'
-import { defineWorkflow } from '@vite-hub/workflow'
+import { ViteHubError } from 'vite-hub/runtime'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow<{ recordingId: string }>(async ({ payload }) => {
   try {

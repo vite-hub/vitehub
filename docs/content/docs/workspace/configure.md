@@ -58,16 +58,16 @@ Public Workspace paths reserve `.git` at any depth and `.vitehub` at the root, r
 Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration.
 
 ```ts [server/databases/history/config.ts]
-import { defineDatabase } from '@vite-hub/database'
-import { workspaceHistorySchema } from '@vite-hub/workspace/blob-database'
+import { defineDatabase } from 'vite-hub/database'
+import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 
 export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
 ```
 
 ```ts [server/workspaces/drop.ts]
-import { blob } from '@vite-hub/blob'
-import { defineWorkspace } from '@vite-hub/workspace'
-import { createBlobDatabaseWorkspaceStore } from '@vite-hub/workspace/blob-database'
+import { blob } from 'vite-hub/blob'
+import { defineWorkspace } from 'vite-hub/workspace'
+import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
 import historyDatabase from '../databases/history/config'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
@@ -275,7 +275,7 @@ Workspace binding behavior.
 Use `createWorkspacePreparation()` when a process must materialize required Sources before reporting readiness:
 
 ```ts
-import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
+import { createWorkspacePreparation } from 'vite-hub/workspace/runtime'
 
 export const preparation = createWorkspacePreparation({
   retryDelayMs: 10_000,
@@ -321,7 +321,7 @@ Use `custom({ files })` when a Custom Source knows its Workspace paths before it
 Invocation-aware resolution belongs to Source helpers and custom Source definitions, not to the Source Binding wrapper. Use resolver forms such as `fetch(resolver)` or the resolver accepted by the relevant helper, then add binding behavior such as `mount`, `cache`, or `sync` around the result.
 
 ```ts [server/workspaces/support.ts]
-import { custom, defineWorkspace } from '@vite-hub/workspace'
+import { custom, defineWorkspace } from 'vite-hub/workspace'
 
 const guideSlugs = ['getting-started', 'inventory-planning']
 

@@ -41,7 +41,7 @@ When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting
 Create a Workflow Definition for named long-running work.
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow<{ email: string }>(async ({ payload }) => {
   const user = await createUser(payload.email)
@@ -80,7 +80,7 @@ import {
   defineWorkflow,
   type WorkflowExecutionContext,
   type WorkflowProviderContext,
-} from '@vite-hub/workflow'
+} from 'vite-hub/workflow'
 
 interface OnboardPayload {
   email: string

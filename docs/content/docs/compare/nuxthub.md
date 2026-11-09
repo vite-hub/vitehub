@@ -15,7 +15,7 @@ Agents. Stay on NuxtHub if your Nuxt app needs only those four features, or if
 it needs MySQL. Use ViteHub if your app also needs background work or Agents,
 or if it is a Vite app without Nuxt.
 
-Neither project has a 1.0 release. NuxtHub is at v0.10. ViteHub is at 0.0.x,
+Neither project has a 1.0 release. NuxtHub is at v0.10. ViteHub is at 0.1.x,
 and its public API still changes.
 
 ## What NuxtHub is today

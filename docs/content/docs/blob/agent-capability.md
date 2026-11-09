@@ -104,7 +104,7 @@ await blob_edit({
 
 ## Requirements
 
-- Configure the Blob primitive. Generated Agent routes pass `blob` from `@vite-hub/blob` to the Capability when the Blob Vite integration is active.
+- Configure the Blob primitive. Generated Agent routes pass `blob` from `vite-hub/blob` to the Capability when the Blob Vite integration is active.
 - Without a `blob` handle, the Capability imports `blob` from an installed `@vite-hub/blob` package. If that import fails, the first tool call fails. The tools are listed before this check.
 - `store` requires a Blob handle that exposes `store()`.
 - `workspacePath` requires a Workspace file system or an active Agent Workspace Session.

@@ -42,7 +42,7 @@ pnpm add @vite-hub/schedule
 Create `server/schedules/daily-report.ts`:
 
 ```ts [server/schedules/daily-report.ts]
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',
@@ -67,7 +67,7 @@ Later, replace the `console.log` with your report code.
 Create `run.ts` next to `package.json`. It runs the job one time, as if the clock showed 08:00 UTC on 27 August 2026:
 
 ```ts [run.ts]
-import { executeStaticSchedule } from '@vite-hub/schedule/runtime'
+import { executeStaticSchedule } from 'vite-hub/schedule/runtime'
 import dailyReport from './server/schedules/daily-report.ts'
 
 const run = await executeStaticSchedule({

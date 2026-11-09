@@ -13,7 +13,7 @@ Create one Primary Auth Definition in `server/auth.ts` or `server.auth.ts`. Vite
 In a Nuxt application, a layer can supply `server/auth.ts`. An application Definition replaces it. Auth Definitions in two layers fail the build until the application defines one.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
@@ -70,7 +70,7 @@ export default defineConfig({
 ```
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   appName: 'Acme',
@@ -112,8 +112,8 @@ Turn it on only when a proxy you run sets these headers. Without one, a client c
 Use the `stateless()` preset when users sign in only with social providers and the app has no database. Each session is in an encrypted cookie, so it survives restarts and works across replicas and Workers.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
-import { stateless } from '@vite-hub/auth/presets'
+import { defineAuth } from 'vite-hub/auth'
+import { stateless } from 'vite-hub/auth/presets'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   baseURL: requestOrigin,
@@ -160,7 +160,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
 
 ```ts [server/auth.ts] fragment
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   session: {
@@ -385,7 +385,7 @@ The `database` and `secondaryStorage` fields describe intended ViteHub primitive
 | `secondaryStorage: { store: 'auth' }` | The named KV Store `auth`. |
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',

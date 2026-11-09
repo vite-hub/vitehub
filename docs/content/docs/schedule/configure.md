@@ -65,7 +65,7 @@ The keys are Schedule names. The cron replaces the declared one in the generated
 Use a Static Schedule Definition when the host needs build-time Provider Output such as cron entries or provider wake configuration.
 
 ```ts [server/schedules/daily-report.ts] fragment
-import { defineSchedule } from '@vite-hub/schedule'
+import { defineSchedule } from 'vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',

@@ -30,7 +30,7 @@ that your application has already validated.
 Create this file and its parent directory. Double braces insert scalar values as escaped text. `:insert` preserves the Markdown list, so only pass a fragment that your application trusts.
 
 ```ts [server/render-release.ts]
-import { renderMarkdownTemplate } from "@vite-hub/markdown-template";
+import { renderMarkdownTemplate } from "vite-hub/markdown-template";
 
 const markdown = await renderMarkdownTemplate(
   [

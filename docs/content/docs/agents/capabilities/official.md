@@ -8,7 +8,7 @@ icon: i-lucide-list-checks
 navigation.kind: Reference
 ---
 
-ViteHub exports its built-in Capabilities from `@vite-hub/agent/capabilities`.
+ViteHub exports its built-in Capabilities from `vite-hub/agent/capabilities`.
 Choose a Capability by what the Agent needs to do. Each linked page shows how to configure it, what the Agent receives, and how to verify it.
 
 Import the selected factory from `vite-hub/agent/capabilities`. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a complete definition. Each Server Primitive keeps its Capability contract beside its server API; the links below go to that owner.

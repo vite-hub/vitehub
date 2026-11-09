@@ -73,7 +73,7 @@ Compose shared sections in TypeScript by rendering another template and passing 
 `renderMarkdownTemplate()` returns Markdown. Pass values through `data`; templates read them with Comark bindings such as `{{ data.title }}`.
 
 ```ts
-import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
+import { renderMarkdownTemplate } from 'vite-hub/markdown-template'
 
 const template = `# Review {{ data.number }}
 

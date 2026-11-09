@@ -10,7 +10,7 @@ navigation.kind: Guides
 An AI gateway is one object that knows where AI requests go and how to sign them. A gateway has three capabilities:
 
 - **Driver routes.** A provider Driver sends Codex or Claude Code model requests through the gateway. Set the gateway as `driver.gateway`.
-- **AI SDK models.** `languageModel(gateway, modelId)` from `@vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model for `generateText()`, `streamText()`, or any library that takes one.
+- **AI SDK models.** `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model for `generateText()`, `streamText()`, or any library that takes one.
 - **`ask()`.** The gateway answers typed [TypeSafe Jev](https://typesafe.ai) questions, such as "which category fits this transaction". Only gateways that can reach Jev have `ask()`.
 
 Each preset is one gateway, and its type says what it can do. `@vite-hub/gateways` has no Agent, Vite, or Nitro code, so you can also use it in a plain Node script, a Worker, or another framework.
@@ -33,8 +33,8 @@ pnpm add @vite-hub/gateways ai @ai-sdk/openai-compatible
 
 ```ts [answer.ts]
 import { generateText } from 'ai'
-import { openrouter } from '@vite-hub/gateways'
-import { languageModel } from '@vite-hub/gateways/ai-sdk'
+import { openrouter } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
 // Reads OPENROUTER_API_KEY when it sends the request.
 const model = languageModel(openrouter(), 'google/gemini-3-flash')
@@ -59,7 +59,7 @@ The gateway resolves its URL, key, and headers for each request, so a rotated ke
 ## Ask your first question
 
 ```ts [label.ts]
-import { ask, typesafe } from '@vite-hub/gateways'
+import { ask, typesafe } from 'vite-hub/gateways'
 
 // Reads TYPESAFE_API_KEY.
 const gateway = typesafe()
@@ -86,7 +86,7 @@ The answer types come from the questions. [Use an ask Driver](/docs/agents/agent
 `askWithModel(model)` answers the same questions with any [AI SDK](https://ai-sdk.dev) model, in one structured output request. Use it where a gateway with `ask()` goes. It needs the `ai` package:
 
 ```ts [label.ts]
-import { ask, askWithModel } from '@vite-hub/gateways'
+import { ask, askWithModel } from 'vite-hub/gateways'
 import { openai } from '@ai-sdk/openai'
 
 const answers = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
@@ -123,7 +123,7 @@ Vercel keeps its credentials in separate Server Env fields: `vercel.apiKey` read
 A value that you pass replaces its variable. Pass the values when the application stores the credentials, for example one key for each tenant:
 
 ```ts fragment
-import { cloudflare, typesafe, vercel } from '@vite-hub/gateways'
+import { cloudflare, typesafe, vercel } from 'vite-hub/gateways'
 
 typesafe({ apiKey: tenant.typesafeKey })
 vercel({ apiKey: tenant.aiGatewayKey })

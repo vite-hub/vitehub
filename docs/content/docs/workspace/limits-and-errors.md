@@ -37,7 +37,7 @@ Local Store lock markers do not expire by age. A crashed process can leave a mar
 Stop every process using the Workspace before recovery. Prevent changes to the Store and its ancestor directories throughout the call. Then run `recoverLocalWorkspaceLocks()` with the exact directory configured as the Local Store's `root`:
 
 ```ts
-import { recoverLocalWorkspaceLocks } from '@vite-hub/workspace/runtime'
+import { recoverLocalWorkspaceLocks } from 'vite-hub/workspace/runtime'
 
 await recoverLocalWorkspaceLocks({
   root: '/srv/app/.vitehub/workspaces/docs',

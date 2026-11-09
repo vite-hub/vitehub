@@ -10,10 +10,10 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `runSandboxTask` from `@vite-hub/sandbox/task` | Invoke a discovered Definition by name. Returns a native `Response`. |
-| `defineSandboxTask` from `@vite-hub/sandbox/task` | Declare a free-form `<path>.sandbox-task.ts` Definition. |
-| `resolveSandboxTaskRunner` from `@vite-hub/sandbox/task` | Resolve a runner and read its `executionAuthority` before execution. |
-| `readRequestPayload`, `readValidatedPayload` from `@vite-hub/sandbox/task` | Read the JSON body of a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, then validate it with a Standard Schema or a validation function. |
+| `runSandboxTask` from `vite-hub/sandbox/task` | Invoke a discovered Definition by name. Returns a native `Response`. |
+| `defineSandboxTask` from `vite-hub/sandbox/task` | Declare a free-form `<path>.sandbox-task.ts` Definition. |
+| `resolveSandboxTaskRunner` from `vite-hub/sandbox/task` | Resolve a runner and read its `executionAuthority` before execution. |
+| `readRequestPayload`, `readValidatedPayload` from `vite-hub/sandbox/task` | Read the JSON body of a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, then validate it with a Standard Schema or a validation function. |
 | `hubSandboxTask` from `@vite-hub/sandbox/task/vite` | Register discovery, types, package preparation, and Provider Output. |
 
 Applications that use the `vite-hub` distribution import the same runtime APIs from `vite-hub/sandbox/task`.
@@ -24,7 +24,7 @@ Applications that use the `vite-hub` distribution import the same runtime APIs f
 
 ```ts [server/api/release-notes-json.post.ts]
 import { defineEventHandler } from 'h3'
-import { runSandboxTask } from '@vite-hub/sandbox/task'
+import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineEventHandler(async () => {
   const response = await runSandboxTask('release-notes', { notes: 'ship it' }, {

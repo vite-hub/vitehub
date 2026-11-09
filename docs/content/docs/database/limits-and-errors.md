@@ -18,7 +18,7 @@ ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `c
 - A Cloudflare D1 HTTP error rejects the Drizzle query. Drizzle can wrap it, so read `error.cause` of the query error.
 
 ```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database/drizzle'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')

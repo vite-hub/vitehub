@@ -23,7 +23,7 @@ Use `defineChannel()` when your application needs another transport. For outboun
 
 ## Add a Channel
 
-Import Channel helpers from `@vite-hub/agent/channels`.
+Import Channel helpers from `vite-hub/agent/channels`.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'

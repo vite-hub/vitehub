@@ -11,7 +11,7 @@ icon: i-lucide-circle-alert
 `runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the page of the code in [Queue diagnostics](/docs/queue/diagnostics). `error.cause` keeps the provider error.
 
 ```ts [server/api/signup.post.ts]
-import { runQueue } from '@vite-hub/queue'
+import { runQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
@@ -42,7 +42,7 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 
 A handler can throw. Queue Delivery logs the error and lets the provider retry it, except for Queue errors that a retry cannot fix. Cloudflare acknowledges those, Vercel acknowledges them when `callbackOptions.retry` returns `undefined`, and the local provider keeps them as dead jobs. `QUEUE_PROVIDER_FAILED` and `QUEUE_PROVIDER_INVALID_RESPONSE` retry; every other Queue code is acknowledged. Use `onError` or `callbackOptions.retry` to choose another action on Cloudflare or Vercel. The local provider does not call them. See [Local delivery](#local-delivery).
 
-Throw `ViteHubError` from `@vite-hub/runtime` when the handler needs a stable application code. Its code does not change the retry policy.
+Throw `ViteHubError` from `vite-hub/runtime` when the handler needs a stable application code. Its code does not change the retry policy.
 
 ```ts fragment
 new ViteHubError('WELCOME_EMAIL_REJECTED', 'Welcome email was rejected.', {

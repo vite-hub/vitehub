@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `RealtimeDocumentConflict` from `vite-hub/realtime` | Throw from a document adapter when `ifDigest` no longer matches. |
 | `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read the `body`, `fields`, and `status` root types of a room document. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
-| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
+| `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell the open room of a document that its stored copy changed. |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check whether this build has a room authority. See [Builds without Realtime](/docs/realtime/configure#builds-without-realtime). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, for wrapping or composing. |
@@ -276,8 +276,8 @@ document changes, so create the editor again for each document. Pass
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document, and it has no Vue dependency. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
 ```ts fragment
-import { connectRealtimeRoom } from '@vite-hub/realtime/client'
-import { commentRoom, normalizeCommentPage } from '@vite-hub/comments'
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+import { commentRoom, normalizeCommentPage } from 'vite-hub/comments'
 
 const page = normalizeCommentPage(location.pathname)
 const room = connectRealtimeRoom('comments', commentRoom(page), { changes: true, params: { page } })
