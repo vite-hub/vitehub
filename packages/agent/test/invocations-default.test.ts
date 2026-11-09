@@ -6,11 +6,33 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsDatabase, resolveDefaultAgentInvocationsLocation } from "../src/invocations/default.ts"
+
+const opens = vi.hoisted(() => ({ count: 0, delayMs: 0 }))
+
+vi.mock("@libsql/client", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@libsql/client")>()
+  return {
+    ...original,
+    createClient(...input: Parameters<typeof original.createClient>) {
+      opens.count++
+      const client = original.createClient(...input)
+      const execute = client.execute.bind(client)
+      vi.spyOn(client, "execute").mockImplementationOnce(async (statement) => {
+        if (opens.delayMs) await new Promise(resolve => setTimeout(resolve, opens.delayMs))
+        return execute(statement)
+      })
+      return client
+    },
+  }
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  opens.count = 0
+  opens.delayMs = 0
 })
 
 describe("default Agent Invocation journal", () => {
@@ -67,6 +89,19 @@ describe("default Agent Invocation journal", () => {
     await expect(resolveDefaultAgentInvocationsLocation(remote)).resolves.toEqual({ authToken: "token", url: "libsql://journal.example.com" })
   })
 
+  it("opens a slow default journal outside the store operation timeout", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-slow-journal-"))
+    opens.delayMs = 1_100
+    try {
+      const invocations = createDefaultAgentInvocations({ env: {}, projectRoot })
+      await expect(Promise.all([invocations.list(), invocations.getSummary("missing")]))
+        .resolves.toMatchObject([{ invocations: [] }, undefined])
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it.each([{ maxAge: 0 }, { maxRecords: 0 }])("rejects invalid D1 retention at startup: %j", (retention) => {
     const env = vi.fn(() => ({}))
     expect(() => createDefaultAgentInvocations({ d1: { binding: "DB", env }, env: {}, projectRoot: "/worker", retention }))
@@ -81,7 +116,7 @@ describe("default Agent Invocation journal", () => {
       const file = join(projectRoot, ".vitehub/data/agent-invocations.sqlite")
       expect(existsSync(file)).toBe(false)
       const agent = defineAgent({ driver: { run: () => "done" }, invocations, name: "support" })
-      await runAgent(agent, { memo: vi.fn(), run: { runId: "default-journal" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Keep this prompt" })
+      await runAgentWithContext(agent, { memo: vi.fn(), run: { runId: "default-journal" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Keep this prompt" })
       await vi.waitFor(async () => {
         await expect(invocations.getByRunId("default-journal", "support")).resolves.toMatchObject({ status: "completed" })
       })
@@ -91,6 +126,24 @@ describe("default Agent Invocation journal", () => {
       expect(defaultAgentInvocationsDatabase(invocations)?.driver).toBe("libsql")
     }
     finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("opens a slow libSQL journal before concurrent first reads", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-default-journal-open-"))
+    const invocations = createDefaultAgentInvocations({ env: {}, projectRoot })
+    const database = defaultAgentInvocationsDatabase(invocations)
+    opens.delayMs = 1_200
+    expect(opens.count).toBe(0)
+    expect(existsSync(join(projectRoot, ".vitehub/data/agent-invocations.sqlite"))).toBe(false)
+    try {
+      await expect(Promise.all([invocations.list(), invocations.getSummary("missing"), invocations.getByRunId("missing")]))
+        .resolves.toEqual([expect.objectContaining({ invocations: [] }), undefined, undefined])
+      expect(opens.count).toBe(1)
+    }
+    finally {
+      if (database?.driver === "libsql") (await database.open()).close()
       await rm(projectRoot, { force: true, recursive: true })
     }
   })
