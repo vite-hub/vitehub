@@ -163,7 +163,7 @@ The core raises these codes:
 
 The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is configured, since it needs `console.auth`.
 
-In `vite dev` without a `console` option, the app serves the RPC (and no Console page) with the local policy, so every section is open. A dev RPC without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests: the `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and the peer address too, when the host exposes it. Any other request gets `403` with `CONSOLE_LOOPBACK_ONLY`. Set `console.auth` to `"app"` or a Console Auth config to open the dev Console to other people.
+In `vite dev` without a `console` option, the app serves the RPC (and no Console page) with the local policy, so every section is open. `console: false` turns this RPC off. A dev RPC without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests: the `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and the peer address too, when the host exposes it. Any other request gets `403` with `CONSOLE_LOOPBACK_ONLY`. Set `console.auth` to `"app"` or a Console Auth config to open the dev Console to other people.
 
 In `vite dev`, a call with no signed-in user (`local` access, or `console: { auth: false }`) runs as `context.user = { id: 'local', name: 'You' }`. The RPC builds the context in one place, so Comments, Content, and MCP see the same user. A build never adds it: a production call without sign-in has `context.user` unset.
 

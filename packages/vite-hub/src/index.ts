@@ -387,7 +387,7 @@ export interface ViteHubOptions {
    * in the Database that `database` names, and enable `database` when it is unset.
    */
   connections?: boolean | ViteHubConnectionsOptions
-  /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
+  /** The ViteHub Console at `/_vitehub`. Off by default, but `vite dev` still serves the operation RPC for the CLI. `false` turns that RPC off too. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
@@ -1077,7 +1077,8 @@ function doctorPlugin(): Plugin {
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   const preset = options.preset ?? detectPreset() ?? "node"
-  options = withConnectionsDatabase(withDataDir({ ...options, preset, console: resolveConsoleOptions(options.console) }))
+  // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
+  options = withConnectionsDatabase(withDataDir({ ...options, preset, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
   const configuredConsole = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(preset)
   // Cloudflare has no durable local filesystem. Treat the shorthand database
@@ -1231,7 +1232,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   plugins.push(operationsCheckPlugin())
   // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
-  const devOperationsOnly = configuredConsole === undefined
+  // `console: false` turns that RPC off too.
+  const devOperationsOnly = options.console === undefined
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({

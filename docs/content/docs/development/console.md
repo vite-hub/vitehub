@@ -159,7 +159,15 @@ App Auth and the Console must use the same public origin, including the protocol
 
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
 
-If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC route, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
+The `console` option has three states:
+
+| `console` | Development server | Production build |
+| --- | --- | --- |
+| Not set | No Console page. The [operation RPC](/docs/development/operations#access) and its routes (`/_vitehub/rpc/**`, Env management, Schedule runs, and MCP) answer loopback requests, so `vitehub <command>` works. | Nothing under `/_vitehub`. |
+| `false` | Nothing under `/_vitehub`. | Nothing under `/_vitehub`. |
+| `true` or an object | The Console page and all its routes. | The Console page and all its routes. |
+
+With `console: false`, ViteHub registers no Console page, RPC route, MCP route, Nitro plugin, or public asset path, also on a development server. A request to `/_vitehub` gets the host's normal not-found response. Commands such as `vitehub kv` and `vitehub schedule run` cannot reach the development server then. Remove the option to get the development RPC back.
 
 ## Read the project
 
