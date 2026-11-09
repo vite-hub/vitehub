@@ -7,7 +7,7 @@ import { readRecord, serialiseRecord } from "@diglot/store"
 import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 import { lock } from "proper-lockfile"
 
-import { diglotSegment, isVisible, messageSegment, recordPath, recordSegment, validateMessageArguments } from "./record-format.ts"
+import { diglotSegment, isVisible, messageSegment, recordPath, recordSegment, validateMessagePlaceholders } from "./record-format.ts"
 
 import type { ReviewTransition } from "@diglot/core"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
@@ -112,7 +112,7 @@ async function review(root: string, locale: string, message: MessageRef, next: (
   try {
     const transition = next(await readRecord(root, locale, segment.hash), segment)
     if (transition.ok) {
-      const errors = validateMessageArguments(message.message, transition.record.text)
+      const errors = validateMessagePlaceholders(message.message, transition.record.text)
       if (errors.length) return { ok: false, code: "invalid", message: "The translation does not preserve the message's ICU arguments.", errors }
       await publishRecord(file, transition.record)
     }
@@ -147,7 +147,7 @@ export function saveTranslation(root: string, locale: string, message: MessageRe
 export function importTranslation(root: string, locale: string, message: MessageRef, text: string, input: ReviewInput & { expected: string | null }): Promise<ReviewTransition> {
   return review(root, locale, message, (current, segment) => {
     // Repeated imports may have an older baseline. Decide whether they change anything under the same lock as edits.
-    if (current && isVisible(current) && current.text === text) return { ok: false, code: "unchanged", message: "The translation is unchanged." }
+    if (current && isVisible(current) && current.text === text) return { ok: false, code: "unchanged", message: "The translation is unchanged.", errors: [] }
     return editRecord(current, { ...input, segment, text })
   })
 }
