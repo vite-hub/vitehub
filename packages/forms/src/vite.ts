@@ -37,10 +37,10 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
       const name = entry.name.slice(0, -extension.length)
       const file = join(folder, entry.name)
       if (!namePattern.test(name)) {
-        throw formsDiagnostics.FORMS_D0001({ message: `[vitehub] The form ${relative(projectRoot, file)} needs a name of lowercase letters, digits, and dashes, such as contact or bug-report.` })
+        throw formsDiagnostics.FORMS_B0001({ message: `[vitehub] The form ${relative(projectRoot, file)} needs a name of lowercase letters, digits, and dashes, such as contact or bug-report.` })
       }
       if (found.has(name)) {
-        throw formsDiagnostics.FORMS_D0001({ message: `[vitehub] Two files define the form ${JSON.stringify(name)}: ${relative(projectRoot, found.get(name)!.file)} and ${relative(projectRoot, file)}.` })
+        throw formsDiagnostics.FORMS_B0001({ message: `[vitehub] Two files define the form ${JSON.stringify(name)}: ${relative(projectRoot, found.get(name)!.file)} and ${relative(projectRoot, file)}.` })
       }
       found.set(name, { name, file })
     }

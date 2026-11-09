@@ -77,7 +77,7 @@ export function installedForms(): InstalledForms | undefined {
 export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
   const forms = new Map<string, FormDefinition>()
   for (const [name, form] of Object.entries(options.forms)) {
-    if (!isFormDefinition(form)) throw formsDiagnostics.FORMS_D0001({ message: `[vitehub] server/forms/${name} must default-export defineForm({ schema }).` })
+    if (!isFormDefinition(form)) throw formsDiagnostics.FORMS_C0001({ message: `[vitehub] server/forms/${name} must default-export defineForm({ schema }).` })
     forms.set(name, form)
   }
   const { databases } = options
