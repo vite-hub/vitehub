@@ -26,8 +26,31 @@ Install Shell and Workspace:
 pnpm add @vite-hub/shell @vite-hub/workspace
 ```
 
-Add `workspace: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. Shell needs no option, because your route creates it.
+Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app. Shell needs no option, because your route creates it.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', workspace: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', workspace: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -36,8 +59,9 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', workspace: true })],
 })
 ```
+::::
+:::
 
-Did you choose Nuxt in Installation? Then add `workspace: true` to the options of the `vite-hub/nuxt` module.
 
 Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your file:
 
