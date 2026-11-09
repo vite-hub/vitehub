@@ -114,6 +114,7 @@ describe("@vite-hub/ui package contract", () => {
       katex: "^0.18.7",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
+      "@shikijs/themes": "^4.5.0",
       "@types/node": "catalog:tooling",
       "@vite-hub/comments": "workspace:*",
       "nostics": "catalog:runtime",
@@ -190,6 +191,13 @@ describe("@vite-hub/ui package contract", () => {
   it("keeps KaTeX out of the global stylesheet", () => {
     expect(sourceStylesheet).not.toContain("katex");
     expect(stylesheet).not.toContain("KaTeX_Main");
+  });
+
+  it("loads Shiki themes from @shikijs/themes instead of bundling a copy", () => {
+    const dist = new URL("../dist/", import.meta.url);
+    const sources = readdirSync(dist).filter((name) => name.endsWith(".js")).map((name) => readFileSync(new URL(name, dist), "utf8"));
+    expect(sources.some((source) => source.includes('import("@shikijs/themes/github-dark")'))).toBe(true);
+    expect(sources.some((source) => source.includes("node_modules/@shikijs/themes/dist/"))).toBe(false);
   });
 
   it("keeps the Pierre renderer behind an on-demand chunk", () => {
