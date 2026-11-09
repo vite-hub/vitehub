@@ -135,11 +135,10 @@ function withoutHeredocBodies(file: File, command: string, toIndex: SourceIndex)
   let result: string | undefined = command
   walk(file, (node) => {
     if (result === undefined) return false
-    // Without a body range, a quoted delimiter line cannot be blanked, so the scan cannot be trusted.
-    if (node.type === "Redirect" && !node.hdoc && (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc)
-      && /['"\\#]/.test(command.slice(toIndex(node.word?.start ?? 0), toIndex(node.word?.end ?? 0)))) {
-      result = undefined
-      return false
+    // An empty heredoc has no body range, so blank its terminator line instead.
+    if (node.type === "Redirect" && !node.hdoc && (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc)) {
+      result = withoutTerminatorLine(result, node.word ? wordText(node.word, command, toIndex) : "", toIndex(node.end), node.op === RedirOperator.DashHdoc)
+      return result !== undefined
     }
     if (node.type === "Redirect" && node.hdoc) {
       const start = toIndex(node.hdoc.start)
@@ -149,6 +148,18 @@ function withoutHeredocBodies(file: File, command: string, toIndex: SourceIndex)
     return true
   })
   return result
+}
+
+function withoutTerminatorLine(source: string, delimiter: string, from: number, stripTabs: boolean): string | undefined {
+  let start = source.indexOf("\n", from) + 1
+  while (start > 0 && start < source.length) {
+    const end = source.indexOf("\n", start) === -1 ? source.length : source.indexOf("\n", start)
+    const line = source.slice(start, end)
+    if ((stripTabs ? line.replace(/^\t+/, "") : line) === delimiter) {
+      return source.slice(0, start) + " ".repeat(end - start) + source.slice(end)
+    }
+    start = end + 1
+  }
 }
 
 interface StatementLeaf {

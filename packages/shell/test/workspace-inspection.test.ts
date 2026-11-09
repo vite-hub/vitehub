@@ -227,6 +227,12 @@ describe("@vite-hub/shell workspace inspection", () => {
       cwd: workspaceMountPoint,
       fs: createReadonlyWorkspaceFs(workspace),
     })).resolves.toMatchObject({ exitCode: 0, stdout: "# note \\\nhi\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat <<'E\"'\nE\"\ncat README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    })).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
   })
 
   it("removes backslash escapes from unquoted words before path checks", async () => {
