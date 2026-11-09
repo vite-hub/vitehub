@@ -1,34 +1,42 @@
 ---
 title: Config options
-description: Reference the main ViteHub Integration Options and where provider choices belong.
+description: The main ViteHub config options, their defaults, and where provider choices go.
 navigation.order: 55
 navigation.group: Setup
 icon: i-lucide-sliders-horizontal
 ---
 
-Integration Options configure ViteHub package integrations.
-Provider Selection belongs in Integration Options when it changes generated output, bindings, imports, or deployment behavior.
+Integration Options are the options you pass to `vitehub()` or a package's Vite plugin. Pick the provider here when the choice changes generated output, bindings, imports, or deployment.
 
 ## Built-in deployment preset
 
-`vitehub()` requires exactly one built-in `preset`: `cloudflare`, `netlify`, `vercel`, `deno`, or `node`. The selection is the single source for host identity, runtime, Nitro output, packaging, and built-in Blob, Queue, Rate Limit, and Sandbox adapters. Conflicting Nitro or hosting environment selections fail configuration.
+`vitehub()` requires exactly one built-in `preset`: `cloudflare`, `netlify`, `vercel`, `deno`, or `node`. The preset alone sets the host, runtime, Nitro output, packaging, and built-in Blob, Queue, Rate Limit, and Sandbox adapters. A Nitro or hosting environment setting that conflicts with it fails the config.
 
-`name` is ViteHub's logical deployment identity. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`, which the Cloudflare preset resolves below explicit `name` and above the nearest `package.json` name and Vite root directory name. A differing explicit ViteHub identity fails because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, or store options still win. This fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue. The generated deployment manifest records the resolved identity and its source.
+`name` is the deployment name. On Cloudflare it resolves in this order:
+
+1. An explicit `name`.
+2. `WRANGLER_CI_OVERRIDE_NAME`, which Cloudflare Workers Builds sets to the connected Worker. An explicit `name` that differs from it fails, because the connected Worker is still the deploy target.
+3. The nearest `package.json` name.
+4. The Vite root folder name.
+
+Cloudflare uses this name for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Outside Workers Builds, an explicit Wrangler Worker name wins. Explicit Blob bucket, driver, or store options also win. These names are stable, but ViteHub does not create the R2 bucket or Queue for them. The generated deployment manifest records the name and where it came from.
 
 | Import | Public type | Placement | Defaults |
 | --- | --- | --- | --- |
-| `vite-hub` | `ViteHubOptions` | `vitehub({ preset })` in Vite `plugins` | Composes Env. Agent, Auth, Blob, Browser, Channels, Connections, Database, KV, Queue, Rate Limit, Sandbox Task, Schedule, Workflow, and Workspace are enabled with `true` or explicit options. On Cloudflare, Email also supports `true`; other presets reject the Cloudflare-only default. |
+| `vite-hub` | `ViteHubOptions` | `vitehub({ preset })` in Vite `plugins` | Includes Env. Turn on other features with `true` or an options object. |
 
-Unsupported requested capabilities fail before a production build can silently select a weaker provider. The `node` preset intentionally exposes its filesystem Blob store as single-host and its memory Rate Limiter as single-process. The `deno` preset rejects Schedule and `agent.runtime: "deno"` because those generated servers are not part of its deployed Nitro entrypoint. Deno output includes runtime package staging, a validated deployment manifest, and a non-interactive create-or-update runner.
+- If the preset cannot support a feature you ask for, the build fails. It never picks a weaker provider in silence.
+- The `node` preset keeps its filesystem Blob store on one host and its memory Rate Limiter in one process, on purpose.
+- The `deno` preset rejects Schedule and `agent.runtime: "deno"`, because its deployed Nitro entrypoint does not include those generated servers. Deno output stages runtime packages, validates a deployment manifest, and adds a non-interactive create-or-update runner.
+- Each `hubX()` plugin is still available from its `@vite-hub/*/vite` package path, with its full option types.
 
-Direct `hubX()` integration functions remain available from their independent
-`@vite-hub/*/vite` owner-package paths.
-
-The root `vitehub()` facade enables Agent, Auth, Blob, Browser, Channels, Connections, Database, KV, Observability, Queue, Rate Limit, Sandbox Task, Schedule, Workflow, and Workspace with `true`. Email accepts `true` with the Cloudflare preset, where it selects the Cloudflare Email driver; other presets reject that boolean default and require explicit provider options. Auth follows the same opt-in shape but currently has no plugin option bag.
+`vitehub()` turns on Agent, Auth, Blob, Browser, Channels, Connections, Database, KV, Observability, Queue, Rate Limit, Sandbox Task, Schedule, Workflow, and Workspace with `true`. Email accepts `true` with the Cloudflare preset, where it selects the Cloudflare Email driver; other presets reject that boolean default and require explicit provider options.
 
 `vitehub()` is the only config place. Call it with no argument for the defaults. Each feature has one key, `<feature>?: boolean | <Feature>Options`, and `vite-hub` exports each option type with that name, such as `KVOptions` and `ObservabilityOptions`. Vite does not read top-level feature keys such as `kv` or `env`. A direct owner plugin takes the same options as its argument, such as `hubKv(options)`.
 
 ## Vite Integration options
+
+In `vitehub()`, omit a key or set it to `false` to turn the feature off. Set `true` for the defaults, or an object to set options.
 
 | Package | Public type | Placement | Confirmed options and defaults |
 | --- | --- | --- | --- |
@@ -68,17 +76,63 @@ Prove a miss, a hit, expiry or invalidation, and the selected host output. Never
 
 | Option kind | Belongs in | Example |
 | --- | --- | --- |
-| Integration Options | `vitehub()` or package integration call | Provider Selection, generated output mode, project root. |
-| Definition Options | Definition Boundary Helper file | Queue concurrency, Database tables, Workspace Sources and rules. |
+| Integration Options | `vitehub()` or package integration call | Provider choice, generated output mode, project root. |
+| Definition Options | The Definition file (`define*()`) | Queue concurrency, Database tables, Workspace Sources and rules. |
 | Invocation Options | Runtime Helper call | Sandbox Identity, Agent input options, schedule creation input. |
-| Runtime Env | Env Package Server Env | Provider tokens, app secrets, request-time runtime values. |
+| Runtime Env | Server Env | Provider tokens, app secrets, request-time runtime values. |
 
-Provider-specific driver fields are intentionally summarized here. Read the exported package types when configuring a deep provider adapter, and keep provider choices in Integration Options unless the owning package documents an invocation-time option.
+This page only summarizes provider driver fields. For deep provider setup, read the exported package types. Keep provider choices in Integration Options, unless the package documents an invocation-time option.
 
 ## Agent eval options
 
-Agent Eval Runner defaults live under the Agent Package integration.
+Set Agent Eval Runner defaults in the Agent options.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    agent: {
+      eval: {
+        cache: true,
+        maxConcurrency: 2,
+        scoreThreshold: 85,
+        testTimeout: 60_000,
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      agent: {
+        eval: {
+          cache: true,
+          maxConcurrency: 2,
+          scoreThreshold: 85,
+          testTimeout: 60_000,
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -99,12 +153,65 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 ## Env options
 
-Env separates Public Env, compile-time define values, and Server Env.
-Secret Env values belong in `env.server`, not `env.public` or `env.define`.
+Env keeps Public Env, compile-time define values, and Server Env apart. Put secrets in `env.server`, never in `env.public` or `env.define`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    env: {
+      diagnostics: 'summary',
+      providers: { credentials: './server/env/credentials.ts' },
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        apiToken: env({ secret: true, source: env.source('API_TOKEN') }),
+        githubToken: env({ secret: true, source: env.provider('credentials', 'github/token') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: "node",
+    env: {
+      diagnostics: 'summary',
+      providers: { credentials: './server/env/credentials.ts' },
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        apiToken: env({ secret: true, source: env.source('API_TOKEN') }),
+        githubToken: env({ secret: true, source: env.provider('credentials', 'github/token') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -127,6 +234,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 ## Related
 

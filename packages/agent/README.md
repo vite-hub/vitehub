@@ -308,8 +308,8 @@ Pass `--json` for the structured inspection contract.
 - A `webChat()` Channel exposes the Agent through the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher. Use `webChat({ route: false })` when an Agent should not answer it, or `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
 - `ignored(reason)` from `vite-hub/agent/channels` answers a webhook that a Channel trigger does not handle with HTTP 200 `{ accepted: false, ok: true, reason }`. No Invocation starts. See [Ignore a webhook](https://vitehub.dev/docs/agents/triggers#ignore-a-webhook).
 - `retryLater(reason)` answers HTTP 503 and `rejected(reason)` answers HTTP 400, both with `{ accepted: false, ok: false, reason }`. The sender and the webhook queue retry `retryLater()`; a `rejected()` delivery is not retried. No Invocation starts. See [Ignore a webhook](https://vitehub.dev/docs/agents/triggers#ignore-a-webhook).
-- `defineChannel(kind, { instructions })`, and the same option on built-in Channels such as `github()` and `teams()`, adds trusted Markdown after the Agent instructions for each Invocation that the Channel starts. Agent inspection lists it. See [Add instructions to one Channel](https://vitehub.dev/docs/agents/channels#add-instructions-to-one-channel).
-- `defineChannel(kind, { message })` declares the methods that `agent:finish` and `agent:error` hooks call through `event.message`, typed from the Agent's `channels`. Set `dryRun: true` in the Invocation input to record write methods in the trace instead of calling the provider; see [Act on the Channel message in hooks](https://vitehub.dev/docs/agents/channels#act-on-the-channel-message-in-hooks).
+- `instructions` on `defineChannel()` from `vite-hub/channels`, on `channelAdapter(kind, options)`, and on built-in adapters such as `github()` and `teams()`, adds trusted Markdown after the Agent instructions for each Invocation that the Channel starts. Agent inspection lists it. See [Add instructions to one Channel](https://vitehub.dev/docs/agents/channels#add-instructions-to-one-channel).
+- `channelAdapter(kind, { message })` declares the methods that `agent:finish` and `agent:error` hooks call through `event.message`, typed from the Agent's `channels`. Set `dryRun: true` in the Invocation input to record write methods in the trace instead of calling the provider; see [Act on the Channel message in hooks](https://vitehub.dev/docs/agents/channels#act-on-the-channel-message-in-hooks).
 - Built-in GitHub `webhook` and `dev` Triggers supply `{ repository, pullRequest, run, trigger }` as Channel message data. Custom `message.data` schemas must accept this pull request context.
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
@@ -361,6 +361,15 @@ openapi({
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
 `operations` can also be a record of names to `operationId`s, such as `{ "invoice": "billing_get_invoice_invoices__id__get" }`. Each name becomes the tool name and the CLI command name. ViteHub reads only the selected operations, so other operations in the spec can have any `operationId`.
 Capability `cli` can be a static command tree or an invocation resolver that returns `undefined` when the CLI should not be available. Generated command trees stay behind adapter-owned options such as `openapi({ cli })`, whose resolver may return `false` or `undefined` for the current invocation.
+
+## Channel task Agents
+
+A trigger task can use an Agent Definition or a resolver such as
+`agent: () => import('../agents/triage')`. The resolver returns the definition or
+its default-export module. ViteHub resolves it before binding task callbacks and
+stores the resolved Agent name in queued deliveries. Use a lazy import when the
+target Agent lists the Channel. Keep static imports of the owning Agent out of
+the Channel and its helpers. ViteHub reports cycles through local imports at build time.
 
 ## Channel Env
 
@@ -498,7 +507,7 @@ Provider Drivers get the mount as a real Git checkout of the exact head SHA, wit
 
 An Agent with one github() Channel that sets `app` gets forge access from that Channel. The Channel resolves a token for each repository: the `app.token` callback when it is set, otherwise an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository. Every Invocation of the Agent gets this access, including streamed runs. The pull request checkout, `git()`, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`. The Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, scoped to the pull request base and head repositories, and never in process arguments. A run without a pull request, such as a Teams or chat run, gets Git credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. To use a host-managed credential, set `github({ app: { token } })` or use `host.channel()`.
 
-Channels with `history: { collection, key, thread?, invocationItem? }` export Collection items through `vitehub channels history`. Use repeatable `--query key=value`, optional `--thread`, and `--invocations` for retained runs and unformatted deliveries. Live and replayed triggers annotate the item key and thread. `channelDelivery` records dry-run writes without sending. Declared `webhooks.path` values receive the same authenticated requests as built-in webhook routes. `webhooks.aliases` adds more paths. A Channel module in `server/channels`, such as `server/channels/tickets/index.ts`, that default-exports `defineChannel()` with a literal `webhooks.path` serves that path without an Agent Definition; its trigger selects the Agent with a task. See [Give a Channel its own route](../../docs/content/docs/agents/channels.md#give-a-channel-its-own-route). `webhooks.stateScope` replaces the `webhook:<agent>:<origin>:<registration>:` scope of the webhook State and queue. Set it to the old scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner. Give each registration its own scope; ViteHub does not check this. See [Keep webhook State when a Channel moves](../../docs/content/docs/agents/channels.md#keep-webhook-state-when-a-channel-moves). See the [Channel history guide](../../docs/content/docs/agents/channels.md#replay-channel-history).
+Channels with `history: { collection, key, thread?, invocationItem? }` export Collection items through `vitehub channels history`. Use repeatable `--query key=value`, optional `--thread`, and `--invocations` for retained runs and unformatted deliveries. Live and replayed triggers annotate the item key and thread. `channelDelivery` records dry-run writes without sending. Declared `webhooks.path` values receive the same authenticated requests as built-in webhook routes. `webhooks.aliases` adds more paths. A Channel module in `server/channels`, such as `server/channels/tickets/index.ts`, that default-exports `defineChannel()` with a `webhook()` or `stripe()` adapter serves `/api/_vitehub/channels/<name>` and the adapter's literal `path` without an Agent Definition; its trigger selects the Agent with a task. `defineAgent({ channels: ['slack'] })` lists Channels of `server/channels` by name; ViteHub registers each listed module before the Agent module runs, and the Agent then serves the Channel's routes. See [Give a Channel its own route](../../docs/content/docs/agents/channels.md#give-a-channel-its-own-route). `webhooks.stateScope` replaces the `webhook:<agent>:<origin>:<registration>:` scope of the webhook State and queue. Set it to the old scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner. Give each registration its own scope; ViteHub does not check this. See [Keep webhook State when a Channel moves](../../docs/content/docs/agents/channels.md#keep-webhook-state-when-a-channel-moves). See the [Channel history guide](../../docs/content/docs/agents/channels.md#replay-channel-history).
 
 For GitHub Channels, `activity: true` links pull request webhook activity to its ViteHub Console invocation when `vitehub({ publicUrl })` is set. `activity: { publicUrl }` overrides the origin for one Channel. Without a public URL, the application supplies its own links. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#publish-agent-activity-without-opening-a-chat).
 
@@ -643,6 +652,26 @@ Discovery rejects Channel option bindings that are mutated or passed to opaque c
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook. Option callbacks are values and are also replaced, never invoked by merging.
 
 Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+
+### Build an Agent from another Agent in code
+
+A package that derives a second Agent at runtime, such as the Babysitter worker in `@vite-hub/presets`, uses three functions from `@vite-hub/agent`:
+
+- `agentSettings(agent)` returns the resolved settings of an Agent Definition, with its `extends` layers applied, in a new object. Nested values, such as `driver` or `channels`, still belong to the Agent: replace a field instead of changing it in place, then pass the result to `defineAgent()`.
+- `withoutForgeAccess(channel)` returns a copy of a Channel without the GitHub access of `github({ app })`. Use it when the new Agent must not receive the host's GitHub token.
+- `activeProviderSandbox(context)` returns the Sandbox that the provider Driver of the current Invocation runs in, or `undefined` when the Driver runs on the host. A Capability uses it to copy files between the host and that Sandbox.
+
+```ts fragment
+import { agentSettings, defineAgent, withoutForgeAccess } from '@vite-hub/agent'
+
+const settings = agentSettings(base)
+if (!settings) throw new TypeError('Expected an Agent Definition.')
+const worker = defineAgent({
+  ...settings,
+  driver: { ...settings.driver, model: 'worker-model' },
+  channels: { github: withoutForgeAccess(settings.channels!.github!) },
+})
+```
 
 
 

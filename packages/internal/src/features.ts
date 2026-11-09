@@ -79,6 +79,11 @@ export interface FeatureStarter {
   /** The source of a minimal Definition named `name`. */
   template: (name: string) => string
   /**
+   * Earlier versions of `template`. `vitehub remove` deletes a file only when it equals the current or an earlier
+   * starter, so keep the old template here when you change one.
+   */
+  previousTemplates?: readonly ((name: string) => string)[]
+  /**
    * Other files, relative to the project root, that already define the Definition `name` or that the owner rejects
    * next to it. The starter is not written when one exists.
    */
@@ -531,6 +536,7 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   // Node selects OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  if (id === "observability" && options?.posthog) selected.push("posthog-node")
   return [...new Set([...definition.packages, ...selected])]
 }
 
