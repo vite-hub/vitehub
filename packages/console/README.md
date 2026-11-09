@@ -12,6 +12,8 @@ This package is private and in progress. It has the server part: sign-in, the li
 
 The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the token or the project's cookies. The forward sends only the data routes: `/_vitehub/rpc/**`, `/_vitehub/api/**`, and `/_vitehub/page/session`. It stops at a redirect and refuses a body over 9 MiB.
 
+Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
+
 ## Configure
 
 | Variable | Use |
