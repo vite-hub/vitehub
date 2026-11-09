@@ -517,13 +517,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
           const bar = selected.value
           if (bar && !state.draft.value) {
-            const below = bar.top < 56
+            // Near the top of the screen there is no room above. On a touch screen the system's own menu takes that place,
+            // and the selection handles hang under the text.
+            const touch = matchMedia("(pointer: coarse)").matches
+            const below = bar.top < 56 || touch
             nodes.push(h("div", {
               class: "selection-bar",
               "data-below": below ? "true" : undefined,
               role: "group",
               "aria-label": "Selected text",
-              style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${below ? bar.bottom + 8 : bar.top - 8}px` },
+              style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${below ? bar.bottom + (touch ? 20 : 8) : bar.top - 8}px` },
               // A press here must not take the selection away from the page.
               onMousedown: (event: MouseEvent) => event.preventDefault(),
             }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: commentOnSelection }, [commentIcon(), "Comment"])))
