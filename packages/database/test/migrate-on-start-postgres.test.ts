@@ -1,9 +1,10 @@
 // Runs only with a Postgres server, for example:
-// docker run -d --rm -e POSTGRES_PASSWORD=test -p 54329:5432 postgres:17-alpine
-// VITEHUB_TEST_POSTGRES_URL=postgres://postgres:test@127.0.0.1:54329/postgres vitest run test/migrate-on-start-postgres.test.ts
+// docker run -d --rm -e POSTGRES_PASSWORD=test -p 54329:5432 -v /tmp/pg-socket:/var/run/postgresql postgres:17-alpine
+// VITEHUB_TEST_POSTGRES_URL=postgres://postgres:test@127.0.0.1:54329/postgres VITEHUB_TEST_POSTGRES_SOCKET_DIR=/tmp/pg-socket \
+//   vitest run test/migrate-on-start-postgres.test.ts
 // Each test creates its own database on that server and drops it after.
 import { execFile, spawn } from "node:child_process"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -25,6 +26,8 @@ import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDriz
 const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const adminUrl = process.env.VITEHUB_TEST_POSTGRES_URL
+// A host folder with the server's Unix socket, for example `-v /tmp/pg-socket:/var/run/postgresql` on the container.
+const socketDir = process.env.VITEHUB_TEST_POSTGRES_SOCKET_DIR
 const cleanups: Array<() => Promise<unknown>> = []
 
 afterEach(async () => {
@@ -33,13 +36,13 @@ afterEach(async () => {
 
 const init = {
   sql: "CREATE TABLE \"users\" (\n\t\"id\" integer PRIMARY KEY NOT NULL,\n\t\"name\" text NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"legacy\" (\"id\" integer);\n",
-  tag: "0000_init",
+  tag: "20231114221320_init",
   when: 1_700_000_000_000,
 }
 // A slow statement keeps the first server in its transaction while the others start, so they must wait for the lock.
-const seed = { sql: "SELECT pg_sleep(0.5);\n--> statement-breakpoint\nINSERT INTO \"users\" (\"id\", \"name\") VALUES (7, 'Ada');", tag: "0001_seed", when: 1_700_000_001_000 }
-const addEmail = { sql: "ALTER TABLE \"users\" ADD COLUMN \"email\" text;", tag: "0002_add_email", when: 1_700_000_002_000 }
-const broken = { sql: "INSERT INTO \"missing_table\" VALUES (1);", tag: "0003_broken", when: 1_700_000_003_000 }
+const seed = { sql: "SELECT pg_sleep(0.5);\n--> statement-breakpoint\nINSERT INTO \"users\" (\"id\", \"name\") VALUES (7, 'Ada');", tag: "20231114221321_seed", when: 1_700_000_001_000 }
+const addEmail = { sql: "ALTER TABLE \"users\" ADD COLUMN \"email\" text;", tag: "20231114221322_add_email", when: 1_700_000_002_000 }
+const broken = { sql: "INSERT INTO \"missing_table\" VALUES (1);", tag: "20231114221323_broken", when: 1_700_000_003_000 }
 
 /** Creates an empty database on the test server and returns its URL. */
 async function createDatabase() {
@@ -80,15 +83,13 @@ async function createProject(migrations: Array<{ sql: string, tag: string, when:
 }
 
 async function writeMigrations(root: string, migrations: Array<{ sql: string, tag: string, when: number }>) {
+  // Drizzle Kit 1.0 writes `<YYYYMMDDHHmmss>_<name>/migration.sql`. The folder time is the `when` of each fixture.
   const dir = join(root, "server/databases/migrations")
   await rm(dir, { force: true, recursive: true })
-  await mkdir(join(dir, "meta"), { recursive: true })
-  await writeFile(join(dir, "meta/_journal.json"), JSON.stringify({
-    dialect: "postgresql",
-    entries: migrations.map((migration, idx) => ({ breakpoints: true, idx, tag: migration.tag, version: "7", when: migration.when })),
-    version: "7",
-  }))
-  for (const migration of migrations) await writeFile(join(dir, `${migration.tag}.sql`), migration.sql)
+  for (const migration of migrations) {
+    await mkdir(join(dir, migration.tag), { recursive: true })
+    await writeFile(join(dir, migration.tag, "migration.sql"), migration.sql)
+  }
   return dir
 }
 
@@ -178,8 +179,22 @@ async function holdLock(sql: postgres.Sql) {
   } }
 }
 
+/** Drizzle 1.0's ledger rows. `applied_at` is a time, so only whether it is set is compared. */
 async function readLedger(sql: postgres.Sql) {
-  return await sql<Array<{ created_at: string, hash: string, id: number }>>`select id, hash, created_at from drizzle.__drizzle_migrations order by id`
+  return await sql<Array<{ applied: boolean, created_at: string, hash: string, id: number, name: string | null }>>`select id, hash, created_at, name, applied_at is not null as applied from drizzle.__drizzle_migrations order by id`
+}
+
+/** The columns of the ledger table, to compare the table that ViteHub creates or upgrades with Drizzle's. */
+async function readLedgerColumns(sql: postgres.Sql) {
+  return await sql`select column_name, data_type, column_default, is_nullable from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations' order by ordinal_position`
+}
+
+/** Writes the ledger that Drizzle Kit 0.x left after it applied `init`: no `name` column, the journal time in milliseconds. */
+async function writeDrizzleKit0xLedger(sql: postgres.Sql) {
+  await sql.unsafe(init.sql.replaceAll("--> statement-breakpoint", ""))
+  await sql.unsafe("CREATE SCHEMA \"drizzle\"")
+  await sql.unsafe("CREATE TABLE \"drizzle\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)")
+  await sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${createHash("sha256").update(init.sql).digest("hex")}, ${init.when + 417})`
 }
 
 function postgresDatabase(url: string, migrationsDir: string): ResolvedDrizzleDatabaseConfig {
@@ -196,20 +211,21 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
 
     const runs = await Promise.all(Array.from({ length: 4 }, () => server.start(url)))
     const lines = runs.flatMap(run => run.stdout.trim().split("\n"))
-    expect(lines.filter(line => line.includes("applied 0000_init"))).toEqual(['[vitehub] Database "default": applied 0000_init.'])
-    expect(lines.filter(line => line.includes("applied 0001_seed"))).toEqual(['[vitehub] Database "default": applied 0001_seed.'])
+    expect(lines.filter(line => line.includes("applied 20231114221320_init"))).toEqual(['[vitehub] Database "default": applied 20231114221320_init.'])
+    expect(lines.filter(line => line.includes("applied 20231114221321_seed"))).toEqual(['[vitehub] Database "default": applied 20231114221321_seed.'])
     // The seed sleeps in the transaction, so the other servers find the lock taken and wait for it.
     expect(lines.filter(line => line.includes("Waiting for it to finish")).length).toBeGreaterThan(0)
     for (const run of runs) expect(run.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
 
     const sql = connect(url)
     const ledger = await readLedger(sql)
-    expect(ledger.map(row => Number(row.created_at))).toEqual([init.when, seed.when])
+    expect(ledger.map(row => [Number(row.created_at), row.name, row.applied])).toEqual([[init.when, init.tag, true], [seed.when, seed.tag, true]])
 
-    // drizzle-orm's own migrator writes the same ledger rows on a second empty database.
+    // drizzle-orm 1.0's own migrator writes the same table and rows on a second empty database.
     const reference = connect(await createDatabase())
     await migrate(drizzle({ client: reference }), { migrationsFolder: migrationsDir })
     expect(await readLedger(reference)).toEqual(ledger)
+    expect(await readLedgerColumns(reference)).toEqual(await readLedgerColumns(sql))
     // And it finds nothing to apply on the database that the servers migrated.
     await migrate(drizzle({ client: sql }), { migrationsFolder: migrationsDir })
     expect(await readLedger(sql)).toEqual(ledger)
@@ -221,7 +237,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     expect(plan?.pending).toEqual([])
   })
 
-  it("applies only the migrations after drizzle-kit's last one", { timeout: 60_000 }, async () => {
+  it("applies only the migrations that drizzle-orm 1.0 did not apply", { timeout: 60_000 }, async () => {
     const { migrationsDir, root } = await createProject([init, seed])
     const url = await createDatabase()
     const sql = connect(url)
@@ -231,7 +247,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const server = await buildNodeServer(root, {})
     const started = await server.start(url)
     expect(started.stdout.trim().split("\n")).toEqual([
-      '[vitehub] Database "default": applied 0002_add_email.',
+      '[vitehub] Database "default": applied 20231114221322_add_email.',
       JSON.stringify([{ id: 7, name: "Ada" }]),
     ])
     expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when, seed.when, addEmail.when])
@@ -247,7 +263,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const failed = (await buildNodeServer(root, {})).start(url)
     await expect(failed).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringMatching(/DATABASE_MIGRATION_FAILED[\s\S]*0003_broken[\s\S]*missing_table/),
+      stderr: expect.stringMatching(/DATABASE_MIGRATION_FAILED[\s\S]*20231114221323_broken[\s\S]*missing_table/),
     })
     // The seed and the new column ran before the broken migration in the same transaction, so none of them stays.
     expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when])
@@ -261,13 +277,13 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const sql = connect(url)
     await (await buildNodeServer(root, {})).start(url)
 
-    const dropLegacy = { sql: "DROP TABLE \"legacy\";", tag: "0001_drop_legacy", when: seed.when }
+    const dropLegacy = { sql: "DROP TABLE \"legacy\";", tag: "20231114221321_drop_legacy", when: seed.when }
     await writeMigrations(root, [init, dropLegacy])
     await expect((await buildNodeServer(root, {})).start(url)).rejects.toMatchObject({ stderr: expect.stringContaining("DATABASE_MIGRATION_DATA_LOSS") })
     expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when])
 
     const allowed = await (await buildNodeServer(root, { migrateOnStart: { allowDataLoss: true } })).start(url)
-    expect(allowed.stdout).toContain('[vitehub] Database "default": applied 0001_drop_legacy.')
+    expect(allowed.stdout).toContain('[vitehub] Database "default": applied 20231114221321_drop_legacy.')
   })
 
   it("does not migrate with migrateOnStart: false", async () => {
@@ -290,7 +306,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     await holder.release()
     const { code, stdout } = await booting.exited
     expect(code).toBe(0)
-    expect(stdout).toContain('[vitehub] Database "default": applied 0001_seed.')
+    expect(stdout).toContain('[vitehub] Database "default": applied 20231114221321_seed.')
 
     // `vitehub db migrate` takes the same lock: it waits for a server that migrates, then finds nothing pending.
     await writeMigrations(root, [init, seed, addEmail])
@@ -314,7 +330,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     expect(stderrWrite.mock.calls.map(([chunk]) => String(chunk)).join("")).toBe("")
     expect(exitCode).toBe(0)
     expect(out).toContain("another process is applying migrations")
-    expect(out).toContain('[vitehub] Database "default": applied 0002_add_email.')
+    expect(out).toContain('[vitehub] Database "default": applied 20231114221322_add_email.')
     expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when, seed.when, addEmail.when])
   })
 
@@ -324,7 +340,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const sql = connect(url)
     await (await buildNodeServer(root, {})).start(url)
 
-    const dropLegacy = { sql: "DROP TABLE \"legacy\";", tag: "0001_drop_legacy", when: seed.when }
+    const dropLegacy = { sql: "DROP TABLE \"legacy\";", tag: "20231114221321_drop_legacy", when: seed.when }
     const migrationsDir = await writeMigrations(root, [init, dropLegacy])
     const server = await buildNodeServer(root, {})
     // The CLI holds the lock while it applies the drop. The server must read the ledger after that commit.
@@ -347,12 +363,12 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     expect(await cli).toBe(0)
     const { code, stderr, stdout } = await booting.exited
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" })
-    expect(stdout).not.toContain("applied 0001_drop_legacy")
-    expect(cliOut.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("applied 0001_drop_legacy")
+    expect(stdout).not.toContain("applied 20231114221321_drop_legacy")
+    expect(cliOut.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("applied 20231114221321_drop_legacy")
     expect((await readLedger(sql)).map(row => Number(row.created_at))).toEqual([init.when, dropLegacy.when])
   })
 
-  it("migrates two Definitions on one database together, and refuses a history that Drizzle would skip", { timeout: 60_000 }, async () => {
+  it("migrates two Definitions on one database together, including an older migration of the second", { timeout: 60_000 }, async () => {
     const url = await createDatabase()
     // Two URL spellings of one database, on separate connections.
     const other = new URL(url)
@@ -374,14 +390,51 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
       '[vitehub] Database "second": applied b0.',
       '[vitehub] Database "first": applied a1.',
     ])
-    expect((await readLedger(first)).map(row => Number(row.created_at))).toEqual([a0.when, b0.when, a1.when])
 
-    // A new migration of "second" that is older than the newest row: Drizzle would skip it on every start.
+    // A new migration of "second" that is older than the newest row. The ledger keys migrations by name, so it applies.
     const b1 = entry("b1", 2_500, "CREATE TABLE b1 (id int)")
-    await expect(migratePostgres([
+    log.length = 0
+    await migratePostgres([
       { client: first, database: { migrations: [a0, a1], name: "first" } },
       { client: second, database: { migrations: [b0, b1], name: "second" } },
-    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED", why: expect.stringContaining("\"b1\"") })
-    expect(await first`select to_regclass('public.b1')::text as name`).toEqual([{ name: null }])
+    ], { log: message => log.push(message) })
+    expect(log).toEqual(['[vitehub] Database "second": applied b1.'])
+    expect((await readLedger(first)).map(row => row.name)).toEqual(["a0", "b0", "a1", "b1"])
+  })
+
+  it("upgrades a Drizzle Kit 0.x ledger like drizzle-orm 1.0 does", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init, seed])
+    const url = await createDatabase()
+    const sql = connect(url)
+    const reference = connect(await createDatabase())
+    await writeDrizzleKit0xLedger(sql)
+    await writeDrizzleKit0xLedger(reference)
+
+    const started = await (await buildNodeServer(root, {})).start(url)
+    expect(started.stdout.trim().split("\n")).toEqual([`[vitehub] Database "default": applied ${seed.tag}.`, JSON.stringify([{ id: 7, name: "Ada" }])])
+    await migrate(drizzle({ client: reference }), { migrationsFolder: migrationsDir })
+
+    const ledger = await readLedger(sql)
+    // The upgrade names the 0.x row and clears its `applied_at`; the new row gets the default time.
+    expect(ledger.map(row => [row.name, row.applied])).toEqual([[init.tag, false], [seed.tag, true]])
+    expect(await readLedger(reference)).toEqual(ledger)
+    expect(await readLedgerColumns(reference)).toEqual(await readLedgerColumns(sql))
+  })
+
+  it.skipIf(!socketDir)("groups a Unix socket and a TCP connection to one database, and does not wait for its own lock", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const tcp = connect(url)
+    const socket = postgres({ database: new URL(url).pathname.slice(1), onnotice: () => {}, path: join(socketDir!, ".s.PGSQL.5432"), username: "postgres" })
+    cleanups.push(() => socket.end())
+    // Over the socket, the server reports no address and no port.
+    expect(await socket`select inet_server_addr() as address, inet_server_port() as port`).toEqual([{ address: null, port: null }])
+    expect(await tcp`select inet_server_addr() is not null as tcp`).toEqual([{ tcp: true }])
+    const entry = (name: string, when: number, statement: string) => ({ dataLoss: [], hash: `hash-${name}`, name, statements: [statement], when })
+    const log: string[] = []
+    await migratePostgres([
+      { client: tcp, database: { migrations: [entry("a0", 1_000, "CREATE TABLE a0 (id int)")], name: "first" } },
+      { client: socket, database: { migrations: [entry("b0", 2_000, "CREATE TABLE b0 (id int)")], name: "second" } },
+    ], { log: message => log.push(message) })
+    expect(log).toEqual(['[vitehub] Database "first": applied a0.', '[vitehub] Database "second": applied b0.'])
   })
 })

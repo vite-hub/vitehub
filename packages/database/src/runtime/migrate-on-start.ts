@@ -2,7 +2,7 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
-import type { LedgerMatch } from "../internal/migration-ledger.ts"
+import type { LedgerMatch, LedgerRow } from "../internal/migration-ledger.ts"
 import type { DataLossStatement } from "../internal/migration-sql.ts"
 
 /** A Drizzle Kit migration, read at build time so the server output does not need the migrations folder. */
@@ -71,13 +71,7 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   const result = await client.execute(`SELECT * FROM "${migrationsTable}"`)
   const rows = Array.from(result.rows).map(row => toLedgerRow({ ...row }))
   const match = matchLedger(rows, migrations)
-  // The hashes that the ledger stores for each applied folder name, including the names that the upgrade writes.
-  const hashes = new Map<string, Set<string>>()
-  const backfilled = new Map(match.backfill.map(({ id, name }) => [id, name]))
-  for (const row of rows) {
-    const name = row.name ?? backfilled.get(row.id)
-    if (name) hashes.set(name, (hashes.get(name) ?? new Set()).add(row.hash))
-  }
+  const hashes = ledgerHashes(rows, match.backfill)
   if (named) return { ...match, hashes, upgrade: [] }
   return {
     ...match,
@@ -88,6 +82,67 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
       ...match.backfill.map(({ id, name }) => ({ args: [name, id], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "id" = ?` })),
     ],
   }
+}
+
+type PendingEntry = { migration: StartMigration, name: string }
+
+/**
+ * Lists the pending migrations of one database in the order they run, with the Definition of each. Drizzle 1.0 applies
+ * each migration folder whose name the ledger does not list. Drizzle's ledger keys a migration by folder name only, so
+ * Definitions on one database must not use one name for different SQL, or the ledger row of one would hide the other
+ * forever. Unless `allowDataLoss` is set, it refuses migrations that lose data.
+ */
+function planByName(
+  databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "name">>,
+  { applied, hashes }: { applied: Set<string>, hashes: Map<string, Set<string>> },
+  { allowDataLoss, dialect, place }: { allowDataLoss?: boolean, dialect: "postgresql" | "sqlite", place: "Postgres database" | "SQLite file" },
+): PendingEntry[] {
+  const shared = databases.length > 1
+  const separate = place === "SQLite file" ? "separate SQLite files" : "a separate Postgres database for each"
+  const seen = new Map<string, { hash: string, name: string }>()
+  const pending = new Map<string, PendingEntry>()
+  for (const database of databases) {
+    for (const migration of database.migrations) {
+      const other = seen.get(migration.name)
+      if (other && other.hash !== migration.hash) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+          database: database.name,
+          problem: `It and the Database "${other.name}" share one ${place}, and both have the migration "${migration.name}" with different SQL. Drizzle's migrations table keys migrations by folder name, so one of them would never run. Regenerate one of them with another name, or use ${separate}.`,
+        })
+      }
+      seen.set(migration.name, { hash: migration.hash, name: database.name })
+      const recorded = hashes.get(migration.name)
+      if (shared && recorded && !recorded.has(migration.hash)) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+          database: database.name,
+          problem: `Its shared ${place} has already applied a migration "${migration.name}" with other SQL, so this one would never run. Regenerate it with another name, or use ${separate}.`,
+        })
+      }
+      if (!applied.has(migration.name) && !pending.has(migration.name)) pending.set(migration.name, { migration, name: database.name })
+    }
+  }
+  const ordered = [...pending.values()].sort((a, b) => a.migration.when - b.migration.when || a.migration.name.localeCompare(b.migration.name))
+  if (allowDataLoss) return ordered
+  // Check the migrations in the order they run, so a table that this run creates can lose its rows.
+  const checked = withoutNewTableDataLoss(ordered.map(({ migration }) => migration), dialect)
+  for (const database of databases) {
+    const losses = checked.flatMap((migration, index) => ordered[index]!.name === database.name
+      ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
+      : [])
+    if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
+  }
+  return ordered
+}
+
+/** The hashes that the ledger stores for each applied folder name, including the names that an upgrade writes. */
+function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfill"]): Map<string, Set<string>> {
+  const hashes = new Map<string, Set<string>>()
+  const backfilled = new Map(backfill.map(({ id, name }) => [id, name]))
+  for (const row of rows) {
+    const name = row.name ?? backfilled.get(row.id)
+    if (name) hashes.set(name, (hashes.get(name) ?? new Set()).add(row.hash))
+  }
+  return hashes
 }
 
 /**
@@ -139,41 +194,7 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
       })
     }
     plan.upgrade = upgrade
-    // Drizzle's ledger keys a migration by folder name only. Definitions on one file must not use one name for
-    // different SQL, or the ledger row of one would hide the other forever.
-    const shared = plan.databases.length > 1
-    const seen = new Map<string, { hash: string, name: string }>()
-    for (const database of plan.databases) {
-      for (const migration of database.migrations) {
-        const other = seen.get(migration.name)
-        if (other && other.hash !== migration.hash) {
-          throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
-            database: database.name,
-            problem: `It and the Database "${other.name}" share one SQLite file, and both have the migration "${migration.name}" with different SQL. Drizzle's migrations table keys migrations by folder name, so one of them would never run. Regenerate one of them with another name, or use separate SQLite files.`,
-          })
-        }
-        seen.set(migration.name, { hash: migration.hash, name: database.name })
-        const recorded = hashes.get(migration.name)
-        if (shared && recorded && !recorded.has(migration.hash)) {
-          throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
-            database: database.name,
-            problem: `Its shared SQLite file has already applied a migration "${migration.name}" with other SQL, so this one would never run. Regenerate it with another name, or use separate SQLite files.`,
-          })
-        }
-        // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
-        if (!applied.has(migration.name) && !plan.pending.has(migration.name)) plan.pending.set(migration.name, { migration, name: database.name })
-      }
-    }
-    if (options.allowDataLoss) continue
-    // Check the migrations in the order they run on the file, so a table that this run creates can lose its rows.
-    const pending = [...plan.pending.values()].sort((a, b) => a.migration.when - b.migration.when)
-    const checked = withoutNewTableDataLoss(pending.map(({ migration }) => migration))
-    for (const database of plan.databases) {
-      const losses = checked.flatMap((migration, index) => pending[index]!.name === database.name
-        ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
-        : [])
-      if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
-    }
+    plan.pending = new Map(planByName(plan.databases, { applied, hashes }, { allowDataLoss: options.allowDataLoss, dialect: "sqlite", place: "SQLite file" }).map(entry => [entry.migration.name, entry]))
   }
   return [...plans.values()]
 }
@@ -217,90 +238,71 @@ function isPostgresClient(value: unknown): value is PostgresMigrationClient {
  */
 export const postgresMigrationLock = "vitehub:migrations"
 
-// Drizzle Kit's Postgres ledger, created with the statements of `PgDialect.migrate` in drizzle-orm.
+// Drizzle's Postgres ledger, created and upgraded with the statements of `migrate` in `drizzle-orm/pg-core/async/session`
+// 1.0, so `drizzle-kit migrate`, `vitehub db migrate` and a starting server agree on what is applied.
 const postgresLedger = "\"drizzle\".\"__drizzle_migrations\""
-const createPostgresLedger = [
-  "CREATE SCHEMA IF NOT EXISTS \"drizzle\"",
-  `CREATE TABLE IF NOT EXISTS ${postgresLedger} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
-]
+const createPostgresLedger = `CREATE TABLE IF NOT EXISTS ${postgresLedger} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())`
 
-/** One Postgres database, and the Definitions that migrate it. They share Drizzle Kit's ledger in that database. */
+/** One Postgres database, and the Definitions that migrate it. They share Drizzle's ledger in that database. */
 export interface PostgresTarget {
   client: PostgresMigrationClient
   database: Pick<StartMigrationDatabase, "migrations" | "name">
 }
 
 /**
- * Groups the Definitions by the Postgres database that their clients reach. The server reports the database, so two URL
- * spellings of one database go in one group.
+ * Names the Postgres database that a client reaches, as the server reports it. A Unix socket, a TCP address and two URL
+ * spellings of one database give one key, so one process never waits for its own lock on a second session.
+ * `system_identifier` tells apart two servers that started in the same microsecond; a host that hides it gives `null`.
+ */
+export async function readPostgresDatabaseKey(client: PostgresMigrationSql): Promise<string> {
+  const [row] = Array.from(await client.unsafe("select current_database() as database, pg_postmaster_start_time()::text as started"))
+  const system = await client.unsafe("select system_identifier::text as id from pg_control_system()").then(rows => Array.from(rows)[0]?.id ?? null, () => null)
+  return JSON.stringify([row?.database, row?.started, system])
+}
+
+/**
+ * Groups the Definitions by the Postgres database that their clients reach, and sorts the groups by that key. Every
+ * process then takes the locks of several databases in the same order, so two of them never wait for each other.
  */
 async function groupPostgresTargets(targets: PostgresTarget[]): Promise<PostgresTarget[][]> {
   if (targets.length < 2) return targets.length ? [targets] : []
   const groups = new Map<string, PostgresTarget[]>()
   for (const target of targets) {
-    const [row] = Array.from(await target.client.unsafe("select current_database() as database, inet_server_addr()::text as address, inet_server_port() as port, pg_postmaster_start_time()::text as started"))
-    const key = JSON.stringify([row?.database, row?.address, row?.port, row?.started])
+    const key = await readPostgresDatabaseKey(target.client)
     groups.set(key, [...groups.get(key) ?? [], target])
   }
-  return [...groups.values()]
-}
-
-interface PostgresLedger {
-  /** `created_at:hash` of each row. */
-  keys: Set<string>
-  lastApplied: number | undefined
-}
-
-/** Creates Drizzle Kit's ledger when it is missing, and reads it. Call it in the transaction that holds the lock. */
-async function readPostgresLedger(sql: PostgresMigrationSql): Promise<PostgresLedger> {
-  const keys = new Set<string>()
-  for (const statement of createPostgresLedger) await sql.unsafe(statement)
-  let lastApplied: number | undefined
-  for (const row of Array.from(await sql.unsafe(`select hash, created_at from ${postgresLedger}`))) {
-    const millis = Number(row.created_at ?? Number.NaN)
-    if (!Number.isFinite(millis)) continue
-    keys.add(`${millis}:${String(row.hash)}`)
-    // Drizzle compares each journal `when` with the newest `created_at` only.
-    lastApplied = Math.max(lastApplied ?? millis, millis)
-  }
-  return { keys, lastApplied }
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => group)
 }
 
 /**
- * Lists the pending migrations of one Postgres database in the order they run, with the Definition of each. It keeps
- * Drizzle's rule: a migration is pending when its `when` is newer than the newest ledger row. Definitions that share the
- * database also share the ledger, and time alone cannot prove another Definition's history. So, as for a shared SQLite
- * file, it refuses a Definition's migration at or below the newest row that has no row of its own.
+ * Creates or upgrades Drizzle's ledger and lists the pending migrations of a group. Call it in the transaction that
+ * holds the lock. A ledger of Drizzle Kit 0.x has no `name` column: like Drizzle 1.0, it adds `name` and `applied_at`
+ * and writes the name of each row, and it refuses a row that matches no migration folder.
  */
-function planPostgres(group: PostgresTarget[], { keys, lastApplied }: PostgresLedger, options: MigrateOnStartOptions) {
-  const pending = new Map<string, { migration: StartMigration, name: string }>()
-  for (const { database } of group) {
-    if (group.length > 1 && lastApplied !== undefined) {
-      const missing = database.migrations.find(migration => migration.when <= lastApplied && !keys.has(`${migration.when}:${migration.hash}`))
-      if (missing) {
-        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
-          database: database.name,
-          problem: `It shares its Postgres database with ${group.filter(target => target.database !== database).map(target => `"${target.database.name}"`).join(", ")}, and Drizzle's ledger there has no entry for migration "${missing.name}" at or below the latest applied timestamp. Drizzle would skip it. Give each Definition its own Postgres database, or move the migration after the latest applied one.`,
-        })
-      }
-    }
-    for (const migration of database.migrations) {
-      const key = `${migration.when}:${migration.hash}`
-      if ((lastApplied === undefined || lastApplied < migration.when) && !pending.has(key)) pending.set(key, { migration, name: database.name })
-    }
+async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], options: MigrateOnStartOptions): Promise<PendingEntry[]> {
+  const databases = group.map(target => target.database)
+  const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
+  await sql.unsafe("CREATE SCHEMA IF NOT EXISTS \"drizzle\"")
+  const columns = Array.from(await sql.unsafe("select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'")).map(row => row.column_name)
+  if (!columns.length) {
+    await sql.unsafe(createPostgresLedger)
   }
-  const ordered = [...pending.values()].sort((a, b) => a.migration.when - b.migration.when)
-  if (!options.allowDataLoss) {
-    // Check the migrations in the order they run, so a table that this run creates can lose its rows.
-    const checked = withoutNewTableDataLoss(ordered.map(({ migration }) => migration), "postgresql")
-    for (const { database } of group) {
-      const losses = checked.flatMap((migration, index) => ordered[index]!.name === database.name
-        ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
-        : [])
-      if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
+  else if (!columns.includes("name")) {
+    const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${postgresLedger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
+    const { backfill, unmatched } = matchLedger(rows, migrations)
+    if (unmatched.length) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+        database: databases[0]!.name,
+        problem: `Its Drizzle Kit 0.x ledger has ${unmatched.length} applied migration(s) (id ${unmatched.join(", ")}) that match no migration folder, so Drizzle 1.0 cannot upgrade it. Restore the missing migration folders.`,
+      })
     }
+    await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "name" text`)
+    await sql.unsafe(`ALTER TABLE ${postgresLedger} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`)
+    for (const { id, name } of backfill) await sql.unsafe(`UPDATE ${postgresLedger} SET "name" = $1, "applied_at" = NULL WHERE "id" = $2`, [name, id])
   }
-  return ordered
+  const rows = Array.from(await sql.unsafe(`select id, hash, created_at, name from ${postgresLedger}`)).map(row => toLedgerRow(row))
+  const match = matchLedger(rows, migrations)
+  return planByName(databases, { applied: match.applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
 }
 
 /** Runs `run` in a transaction that holds the migration lock of the group's database. */
@@ -342,17 +344,17 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
   const log = options.log ?? (message => console.info(message))
   const groups = await groupPostgresTargets(targets)
   // The transaction callback sets these, so the catch can name the migration that failed.
-  const progress: { applied: Array<{ migration: StartMigration, name: string }>, running?: { migration: StartMigration, name: string } } = { applied: [] }
+  const progress: { applied: PendingEntry[], running?: PendingEntry } = { applied: [] }
   try {
     await withPostgresLocks(groups, log, async (sqls) => {
-      const plans: Array<Array<{ migration: StartMigration, name: string }>> = []
-      for (const [index, group] of groups.entries()) plans.push(planPostgres(group, await readPostgresLedger(sqls[index]!), options))
+      const plans: PendingEntry[][] = []
+      for (const [index, group] of groups.entries()) plans.push(await planPostgres(sqls[index]!, group, options))
       await options.beforeApply?.()
       for (const [index, pending] of plans.entries()) {
         for (const entry of pending) {
           progress.running = entry
           for (const statement of entry.migration.statements) await sqls[index]!.unsafe(statement)
-          await sqls[index]!.unsafe(`insert into ${postgresLedger} ("hash", "created_at") values ($1, $2)`, [entry.migration.hash, entry.migration.when])
+          await sqls[index]!.unsafe(`insert into ${postgresLedger} ("hash", "created_at", "name") values ($1, $2, $3)`, [entry.migration.hash, entry.migration.when, entry.migration.name])
           progress.applied.push(entry)
         }
       }

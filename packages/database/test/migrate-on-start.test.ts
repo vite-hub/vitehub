@@ -14,7 +14,7 @@ import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/int
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
 import { hubDb } from "../src/nuxt.ts"
-import { migrateOnStart, migratePostgres, postgresMigrationLock } from "../src/runtime/migrate-on-start.ts"
+import { migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
 import { hubDb as hubDbVite } from "../src/vite.ts"
 
 import type { PostgresMigrationSql } from "../src/runtime/migrate-on-start.ts"
@@ -543,40 +543,74 @@ describe("migrate on start defaults", () => {
 describe("migratePostgres", () => {
   const migration = (name: string, when: number, statements: string[]) => ({ dataLoss: [], hash: `hash-${name}`, name, statements, when })
   const ledgerTable = "\"drizzle\".\"__drizzle_migrations\""
+  interface FakeRow { created_at: number, hash: string, id: number, name?: string }
 
-  /** A postgres.js client that records each query and answers the lock, identity, and ledger reads. */
-  function fakeClient({ database = "app", fail, ledger = [], locked = true }: { database?: string, fail?: string, ledger?: Array<[number, string]>, locked?: boolean }) {
+  /**
+   * A postgres.js client that records each query and answers the lock, identity, and ledger reads. `ledger` undefined
+   * has no table; rows without `name` make a Drizzle Kit 0.x table.
+   */
+  function fakeClient({ database = "app", events, fail, ledger, locked = true }: { database?: string, events?: string[], fail?: string, ledger?: FakeRow[], locked?: boolean }) {
     const queries: Array<[string, unknown[] | undefined]> = []
+    const named = ledger?.every(row => row.name !== undefined)
     const sql: PostgresMigrationSql = {
       unsafe: async (query, parameters) => {
         queries.push([query, parameters])
+        events?.push(`${database}: ${query}`)
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
         if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
-        if (query.startsWith("select current_database()")) return [{ address: "10.0.0.1", database, port: 5432, started: "2026-11-09" }]
-        if (query.startsWith("select hash, created_at")) return ledger.map(([when, hash]) => ({ created_at: String(when), hash }))
+        if (query.startsWith("select current_database()")) return [{ database, started: "2026-11-09 21:25:59+00" }]
+        if (query.startsWith("select system_identifier")) throw new Error("permission denied for function pg_control_system")
+        if (query.startsWith("select column_name")) return ledger ? ["id", "hash", "created_at", ...named ? ["name", "applied_at"] : []].map(column_name => ({ column_name })) : []
+        if (query.startsWith("SELECT id, hash, created_at FROM")) return (ledger ?? []).map(({ created_at, hash, id }) => ({ created_at: String(created_at), hash, id }))
+        if (query.startsWith("select id, hash, created_at, name")) return (ledger ?? []).map(row => ({ ...row, created_at: String(row.created_at), name: row.name ?? null }))
         return []
       },
     }
     return { client: { ...sql, begin: async <T>(run: (tx: PostgresMigrationSql) => Promise<T>) => await run(sql) }, queries }
   }
 
-  it("takes the lock before it reads Drizzle's ledger, and applies only the migrations after the newest ledger row", async () => {
-    const { client, queries } = fakeClient({ ledger: [[1, "hash-0000_init"]] })
+  it("takes the lock before it reads Drizzle's ledger, and applies each folder name that the ledger does not list", async () => {
+    // `older` is older than the newest row but has no row: Drizzle 1.0 applies it.
+    const { client, queries } = fakeClient({ ledger: [{ created_at: 2, hash: "hash-0002_newer", id: 1, name: "0002_newer" }] })
     const log: string[] = []
-    const applied = await migratePostgres([{ client, database: { migrations: [migration("0000_init", 1, ["CREATE TABLE a (id int)"]), migration("0001_next", 2, ["CREATE TABLE b (id int)"])], name: "default" } }], { log: message => log.push(message) })
-    expect(applied).toEqual(["0001_next"])
-    const lock: [string, unknown[]] = ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]]
+    const applied = await migratePostgres([{ client, database: { migrations: [migration("0001_older", 1, ["CREATE TABLE a (id int)"]), migration("0002_newer", 2, ["CREATE TABLE b (id int)"])], name: "default" } }], { log: message => log.push(message) })
+    expect(applied).toEqual(["0001_older"])
     // One transaction holds the lock from the ledger read to the commit.
     expect(queries).toEqual([
-      lock,
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local client_min_messages = warning", undefined],
       ["CREATE SCHEMA IF NOT EXISTS \"drizzle\"", undefined],
-      [`CREATE TABLE IF NOT EXISTS ${ledgerTable} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`, undefined],
-      [`select hash, created_at from ${ledgerTable}`, undefined],
-      ["CREATE TABLE b (id int)", undefined],
-      [`insert into ${ledgerTable} ("hash", "created_at") values ($1, $2)`, ["hash-0001_next", 2]],
+      ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
+      [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
+      ["CREATE TABLE a (id int)", undefined],
+      [`insert into ${ledgerTable} ("hash", "created_at", "name") values ($1, $2, $3)`, ["hash-0001_older", 1, "0001_older"]],
     ])
-    expect(log).toEqual(['[vitehub] Database "default": applied 0001_next.'])
+    expect(log).toEqual(['[vitehub] Database "default": applied 0001_older.'])
+  })
+
+  it("creates Drizzle 1.0's ledger on an empty database", async () => {
+    const { client, queries } = fakeClient({})
+    await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: () => {} })
+    expect(queries.map(([query]) => query)).toContain(`CREATE TABLE IF NOT EXISTS ${ledgerTable} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())`)
+  })
+
+  it("upgrades a Drizzle Kit 0.x ledger under the lock, like Drizzle 1.0", async () => {
+    // Drizzle Kit 0.x stored the journal `when` in milliseconds; Drizzle 1.0 matches the second.
+    const { client, queries } = fakeClient({ ledger: [{ created_at: 1_700_000_000_417, hash: "hash-0x", id: 1 }] })
+    await migratePostgres([{ client, database: { migrations: [migration("20231114221320_init", 1_700_000_000_000, ["CREATE TABLE a (id int)"])], name: "default" } }], { log: () => {} })
+    expect(queries.slice(4, 8)).toEqual([
+      [`SELECT id, hash, created_at FROM ${ledgerTable} ORDER BY id ASC`, undefined],
+      [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "name" text`, undefined],
+      [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`, undefined],
+      [`UPDATE ${ledgerTable} SET "name" = $1, "applied_at" = NULL WHERE "id" = $2`, ["20231114221320_init", 1]],
+    ])
+  })
+
+  it("refuses a Drizzle Kit 0.x ledger row that matches no migration folder", async () => {
+    const { client, queries } = fakeClient({ ledger: [{ created_at: 5_000, hash: "hash-gone", id: 3 }] })
+    await expect(migratePostgres([{ client, database: { migrations: [migration("20231114221320_init", 1_700_000_000_000, ["CREATE TABLE a (id int)"])], name: "default" } }], { log: () => {} }))
+      .rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED", why: expect.stringContaining("(id 3) that match no migration folder") })
+    expect(queries.map(([query]) => query)).not.toContain("CREATE TABLE a (id int)")
   })
 
   it("says that it waits when another process holds the lock", async () => {
@@ -615,46 +649,51 @@ describe("migratePostgres", () => {
     expect(sqliteMigrated).toEqual([])
   })
 
-  it("migrates Definitions on one Postgres database together, in timestamp order", async () => {
-    const first = fakeClient({})
-    const second = fakeClient({})
+  it("migrates Definitions on one Postgres database together, including an older migration of the second", async () => {
+    const ledger: FakeRow[] = [{ created_at: 1, hash: "hash-a0", id: 1, name: "a0" }, { created_at: 3, hash: "hash-a1", id: 2, name: "a1" }]
+    const first = fakeClient({ ledger })
+    const second = fakeClient({ ledger })
     const log: string[] = []
     await migratePostgres([
       { client: first.client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"]), migration("a1", 3, ["CREATE TABLE a1 (id int)"])], name: "first" } },
       { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
     ], { log: message => log.push(message) })
-    expect(log).toEqual([
-      '[vitehub] Database "first": applied a0.',
-      '[vitehub] Database "second": applied b0.',
-      '[vitehub] Database "first": applied a1.',
-    ])
+    expect(log).toEqual(['[vitehub] Database "second": applied b0.'])
     // One transaction on the first client runs every migration of the shared database.
-    expect(second.queries.map(([query]) => query)).toEqual([expect.stringMatching(/^select current_database\(\)/)])
+    expect(first.queries.map(([query]) => query)).toContain("CREATE TABLE b (id int)")
+    expect(second.queries.map(([query]) => query)).toEqual([expect.stringMatching(/^select current_database\(\)/), expect.stringMatching(/^select system_identifier/)])
   })
 
-  it("refuses a shared-database migration that Drizzle would skip", async () => {
-    const ledger: Array<[number, string]> = [[1, "hash-a0"], [3, "hash-a1"]]
-    const first = fakeClient({ ledger })
-    const second = fakeClient({ ledger })
+  it("refuses one folder name with different SQL on a shared database", async () => {
+    const first = fakeClient({})
+    const second = fakeClient({})
     await expect(migratePostgres([
-      { client: first.client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"]), migration("a1", 3, ["CREATE TABLE a1 (id int)"])], name: "first" } },
-      { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
-    ], { log: () => {} })).rejects.toMatchObject({
-      code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
-      why: expect.stringContaining("shares its Postgres database with \"first\", and Drizzle's ledger there has no entry for migration \"b0\""),
-    })
-    expect(first.queries.map(([query]) => query)).not.toContain("CREATE TABLE b (id int)")
+      { client: first.client, database: { migrations: [migration("a0", 1, ["CREATE TABLE a (id int)"])], name: "first" } },
+      { client: second.client, database: { migrations: [{ ...migration("a0", 1, ["CREATE TABLE b (id int)"]), hash: "other" }], name: "second" } },
+    ], { log: () => {} })).rejects.toThrow("It and the Database \"first\" share one Postgres database, and both have the migration \"a0\" with different SQL.")
   })
 
-  it("keeps Definitions on different Postgres databases apart", async () => {
-    const first = fakeClient({ database: "one", ledger: [[3, "hash-a1"]] })
-    const second = fakeClient({ database: "two" })
+  it("keeps Definitions on different Postgres databases apart, and locks them in key order", async () => {
+    const events: string[] = []
+    const first = fakeClient({ database: "zeta", events, ledger: [{ created_at: 3, hash: "hash-a1", id: 1, name: "a1" }] })
+    const second = fakeClient({ database: "alpha", events })
     const log: string[] = []
     await migratePostgres([
       { client: first.client, database: { migrations: [migration("a1", 3, ["CREATE TABLE a1 (id int)"])], name: "first" } },
       { client: second.client, database: { migrations: [migration("b0", 2, ["CREATE TABLE b (id int)"])], name: "second" } },
     ], { log: message => log.push(message) })
     expect(log).toEqual(['[vitehub] Database "second": applied b0.'])
-    expect(second.queries.map(([query]) => query)).toContain("CREATE TABLE b (id int)")
+    // "alpha" sorts first, so its lock comes before the lock of "zeta", whatever the order of the Definitions.
+    expect(events.filter(event => event.includes("pg_try_advisory_xact_lock")).map(event => event.split(":")[0])).toEqual(["alpha", "zeta"])
+  })
+
+  it("names a database by what the server reports, not by the address it is reached at", async () => {
+    const queries: string[] = []
+    const key = await readPostgresDatabaseKey({ unsafe: async (query) => {
+      queries.push(query)
+      return query.startsWith("select system_identifier") ? [{ id: "7706286121795465256" }] : [{ database: "app", started: "2026-11-09 21:25:59+00" }]
+    } })
+    expect(key).toBe(JSON.stringify(["app", "2026-11-09 21:25:59+00", "7706286121795465256"]))
+    expect(queries.join(" ")).not.toMatch(/inet_server/)
   })
 })
