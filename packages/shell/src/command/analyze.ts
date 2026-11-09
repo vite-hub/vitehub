@@ -1,4 +1,4 @@
-import { BinCmdOperator, LangVariant, parse, walk, type File } from "sh-syntax"
+import { BinCmdOperator, LangVariant, parse, RedirOperator, walk, type File } from "sh-syntax"
 
 import { createSourceIndex, wordText } from "./parse.ts"
 
@@ -67,7 +67,7 @@ function analyzeAst(file: File, command: string) {
         break
       case "Redirect":
         hasRedirects = true
-        if (node.hdoc) hasHeredocs = true
+        if (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc) hasHeredocs = true
         break
       case "BinaryCmd":
         if (node.op === BinCmdOperator.Pipe || node.op === BinCmdOperator.PipeAll || node.op === BinCmdOperator.OrStmt) hasPipelines = true

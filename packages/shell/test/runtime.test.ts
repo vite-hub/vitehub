@@ -1179,6 +1179,10 @@ describe("@vite-hub/shell analyzer", () => {
       hasHeredocs: true,
       ok: true,
     })
+    await expect(analyzeShellCommand("cat <<EOF\nEOF")).resolves.toMatchObject({
+      hasHeredocs: true,
+      ok: true,
+    })
     await expect(analyzeShellCommand("echo ok", { timeoutMs: 0 })).resolves.toMatchObject({
       ok: false,
       parser: "sh-syntax",
