@@ -4771,6 +4771,7 @@ async function createAgentInvocationContext<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       model: agentModel as never,
       resolveCapabilityCli,
+      trackInputData: internalDefinition?.[baseAgentData] !== undefined,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {

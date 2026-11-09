@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm"
 import { describe, expect, it } from "vitest"
 
-import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
+import { defineComments, defineCommentSubject } from "../src/index.ts"
+import { installComments } from "../src/install.ts"
 import { ada, createDatabase } from "./harness.ts"
 
 const subjects = [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })]

@@ -8,7 +8,7 @@ icon: i-lucide-folder-input
 ---
 
 ::product-hero{tagline="Read files from your project, GitHub, or your own data with one reader, and turn lists into paged API routes." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree
   ```ts [server/sources/docs.ts]
   import { github } from 'vite-hub/source/github'
   import { glob } from 'vite-hub/source/glob'

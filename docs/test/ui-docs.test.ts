@@ -32,14 +32,14 @@ describe("UI documentation", () => {
   it("lists component pages in the overview through the generated gallery", () => {
     const source = readFileSync(resolve(uiDocsRoot, "index.md"), "utf8");
 
-    expect(source).toContain("::ui-component-gallery");
+    expect(source).toContain('::page-list{exclude="Start"}');
     expect(source).not.toContain(":::u-page-card\n\n---");
-    expect(existsSync(resolve(docsRoot, "app/components/content/UiComponentGallery.vue"))).toBe(true);
+    expect(existsSync(resolve(packageApp, "components/content/PageList.vue"))).toBe(true);
   });
 
   it("keeps the overview's text list in sync for raw Markdown readers", () => {
     const source = readFileSync(resolve(uiDocsRoot, "index.md"), "utf8");
-    const gallery = source.split("::ui-component-gallery\n")[1]?.split("\n::\n")[0] ?? "";
+    const gallery = source.split('::page-list{exclude="Start"}\n')[1]?.split("\n::\n")[0] ?? "";
     for (const page of [...componentPages, ...blockPages]) {
       const path = `/docs/ui/${page.name.replace(/\.md$/, "")}`;
       expect(gallery, `index.md should list ${path}`).toContain(`](${path})`);
@@ -131,7 +131,8 @@ describe("UI documentation", () => {
     const page = readFileSync(resolve(packageApp, "components/DocsPage.vue"), "utf8");
     const article = readFileSync(resolve(packageApp, "components/DocsArticle.vue"), "utf8");
     expect(page).toContain('<DocsArticle :response="response" />');
-    expect(article).toContain('<DocsMarkdown :document="response.document" :components="{ pre: DocsCodePre }" />');
+    // comark-ui draws code blocks, except beside a tutorial's code panel, which reads DocsCodePre's file name bar.
+    expect(article).toContain('<DocsMarkdown :document="response.document" :components="hasCodePanel ? { pre: DocsCodePre } : undefined" />');
     expect(article).toContain("UContentToc");
     expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');

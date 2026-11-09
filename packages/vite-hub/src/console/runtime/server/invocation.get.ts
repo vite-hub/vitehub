@@ -6,6 +6,7 @@ import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents
 import { getConsoleInvocations } from "./invocations.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
+import { consoleHttpError } from "./http-error.ts"
 import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -57,14 +58,11 @@ const deleteActionSchema = v.strictObject({ action: v.literal("delete") })
 const terminalStatuses: ReadonlySet<AgentInvocationSummary["status"]> = new Set(["cancelled", "completed", "failed"])
 
 function notFound(): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }), {
-    statusCode: 404,
-    statusMessage: "Invocation not found",
-  })
+  return consoleHttpError(404, viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }))
 }
 
 function actionError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }), { statusCode, statusMessage })
+  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }))
 }
 
 // Console invoke access for the record's Agent allows these actions.
