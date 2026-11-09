@@ -214,6 +214,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
+  /** The mode to resume after a first-time guest gives their name. */
+  let namedMode: "comment" | "mark" = "comment"
   /** The text a first-time guest selected before the name card took the focus, so the comment starts on it after. */
   let namedQuote: Range | undefined
   const guest = ref(readGuest())
@@ -312,6 +314,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (next === "mark") {
       if (!canComment || marking.value) return
       if (needsName.value) {
+        namedMode = next
         namedQuote = undefined
         naming.value = true
         return
@@ -324,6 +327,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     else if (next === "comment") {
       if (!canComment) return
       if (needsName.value) {
+        namedMode = next
         namedQuote = undefined
         naming.value = true
         return
@@ -460,6 +464,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     guest.value = saveGuest(name)
     naming.value = false
     void joinRoom(true)
+    const next = namedMode
+    namedMode = "comment"
     const quote = namedQuote
     namedQuote = undefined
     if (quote?.startContainer.isConnected) {
@@ -468,7 +474,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       selection?.addRange(quote)
       if (commentOnSelection()) return
     }
-    setMode("comment")
+    setMode(next)
   }
 
   async function signOut(url: string) {
@@ -520,6 +526,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     pressingBar = false
     if (!range) return false
     if (needsName.value) {
+      namedMode = "comment"
       namedQuote = range
       naming.value = true
       return true

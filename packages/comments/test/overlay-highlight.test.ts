@@ -32,9 +32,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function site() {
+async function site(user: typeof ada | null = ada) {
   const stored: string[] = []
-  const server = await serveComments({ identify: () => ada, storeAttachment: (file) => {
+  const server = await serveComments({ identify: () => user, authorize: () => true, storeAttachment: (file) => {
     stored.push(`${file.name} ${file.type}`)
     return `files/${file.name}`
   } })
@@ -56,6 +56,22 @@ function stroke(points: Array<[number, number]>) {
 }
 
 describe("Highlight in the Comments segment", () => {
+  it.each(["button", "B"])("resumes Highlight after a guest gives their name using %s", async (action) => {
+    const { bar, shadow } = await site(null)
+    if (action === "button") tool(bar, "Highlight")!.click()
+    else press(document.body, "b")
+    await vi.waitFor(() => expect(shadow.querySelector('input[aria-label="Your name"]')).not.toBeNull())
+    expect(layer()).toBeNull()
+    const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
+    await type(name, "Ana")
+    name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+    expect(shadow.querySelector('[data-slot="comment-layer-overlay"]')).toBeNull()
+    stroke([[20, 20], [60, 20]])
+    expect(layer()!.querySelectorAll("path")).toHaveLength(1)
+    await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
+  })
+
   it("comments on the highlighted area with a screenshot of the strokes", async () => {
     const { bar, shadow, comments, stored } = await site()
     tool(bar, "Highlight")!.click()
