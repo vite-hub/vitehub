@@ -1,6 +1,6 @@
 import { discoveredAgentName, discoveredAgentWorkspace } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
-import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
+import { declaredAgentWorkspace, registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { resolveAgentPresetExtension } from "./agent-presets.ts"
 import { mergeAgentChannels } from "./internal/named-channels.ts"
@@ -298,7 +298,7 @@ export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkProperties = new Set<PropertyKey>([
-    discoveredAgentName, discoveredAgentWorkspace, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "configKey", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
+    discoveredAgentName, discoveredAgentWorkspace, agentDefinitionSourceSymbol, declaredAgentWorkspace, registeredWorkspaceAgentNames, "options", "configKey", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
     "resolve", "run", "health", "status", "sandbox", "github", "capabilities", "channels", "chat", "cli", "description",
     "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
     "bindings", "commit", "loaders", "plugins", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",

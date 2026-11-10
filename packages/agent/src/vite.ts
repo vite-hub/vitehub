@@ -1118,8 +1118,13 @@ function discoveredAgentIdentityDecorator(definition: DiscoveredAgentDefinition)
 }
 
 // A folder Agent gets its Workspace only from its `workspace` key. Without the key, it fails when it loads if it owns one.
+function checksDeclaredWorkspace(definition: DiscoveredAgentDefinition): boolean {
+  return !definition.workspace && isFolderAgentDefinition(definition)
+}
+
+// The Vite transform checks direct imports too. The generated catalog checks it on hosts that build without the transform.
 function declaredWorkspaceDecorators(definition: DiscoveredAgentDefinition): DiscoveredAgentExportDecorator[] {
-  if (definition.workspace || !isFolderAgentDefinition(definition)) return []
+  if (!checksDeclaredWorkspace(definition)) return []
   return [{
     decorate: value => `vitehubWithDeclaredAgentWorkspace(${value}, ${JSON.stringify(definition.name)})`,
     imports: [`import { withDeclaredAgentWorkspace as vitehubWithDeclaredAgentWorkspace } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
@@ -2179,6 +2184,7 @@ async function generateAgentDeploymentCatalog(
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl", "namedChannelHosts"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
+    ...(definitions.some(checksDeclaredWorkspace) ? ["withDeclaredAgentWorkspace"] : []),
   ].filter(Boolean).join(", ")
 
   return {
@@ -2225,6 +2231,10 @@ async function generateAgentDeploymentCatalog(
             "}",
             "",
           ]
+        : []),
+      // Check the exported Agent before the catalog decorates it or registers its Workspace.
+      ...definitions.flatMap((definition, index) => checksDeclaredWorkspace(definition)
+        ? [`withDeclaredAgentWorkspace(resolveAgentModule(agent${index}), ${JSON.stringify(definition.name)})`]
         : []),
       ...hostedWorkspaceRuntime.setup,
       ...(options.workspaceRegistry !== false

@@ -170,6 +170,20 @@ describe("declared Agent Workspace", () => {
     }))
   })
 
+  it("keeps an Agent whose defineAgent() options have the workspace key", () => {
+    const parent = defineAgent({ driver: { run: () => "ok" }, workspace: {} })
+    const declared = defineAgent({ channels: { github: github({ pullRequest: true }) }, driver: { run: () => "ok" }, workspace: {} })
+    const extended = defineAgent({ extends: parent, workspace: { mode: "write" } })
+    expect(withDeclaredAgentWorkspace(parent, "parent")).toBe(parent)
+    expect(withDeclaredAgentWorkspace(declared, "reviewer")).toBe(declared)
+    expect(withDeclaredAgentWorkspace(extended, "extended")).toBe(extended)
+  })
+
+  it("fails for an Agent that gets its Workspace from a parent", () => {
+    const parent = defineAgent({ driver: { run: () => "ok" }, workspace: {} })
+    expect(() => withDeclaredAgentWorkspace(defineAgent({ extends: parent }), "child")).toThrowError(expect.objectContaining({ code: "AGENT_R1036" }))
+  })
+
   it("keeps an Agent that declares no Workspace", () => {
     const named = defineAgent({ driver: { run: () => "ok" }, workspace: "shared" })
     expect(withDeclaredAgentWorkspace(named, "reviewer")).toBe(named)

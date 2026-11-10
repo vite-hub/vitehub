@@ -183,6 +183,8 @@ A folder Agent, such as `server/agents/review/agent.ts`, owns a Workspace only w
 - `workspace: 'shared'` and `workspace: { name: 'shared' }` use a shared Workspace.
 - No `workspace` key, or `workspace: undefined`, declares no Workspace. The Agent stays stateless.
 
+Write the key in the exported `defineAgent()` call or in a `const` that the call uses. Discovery does not set up a Workspace for a key that it cannot read, such as one in options that a function returns.
+
 When a Capability, Channel, preset, parent, or `configure` callback adds a Workspace, such as `github({ pullRequest: true })`, also add `workspace: {}`. Without it, the Agent fails with `AGENT_R1036` when it loads.
 
 Configured presets merge Capabilities, Channels, and hooks like `extends`: a child replaces a Capability with the same ID or a Channel with the same key, and a same-name hook runs after the preset's, so an extension's `agent:finish` cannot remove preset behavior. Option callbacks are values that get replaced and are never called by merging.
