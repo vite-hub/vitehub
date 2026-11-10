@@ -2768,12 +2768,6 @@ importers:
 
   packages/queue:
     dependencies:
-      '@vercel/functions':
-        specifier: catalog:vercel
-        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
-      '@vercel/queue':
-        specifier: catalog:vercel
-        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -2799,6 +2793,12 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
+      '@vercel/queue':
+        specifier: catalog:vercel
+        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -3044,9 +3044,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      esbuild:
-        specifier: catalog:tooling
-        version: 0.28.2
       local-pkg:
         specifier: catalog:tooling
         version: 1.2.1
@@ -3096,6 +3093,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      esbuild:
+        specifier: catalog:tooling
+        version: 0.28.2
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0

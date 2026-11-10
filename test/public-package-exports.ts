@@ -775,6 +775,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/database/config", { "vite": "runtime" }],
   ["@vite-hub/kv/vite", { "vite": "declaration" }],
   ["@vite-hub/queue/vite", { "vite": "declaration" }],
+  ["@vite-hub/queue/runtime/hosted", { "@vercel/functions": "runtime" }],
   ["@vite-hub/realtime/vite", { "vite": "declaration" }],
   ["@vite-hub/sandbox/task/vite", { "vite": "declaration" }],
   ["@vite-hub/schedule/vite", { "vite": "both" }],

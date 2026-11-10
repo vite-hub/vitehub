@@ -2,16 +2,13 @@ import { createAuthUsers } from "../operations-core/server.ts"
 
 import { requestOf } from "./request.ts"
 
-import type { H3Event } from "h3"
-// Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
-import type {} from "@vite-hub/runtime/h3"
-import type { CommentsPeople, CommentsUser } from "../types.ts"
+import type { CommentsPeople, CommentsRequestEvent, CommentsUser } from "../types.ts"
 
 // The generated Comments plugin imports this module at startup. Better Auth loads on the first request that needs a user.
 const authServer = () => import("@vite-hub/auth/server")
 
 /** The ViteHub Auth user of a request, or null. Generated Comments files pass it as `session` when the app has Auth. */
-export async function commentsAuthSession(event: H3Event): Promise<CommentsUser | null> {
+export async function commentsAuthSession(event: CommentsRequestEvent): Promise<CommentsUser | null> {
   const request = requestOf(event)
   const auth = (await authServer()).useAuth(event)
   const session = await auth.api.getSession({ headers: request.headers })
