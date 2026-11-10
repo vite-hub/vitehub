@@ -245,7 +245,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement-token'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "@", replacement: `${replacementDir}/$&` }]),
       format: "esm",
@@ -261,7 +262,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const outfile = resolve(rootDir, "output.mjs")
     await writeFile(entry, 'import "optional-package"\n', "utf8")
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: resolve(rootDir, "replacement") }]),
       external: ["optional-package"],
@@ -338,7 +340,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(nestedDir, "job.mjs"), "export const value = 'nested'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([
         { find: "@/", replacement: broadDir },
@@ -362,7 +365,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     const alias = encodeProviderOutputAliases([{ find: "__proto__", replacement }])
     expect(Object.hasOwn(alias, "__proto__")).toBe(true)
     await bundleEsmEntry(entry, outfile, { alias, format: "esm", platform: "node" })
@@ -548,7 +552,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "@scope", replacement: replacementDir }]),
       format: "esm",
@@ -583,7 +588,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
       format: "esm",
@@ -613,7 +619,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
       format: "esm",
@@ -642,7 +649,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, 'export { value } from "example/jobs/task.mjs"\n', "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
       format: "esm",
@@ -669,7 +677,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example/foo", replacement: resolve(replacementDir, "foo") }]),
       format: "esm",

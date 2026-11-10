@@ -7,3 +7,6 @@ export const channelDeliveryHandlers: unique symbol = Symbol.for("vitehub.agent.
 
 /** Invocation Context key for the message data that a Channel trigger returns. */
 export const channelMessageContextKey = "channel.message"
+
+/** The trigger that receives the webhook of a Channel with `on` handlers. Its tasks are the handlers. */
+export const channelHandlerTriggerName = "on"

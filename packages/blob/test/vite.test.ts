@@ -40,6 +40,9 @@ async function serveRouteRequest(artifactFile: string, routeBase = "", priorCach
   const app = new H3({ onRequest: event => installStandardContext(event) })
   app.use((event) => {
     if (priorCacheControl) setResponseHeader(event, "Cache-Control", priorCacheControl)
+    event.res.headers.append("set-cookie", "a=1; Path=/")
+    event.res.headers.append("set-cookie", "b=2; Path=/")
+    event.res.headers.set("x-middleware", "yes")
   })
   app.all(`${baseURL}${routeBase}/**`, artifact.default)
   return (pathname: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://localhost${baseURL}${requestBase}/${pathname}`, { headers, method }))
@@ -210,10 +213,13 @@ describe("hubBlob", () => {
 
   it("exposes resolved config through a stable ViteHub import path", async () => {
     const plugin = hubBlob({ driver: "fs", base: ".virtual/blob" })
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
-    const resolvedId = await resolveId(BLOB_VIRTUAL_CONFIG_ID)
-    const code = await load(resolvedId!)
+    const resolveId = plugin.resolveId as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const load = plugin.load as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const resolvedId = resolveId.handler(BLOB_VIRTUAL_CONFIG_ID)
+    const code = load.handler(resolvedId!)
+
+    expect([BLOB_VIRTUAL_CONFIG_ID, "#vitehub/blob/config.ts", "@vite-hub/blob"].map(id => resolveId.filter.id.test(id))).toEqual([true, false, false])
+    expect([resolvedId!, BLOB_VIRTUAL_CONFIG_ID].map(id => load.filter.id.test(id))).toEqual([true, false])
 
     expect(code).toContain("export const blob =")
     expect(code).toContain(".virtual/blob")
@@ -716,9 +722,11 @@ describe("hubBlob", () => {
       await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
       const middleware = join(root, ".vitehub/nitro/blob/middleware.ts")
       const nitroEntry = fileURLToPath(import.meta.resolve("nitro"))
+      // The generated middleware imports the Blob runtime state by file path.
+      const runtimeState = join(import.meta.dirname, "../dist/runtime/state.js")
       const result = await bundle({
         stdin: {
-          contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from '@vite-hub/blob/runtime/state'`,
+          contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from ${JSON.stringify(runtimeState)}`,
           resolveDir: root,
         },
         alias: { nitro: nitroEntry, h3: fileURLToPath(import.meta.resolve("h3")) },
@@ -730,7 +738,8 @@ describe("hubBlob", () => {
         plugins: [{
           name: "cloudflare-middleware-boundaries",
           setup(build) {
-            build.onResolve({ filter: /^(cloudflare:workers|@vite-hub\/blob\/runtime\/state)$/ }, args => ({ path: args.path, namespace: "middleware-test" }))
+            build.onResolve({ filter: /^cloudflare:workers$/ }, args => ({ path: args.path, namespace: "middleware-test" }))
+            build.onResolve({ filter: /runtime[\\/]state\.js$/ }, args => args.path === runtimeState ? { path: "runtime-state", namespace: "middleware-test" } : undefined)
             build.onLoad({ filter: /.*/, namespace: "middleware-test" }, args => ({
               resolveDir: root,
               contents: args.path === "cloudflare:workers"
@@ -1120,7 +1129,9 @@ describe("hubBlob", () => {
         { "If-None-Match": "*" },
       ]
       for (const condition of conditions) {
-        expect((await request("binary.bin", condition)).status).toBe(304)
+        const conditional = await request("binary.bin", condition)
+        expect(conditional.status).toBe(304)
+        expect(conditional.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"])
       }
       const changed = await request("binary.bin", { "If-None-Match": '"older"' })
       expect(changed.status).toBe(200)
@@ -1135,12 +1146,23 @@ describe("hubBlob", () => {
       expect(new Uint8Array(await partial.arrayBuffer())).toEqual(new Uint8Array([128, 255]))
       const invalidRange = await request("binary.bin", { Range: "bytes=99-" })
       expect(invalidRange.status).toBe(416)
+      expect(invalidRange.headers.get("Cache-Control")).toBe(expectedCacheControl)
+      expect(invalidRange.headers.get("Content-Range")).toBe("bytes */5")
+      expect(invalidRange.headers.get("Content-Length")).toBe("0")
       expect(await invalidRange.text()).toBe("")
       const invalidVariant = await request("binary.bin?w=invalid")
       expect(invalidVariant.status).toBe(400)
       const missing = await request("missing.bin", { "If-None-Match": "*" })
       expect(missing.status).toBe(404)
       expect(missing.headers.get("Cache-Control")).toBeNull()
+      for (const result of [response, head, partial, invalidRange, invalidVariant, missing]) {
+        expect(result.headers.getSetCookie(), `status ${result.status}`).toEqual(["a=1; Path=/", "b=2; Path=/"])
+        expect(result.headers.get("x-middleware"), `status ${result.status}`).toBe("yes")
+      }
+
+      const invalidPath = await request("..%2Fsecret")
+      expect(invalidPath.status).toBe(400)
+      expect(invalidPath.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"])
 
       // The router keeps the raw catch-all after the baseURL; `serve()` decodes it once.
       const paths: string[] = []
@@ -1148,15 +1170,22 @@ describe("hubBlob", () => {
       const withBase = await serveRouteRequest(artifactFile, serveRoute, undefined, baseURL || "/app", requestRoute)
       expect((await withBase("dir/a%20b%2Fc.bin", {}, "HEAD")).status).toBe(200)
       expect(paths).toEqual(["dir/a b/c.bin"])
-      expect((await withBase("")).status).toBe(404)
+      const emptyPath = await withBase("")
+      expect(emptyPath.status).toBe(404)
+      expect(emptyPath.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"])
 
-      // Outside Nitro, the route copies the status and the headers that `serve()` sets to the Response.
+      // Outside Nitro, the route keeps the status and headers of the `serve()` Response.
       const { default: route } = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
       const direct = await route.fetch(new Request(`http://localhost${requestRoute.replace(/\/+$/, "")}/binary.bin`, { headers: { Range: "bytes=1-2" } }))
       expect(direct.status).toBe(206)
       expect(direct.headers.get("Content-Range")).toBe("bytes 1-2/5")
       expect(direct.headers.get("Cache-Control")).toBe(expectedCacheControl)
       expect(new Uint8Array(await direct.arrayBuffer())).toEqual(new Uint8Array([128, 255]))
+      for (const [pathname, status] of [["", 404], ["missing.bin", 404], ["..%2Fsecret", 400], ["binary.bin?w=invalid", 400]] as const) {
+        const errorHead = await route.fetch(new Request(`http://localhost${requestRoute.replace(/\/+$/, "")}/${pathname}`, { method: "HEAD" }))
+        expect(errorHead.status).toBe(status)
+        expect(errorHead.body).toBeNull()
+      }
       Reflect.deleteProperty(globalThis, "__vitehubBlobHeadPaths")
     }
     finally {
@@ -1265,6 +1294,10 @@ describe("hubBlob", () => {
         const conditional = await request("u1/meal.jpg", { "cookie": "session=u1", "If-None-Match": signedIn.headers.get("etag")! })
         expect(conditional.status).toBe(304)
         expect(calls).toEqual(["u1/meal.jpg", "u1/meal.jpg"])
+        const invalidRange = await request("u1/meal.jpg", { cookie: "session=u1", Range: "bytes=99-" })
+        expect(invalidRange.status).toBe(416)
+        expect(invalidRange.headers.get("Cache-Control")).toBe("private, no-cache")
+        expect(invalidRange.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"])
       }
       finally {
         Reflect.deleteProperty(globalThis, "__vitehubBlobServeCalls")
@@ -1435,12 +1468,12 @@ describe("hubBlob", () => {
     })
   })
 
-  it("uses a configured package base in physical Nitro imports", async () => {
+  it("imports the public root through the package base and its runtime state by file path", async () => {
     const root = await temporaryDirectory("vitehub-blob-import-base-")
     const plugin = hubBlob({
       driver: "fs",
       serve: true,
-    }, { importBase: "vite-hub/_internal/blob" })
+    }, { importBase: "vite-hub/blob" })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
     await configResolved({
@@ -1451,9 +1484,10 @@ describe("hubBlob", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
-    expect(nitroPlugin).toContain("from 'vite-hub/_internal/blob/runtime/state'")
-    expect(middleware).toContain("from 'vite-hub/_internal/blob/runtime/state'")
-    expect(handler).toContain("from 'vite-hub/_internal/blob'")
+    const runtimeState = JSON.stringify(join(import.meta.dirname, "../dist/runtime/state.js"))
+    expect(nitroPlugin).toContain(`from ${runtimeState}`)
+    expect(middleware).toContain(`from ${runtimeState}`)
+    expect(handler).toContain("from 'vite-hub/blob'")
     expect(`${nitroPlugin}\n${middleware}\n${handler}`).not.toContain("@vite-hub/blob")
   })
 })
