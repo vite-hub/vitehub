@@ -137,7 +137,6 @@ ViteHub finds the request through a request scope:
 
 - Vite Cloudflare output runs each request in its own scope.
 - Nitro 3 apps, Nuxt on Nitro 3 too, get a generated middleware that does the same.
-- Nitro 2 apps, such as Nuxt 4, cannot wrap the request. The Nuxt bridge sets a new env object per request, and ViteHub uses it as the scope. Requests at the same time in one isolate can replace that object before a query starts. Use Nitro 3 for high-concurrency Postgres traffic on Workers.
 
 ```ts [server/databases/config.ts] fragment
 import { defineDatabase } from '@vite-hub/database'

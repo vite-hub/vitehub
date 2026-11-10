@@ -1,6 +1,6 @@
 import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
-import { runWorkflow } from "@vite-hub/workflow"
+import { startWorkflow } from "@vite-hub/workflow"
 
 const workflowName = "welcome"
 const workflowBody = v.optional(v.object({
@@ -15,6 +15,6 @@ export default defineEventHandler(async (event) => {
   const id = body?.id || marker
   return {
     ok: true,
-    result: await runWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id }),
+    result: await startWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id }),
   }
 })
