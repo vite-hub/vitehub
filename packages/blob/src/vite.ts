@@ -16,6 +16,7 @@ import { dirname, relative, resolve } from "pathe"
 
 import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
+import { blobSignedRoute } from "./internal/fs-sign.ts"
 import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
@@ -36,6 +37,8 @@ import type { Plugin, ResolvedConfig } from "vite"
 // Generated code imports these modules by path, so they need no package export.
 const operationsModule = ownModule(import.meta.url, "operations")
 const runtimeStateModule = ownModule(import.meta.url, "runtime/state")
+const signedRouteModule = ownModule(import.meta.url, "runtime/signed")
+const signedNitroRoute = `${blobSignedRoute}/**`
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
 const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
@@ -169,8 +172,14 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
     && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${generatedPath}`))
 }
 
+/** True when a store uses the `fs` driver, also as the local store of `vite dev`. Its signed links need the signed route. */
+function hasLocalStore(blob: BlobViteRuntimeConfig["blob"]): boolean {
+  if (!blob) return false
+  return Object.values(blob.stores ?? { default: blob.store }).some(store => store.driver === "fs" || (store.driver === "cloudflare-r2" && Boolean(store.localFallback)))
+}
+
 /** Merges the generated Blob registrations into the Nitro config. */
-function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
+function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string, signedRoute = false): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const externals = cloneNitroConfig(nitro.externals)
   const inline = Array.isArray(externals.inline) ? externals.inline : []
@@ -183,11 +192,13 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
     ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedNitroBlobPlugin))
     : []
   nitro.handlers = Array.isArray(nitro.handlers)
-    ? nitro.handlers.filter(handler => !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware))
+    ? nitro.handlers.filter(handler => !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware) && handler?.route !== signedNitroRoute)
     : []
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(plugin)
   if (cloudflare) kit.addHandler({ handler: middleware, middleware: true })
+  // Only an `fs` store signs links to this route. A hosted store signs links to its provider.
+  if (signedRoute) kit.addHandler({ handler: signedRouteModule, route: signedNitroRoute })
   if (!serve) return kit.config
   if (Array.isArray(kit.config.handlers)) {
     const existingHandlers = kit.config.handlers.filter(handler =>
@@ -513,6 +524,7 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
           blobConfig.blob ? blobConfig.blob.serve : undefined,
           cloudflare,
           hasNitroConfigContext(config) ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
+          hasLocalStore(blobConfig.blob),
         )
         const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
         ;(config as { nitro?: unknown }).nitro = composedNitro
@@ -534,6 +546,7 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflare,
         rootDir,
+        hasLocalStore(blobConfig.blob),
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
       runtimeConfig = blobConfig

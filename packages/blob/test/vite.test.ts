@@ -974,12 +974,49 @@ describe("hubBlob", () => {
     expect(userConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
-        handlers: [{
-          handler: ".vitehub/blob/serve-route.ts",
-          route: "/api/_vitehub/blob/**",
-        }],
+        handlers: [
+          { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" },
+          { handler: ".vitehub/blob/serve-route.ts", route: "/api/_vitehub/blob/**" },
+        ],
       },
     })
+  })
+
+  it("registers the signed route only when a store uses the fs driver", async () => {
+    async function handlers(options: Parameters<typeof hubBlob>[0]) {
+      const plugin = hubBlob(options)
+      const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+      const userConfig: { nitro?: { handlers?: unknown[] } } = {}
+      await config(userConfig, { command: "build" })
+      return userConfig.nitro?.handlers
+    }
+    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" }
+
+    expect(await handlers({ driver: "fs" })).toEqual([signed])
+    expect(await handlers({ stores: { default: { bucketName: "assets", driver: "cloudflare-r2" }, local: { driver: "fs" } } })).toEqual([signed])
+    expect(await handlers({ bucketName: "assets", driver: "cloudflare-r2" })).toEqual([])
+    expect(await handlers({ bucket: "assets", driver: "s3" })).toEqual([])
+  })
+
+  it.each([
+    ["serve", 1],
+    ["build", 0],
+  ] as const)("registers the signed route once for the local fallback of R2 in %s", async (command, count) => {
+    // The `config` hook resolves the store without the dev switch, and `configResolved` resolves it again with it.
+    const plugin = hubBlob()
+    const configHook = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config: Record<string, unknown> & { nitro: { handlers?: Array<{ route?: string }>, preset: string } } = {
+      build: { outDir: "dist" },
+      command,
+      nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      root: await temporaryDirectory("vitehub-blob-signed-route-"),
+    }
+    await configHook(config, { command })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+
+    expect(config.nitro.handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
   })
 
   it("writes the generated Nitro serving route handler", async () => {
