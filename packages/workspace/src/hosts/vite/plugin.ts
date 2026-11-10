@@ -84,6 +84,7 @@ interface BabelNode {
   imported?: BabelNode
   id?: BabelNode
   key?: { name?: unknown, type?: string, value?: unknown }
+  kind?: string
   name?: string
   object?: BabelNode
   property?: BabelNode
@@ -1020,6 +1021,88 @@ function resolveOwnedCloudflareArtifacts(
   })
 }
 
+function unwrapBabelExpression(node: BabelNode | undefined): BabelNode | undefined {
+  if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
+    return unwrapBabelExpression(node.expression)
+  }
+  return node
+}
+
+function babelCallsWorkspaceImport(node: BabelNode | undefined, path: BabelNodePath, name: string, entry = ""): boolean {
+  if (node?.type !== "CallExpression" || node.callee?.type !== "Identifier" || !node.callee.name) return false
+  const binding = path.scope.getBinding(node.callee.name)?.path
+  return binding?.node.type === "ImportSpecifier"
+    && binding.node.imported?.name === name
+    && [
+      `@vite-hub/workspace${entry}`,
+      `vite-hub/workspace${entry}`,
+    ].includes(String(binding.parentPath?.node.source?.value))
+}
+
+function babelStaticObjectProperties(node: BabelNode | undefined): BabelNode[] | undefined {
+  if (node?.type !== "ObjectExpression") return
+  if (node.properties?.some(property => property.type === "SpreadElement" || property.computed || (property.key?.name ?? property.key?.value) === "__proto__")) return
+  return node.properties
+}
+
+/** Only prune loaders for a directly declared store whose provider cannot change when the module runs again. */
+async function sourceModuleHasStaticWorkspaceStore(
+  file: string,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  exportedName = "default",
+): Promise<boolean> {
+  // Indirect and contributed exports keep every loader unless we can establish their store contract here.
+  if (exportedName !== "default") return false
+  const loaded = await readSourceModule(file)
+  if (!loaded) return false
+  let staticStore = false
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ExportDefaultDeclaration(path: BabelNodePath) {
+            let definition = unwrapBabelExpression(path.node.declaration)
+            if (babelCallsWorkspaceImport(definition, path, "defineWorkspace") && definition?.arguments?.length === 1) {
+              definition = unwrapBabelExpression(definition.arguments[0])
+            }
+            const properties = babelStaticObjectProperties(definition)
+            if (!properties) return
+            const storeProperty = properties.findLast(property => (property.key?.name ?? property.key?.value) === "store")
+            if (!storeProperty) {
+              staticStore = true
+              return
+            }
+            if (storeProperty.type !== "ObjectProperty") return
+            // SAFETY: An ObjectProperty's value is an expression node.
+            const store = unwrapBabelExpression(storeProperty.value as BabelNode)
+            // This public factory always returns a custom Store, independent of its runtime arguments.
+            if (babelCallsWorkspaceImport(store, path, "createBlobDatabaseWorkspaceStore", "/blob-database")) {
+              staticStore = true
+              return
+            }
+            const storeProperties = babelStaticObjectProperties(store)
+            if (!storeProperties) return
+            const readFile = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "readFile")
+            if (readFile) {
+              // A custom Store must remain a custom Store when the module is evaluated in production.
+              staticStore = readFile.type === "ObjectMethod" && readFile.kind === "method"
+              return
+            }
+            const provider = storeProperties.findLast(property => (property.key?.name ?? property.key?.value) === "provider")
+            // SAFETY: An ObjectProperty's value is an expression node.
+            staticStore = provider?.type === "ObjectProperty" && unwrapBabelExpression(provider.value as BabelNode)?.type === "StringLiteral"
+          },
+        },
+      })],
+    },
+  })
+  return staticStore
+}
+
 async function resolveDefinitionCloudflareArtifactsConfigs(
   definitions: DiscoveredWorkspaceDefinition[],
   rootDir: string,
@@ -1061,6 +1144,9 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
         throw error
       }
       loaded = { store }
+    }
+    if (inspection?.storeUsage && !await sourceModuleHasStaticWorkspaceStore(definitionFile, loader, definition.export)) {
+      inspection.storeUsage.add("unknown")
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
     if (!workspace.store) inspection?.storeUsage?.add("default")
@@ -1256,7 +1342,7 @@ const hostedWorkspaceStoreProviders: readonly HostedWorkspaceStoreProvider[] = [
 
 /**
  * What a build learned about the stores of the discovered definitions: a hosted provider, `default` for a definition
- * without a store, or `unknown` for a definition the build could not load.
+ * without a store, or `unknown` for a definition the build could not load or whose store may change at runtime.
  */
 type WorkspaceDefinitionStoreUsage = Set<HostedWorkspaceStoreProvider | "default" | "unknown">
 

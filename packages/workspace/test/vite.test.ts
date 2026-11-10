@@ -699,8 +699,8 @@ describe("hubWorkspace", () => {
       ``,
     ].join("\n")
 
-    async function buildPlugin(definitions: Record<string, string>) {
-      const root = await createViteRoot()
+    async function buildPlugin(definitions: Record<string, string>, rootDir?: string) {
+      const root = rootDir ?? await createViteRoot()
       await writeFile(join(root, "src", "docs.workspace.ts"), customStore)
       for (const [name, source] of Object.entries(definitions)) {
         await mkdir(join(root, "server", "workspaces", name), { recursive: true })
@@ -723,6 +723,22 @@ describe("hubWorkspace", () => {
       expect(pluginSource).not.toContain("'@vite-hub/workspace/runtime'")
     })
 
+    it("imports no hosted store for the Blob database Store factory", async () => {
+      const root = await createViteRoot()
+      const packageDir = join(root, "node_modules", "@vite-hub", "workspace")
+      await writeFile(join(packageDir, "package.json"), JSON.stringify({
+        exports: { ".": "./index.js", "./blob-database": "./blob-database.js" },
+        name: "@vite-hub/workspace",
+        type: "module",
+      }))
+      await writeFile(join(packageDir, "blob-database.js"), `export const createBlobDatabaseWorkspaceStore = () => ({ async readFile() {} })\n`)
+      const pluginSource = await buildPlugin({
+        notes: `import { defineWorkspace as workspace } from "@vite-hub/workspace"\nimport { createBlobDatabaseWorkspaceStore as store } from "@vite-hub/workspace/blob-database"\nexport default workspace({ store: store({ workspace: process.env.VITEHUB_TEST_WORKSPACE }) })\n`,
+      }, root)
+
+      expect(pluginSource).not.toContain("internal/runtime/hosted")
+    })
+
     it("installs only the hosted store that a definition names", async () => {
       const pluginSource = await buildPlugin({
         mirror: `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({ store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" } })\n`,
@@ -732,6 +748,28 @@ describe("hubWorkspace", () => {
       expect(pluginSource).toContain("  installHostedGitHubWorkspaceStore()")
       expect(pluginSource).not.toContain("CloudflareArtifacts")
       expect(pluginSource).not.toContain("hosted-vercel-blob")
+    })
+
+    it.each([
+      `export default defineWorkspace({ store: process.env.VITEHUB_TEST_STORE_PROVIDER === "memory" ? { provider: "memory" } : { provider: "vercel-blob" } })`,
+      `export default defineWorkspace({ store: { provider: process.env.VITEHUB_TEST_STORE_PROVIDER } })`,
+      `const store = { provider: process.env.VITEHUB_TEST_STORE_PROVIDER }; export default defineWorkspace({ store })`,
+      `function store() { return { provider: process.env.VITEHUB_TEST_STORE_PROVIDER } }; export default defineWorkspace({ store: store() })`,
+      `const options = { store: { provider: process.env.VITEHUB_TEST_STORE_PROVIDER } }; export default defineWorkspace({ ...options })`,
+      `export default process.env.VITEHUB_TEST_STORE_PROVIDER === "memory" ? defineWorkspace({ store: { provider: "memory" } }) : defineWorkspace({ store: { provider: "vercel-blob" } })`,
+    ])("keeps hosted installers when a definition can select its store at runtime: %s", async (definition) => {
+      const root = await createViteRoot()
+      vi.stubEnv("VITEHUB_TEST_STORE_PROVIDER", "memory")
+      const pluginSource = await buildPlugin({
+        notes: `import { defineWorkspace } from "@vite-hub/workspace"\n${definition}\n`,
+      }, root)
+
+      vi.stubEnv("VITEHUB_TEST_STORE_PROVIDER", "vercel-blob")
+      const registry = (await import(pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href)).default
+      expect((await registry.notes()).default.store.provider).toBe("vercel-blob")
+      expect(pluginSource).toContain("installHostedGitHubWorkspaceStore()")
+      expect(pluginSource).toContain("installHostedCloudflareArtifactsWorkspaceStore()")
+      expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     })
 
     it("keeps Vercel Blob for a definition without a store, because runtime Blob env selects it", async () => {
