@@ -21,6 +21,7 @@ async function staticInputs(entry: string) {
       alias: {
         "#vitehub/database/databases": stub,
         "#vitehub/database/definition-defaults": stub,
+        "#vitehub/database/libsql": join(packageRoot, "src/runtime/libsql.ts"),
       },
       bundle: true,
       conditions: ["workerd", "worker", "browser"],

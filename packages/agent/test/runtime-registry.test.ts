@@ -9,7 +9,7 @@ import { H3 } from 'h3'
 import { createServer, mergeConfig } from 'vite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from '@vite-hub/internal/build/vite'
-import { hubAgent } from '../src/vite.ts'
+import { agentRuntimeModule, hubAgent } from '../src/vite.ts'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -23,9 +23,9 @@ async function declaredWebhookServer(names = ['support'], aliases = {}) {
   await symlink(join(packageRoot, '../../node_modules/h3'), join(root, 'node_modules/h3'), 'dir')
   await mkdir(join(root, 'server/agents'), { recursive: true })
   const source = `import { defineAgent } from '@vite-hub/agent'
-import { defineChannel, defineChannelTrigger } from '@vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineAgent({ runtime: false, driver: { run: () => 'unused' }, channels: {
-  productlane: defineChannel('productlane', {
+  productlane: channelAdapter('productlane', {
     messages: false,
     history: { key: item => item.id, collection: {
       parseQuery: async query => query,
@@ -171,7 +171,7 @@ it.each(['review', '__proto__'])('bundles the published runtime lookup for %s wi
   const aliases = (configured as { resolve: { alias: Record<string, string> } }).resolve.alias
   const registry = aliases['#vitehub/agent/registry']!
   expect(configured).toMatchObject({ nitro: { alias: { '#vitehub/agent/registry': registry } } })
-  expect(await readFile(registry, 'utf8')).toContain('import { resetPublicUrlAgentNames } from "@vite-hub/agent/server/registry"')
+  expect(await readFile(registry, 'utf8')).toContain(`import { resetPublicUrlAgentNames } from ${JSON.stringify(agentRuntimeModule('server/registry'))}`)
   expect(await readFile(registry, 'utf8')).toContain('\nresetPublicUrlAgentNames()\n')
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
