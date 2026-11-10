@@ -1,16 +1,18 @@
 ---
-description: "Fix QUEUE_DISABLED in ViteHub. Queue is off in the generated server, because the Vite config sets queue false or the provider does not match the host."
+description: "Fix QUEUE_DISABLED in ViteHub. Queue is off in this runtime, because the Vite config sets queue false or the provider does not match the host."
 seo.title: "QUEUE_DISABLED: Queue is off in this runtime"
 ---
 
-`sendQueue()`, `useQueue()`, `dynamicQueue`, or `vitehub queue list` throws `QUEUE_DISABLED`. The generated server has Queue turned off, so it sends no job.
+`sendQueue()`, `useQueue()`, `dynamicQueue`, or `vitehub queue list` throws `QUEUE_DISABLED`. The runtime has Queue turned off, so it sends no job.
 
 ## Why it happens
 
-`hubQueue()` writes the Queue config into the generated Nitro plugin `.vitehub/nitro/queue/plugin.ts`. When that config is `false`, every Queue call throws this error before it looks up the Queue Definition. The config is `false` in two cases:
+When the Queue config that the runtime installed is `false`, every Queue call throws this error before it looks up the Queue Definition. In Vitest, the generated test setup `.vitehub/queue/test-setup.mjs` installs the config. The config is `false` in two cases:
 
 - An app that uses `@vite-hub/queue` alone passes `false` to `hubQueue()`.
 - `queue.provider` names a provider that is not the host of the Nitro preset. For example, `provider: 'cloudflare'` with the Vercel preset. ViteHub then turns Queue off and does not report the conflict at build time.
+
+In these two cases, a dev or built server registers no Queue runtime. Queue calls there throw [`QUEUE_DEFINITION_NOT_FOUND`](/docs/queue/diagnostics/queue_definition_not_found), not this error.
 
 `deferQueue()` does not throw. It logs the error and passes it to `onDispatchError`.
 
@@ -39,7 +41,7 @@ Make the `provider` of `hubQueue()` match the Nitro preset, or remove `provider`
 
 ## Check the fix
 
-Open `.vitehub/nitro/queue/plugin.ts` after `vite dev` or `vite build` starts. It must not contain `const queueConfig = false`. Then call the route that runs `sendQueue()`. It returns `[error, result]` and does not throw `QUEUE_DISABLED`.
+Run the Vitest test again, then open `.vitehub/queue/test-setup.mjs`. It must not contain `setQueueRuntimeConfig(false)`. The Queue call in the test returns `[error, result]` and does not throw `QUEUE_DISABLED`.
 
 ## Related
 

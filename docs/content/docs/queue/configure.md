@@ -93,7 +93,7 @@ With `@vite-hub/queue` alone, pass the same options to `hubQueue()` from `@vite-
 
 ### `queue: false`
 
-Turns Queue off. `vitehub()` then adds no Queue runtime, so `sendQueue()` throws `QUEUE_DEFINITION_NOT_FOUND`. With `@vite-hub/queue` alone, `hubQueue(false)` turns off runtime dispatch and the generated Vercel consumer functions, and runtime calls throw `QUEUE_DISABLED`.
+Turns Queue off. The server then has no Queue runtime, so `sendQueue()` throws `QUEUE_DEFINITION_NOT_FOUND`. This applies to `vitehub()` and to `hubQueue(false)` from `@vite-hub/queue`. `hubQueue(false)` also adds no Vercel consumer functions. In Vitest, the generated test setup installs the `false` config, so Queue calls throw `QUEUE_DISABLED`.
 
 ## Providers
 
