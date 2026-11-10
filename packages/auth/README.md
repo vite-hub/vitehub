@@ -250,7 +250,7 @@ const app = new H3()
 
 ## Vite Integration
 
-Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, and registers `/api/auth/**` with Nitro by default. In plain Vite development, the plugin serves the route itself. When Nitro runs in the Vite dev server, Nitro serves it, so `/api/auth`, the Console, and server routes use one Auth instance and share its users and sessions.
+Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, and registers `/api/auth/**` with Nitro by default. Nitro serves the route in development too, so `/api/auth`, the Console, and server routes use one Auth instance and share its users and sessions.
 
 Set `route: false` only when a host integration mounts Auth itself.
 
