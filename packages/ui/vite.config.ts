@@ -11,7 +11,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     alias: { "vega-canvas": vegaCanvasBrowser },
-    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }],
+    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }],
     deps: {
       alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", "@vite-hub/blob/client", /^comark-(?!chat(?:\/|$))/, "vega-canvas"],
       // Keep vega-loader's Node/browser exports selectable by the consuming host.
