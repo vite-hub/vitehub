@@ -13,12 +13,17 @@ import { requestEvent } from "./console-event.ts"
 import { consoleMcpOAuth } from "../src/console/auth.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess, resolveConsoleAppAuthIdentity } from "../src/console/runtime/server/access.ts"
+import consoleAuthManageHandler from "../src/console/runtime/server/auth-manage.ts"
 import { verifyConsoleJwt } from "../src/console/runtime/server/bearer-jwt.ts"
+import consoleChannelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
+import consoleEnvManageHandler from "../src/console/runtime/server/env-manage.ts"
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
+import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/mcp-authorization-server.ts"
 import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import consoleScheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
@@ -58,7 +63,8 @@ const authCall = (path: string, init: RequestInit = {}) => real(new Request(mcpR
 const post = (path: string, body: Record<string, unknown>, cookie = "") => authCall(path, { body: JSON.stringify(body), headers: { "content-type": "application/json", cookie, origin: app }, method: "POST" })
 
 let clientId = ""
-const tokens: { console: string, mcp: string, readOnly: string } = { console: "", mcp: "", readOnly: "" }
+const tokens = { console: "", mcp: "", mcpReadOnly: "", readOnly: "" }
+const exchangeHeaders: Headers[] = []
 
 /** Sign in and consent on the app Auth as the hosted Console does, then exchange the code with PKCE for an access token. */
 async function issue(resource: string, scope: string): Promise<string> {
@@ -87,6 +93,7 @@ async function issue(resource: string, scope: string): Promise<string> {
     method: "POST",
   })
   expect(exchange.status, await exchange.clone().text()).toBe(200)
+  exchangeHeaders.push(exchange.headers)
   const { access_token } = v.parse(v.object({ access_token: v.string() }), await exchange.json())
   // A JWT access token, not an opaque one: the Console verifies it in-process with the Auth's keys.
   expect(access_token.split(".")).toHaveLength(3)
@@ -96,6 +103,7 @@ async function issue(resource: string, scope: string): Promise<string> {
 }
 
 beforeAll(async () => {
+  installConsoleOrigins([hosted])
   await (await real(new Request(mcpResource)).$context).runMigrations()
   expect((await post("/sign-up/email", { email: "ada@example.com", name: "Ada", password: "test-password-123" })).status).toBe(200)
   // The hosted Console registers as a public browser client. A client ID Metadata Document would replace this step.
@@ -105,6 +113,7 @@ beforeAll(async () => {
   tokens.console = await issue(consoleResource, "vitehub:read vitehub:write")
   tokens.readOnly = await issue(consoleResource, "vitehub:read")
   tokens.mcp = await issue(mcpResource, "vitehub:read vitehub:write")
+  tokens.mcpReadOnly = await issue(mcpResource, "vitehub:read")
 })
 
 afterAll(() => {
@@ -125,7 +134,7 @@ function install(): void {
   installConsoleAccess({ check: noSession, mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource: mcpResource, verify: verifyConsoleJwt } })
   installConsoleOrigins([hosted])
   installConsoleOperations([{ operations: [greet, rename], plugin: "fixture" }])
-  installConsoleSections("/tmp/console-hosted-oauth", ["fixture"])
+  installConsoleSections("/tmp/console-hosted-oauth", ["fixture", "env"])
 }
 
 function rpc(operation: string, headers: Record<string, string>, input: unknown = {}): Promise<Response> {
@@ -137,6 +146,78 @@ function rpc(operation: string, headers: Record<string, string>, input: unknown 
 }
 
 describe("hosted Console sign-in with app Auth OAuth", () => {
+  it("makes discovery and cookie-free token responses readable by the hosted browser", async () => {
+    install()
+    for (const [handler, path] of [
+      [consoleMcpMetadataHandler, "/.well-known/oauth-protected-resource/_vitehub"],
+      [consoleMcpAuthorizationServerHandler, "/.well-known/oauth-authorization-server/api/auth"],
+    ] as const) {
+      const response = await handler.fetch(new Request(`${app}${path}`, { headers: { origin: hosted } }))
+      expect(response.status, await response.clone().text()).toBe(200)
+      expect(response.headers.get("access-control-allow-origin")).toBe(hosted)
+      expect(response.headers.get("vary")).toContain("Origin")
+      expect(response.headers.has("access-control-allow-credentials")).toBe(false)
+      const unlisted = await handler.fetch(new Request(`${app}${path}`, { headers: { origin: "https://evil.example.com" } }))
+      expect(unlisted.headers.has("access-control-allow-origin")).toBe(false)
+      expect(unlisted.headers.get("vary")).toContain("Origin")
+    }
+    for (const headers of exchangeHeaders) {
+      expect(headers.get("access-control-allow-origin")).toBe(hosted)
+      expect(headers.get("vary")).toContain("Origin")
+      expect(headers.has("access-control-allow-credentials")).toBe(false)
+    }
+    const invalid = await authCall("/oauth2/token", {
+      body: new URLSearchParams({ grant_type: "authorization_code", code: "invalid", client_id: clientId, redirect_uri: callback }),
+      headers: { origin: hosted },
+      method: "POST",
+    })
+    expect(invalid.status).toBe(400)
+    expect(invalid.headers.get("access-control-allow-origin")).toBe(hosted)
+    const unlisted = await authCall("/oauth2/token", {
+      body: new URLSearchParams({ grant_type: "authorization_code", code: "invalid", client_id: clientId, redirect_uri: callback }),
+      headers: { origin: "https://evil.example.com" },
+      method: "POST",
+    })
+    expect(unlisted.headers.has("access-control-allow-origin")).toBe(false)
+    const session = await post("/sign-in/email", { email: "ada@example.com", password: "test-password-123" })
+    expect(session.headers.has("access-control-allow-origin")).toBe(false)
+  })
+
+  it("keeps direct management routes restricted to write-scoped tokens", async () => {
+    install()
+    for (const [handler, path] of [
+      [consoleAuthManageHandler, "/_vitehub/auth/manage"],
+      [consoleEnvManageHandler, "/_vitehub/env/manage"],
+      [consoleChannelReplayHandler, "/_vitehub/channels/replay"],
+      [consoleScheduleRunHandler, "/_vitehub/schedules/run"],
+    ] as const) {
+      const response = await handler.fetch(new Request(`${app}${path}`, {
+        body: "{}",
+        headers: { authorization: `Bearer ${tokens.readOnly}`, origin: hosted, "content-type": "application/json", [consoleRpcHeader]: "1" },
+        method: "POST",
+      }))
+      expect(response.status, await response.clone().text()).toBe(403)
+      expect(response.headers.get("access-control-allow-origin")).toBe(hosted)
+      await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED" })
+    }
+  })
+
+  it("lets read-only tokens reach built-in reads through nested section guards", async () => {
+    install()
+    for (const token of [tokens.console, tokens.readOnly]) {
+      const read = await rpc("env.get", { authorization: `Bearer ${token}`, origin: hosted })
+      expect(read.status, await read.clone().text()).toBe(200)
+      await expect(read.json()).resolves.toMatchObject({ ok: true, value: { entries: [] } })
+    }
+    const read = await consoleMcpHandler.fetch(new Request(mcpResource, {
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { name: "env_get", arguments: {} } }),
+      headers: { authorization: `Bearer ${tokens.mcpReadOnly}`, "content-type": "application/json" },
+      method: "POST",
+    }))
+    expect(read.status, await read.clone().text()).toBe(200)
+    await expect(read.json()).resolves.toMatchObject({ result: { isError: false, structuredContent: { entries: [] } } })
+  })
+
   it("serves the protected resource metadata of the Console resource", async () => {
     install()
     const response = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource/_vitehub`))

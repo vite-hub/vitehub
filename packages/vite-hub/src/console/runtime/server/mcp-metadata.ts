@@ -1,11 +1,12 @@
 import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { consoleRequest, installedConsoleOAuth } from "./access.ts"
 import { consoleMcpScopes, resolveConsoleOAuth } from "./bearer.ts"
+import { withConsoleCors } from "./cors.ts"
 import { consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 
 import type { ConsoleRoute } from "./request.ts"
 
-const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff" }
+const headers = { "cache-control": "no-store", "vary": "Origin", "x-content-type-options": "nosniff" }
 
 /**
  * OAuth 2.0 protected resource metadata (RFC 9728) of the MCP endpoint, at `/.well-known/oauth-protected-resource` and
@@ -13,7 +14,7 @@ const headers = { "cache-control": "no-store", "x-content-type-options": "nosnif
  * `oauthProvider`) from trusted configuration, never from the Host of the request. A Console that does not sign in with
  * OAuth has no such server and answers 404. One whose Auth lacks what MCP OAuth needs answers 503 with the fix.
  */
-const consoleMcpMetadataRoute: ConsoleRoute = consoleRoute(async (event) => {
+const consoleMcpMetadataRoute: ConsoleRoute = consoleRoute(withConsoleCors(async (event) => {
   const oauth = installedConsoleOAuth()
   if (!oauth) return Response.json({ code: "CONSOLE_NOT_FOUND", message: "This Console does not use OAuth sign-in for MCP." }, { headers, status: 404 })
   const request = consoleRequest(event)
@@ -33,6 +34,6 @@ const consoleMcpMetadataRoute: ConsoleRoute = consoleRoute(async (event) => {
     resource_name: "ViteHub Console",
     scopes_supported: [...consoleMcpScopes, "offline_access"],
   }, { headers, status: 200 })
-})
+}))
 
 export default consoleMcpMetadataRoute

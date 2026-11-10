@@ -604,8 +604,17 @@ With `auth: 'app'`, each person signs in to the hosted Console with their own ap
 - `cimd()` from `@better-auth/cimd`. The hosted Console is an OAuth client whose `client_id` is the URL of its metadata document, `https://console.vitehub.dev/oauth-client.json`.
 - The Console origin in `console.origins`. The default, `["https://console.vitehub.dev"]`, allows the hosted Console.
 
+Install `@better-auth/cimd` at the same version as the app's Better Auth (`1.7.15` in this example):
+
+```sh
+pnpm add @better-auth/cimd@1.7.15
+```
+
+On Node, pass the package's secure metadata transport to `cimd()`. It validates public HTTPS destinations and redirects to prevent server-side request forgery. Other runtimes need a supported transport with the same protections; do not substitute ordinary `fetch`.
+
 ```ts [server/auth.ts]
 import { cimd } from '@better-auth/cimd'
+import { fetchClientMetadataResource } from '@better-auth/cimd/node'
 import { defineAuth } from 'vite-hub/auth'
 import { authDatabase } from 'vite-hub/auth/database'
 import { consoleMcpOAuth } from 'vite-hub/console/auth'
@@ -613,7 +622,7 @@ import { consoleMcpOAuth } from 'vite-hub/console/auth'
 export default defineAuth(() => ({
   database: authDatabase(),
   emailAndPassword: { enabled: true },
-  plugins: [cimd(), ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' })],
+  plugins: [cimd({ fetchClientMetadataResource }), ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' })],
 }))
 ```
 

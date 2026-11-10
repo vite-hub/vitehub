@@ -82,6 +82,7 @@ export type ConsoleAccessRoute<THandler extends (event: never, access: ConsoleAc
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 // Keyed by the Request of the Standard Context, so an H3 middleware and the Fetchable route of one request share it.
 const checkedRequests = new WeakMap<Request, ConsoleAccess>()
+const boundRequests = new WeakSet<Request>()
 const rejectedRequests = new WeakMap<Request, Response>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
@@ -466,9 +467,9 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
       if (declared.write === true && !consoleAccessWrites(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
-      // The section routes that take an access token change state, so the token needs the write scope. The RPC and
-      // MCP routes cover every section and check the scope of each operation.
-      if (!consoleAccessHasScope(access, "write")) return rejection(403, "CONSOLE_ACCESS_DENIED", "The access token lacks the vitehub:write scope.")
+      // RPC and MCP already check the operation's scope before binding its grant to an internal event. Their
+      // built-in reads also enter these guards. Direct management requests and declared mutations still need write.
+      if ((!boundRequests.has(request) || declared.write === true) && !consoleAccessHasScope(access, "write")) return rejection(403, "CONSOLE_ACCESS_DENIED", "The access token lacks the vitehub:write scope.")
     }
     // A bound RPC grant may defer its user until a legacy handler asks for it.
     if (declared.user === true && !access.user) {
@@ -528,5 +529,6 @@ export function bindConsoleAccess<TEvent extends ConsoleRequestEvent>(access: Co
   const request = consoleRequest(event)
   if (checkedRequests.has(request)) throw consoleRequestError(500, "Console access is already bound to this request.")
   checkedRequests.set(request, access)
+  boundRequests.add(request)
   return event
 }

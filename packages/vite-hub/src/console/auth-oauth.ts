@@ -4,6 +4,7 @@ import { jwt } from "better-auth/plugins"
 
 import { consoleAuthPath } from "./auth-path.ts"
 import { consoleMcpScopes, consoleResourceOf } from "./runtime/server/bearer.ts"
+import { withListedOriginHeaders } from "./runtime/server/cors.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 
@@ -81,6 +82,24 @@ export function consoleMcpOAuth(options: ConsoleMcpOAuthOptions): BetterAuthPlug
   resource.pathname = resource.pathname.replace(/\/+$/, "")
   const loginPage = options.loginPage ?? new URL("sign-in", resource).pathname
   return [
+    {
+      hooks: {
+        after: [{
+          handler: createAuthMiddleware(async (context) => {
+            const request = context.request
+            if (!request || request.headers.has("cookie")) return
+            // The hosted client exchanges a PKCE code without cookies. Leave session endpoints to app Auth.
+            const response = withListedOriginHeaders(request, new Response(null, { headers: context.context.responseHeaders }))
+            for (const name of ["access-control-allow-origin", "access-control-expose-headers", "vary"]) {
+              const value = response.headers.get(name)
+              if (value) context.setHeader(name, value)
+            }
+          }),
+          matcher: context => context.path === "/oauth2/token",
+        }],
+      },
+      id: "vitehub-console-oauth-cors",
+    },
     // By default the plugin signs a token on every session read, which the Console never uses and which fails after the secret changes.
     jwt({ disableSettingJwtHeader: true, jwt: { issuer } }),
     oauthProvider({
