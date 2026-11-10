@@ -67,8 +67,9 @@ export interface ViteHubConsoleOperationView {
   kind: "operation-view"
   /**
    * Makes each row a link: `{path}` placeholders take values from the item and are URL-encoded, and `{path:path}` takes an
-   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link). Rows where
-   * `when.path` is not `when.equals` get none.
+   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link).
+   * `{path:href}` takes an app URL that is already encoded, with its query, as it is. Rows where `when.path` is not
+   * `when.equals` get none.
    */
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
   notice: string
@@ -208,8 +209,8 @@ export interface ViteHubConsoleServerExport {
   /** Named export of `module`. */
   export: string
   /**
-   * Owner package module specifier, for example `@vite-hub/email/runtime/console`. The host maps it to the module
-   * path that the application can import.
+   * Absolute path of the owner module, such as `ownModule(import.meta.url, "runtime/console")`, or an owner package
+   * specifier that the host maps to a module path that the application can import.
    */
   module: string
 }
@@ -871,6 +872,11 @@ export function readViteHubConsoleActionFailure(error: unknown): ViteHubConsoleA
 
 const sectionIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 const runtimeModulePattern = /^@vite-hub\/[a-z0-9-]+(?:\/[a-z0-9-]+)*$/
+
+/** An owner package specifier, or the absolute path of an owner module from `ownModule()`. */
+function isRuntimeModule(module: string): boolean {
+  return runtimeModulePattern.test(module) || /^(?:\/|[A-Za-z]:[\\/])/.test(module)
+}
 const runtimeExportPattern = /^[A-Za-z_$][\w$]*$/
 
 export function isViteHubConsoleSectionId(value: unknown): value is string {
@@ -899,8 +905,8 @@ export function isViteHubConsoleDocumentEditorSection<TOptions>(
 
 function checkedServerExport(section: { id: string }, value: ViteHubConsoleServerExport, role: string): ViteHubConsoleServerExport {
   const { export: name, module } = value
-  if (!runtimeModulePattern.test(module)) {
-    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path.`)
+  if (!isRuntimeModule(module)) {
+    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path or an absolute file path.`)
   }
   if (!runtimeExportPattern.test(name)) {
     throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} export ${JSON.stringify(name)} must be an identifier.`)

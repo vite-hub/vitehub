@@ -251,7 +251,7 @@ export function isOperation(value: unknown): value is AnyOperation {
 
 /** The contribution of one plugin: operations, or a module that exports them. */
 export interface OperationContributionEntry {
-  /** Module the app imports, such as `@vite-hub/content/operations`. */
+  /** The absolute path of the module that generated code imports, such as `ownModule(import.meta.url, "operations")`. */
   module: string
   /** Named export that holds an operation or an array of operations. Defaults to `default`. */
   export?: string
