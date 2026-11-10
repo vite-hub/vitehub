@@ -35,11 +35,6 @@
     "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS18048 'invoker' is possibly 'undefined'."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/transcribe.md#c01f4d271b5b",
-    "label": "server/agents/voice.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'env'."
-  },
-  {
     "id": "docs/content/docs/agents/channels.md#95eb70e7d232",
     "label": "server/agents/support.ts",
     "error": "TS2304 Cannot find name 'defineAgent'.\nTS2304 Cannot find name 'telegram'.\nTS2304 Cannot find name 'telegram'."
