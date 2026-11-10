@@ -3,7 +3,7 @@ import { PullRequestInbox, type Snapshot } from "../src/babysitter/inbox/store.t
 import { checksStillRunning, createCheckWait, dailyPassExemption, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
 import { snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/babysitter/stack.ts";
-import { evaluateGitHubRequiredChecks } from "../../agent/src/server/github-required-checks.ts";
+import { evaluateGitHubRequiredChecks } from "../src/github/required-checks.ts";
 
 const repository = "acme/app";
 const head = "a".repeat(40);

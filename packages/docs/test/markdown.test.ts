@@ -232,6 +232,39 @@ describe("docs examples", () => {
     expect(textContent(find(nodes, "pre")!)).toBe(source)
   })
 
+  it("renders a lint rule's correct and incorrect examples like an example", async () => {
+    const { nodes } = await parse(["::incorrect", "```md", "A [link](./missing.md).", "```", "::", "", "::correct", "```md", "A [link](./ducks.md).", "```", "::"].join("\n"))
+
+    expect(find(find(nodes, "incorrect")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+    expect(find(find(nodes, "correct")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+  })
+
+  it("shows only the source of an example whose Markdown doesn't parse", async () => {
+    const { nodes } = await parse(["::incorrect", "````md", "---", "title: [unclosed", "---", "````", "::"].join("\n"))
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+    expect(find(nodes, "pre")).toBeDefined()
+  })
+
+  it.each(["example", "correct", "incorrect"])("reports a missing named example inside a %s preview", async (tag) => {
+    const markdown = [`::${tag}`, "```md", '::example{name="MissingExample"}', "::", "```", "::"].join("\n")
+
+    await expect(parse(markdown)).rejects.toThrow("no MissingExample.vue")
+  })
+
+  it.each(["example", "correct", "incorrect"])("keeps a parser plugin's original error inside a %s preview", async (tag) => {
+    const error = new Error("Preview plugin failed")
+    const withPlugin = createDocsParser({ plugins: [{
+      name: "failing-preview",
+      pre(state) {
+        if (state.markdown.trim() === "Preview content") throw error
+      },
+    }] })
+    const markdown = [`::${tag}`, "```md", "Preview content", "```", "::"].join("\n")
+
+    await expect(withPlugin(markdown)).rejects.toBe(error)
+  })
+
   it("names the missing file of an unknown example", async () => {
     await expect(parse("::example{name=\"MissingExample\"}\n::")).rejects.toThrow("no MissingExample.vue")
   })

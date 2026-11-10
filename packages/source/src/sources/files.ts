@@ -27,7 +27,7 @@ export function files(entries: Record<string, FilesSourceEntry>, options: FilesS
     if (base && !portable.startsWith(base)) {
       throw sourceError(`[vitehub] files() path ${JSON.stringify(path)} does not start with base ${JSON.stringify(options.base)}.`)
     }
-    const key = normalizeSafeSourcePath(portable.slice(base.length))
+    const key = normalizeSafeSourcePath(portable.slice(base.length).replace(/^\.\//, ""))
     if (items.has(key)) throw sourceError(`[vitehub] files() has two files at ${JSON.stringify(key)}.`)
     items.set(key, content)
   }

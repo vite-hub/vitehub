@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -155,7 +156,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
       // The Console, `vitehub content`, and agents run these. The app imports them through `vite-hub`.
       // An app without server/content.ts has no Content to operate on, so it contributes nothing.
       operations: async () => await discover()
-        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: "@vite-hub/content/operations" }]
+        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: ownModule(import.meta.url, "operations") }]
         : [],
       cli: async () => {
         if (!await discover()) return
@@ -300,7 +301,7 @@ async function findContentCollectionsEntry(options: ContentConsoleOptions): Prom
  * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
  */
 export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentConsoleOptions> = {
-  actions: { export: "createContentConsoleActions", module: "@vite-hub/content/runtime/console" },
+  actions: { export: "createContentConsoleActions", module: ownModule(import.meta.url, "runtime/console") },
   description: "Edit, publish, and restore Content documents.",
   entry: options => findContentCollectionsEntry(options),
   inspect: options => inspectContentSetup(options),

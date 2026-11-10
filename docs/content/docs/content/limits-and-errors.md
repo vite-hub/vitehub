@@ -8,52 +8,52 @@ icon: i-lucide-circle-alert
 
 ## Definitions
 
-- A project has one Content file. More than one `content.ts` (or `.js`, `.mjs`, `.cjs`, `.mts`, `.cts`) across server directories fails route generation with `SOURCE_B0007`. The file must export `content`, or generation fails with `SOURCE_B0008`.
-- Define either `source` or `sources`. Passing both throws.
-- `plugins` takes Comark Content plugins. A Comark parse plugin there throws `CONTENT_R0006`; pass it in `markdown.plugins`.
-- `collections` requires `workspace` or `extends: cms`, and `extends` cannot be combined with `workspace`. Every collection comes from `documents()`, and a collection name cannot match a Source name. Violations throw `CONTENT_R0006`.
-- `documents()` paths are relative globs that use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. `path` may be a list of globs that share that extension, with no repeated glob. A list that is empty, repeats a glob, mixes extensions, or has a glob without a wildcard throws `CONTENT_R0006`. `content.resolve()` throws `CONTENT_R0008` when its path is not a string. Every field is a Standard Schema validator.
-- `defineContent()` uses `AsyncLocalStorage` from `node:async_hooks`. The runtime must provide it.
+- A project has one Content file. A second `content.ts` (or `.js`, `.mjs`, `.cjs`, `.mts`, `.cts`) in any server directory fails route generation with `SOURCE_B0007`. The file must export `content`, else generation fails with `SOURCE_B0008`.
+- Define `source` or `sources`, not both.
+- `plugins` takes Comark Content plugins. A Comark parse plugin there throws `CONTENT_R0006`. Pass it in `markdown.plugins`.
+- These throw `CONTENT_R0006`: `collections` without `workspace` or `extends: cms`, `extends` with `workspace`, a collection not made by `documents()`, or a collection named like a Source.
+- `documents()` paths are relative globs with `*`, `**`, and `?` that end in one extension, such as `posts/**/*.md`. `path` can be a list of globs with that extension. An empty list, a repeated glob, mixed extensions, or a glob without a wildcard throws `CONTENT_R0006`. `content.resolve()` throws `CONTENT_R0008` for a path that is not a string. Every field is a Standard Schema validator.
+- `defineContent()` needs `AsyncLocalStorage` from `node:async_hooks` in the runtime.
 
 ## Sources
 
-- Public paths must stay inside the Source root. ViteHub rejects absolute paths, `.` and `..` segments, Windows drive paths, and paths that start with `.git` or `.vitehub` (`CONTENT_R0001`).
-- Two items with the same public path fail the load (`CONTENT_R0003`).
+- Public paths stay inside the Source root. ViteHub rejects absolute paths, `.` and `..` segments, Windows drive paths, and paths that start with `.git` or `.vitehub` (`CONTENT_R0001`).
+- Two items with one public path fail the load (`CONTENT_R0003`).
 - An item without `content` or `data` fails to parse (`CONTENT_R0002`).
 - Raw media uses the newest Source revision that finished enumeration.
 - A build ships the parsed documents of `glob()` and `files()` Sources in the server bundle, next to the files. With gzip they add a little more than the gzipped Markdown, so check the bundle size against the host limit, such as the Cloudflare Workers limit. Cloudflare Workers compile every module when an isolate starts, so the parsed pages also add to startup time: in local workerd, the 1.5 MB of the ViteHub docs added about 45 ms. See [Sources parsed at build](/docs/content/configure#sources-parsed-at-build).
 
 ## Collections
 
-- Collections need a Workspace whose Store keeps retained history, such as the Blob + Database Store. Other Stores fail on first use with `CONTENT_R0007`.
-- The [GitHub store](/docs/cms/configure#github-store) of the `cms` preset keeps history in Git. It has no schedules (`schedule()` throws `CONTENT_R0016`). With `publish: 'pr'`, `publish()` returns a pending result with a `pullRequest` and the documents stay pending until it merges. Digests are Git blob shas. Every read and write uses the GitHub API, so rate limits apply.
-- Content owns the `draft`, `published`, and `schedules` refs of its Workspace. Other writers can commit to them, and the validation hook checks their files, but `revisions()` attributes only commits made through Content.
-- The draft accepts fields that fail validation; `published` and every other ref do not. `status()` reads every draft file once per digest to count issues.
-- Validation is installed when `server/content.ts` loads. A writer that runs before that, for example in a fresh server instance, is not checked. `publish()` validates every file it publishes, so invalid files never reach `published`.
-- `list()` reads every document of one revision into server memory. Content caches parsed documents by digest and up to 32 MB of file text per runtime, so later revisions reread only changed files. Keep collections to a size you can hold in memory.
-- Content reads check the `published` head with one Database query per call, so they see publishes from other instances.
-- `updatedAt` walks the ref back once per revision per runtime, with one Database query per 100 revisions plus one per commit made outside Content. A walk stops at an earlier cached answer, and after 5,000 revisions it reports `null` for older changes.
-- Frontmatter is YAML and values must survive a JSON round trip. A `Date` is stored as an ISO string.
-- A field without a Standard JSON Schema, such as an async Valibot schema, appears as `{}` in `schema`, and `defineContent()` warns once per field. Content converts synchronous Valibot schemas itself.
-- `/api/content/**` serves published documents, or drafts to a request with a valid [preview cookie](/docs/content/preview). Content has no write routes, and the runtime methods do not call `authorize`.
+- Collections need a Workspace Store that keeps history, such as the Blob + Database Store. Other Stores fail on first use with `CONTENT_R0007`.
+- The `cms` preset's [GitHub store](/docs/cms/configure#github-store) keeps history in Git. It has no schedules (`schedule()` throws `CONTENT_R0016`). With `publish: 'pr'`, `publish()` returns a pending result with a `pullRequest`, and documents stay pending until it merges. Digests are Git blob shas. Every read and write uses the GitHub API, so rate limits apply.
+- Content owns its Workspace's `draft`, `published`, and `schedules` refs. Other writers can commit to them, and the validation hook checks their files, but `revisions()` credits only commits made through Content.
+- Only the draft accepts fields that fail validation. `status()` reads each draft file once per digest to count issues.
+- Validation starts when `server/content.ts` loads, so an earlier writer, for example in a fresh server instance, is not checked. `publish()` validates every file, so invalid files never reach `published`.
+- `list()` reads a revision's documents into memory. Content caches parsed documents by digest, and up to 32 MB of file text per runtime, so later revisions reread only changed files. Keep collections small enough for memory.
+- Each read checks the `published` head with one Database query, so it sees publishes from other instances.
+- `updatedAt` walks the ref back once per revision per runtime, with one Database query per 100 revisions plus one per outside commit. It stops at a cached answer, and reports `null` past 5,000 revisions.
+- Frontmatter is YAML, and values must survive a JSON round trip. A `Date` is stored as an ISO string.
+- A field without a Standard JSON Schema, such as an async Valibot schema, shows as `{}` in `schema`, and `defineContent()` warns once per field. Content converts synchronous Valibot schemas itself.
+- `/api/content/**` serves published documents, or drafts with a valid [preview cookie](/docs/content/preview). Content has no write routes, and runtime methods do not call `authorize`.
 - Without `authorize`, `content.can()` denies every action.
 - The Store retains every revision. There is no pruning.
 - [`vitehub content`](/docs/content/cli) reaches only a local Vite + Nitro Development Server. It cannot inspect or publish a deployed app.
 
 ## Preview
 
-- Preview tokens are signed with `VITEHUB_CONTENT_KEY`. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
-- A token lives from 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token before it expires. Rotating the key ends all of them.
-- Preview scopes requests that go through Nitro, on Nitro 3 and on Nuxt 4 (Nitro 2). Elsewhere, wrap reads in `content.preview.run(event, callback)`.
-- Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so configure it to bypass its cache for preview requests; see [Caching](/docs/content/preview#caching).
+- `VITEHUB_CONTENT_KEY` signs preview tokens. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
+- A token lives 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token early. Rotating the key ends all of them.
+- Preview covers requests through Nitro 3, in Vite and in Nuxt 5. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
+- Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so make it skip its cache for preview requests. See [Caching](/docs/content/preview#caching).
 
 ## Sessions
 
-- `content.sessions` needs the `vitehub_content_sessions` table from `contentSessionsSchema` in the Database of the Workspace history. On the GitHub store it uses the Database of the Store's `database` option, which the `cms` preset sets. The `cms` preset adds it. Without it, `content.sessions` throws `CONTENT_R0012`, and writes skip the lease check for a minute at a time before they look again.
-- A session is present for 45 seconds after a report. A lease lasts 5 minutes after `acquire()`, a renewing report, or a save with `session`, and stops blocking others after 15 minutes without reported input. Times use the Database clock.
-- Session tokens are 8 to 128 letters, digits, `-`, or `_`. User names keep their first 256 characters and images their first 2,048.
-- `save()`, `remove()`, and `restore()` run one extra Database query for the lease check, unless the collection has `editing: { lease: false }` or the write passes `lease: 'override'`. The check runs once before the commit, so a lease taken during the commit does not stop that write.
-- Workspace commits to the draft from outside Content, such as `vitehub push` or raw history commits, check leases with one Database query per document that they write in a collection with leases. Workspace `fs` writes to the working tree do not check leases.
+- `content.sessions` needs the `vitehub_content_sessions` table from `contentSessionsSchema` in the Workspace history Database, or on the GitHub store, the Store's `database`. The `cms` preset sets both up. Without it, `content.sessions` throws `CONTENT_R0012`, and writes skip the lease check, looking again each minute.
+- A session is present for 45 seconds after a report. A lease lasts 5 minutes after `acquire()`, a renewing report, or a save with `session`. It stops blocking others after 15 minutes without reported input. Times use the Database clock.
+- Session tokens are 8 to 128 letters, digits, `-`, or `_`. User names keep their first 256 characters, images their first 2,048.
+- `save()`, `remove()`, and `restore()` run one more Database query for the lease check, except with `editing: { lease: false }` or `lease: 'override'`. It runs once before the commit, so a lease taken during the commit does not stop that write.
+- Workspace commits to the draft, such as `vitehub push` or raw history commits, check leases with one Database query per document in a collection with leases. Workspace `fs` writes to the working tree do not check leases.
 
 ## Errors
 
@@ -66,18 +66,17 @@ icon: i-lucide-circle-alert
 | `CONTENT_LEASE_HELD` | Another session holds the edit lease of the document, from `save()`, `remove()`, or `restore()`, or from a Workspace commit to the draft such as `vitehub push`. `details` carry `collection`, `id`, and `holder: { user, since, expiresAt }`; a Workspace commit adds `documents` with every held document. The Console and `workspace.commit` return it as `409`. | Wait for the holder to finish, take the lease with `content.sessions.acquire({ takeover: true })`, or pass `lease: 'override'` (`--override-lease` for [`vitehub content edit`](/docs/content/cli#edit-leases) and `vitehub push`, `metadata: { lease: 'override' }` for `history.commit()`). See [Editing together](/docs/content/editing-together). |
 | `CONTENT_NOT_FOUND` | `remove()`, `restore()`, or `publish({ ids })` named a document that does not exist, or `unschedule()` named a schedule that already ran or is gone. | Check the id, ref, or revision. |
 | `CONTENT_R0004` | A Comark Source read a file that is not in its revision. | Refresh the instance. |
-| `CONTENT_R0005` | The Content handler received an unsupported request or body. | Send a Web or Node request. |
 | `CONTENT_R0006` | A Content definition is invalid. | Fix `defineContent()` or `documents()`. |
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
-| `CONTENT_R0008` | An unknown collection, an invalid document id or ref, invalid call options, such as a malformed session token or `lease` other than `'override'`, or `content.preview.enable()` without collections. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. |
-| `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`, `expect` combined with `collection` or `ids`, an empty or repeated `expect` entry, or an invalid digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
-| `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on every instance. |
-| `CONTENT_R0011` | Invalid `schedule()` options: `at` not in the future or without a time zone, an invalid `expect`, every document already published as reviewed, or a document that already has a pending schedule. | Pass a future time with a zone, and `unschedule()` the existing schedule first. See [Scheduling](/docs/content/scheduling). |
-| `CONTENT_R0012` | `content.sessions` cannot reach its table: the Database of the Workspace history has no `vitehub_content_sessions` table, or the Workspace Store has no Database (the Blob + Database Store, or the GitHub Store with a `database`). | Use the `cms` preset, or add `contentSessionsSchema` from `vite-hub/content/database` to that Database next to `workspaceHistorySchema`, then run `vitehub db generate` and `vitehub db migrate`. |
-| `CONTENT_R0013` | A writer other than `publish()` deleted a document from the `published` ref, such as a raw history commit. | Remove the document from the draft with `remove()`, then publish the deletion with `content.publish()`. |
-| `CONTENT_R0014` | Invalid [`vitehub content`](/docs/content/cli) arguments, such as a missing collection, `--id` without `--collection`, `schedule` without `--at`, or `edit` without `--file` and without an interactive terminal. | Run the command with `--help`. |
-| `CONTENT_R0016` | `schedule()` ran on a Workspace on the GitHub store, which keeps no schedules. | Use `content.publish()`, or the Blob + Database store. See [GitHub store](/docs/cms/configure#github-store). |
-| `CONTENT_R0017` | `publish()` on the GitHub store with `publish: 'pr'` named a document that an open publish pull request already covers. | Merge or close the pull request that the message names, then publish again. See [Pull request mode](/docs/cms/configure#pull-request-mode). |
-| `CONTENT_UNDEFINED` | `vitehub content` reached a Content file that does not export a `defineContent()` runtime named `content`. | Export `content` from `server/content.ts`. |
-| `CONTENT_PUBLISH_UNCONFIRMED` | `vitehub content publish` or `schedule` ran without an interactive terminal and without `--yes`. | Pass `--yes`, or `--dry-run` to only list the changes. |
+| `CONTENT_R0008` | An unknown collection, a bad document id or ref, bad call options, such as a malformed session token or a `lease` other than `'override'`, or `content.preview.enable()` without collections. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. |
+| `CONTENT_R0009` | Bad `publish()` options, such as `ids` without `collection`, `expect` with `collection` or `ids`, an empty or repeated `expect` entry, or a bad digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
+| `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on each instance. |
+| `CONTENT_R0011` | Bad `schedule()` options: `at` not in the future or without a time zone, a bad `expect`, every document already published as reviewed, or a document with a pending schedule. | Pass a future time with a zone, and `unschedule()` the old schedule first. See [Scheduling](/docs/content/scheduling). |
+| `CONTENT_R0012` | `content.sessions` cannot reach its table. The Workspace history Database has no `vitehub_content_sessions` table, or the Store has no Database (use the Blob + Database Store, or the GitHub Store with a `database`). | Use the `cms` preset, or add `contentSessionsSchema` from `vite-hub/content/database` next to `workspaceHistorySchema`, then run `vitehub db generate` and `vitehub db migrate`. |
+| `CONTENT_R0013` | A writer other than `publish()`, such as a raw history commit, deleted a document from `published`. | `remove()` it from the draft, then publish the deletion with `content.publish()`. |
+| `CONTENT_R0014` | Bad [`vitehub content`](/docs/content/cli) arguments, such as a missing collection, `--id` without `--collection`, `schedule` without `--at`, or `edit` without `--file` or an interactive terminal. | Run the command with `--help`. |
+| `CONTENT_R0016` | `schedule()` ran on the GitHub store, which keeps no schedules. | Use `content.publish()`, or the Blob + Database store. See [GitHub store](/docs/cms/configure#github-store). |
+| `CONTENT_R0017` | `publish()` on the GitHub store with `publish: 'pr'` named a document that an open publish pull request covers. | Merge or close the named pull request, then publish again. See [Pull request mode](/docs/cms/configure#pull-request-mode). |
+| `CONTENT_UNDEFINED` | `vitehub content` found no `defineContent()` runtime exported as `content`. | Export `content` from `server/content.ts`. |
+| `CONTENT_PUBLISH_UNCONFIRMED` | `vitehub content publish` or `schedule` ran without an interactive terminal or `--yes`. | Pass `--yes`, or `--dry-run` to only list changes. |
 | `CONTENT_DEV_RUNTIME_UNAVAILABLE` | The Development Server does not run Nitro in the Vite process, as with Nuxt or plain Vite. | Run the commands against a Vite + Nitro app. |
